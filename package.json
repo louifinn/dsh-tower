@@ -1,0 +1,14 @@
+{
+  "name": "dsh-tower",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Tower plugin for DeepSeek Harness: mission protocol, worktree isolation, review-gated merges, and a human-owned Tower mode.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:watch": "node --test --watch tests/*.test.mjs"
+  }
+}

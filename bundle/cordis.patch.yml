@@ -1,0 +1,23 @@
+- insert:
+    - id: tower
+      name: '@local/dsh-tower'
+      config:
+        allowAgentControl: true
+    - id: preset-tower-worker
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tower-worker
+        name: Tower Worker
+        description: Executes one Tower mission inside its assigned git worktree.
+        order: 60
+        plugins:
+          - id: tower-worker-policy
+            name: '@local/dsh-tower/worker'
+          - id: tower-worker-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tower-worker-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tower-worker-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'

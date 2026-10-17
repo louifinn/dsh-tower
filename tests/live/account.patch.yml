@@ -1,0 +1,7 @@
+# Overlay for the throwaway `towertest` profile: make the DeepSeek account
+# platform attach outside profile name `desktop` so a model turn can run in the
+# isolated test server. Used only with `dsh --profile towertest --patch ...`.
+- id: deepseek-account
+  name: '@deepseek-ai/dsh-deepseek-account-platform'
+  config:
+    desktopPlatform: win32

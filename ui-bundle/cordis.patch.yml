@@ -1,0 +1,3 @@
+- insert:
+    - id: tower-ui
+      name: '@local/dsh-tower-ui'

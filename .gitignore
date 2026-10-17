@@ -1,0 +1,19 @@
+# Runtime dependencies and local artifacts
+node_modules/
+.pnpm-store/
+
+# Local live-acceptance evidence (contains UI/session data, never commit)
+tests/*.png
+tests/live/*.png
+tests/live/*.log
+tests/live/backup/
+tests/live/.dsh-tower-worktrees/
+
+# Tower test fixtures and worktrees
+.dsh-tower-worktrees/
+testrepo/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.tmp-*
