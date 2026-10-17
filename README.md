@@ -2,17 +2,21 @@
 
 DeepSeek Harness (DSH) 原生的多代理工作流插件：**Tower** —— 任务规划、隔离 Git worktree、精确提交审查、门禁合并，以及由人类掌握的 **Tower 模式**。
 
-- 当前版本：`1.0.1`（历史见 [bundle/CHANGELOG.md](bundle/CHANGELOG.md)）
+- 当前版本：`1.0.2`（历史见 [CHANGELOG.md](CHANGELOG.md)）
 - 兼容：DSH `0.2.1-rc.2`、Node.js ≥ 22
 - 许可：[MIT](LICENSE)
 
 ## 仓库结构
 
+仓库根目录**就是插件包根目录**（`package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml` 在根目录）：
+
 | 路径 | 内容 |
 |---|---|
-| `bundle/` | 插件包 `@local/dsh-tower`：Host 入口、17 个 `tower_*` 工具、`tower-worker` preset、cordis patch、locale、README、CHANGELOG |
-| `ui-bundle/` | 可选 UI 包 `@local/dsh-tower-ui`（输入框 `/tower` 提示）；opt-in，安装前先验证 slot API |
+| `package.json` · `cordis.patch.yml` | 插件包声明与 bundle 层：插入 Host 插件与 `tower-worker` preset |
+| `index.js` · `lib/` · `worker.js` | Host 入口、协议实现（mission/worktree/review/gate）、worker preset 策略 |
+| `locale/` · `icon.svg` | 本地化与图标 |
 | `tests/` | 三层测试：纯函数、协议 e2e、隔离 Web 运行时；含诊断/修复脚本与手工验收清单 |
+| `ui-bundle/` | 可选 UI 包 `@local/dsh-tower-ui`（输入框 `/tower` 提示）；opt-in，安装前先验证 slot API |
 | `.github/workflows/test.yml` | CI：在 Node 22 / 24 上运行离线套件 |
 
 ## 安装
@@ -20,12 +24,14 @@ DeepSeek Harness (DSH) 原生的多代理工作流插件：**Tower** —— 任�
 DSH 内使用插件管理器安装（会同时激活 Host 插件与 `tower-worker` preset）：
 
 ```text
-plugin_manager({ action: "install_bundle", target: "<repo-root>/bundle" })
+plugin_manager({ action: "install_bundle", target: "<repo-root>" })
 ```
+
+也可以让某个 profile 直接依赖本仓库：`dsh plugin --profile <name> add <repo-root>`。
 
 卸载：`remove_bundle`，目标为包名 `@local/dsh-tower`。
 
-> Host 插件在 DSH 进程启动时加载：首次安装后需重启 DSH。
+> Host 插件在 DSH 进程启动时加载：首次安装或更新后需重启 DSH。
 
 ## Tower 命令
 
@@ -52,6 +58,11 @@ plugin_manager({ action: "install_bundle", target: "<repo-root>/bundle" })
 
 - `allowAgentControl` 默认 `false`：只有人类能切换模式。
 - 为 `true` 时模型可调用 `tower_control({action:"enter"|"exit", reason})`，必须给出理由。
+
+## 工具（17）
+
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+（`tower_control` 仅在 `allowAgentControl: true` 时存在。）
 
 ## 工作流
 

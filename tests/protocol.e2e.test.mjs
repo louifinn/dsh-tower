@@ -1,13 +1,13 @@
 // Protocol end-to-end test through the Tower domain class: real git repository,
 // real worktree, no DSH runtime and no model calls.
-// Run with: node --test tower/tests
+// Run with: node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Tower } from '../bundle/lib/tower.js'
+import { Tower } from '../lib/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

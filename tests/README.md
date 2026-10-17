@@ -15,7 +15,7 @@ npm test
 
 - `unit.test.mjs` — 纯函数：scope 重叠、scope 校验、ASCII 标题、glob 匹配。
 - `protocol.e2e.test.mjs` — 通过 `Tower` 域类跑完整协议：init → plan → worktree → 任务 → 未读阻塞 → complete → finding → review → preflight → merge → teardown，以及 scope 重叠自动依赖、未知依赖拒绝。
-- `plugin.test.mjs` — 用最小 mock Cordis context 直接加载 `bundle/index.js` 的 `apply()`：`/tower` 各写法的语义、附件转发、`agent.steer` 收到完整 `UserMessage`、guard 拒绝、动态提示段、goal 暂停、`tower_control` 开关与 reason 校验、模式持久化。测试会临时改 `$DSH_HOME`，不会写真实 store。
+- `plugin.test.mjs` — 用最小 mock Cordis context 直接加载仓库根 `index.js` 的 `apply()`：`/tower` 各写法的语义、附件转发、`agent.steer` 收到完整 `UserMessage`、guard 拒绝、动态提示段、goal 暂停、`tower_control` 开关与 reason 校验、模式持久化。测试会临时改 `$DSH_HOME`，不会写真实 store。
 
 测试在系统临时目录创建仓库/状态并自动清理。
 
@@ -26,8 +26,8 @@ npm test
 ```powershell
 # 1) 从 shipped web 模板建一个一次性 profile（不要用 desktop：它只能由 Electron 启动）
 dsh --profile towertest --from-default-profile web --dump-config
-# 2) 把本仓库的 bundle 装进该 profile（会自动注册进 dsh.profile.bundles）
-dsh plugin --profile towertest add <repo-root>\bundle
+# 2) 把本仓库（仓库根即插件包根，含 package.json 的 dsh.bundle）装进该 profile（会自动注册进 dsh.profile.bundles）
+dsh plugin --profile towertest add <repo-root>
 # 3) 启动隔离服务（记下打印的 token URL）
 dsh --profile towertest --port 59001 --no-open
 ```
@@ -91,4 +91,4 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\towertest"
 7. `/tower off` 后 `todo_write` 恢复可用；`update_goal` 不再被 tower guard 拦截。
 8. 重启后同 session id 的 `tower_mode` 仍为 on（`$DSH_HOME/tower-mode/modes.json`）。
 9. 配置 `allowAgentControl: true` 时 `tower_control` 出现；默认 false 时不存在。
-10. 全链路：`tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`，并逐个触发 13 个 blocker code（见 `bundle/README.md`）。
+10. 全链路：`tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`，并逐个触发 13 个 blocker code（见仓库根 `README.md`）。

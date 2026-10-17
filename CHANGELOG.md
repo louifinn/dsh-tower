@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 — 2026-10-18
+
+- **仓库布局改为符合 DSH 插件规范**：仓库根目录即 bundle 包根目录，`package.json`（含
+  `dsh.bundle.patch`）与 `cordis.patch.yml` 都在根目录；原先的 `bundle/` 子目录已移除。
+- `package.json` 合并了插件包声明（name/version/exports/files/dsh）与开发脚本（`npm test`）。
+- 测试与文档中的相对路径同步更新（`../bundle/...` → `../...`），README 更新为插件包说明。
+- 无运行时行为变化。
+
 ## 1.0.1 — 2026-10-18
 
 - **修复：`/tower <指令>` 会把一条没有 `role` 的消息写入会话，导致后续模型请求 422
@@ -9,7 +17,7 @@
 - 新增回归测试：mock 上下文断言转发消息带 `role:"user"` 与唯一 `id`；
   隔离 Web 运行时用 `/tower 这是一条测试消息` 实测模型正常回复，会话日志中 spliced/user/message
   均带 `role`/`id`。
-- 提供 `tower/tests/live/repair-session.cjs`：可修复已被旧版本写坏的会话日志（补 `role`/`id`，
+- 提供 `tests/live/repair-session.cjs`：可修复已被旧版本写坏的会话日志（补 `role`/`id`，
   原子写 + 备份 + 生成验证副本）。
 
 ## 1.0.0 — 2026-10-18

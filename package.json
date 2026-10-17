@@ -1,11 +1,34 @@
 {
-  "name": "dsh-tower",
-  "version": "1.0.1",
+  "name": "@local/dsh-tower",
+  "version": "1.0.2",
   "private": true,
-  "description": "Tower plugin for DeepSeek Harness: mission protocol, worktree isolation, review-gated merges, and a human-owned Tower mode.",
+  "type": "module",
+  "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",
   "engines": {
     "node": ">=22"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./worker": "./worker.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "worker.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",

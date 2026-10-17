@@ -1,10 +1,10 @@
 // Plugin-level tests for the `/tower` command, the mode guard, the dynamic
 // prompt section, goal pausing and `tower_control`.
 //
-// These run the real `apply()` from bundle/index.js against a minimal mock
+// These run the real `apply()` from the package root against a minimal mock
 // Cordis context, so they exercise the exact code the Host loads without
 // touching the live profile or any running session. Run with:
-//   node --test "tower/tests/*.test.mjs"
+//   node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -16,8 +16,8 @@ import path from 'node:path'
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plugin-'))
 process.env.DSH_HOME = home
 
-const { apply } = await import('../bundle/index.js')
-const { loadModes } = await import('../bundle/lib/modeStore.js')
+const { apply } = await import('../index.js')
+const { loadModes } = await import('../lib/modeStore.js')
 
 function makeCtx(options = {}) {
   const tools = new Map()
