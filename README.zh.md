@@ -30,7 +30,13 @@
 plugin_manager({ action: "install_bundle", target: "<本仓库的绝对路径>" })
 ```
 
-或把仓库加入某个 profile 的依赖：
+也可以直接从 GitHub 安装到某个 profile（尚未发布 npm 包）：
+
+```bash
+dsh plugin --profile web add github:louifinn/dsh-tower
+```
+
+本地检出同样可以链接：
 
 ```bash
 dsh plugin --profile <profile> add <本仓库的绝对路径>

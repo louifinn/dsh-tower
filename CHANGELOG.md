@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5 — 2026-10-18
+
+- README 增加源码安装命令 `dsh plugin --profile web add github:louifinn/dsh-tower`，满足
+  dsh-plugin.org 的收录要求（公开仓库 + `dsh-plugin` topic + README 安装命令 + 根 package.json）。
+- 无运行时行为变化。
+
 ## 1.0.4 — 2026-10-18
 
 - 版权署名统一为 **Loui Finn**：`LICENSE`、`README.md`、`README.zh.md` 与 `package.json` 的 author。

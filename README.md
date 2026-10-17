@@ -30,7 +30,13 @@ Inside DSH, install the bundle through the plugin manager:
 plugin_manager({ action: "install_bundle", target: "<absolute path to this repository>" })
 ```
 
-Or add the repository to a profile's dependencies:
+Or install it straight from GitHub into a profile (no npm package is published yet):
+
+```bash
+dsh plugin --profile web add github:louifinn/dsh-tower
+```
+
+A local checkout can be linked just as well:
 
 ```bash
 dsh plugin --profile <profile> add <absolute path to this repository>
