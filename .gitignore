@@ -1,17 +1,28 @@
 # Runtime dependencies and local artifacts
 node_modules/
 .pnpm-store/
+coverage/
 
-# Local live-acceptance evidence (contains UI/session data, never commit)
+# Local live-acceptance evidence (may contain UI/session data — never commit)
 tests/*.png
 tests/live/*.png
 tests/live/*.log
 tests/live/backup/
 tests/live/.dsh-tower-worktrees/
+*.jsonl.zstd
 
 # Tower test fixtures and worktrees
 .dsh-tower-worktrees/
 testrepo/
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+credentials.json
+.credentials.yaml
 
 # Editor / OS noise
 .DS_Store

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3 — 2026-10-18
+
+- 开源前整理：README 改为英文主文档（中文版保留在 `README.zh.md`），补充特性、安装、安全约束、
+  工作原理、排障与贡献说明；添加 CI/许可证徽章与 “powered by dsh” 徽章。
+- `tests/README.md`、`ui-bundle/README.md` 改为英文并去掉与特定会话绑定的表述。
+- 新增 `CONTRIBUTING.md`、`SECURITY.md`；`.gitignore` 增加 `.env`/密钥/覆盖率等防泄漏规则。
+- `package.json` 补充 repository/homepage/bugs/keywords 元数据。
+- 清理提交作者邮箱：历史提交改用 GitHub noreply 地址重新发布。
+- 无运行时行为变化。
+
 ## 1.0.2 — 2026-10-18
 
 - **仓库布局改为符合 DSH 插件规范**：仓库根目录即 bundle 包根目录，`package.json`（含

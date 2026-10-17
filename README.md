@@ -1,102 +1,151 @@
 # dsh-tower
 
-DeepSeek Harness (DSH) 原生的多代理工作流插件：**Tower** —— 任务规划、隔离 Git worktree、精确提交审查、门禁合并，以及由人类掌握的 **Tower 模式**。
+[![CI](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[中文说明](README.zh.md)
 
-- 当前版本：`1.0.2`（历史见 [CHANGELOG.md](CHANGELOG.md)）
-- 兼容：DSH `0.2.1-rc.2`、Node.js ≥ 22
-- 许可：[MIT](LICENSE)
+**Tower** is a multi-agent orchestration plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns one agent session into a small engineering team: the session acts as the *control tower*, worker agents do the implementation inside isolated Git worktrees, and nothing reaches your base branch without an independent review and a hard merge gate.
 
-## 仓库结构
+The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.patch` and `cordis.patch.yml` lives at the root, as the DSH plugin specification expects.
 
-仓库根目录**就是插件包根目录**（`package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml` 在根目录）：
+## Features
 
-| 路径 | 内容 |
-|---|---|
-| `package.json` · `cordis.patch.yml` | 插件包声明与 bundle 层：插入 Host 插件与 `tower-worker` preset |
-| `index.js` · `lib/` · `worker.js` | Host 入口、协议实现（mission/worktree/review/gate）、worker preset 策略 |
-| `locale/` · `icon.svg` | 本地化与图标 |
-| `tests/` | 三层测试：纯函数、协议 e2e、隔离 Web 运行时；含诊断/修复脚本与手工验收清单 |
-| `ui-bundle/` | 可选 UI 包 `@local/dsh-tower-ui`（输入框 `/tower` 提示）；opt-in，安装前先验证 slot API |
-| `.github/workflows/test.yml` | CI：在 Node 22 / 24 上运行离线套件 |
+- **Human-owned Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step.
+- **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
+- **Review-gated merges.** A reviewer bound to the current branch tip must submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge.
+- **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
+- **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
 
-## 安装
+## Requirements
 
-DSH 内使用插件管理器安装（会同时激活 Host 插件与 `tower-worker` preset）：
+- DeepSeek Harness `0.2.1-rc.2` (or a compatible newer build)
+- Node.js 22 or newer
+- Git (worktrees are created locally; no network access is required)
+
+## Install
+
+Inside DSH, install the bundle through the plugin manager:
 
 ```text
-plugin_manager({ action: "install_bundle", target: "<repo-root>" })
+plugin_manager({ action: "install_bundle", target: "<absolute path to this repository>" })
 ```
 
-也可以让某个 profile 直接依赖本仓库：`dsh plugin --profile <name> add <repo-root>`。
+Or add the repository to a profile's dependencies:
 
-卸载：`remove_bundle`，目标为包名 `@local/dsh-tower`。
+```bash
+dsh plugin --profile <profile> add <absolute path to this repository>
+```
 
-> Host 插件在 DSH 进程启动时加载：首次安装或更新后需重启 DSH。
+The Host plugin is loaded when the DSH process starts, so **restart DSH after installing or updating**. Remove it with `remove_bundle` and the package name `@local/dsh-tower`.
 
-## Tower 命令
+## Quick start
 
-| 输入 | 行为 |
+```
+/tower on
+
+tower_init        <repoRoot>
+tower_plan        <repoRoot> missions=[...]
+tower_spawn       <repoRoot> missionId=M1 role=worker
+# worker implements and reports completion
+tower_preflight   <repoRoot> missionId=M1    # must be green before merging
+tower_spawn       <repoRoot> missionId=M1 role=reviewer
+tower_review      ...                        # reviewer submits verdict
+tower_preflight   <repoRoot> missionId=M1
+tower_merge       <repoRoot> missionId=M1
+tower_teardown    <repoRoot>
+
+/tower off
+```
+
+A typical run takes one worker mission and one reviewer round for a small change.
+
+## Commands
+
+| Input | Behavior |
 |---|---|
-| `/tower` | 开启 Tower 模式；已开启时保持 |
-| `/tower on` | 开启（或保持） |
-| `/tower on <指令>` | 开启/保持，并把 `<指令>` 作为下一条用户消息发给模型 |
-| `/tower off` | 退出 |
-| `/tower off <指令>` | 退出，并转发 `<指令>` |
-| `/tower <指令>` | 确保开启，并转发 `<指令>` |
+| `/tower` | Enter Tower mode (stays on if already on) |
+| `/tower on` | Enter or stay |
+| `/tower on <instruction>` | Enter/stay **and** forward `<instruction>` as the next user message |
+| `/tower off` | Leave Tower mode |
+| `/tower off <instruction>` | Leave **and** forward `<instruction>` |
+| `/tower <instruction>` | Ensure on, then forward `<instruction>` |
 
-命令支持图片/文件附件，附件随指令一起作为完整 `UserMessage` 转发。
+Image and file attachments are forwarded together with the instruction as one complete `UserMessage`.
 
-## 配置
+## Configuration
 
 ```yaml
 - id: tower
   name: '@local/dsh-tower'
   config:
-    section: '（可选）覆盖 Tower 模式系统提示文案'
-    allowAgentControl: false   # true 时注册 tower_control，允许模型在用户意图明确时自行进出
+    section: 'Optional replacement for the Tower-mode system prompt text'
+    allowAgentControl: true   # true registers tower_control; false makes the mode human-only
 ```
 
-- `allowAgentControl` 默认 `false`：只有人类能切换模式。
-- 为 `true` 时模型可调用 `tower_control({action:"enter"|"exit", reason})`，必须给出理由。
+- `allowAgentControl` defaults to `false` in code. The bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave Tower mode when the user intent or task state clearly warrants it, always stating a reason.
+- When disabled, only the human can change the mode.
 
-## 工具（17）
+## Tools (17)
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
-（`tower_control` 仅在 `allowAgentControl: true` 时存在。）
 
-## 工作流
+`tower_control` exists only when `allowAgentControl: true`.
 
+## Safety and guardrails
+
+- **No merge without a green gate.** `tower_preflight` is read-only and reports stable blocker codes; `tower_merge` refuses when any blocker remains.
+- **Review is bound to a commit.** If the branch tip moves after a review, the gate reports `tip-moved`; re-review is required (a clean rebase waiver is the only exception).
+- **Scope enforcement.** A mission may only change files matched by its declared scope globs; `out-of-scope` blocks the merge.
+- **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
+- **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
+
+The 13 stable blocker codes are: `branch-missing`, `deps-unmerged`, `read-only-survey`, `stale-base`, `no-review`, `review-hold`, `not-clean`, `review-not-approved`, `tip-moved`, `review-mission-mismatch`, `out-of-scope`, `base-dirty`, `branch-owned-by-closed-missions` (plus mission/worker guards).
+
+## How it works
+
+A mission moves through `planned → active → completed → merged` (or `blocked` / `paused` / `abandoned`). State lives in `<git-common-dir>/dsh-tower/`:
+
+| Path | Contents |
+|---|---|
+| `.git/dsh-tower/state.json` | missions, roster, reviews, findings, inbox |
+| `.git/dsh-tower/activity.jsonl` | append-only activity log |
+| `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | per-mission worktree |
+| `$DSH_HOME/tower-mode/modes.json` | Tower mode state per agent/session |
+
+Workers and reviewers are ordinary DSH subagents started with the bundled `tower-worker` preset; their tools are restricted to the mission surface (filesystem, shell, and Tower protocol tools), never merge/spawn.
+
+## Project layout
+
+| Path | Contents |
+|---|---|
+| `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (inserts the Host plugin and the `tower-worker` preset) |
+| `index.js`, `lib/`, `worker.js` | Host entry, protocol implementation, worker preset policy |
+| `locale/`, `icon.svg` | localization and icon |
+| `tests/` | pure-function, protocol end-to-end, and plugin-level tests; optional isolated Web-runtime scripts |
+| `ui-bundle/` | optional Client widget (static `/tower` hint), not installed by default |
+| `.github/workflows/test.yml` | CI running the offline suite on Node 22/24 |
+
+## Development and testing
+
+```bash
+npm test        # node --test tests/*.test.mjs
 ```
-/tower on
-tower_init → tower_plan → tower_spawn(worker) → tower_inbox / tower_send
-→ tower_complete → tower_spawn(reviewer) → tower_review
-→ tower_preflight → tower_merge → tower_teardown
-→ /tower off
-```
 
-关键门禁：13 个稳定 blocker code（`stale-base`、`no-review`、`review-hold`、`not-clean`、`review-not-approved`、`tip-moved`、`out-of-scope`、`base-dirty` 等）、每分支 5 轮评审上限、clean rebase 免重审、运行中的 agent 不可被 teardown。
+The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.
 
-## 测试
+## Troubleshooting
 
-```powershell
-npm test   # node --test tests/*.test.mjs
-```
+- **The plugin does not appear after install/update.** Host plugins load at DSH startup; restart DSH. Confirm the entry point targets this repository root (the folder with `package.json` and `cordis.patch.yml`), not a subdirectory.
+- **`tower_control` is missing.** The config `allowAgentControl` is `false`; set it to `true` and restart.
+- **Merge is blocked.** Run `tower_preflight` and read the blocker codes above; `stale-base` means run `tower_rebase` first.
+- **A mission branch is stale after base moved.** `tower_rebase` rebases inside the worktree; a clean conflict-free rebase waives re-review for the previous verdict.
 
-隔离 Web 运行时、模型驱动验收、诊断/修复脚本见 [tests/README.md](tests/README.md)。
+## Contributing
 
-## 状态位置
-
-- 任务/审查/消息/发现：`<git-common-dir>/dsh-tower/`
-- 工作树：`<主检出父目录>/.dsh-tower-worktrees/<hash>/<missionId>`
-- 模式：`$DSH_HOME/tower-mode/modes.json`（原子写、最多 200 条）
-
-## 已知限制
-
-- 进入模式时暂停 goal 依赖 `ctx.goals` 服务；服务缺失时只记录原因，不阻断进入。
-- 退出模式不会自动恢复被暂停的 goal（保留给人类决定）。
-- 模式持久化是文件存储而非 session-log 投影（本地 bundle 无法解析 projection 所需的 zod）。
-- `ui-bundle` 是 opt-in，尚未在真实页面验证。
+Issues and pull requests are welcome. Please run `npm test` before opening a PR; see [CONTRIBUTING.md](CONTRIBUTING.md) for details. Security reports: please avoid opening a public issue with exploit details; open a minimal issue asking for a private channel.
 
 ## License
 
 MIT © The dsh-tower authors
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

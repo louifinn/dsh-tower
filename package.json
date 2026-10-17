@@ -1,10 +1,28 @@
 {
   "name": "@local/dsh-tower",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",
+  "author": "dsh-tower contributors",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "tower",
+    "multi-agent",
+    "worktree",
+    "code-review"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/louifinn/dsh-tower.git"
+  },
+  "homepage": "https://github.com/louifinn/dsh-tower#readme",
+  "bugs": {
+    "url": "https://github.com/louifinn/dsh-tower/issues"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -22,6 +40,7 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
