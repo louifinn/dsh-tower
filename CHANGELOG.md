@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4 — 2026-10-18
+
+- 版权署名统一为 **Loui Finn**：`LICENSE`、`README.md`、`README.zh.md` 与 `package.json` 的 author。
+- 无运行时行为变化。
+
 ## 1.0.3 — 2026-10-18
 
 - 开源前整理：README 改为英文主文档（中文版保留在 `README.zh.md`），补充特性、安装、安全约束、

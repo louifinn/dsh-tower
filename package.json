@@ -1,11 +1,11 @@
 {
   "name": "@local/dsh-tower",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",
-  "author": "dsh-tower contributors",
+  "author": "Loui Finn",
   "keywords": [
     "dsh",
     "dsh-plugin",
