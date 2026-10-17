@@ -1,6 +1,7 @@
 # dsh-tower
 
 [![CI](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/dsh-tower.svg)](https://www.npmjs.com/package/dsh-tower)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [English](README.md)
 
@@ -24,25 +25,27 @@
 
 ## 安装
 
-在 DSH 中用插件管理器安装：
+把已发布的包安装到 DSH profile：
 
-```text
-plugin_manager({ action: "install_bundle", target: "<本仓库的绝对路径>" })
+```bash
+dsh plugin --profile web add dsh-tower
 ```
 
-也可以直接从 GitHub 安装到某个 profile（尚未发布 npm 包）：
+或在 DSH 中用插件管理器安装：
+
+```text
+plugin_manager({ action: "install_bundle", target: "dsh-tower" })
+```
+
+开发时也可以链接本地检出或从 GitHub 安装：
 
 ```bash
 dsh plugin --profile web add github:louifinn/dsh-tower
-```
-
-本地检出同样可以链接：
-
-```bash
+# 或链接本地 checkout
 dsh plugin --profile <profile> add <本仓库的绝对路径>
 ```
 
-Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**。卸载使用 `remove_bundle`，包名 `@local/dsh-tower`。
+Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**。卸载使用 `remove_bundle`，包名 `dsh-tower`。
 
 ## 快速开始
 
@@ -82,7 +85,7 @@ tower_teardown    <repoRoot>
 
 ```yaml
 - id: tower
-  name: '@local/dsh-tower'
+  name: 'dsh-tower'
   config:
     section: '（可选）覆盖 Tower 模式系统提示文案'
     allowAgentControl: true   # true 时注册 tower_control；false 时只有人类能切换

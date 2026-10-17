@@ -2,7 +2,7 @@
 // Static text only: it never claims live mode state, because the Client cannot
 // read the Host plugin's in-memory mode map without a Remote seam.
 window.__ModuleLoader__.load({
-  id: '@local/dsh-tower-ui',
+  id: 'dsh-tower-ui',
   factory(require) {
     const React = require('react')
     const h = React.createElement

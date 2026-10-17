@@ -1,5 +1,5 @@
 // tower-worker preset policy: narrow the visible tool surface and state the protocol.
-export const name = '@local/dsh-tower/worker'
+export const name = 'dsh-tower/worker'
 export const inject = ['tools', 'systemPrompt']
 
 const ALLOW = [

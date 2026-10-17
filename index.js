@@ -1,4 +1,4 @@
-// @local/dsh-tower — Host entry.
+// dsh-tower — Host entry.
 //
 // Tower mode is a session-level stance. The human owns it through the
 // `/tower` command: bare `/tower`, `/tower on [message]`, `/tower off
@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { registerTowerTools } from './lib/tools.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
 
-export const name = '@local/dsh-tower'
+export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
 
 const MODE = loadModes()

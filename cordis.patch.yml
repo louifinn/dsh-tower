@@ -1,6 +1,6 @@
 - insert:
     - id: tower
-      name: '@local/dsh-tower'
+      name: 'dsh-tower'
       config:
         allowAgentControl: true
     - id: preset-tower-worker
@@ -12,7 +12,7 @@
         order: 60
         plugins:
           - id: tower-worker-policy
-            name: '@local/dsh-tower/worker'
+            name: 'dsh-tower/worker'
           - id: tower-worker-fs
             name: '@deepseek-ai/dsh-tool-fs'
           - id: tower-worker-fs-search

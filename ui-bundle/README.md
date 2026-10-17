@@ -5,7 +5,7 @@ An **optional** Web Client widget that shows a static `/tower` hint in the compo
 ## Why it is not installed by default
 
 - The Client half targets `conversation.composer.dock`, whose slot API and props have not been verified against a live page in this repository's test setup. Installing an unverified Client bundle can affect the Web UI.
-- It is therefore a separate bundle from `@local/dsh-tower` and does not affect installing or running the Host plugin.
+- It is therefore a separate bundle from `dsh-tower` and does not affect installing or running the Host plugin.
 
 ## Install
 

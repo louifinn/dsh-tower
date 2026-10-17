@@ -1,6 +1,7 @@
 # dsh-tower
 
 [![CI](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/dsh-tower.svg)](https://www.npmjs.com/package/dsh-tower)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [中文说明](README.zh.md)
 
@@ -24,25 +25,27 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 ## Install
 
-Inside DSH, install the bundle through the plugin manager:
+Install the published package into a DSH profile:
 
-```text
-plugin_manager({ action: "install_bundle", target: "<absolute path to this repository>" })
+```bash
+dsh plugin --profile web add dsh-tower
 ```
 
-Or install it straight from GitHub into a profile (no npm package is published yet):
+Or install it inside DSH with the plugin manager:
+
+```text
+plugin_manager({ action: "install_bundle", target: "dsh-tower" })
+```
+
+For development, a local checkout can be linked instead:
 
 ```bash
 dsh plugin --profile web add github:louifinn/dsh-tower
-```
-
-A local checkout can be linked just as well:
-
-```bash
+# or link an existing checkout
 dsh plugin --profile <profile> add <absolute path to this repository>
 ```
 
-The Host plugin is loaded when the DSH process starts, so **restart DSH after installing or updating**. Remove it with `remove_bundle` and the package name `@local/dsh-tower`.
+The Host plugin is loaded when the DSH process starts, so **restart DSH after installing or updating**. Remove it with `remove_bundle` and the package name `dsh-tower`.
 
 ## Quick start
 
@@ -82,7 +85,7 @@ Image and file attachments are forwarded together with the instruction as one co
 
 ```yaml
 - id: tower
-  name: '@local/dsh-tower'
+  name: 'dsh-tower'
   config:
     section: 'Optional replacement for the Tower-mode system prompt text'
     allowAgentControl: true   # true registers tower_control; false makes the mode human-only
