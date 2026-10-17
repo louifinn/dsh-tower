@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-10-18
+
+- README（英文/中文）与 dsh-plugin 提交信息中注明：Tower 模式的灵感来自 **Kimi Code**
+  （Moonshot AI）的实验性 Tower 模式；本项目是面向 DSH 的独立实现，不包含 Kimi Code 源码，
+  与 Moonshot AI 无隶属关系。
+- 无运行时行为变化。
+
 ## 1.1.0 — 2026-10-18
 
 - **包名改为 `dsh-tower`**：Host 插件名、`tower-worker` preset 插件名、`cordis.patch.yml`、

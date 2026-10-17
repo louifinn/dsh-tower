@@ -7,6 +7,8 @@
 
 **Tower** 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的多代理编排插件。它把一个 agent 会话变成一个小型工程团队：会话本身是*控制塔*，worker agent 在隔离的 Git worktree 里实现任务，任何改动都必须经过独立审查和硬门禁才能合入基线分支。
 
+Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Code** 中实验性的 Tower 模式（[Kimi Code](https://www.kimi.com/code)）。本项目是面向 DSH 的独立实现，与 Moonshot AI 无隶属关系；详见[致谢](#致谢)。
+
 仓库根目录**就是** DSH bundle 包根：`package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml` 位于根目录，符合 DSH 插件规范。
 
 ## 特性
@@ -151,6 +153,11 @@ npm test        # node --test tests/*.test.mjs
 ## 贡献
 
 欢迎 issue 与 pull request。提交 PR 前请先运行 `npm test`，细节见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全相关问题请不要在公开 issue 里贴利用细节，先开一个最小化 issue 申请私下渠道。
+
+## 致谢
+
+- **Kimi Code（Moonshot AI）**：Tower 模式的整体概念——由人类开启的模式、每个 mission 独立 Git worktree、审查门禁合并协议——灵感来自 Kimi Code 的实验性 Tower 模式（[官网](https://www.kimi.com/code)、[源码](https://github.com/MoonshotAI/kimi-code)）。本项目在 DeepSeek Harness 的服务之上重新实现这些想法，不包含 Kimi Code 源码，也与 Moonshot AI 无隶属关系。
+- **DeepSeek Harness**：本插件构建所依赖的插件、工具、会话与子代理 API。
 
 ## License
 
