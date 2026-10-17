@@ -1,6 +1,7 @@
 # dsh-tower
 
 [![CI](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/dsh-tower.svg)](https://www.npmjs.com/package/dsh-tower)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [English](README.md)
 
@@ -24,27 +25,22 @@
 
 ## 安装
 
-从 GitHub 安装（现在可用）：
-
-```bash
-dsh plugin --profile web add github:louifinn/dsh-tower
-```
-
-npm 包名也是 `dsh-tower`；首次发布仍在 npm 的发布审核中，审核放行后即可使用：
+把已发布的包安装到 DSH profile：
 
 ```bash
 dsh plugin --profile web add dsh-tower
 ```
 
-在 DSH 中也可以用插件管理器指定上述任一目标：
+在 DSH 中也可以用插件管理器指定同一目标：
 
 ```text
 plugin_manager({ action: "install_bundle", target: "dsh-tower" })
 ```
 
-开发时改为链接本地 checkout：
+开发时改为从 GitHub 安装或链接本地 checkout：
 
 ```bash
+dsh plugin --profile web add github:louifinn/dsh-tower
 dsh plugin --profile <profile> add <本仓库的绝对路径>
 ```
 
