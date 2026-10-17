@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 — 2026-10-18
+
+- README 文件更名：默认 `README.md` 改为中文版，英文版移到 `README.en.md`；两边的语言切换链接、
+  `package.json` 的 `files`、`CONTRIBUTING.md` 与 dsh-plugin 提交信息同步更新。
+- 无运行时行为变化。
+
 ## 1.1.1 — 2026-10-18
 
 - README（英文/中文）与 dsh-plugin 提交信息中注明：Tower 模式的灵感来自 **Kimi Code**
