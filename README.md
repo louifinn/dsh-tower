@@ -1,7 +1,6 @@
 # dsh-tower
 
 [![CI](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/louifinn/dsh-tower/actions/workflows/test.yml)
-[![npm](https://img.shields.io/npm/v/dsh-tower.svg)](https://www.npmjs.com/package/dsh-tower)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [中文说明](README.zh.md)
 
@@ -25,23 +24,28 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 ## Install
 
-Install the published package into a DSH profile:
+Install from GitHub (available now):
+
+```bash
+dsh plugin --profile web add github:louifinn/dsh-tower
+```
+
+The package is also published to npm as `dsh-tower`; while its first release is still in npm's
+publish review, the command below becomes available as soon as the release is live:
 
 ```bash
 dsh plugin --profile web add dsh-tower
 ```
 
-Or install it inside DSH with the plugin manager:
+Inside DSH you can use the plugin manager with either target:
 
 ```text
 plugin_manager({ action: "install_bundle", target: "dsh-tower" })
 ```
 
-For development, a local checkout can be linked instead:
+For development, link a local checkout instead:
 
 ```bash
-dsh plugin --profile web add github:louifinn/dsh-tower
-# or link an existing checkout
 dsh plugin --profile <profile> add <absolute path to this repository>
 ```
 

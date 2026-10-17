@@ -2,10 +2,11 @@
 
 ## 1.1.0 — 2026-10-18
 
-- **包名改为 `dsh-tower` 并发布到 npm**：安装命令为 `dsh plugin --profile web add dsh-tower`，
-  可出现在 DSH 插件中心；同时保留 `github:louifinn/dsh-tower` 与本地 checkout 的安装方式。
-- Host 插件名、`tower-worker` preset 插件名、`cordis.patch.yml`、可选 UI 包（`dsh-tower-ui`）与
-  中英文 README 全部同步改名；移除 `package.json` 的 `private` 字段。
+- **包名改为 `dsh-tower`**：Host 插件名、`tower-worker` preset 插件名、`cordis.patch.yml`、
+  可选 UI 包（`dsh-tower-ui`）与中英文 README 全部同步改名；移除 `package.json` 的 `private` 字段。
+- `dsh-tower@1.1.0` 已提交 npm 发布；npm 对首次发布的包执行发布审核，审核放行后可用
+  `dsh plugin --profile web add dsh-tower` 安装并进入 DSH 插件中心。审核期间可用
+  `dsh plugin --profile web add github:louifinn/dsh-tower` 源码安装，或用本地 checkout 链接。
 - 已安装 `@local/dsh-tower` 的用户需要 `remove_bundle` 后重新安装 `dsh-tower`；配置项 `id: tower`
   与 config 内容不变，运行行为无变化。
 
