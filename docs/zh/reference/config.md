@@ -18,7 +18,7 @@
 每次 Tower 工具打开仓库时都会读取仓库配置层，因此仓库可以在不修改 profile 的情况下调整 review、
 merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON 形状（相同的分组与兼容别名），
 并按分组合并：仓库设置的键优先，仓库未设置的 profile 键保留。`tower_status` 会报告
-`config.path` 与 `config.repoConfigPresent`。文件不存在不是错误。
+`config.path` 与 `config.repoConfigPresent`。
 
 ```json
 {
@@ -38,11 +38,17 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 |---|---|---|
 | `section` | `''` | 兼容别名：替换整段 Tower 模式提示文案。空值保留内置提醒。 |
 | `allowAgentControl` | `false`（随包 patch：`true`） | 兼容别名：注册 `tower_control`。 |
+| `init.autoGitInit` | `false` | 当 `repoRoot` 不是仓库时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
+| `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪文件**改动快照为游离提交作为 mission 基线（不含未跟踪文件）。 |
 | `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
 | `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
 | `mode.allowAgentControl` | `false` | 注册 `tower_control`；模型可带理由进入/退出。 |
 | `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
-| `mode.denyTools` | 六个 goal/todo/team 工具 | 模式激活期间被拒绝的工具。 |
+| `mode.requireResumeAuthorization` | `false` | 恢复因 `pauseCause:user` 暂停的 mission 时，必须提供 `authorization` 引用。 |
+| `mode.workspaceLock` | `false` | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |
+| `mode.workspaceStaleMs` | `300000` | 超过该时长的 workspace 锁可以被接管。 |
+| `mode.heartbeatMs` | `10000` | workspace 锁的心跳间隔。 |
+| `mode.denyTools` | goal/todo/team/workflow/subagent 工具 | 模式激活期间被拒绝的工具（默认 12 个）。 |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
 | `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
 | `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
@@ -55,6 +61,15 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `spawn.provider` | `''` | 子代理 provider id；空值优先 `spawn`，否则取第一个 provider。 |
 | `spawn.workerModel` | `{}` | worker 可选模型路由 `{provider, model, reasoningEffort, maxTokens}`。 |
 | `spawn.reviewerModel` | `{}` | reviewer 可选模型路由；使用不同模型可获得更强的独立审查。 |
+| `spawn.maxLiveWorkers` | `4` | 每个仓库允许的非 retired worker 条目上限；超出返回 `worker-limit`。 |
+| `spawn.staleMs` | `60000` | roster 条目在该时长内没有目录活动就显示 `stale:true`（0 关闭）。 |
+| `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
+| `send.interruptDefault` | `false` | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
+| `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
+| `docs.board` | `true` | 变更后写入 `<git-common-dir>/dsh-tower/MISSIONS.md`。 |
+| `dev.hotReload` | `true` | DSH HMR 服务可用时注册 `tower_reload` 与 `/tower reload`。 |
+| `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |
+| `dev.reloadRequiredIds` | 四个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |
 
 ## 示例
 
@@ -65,6 +80,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
     mode:
       allowAgentControl: true
       sectionAppend: 'Team conventions: tests are mandatory.'
+      workspaceLock: true
     review:
       maxRoundsPerReviewer: 3
     merge:
@@ -73,6 +89,8 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
       reviewerModel:
         provider: deepseek-account
         model: deepseek-flash
+    dev:
+      hotReload: true
 ```
 
 ## 查看实际生效的 schema

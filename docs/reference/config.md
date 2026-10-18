@@ -39,11 +39,17 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 |---|---|---|
 | `section` | `''` | Legacy alias: replace the whole Tower-mode prompt text. Empty keeps the built-in reminder. |
 | `allowAgentControl` | `false` (bundled patch: `true`) | Legacy alias: register `tower_control`. |
+| `init.autoGitInit` | `false` | `tower_init` may run `git init` + an empty initial commit when `repoRoot` is not a repository. |
+| `init.snapshotDirty` | `false` | `tower_init` may snapshot uncommitted **tracked** changes into a dangling commit used as the mission baseline (untracked files are not included). |
 | `mode.promptSection` | `''` | Replacement prompt text (takes precedence over `section` when both set). |
 | `mode.sectionAppend` | `''` | Extra text appended after the reminder (team conventions). |
 | `mode.allowAgentControl` | `false` | Register `tower_control`; the model may enter/leave with a reason. |
 | `mode.autoPauseGoal` | `true` | Pause an active goal on entry; the goal is never auto-resumed on exit. |
-| `mode.denyTools` | six goal/todo/team tools | Tools refused while the mode is active. |
+| `mode.requireResumeAuthorization` | `false` | Resuming a mission paused with `pauseCause:user` requires an `authorization` reference. |
+| `mode.workspaceLock` | `false` | Allow only one Tower session per repository (`tower.lock`); others get `workspace-busy`. |
+| `mode.workspaceStaleMs` | `300000` | A workspace lock older than this can be taken over. |
+| `mode.heartbeatMs` | `10000` | Workspace-lock heartbeat interval. |
+| `mode.denyTools` | goal/todo/team/workflow/subagent tools | Tools refused while the mode is active (12 defaults). |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | Directory for `modes.json`. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries (1–2000). |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per branch. |
@@ -56,6 +62,15 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `spawn.provider` | `''` | Subagent provider id; empty prefers `spawn`, then the first provider. |
 | `spawn.workerModel` | `{}` | Optional `{provider, model, reasoningEffort, maxTokens}` for workers. |
 | `spawn.reviewerModel` | `{}` | Optional model route for reviewers; independent review is stronger with a different model. |
+| `spawn.maxLiveWorkers` | `4` | Maximum non-retired worker entries per repository; exceeding it returns `worker-limit`. |
+| `spawn.staleMs` | `60000` | Roster entries without catalog activity after this age show `stale:true` (0 disables). |
+| `send.maxPerMinute` | `120` | Per-repository `tower_send` rate limit (0 disables); exceeding it returns `rate-limited`. |
+| `send.interruptDefault` | `false` | Default for `tower_send.interrupt` (interrupt the running turn before delivering). |
+| `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
+| `docs.board` | `true` | Write `<git-common-dir>/dsh-tower/MISSIONS.md` after mutations. |
+| `dev.hotReload` | `true` | Register `tower_reload` and `/tower reload` when the DSH HMR service is available. |
+| `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. |
+| `dev.reloadRequiredIds` | four Tower loader ids | Entry ids passed to `reconcileProfile` as required. |
 
 ## Example
 
@@ -66,6 +81,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
     mode:
       allowAgentControl: true
       sectionAppend: 'Team conventions: tests are mandatory.'
+      workspaceLock: true
     review:
       maxRoundsPerReviewer: 3
     merge:
@@ -74,6 +90,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
       reviewerModel:
         provider: deepseek-account
         model: deepseek-flash
+    dev:
+      hotReload: true
 ```
 
 ## Looking up the effective schema

@@ -42,9 +42,29 @@ because the file is read when a Tower tool opens the repository.
 **Can workers use Tower tools to merge or spawn?**
 No. The worker preset contains mission/progress tools only; merge and spawn live in the parent tower.
 
+**A worker is stuck or runaway. How do I stop it?**
+Use `tower_interrupt({to:"worker-m1",reason:"..."})`; it calls the host subagent interrupt and records the
+roster entry as `interrupted`. If you already interrupted it and want a new owner, spawn with
+`takeover:true`. A still-running worker cannot be taken over (`takeover-refused`).
+
+**Two sessions want to drive the same repository.**
+Enable `mode.workspaceLock:true`: the first Tower session to call a repo-scoped tool owns
+`<git-common-dir>/dsh-tower/tower.lock`; other sessions get `[tower:workspace-busy]` until the owner
+runs `/tower off` or the lock is stale (`mode.workspaceStaleMs`).
+
+**Can I reload the plugin without restarting DSH?**
+Yes, in a profile with the DSH HMR service: `/tower reload` or the `tower_reload` tool reconciles the
+profile and replaces the changed linked package. Run `npm run dev:hmr` once to add the repository to the
+profile's HMR watch roots (then restart DSH once); see [hot reload](guide/hot-reload.md).
+`plugin_manager` install/update already applies live.
+
+**How do I make the completion evidence mandatory?**
+Workers can pass `checks` to `tower_complete`; set `gates.requireChecks:true` to block merging when a
+completed mission has no checks (`no-check-evidence`).
+
 **Where does Tower store state?**
-`<git-common-dir>/dsh-tower/state.json` and `activity.jsonl` in the target repo; mode state in
-`$DSH_HOME/tower-mode/modes.json`. Worktrees live next to the checkout in `.dsh-tower-worktrees/`.
+`<git-common-dir>/dsh-tower/state.json`, `activity.jsonl` and the human-readable `MISSIONS.md`; mode state
+in `$DSH_HOME/tower-mode/modes.json`. Worktrees live next to the checkout in `.dsh-tower-worktrees/`.
 
 **How do I change the review round cap or presets?**
 Use `review.maxRoundsPerReviewer` and `spawn.workerPreset`/`spawn.reviewerPreset`; see

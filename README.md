@@ -21,6 +21,10 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **可追溯的 finding 生命周期。** `tower_findings` 列表、读取并按 `open → triaged → fixed` / `wontfix` 流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
 - **仓库级配置。** 每个仓库可用 `<git-common-dir>/dsh-tower/config.json` 覆盖 review/merge/worktree/spawn 策略，工具参数再覆盖仓库配置；无需为不同仓库改 profile。
 - **稳定错误码。** 工具失败统一带 `[tower:<code>]` 前缀（如 `mission-not-found`、`preset-missing`、`config-invalid`），调用方可稳定分支处理。
+- **角色强制与可控中断。** worker 不能直接完成/放弃 mission 或扩界（完成必须走 `tower_complete` 证据门），tower 可随时用 `tower_interrupt` 停止跑偏的 agent；`tower_send(interrupt:true)` 可中止运行中的 turn。
+- **仓库互斥与限流。** 可选 `mode.workspaceLock` 让同一仓库只有一个 Tower 会话；`spawn.maxLiveWorkers`、`send.maxPerMinute`、roster stale 标记约束并发与消息风暴。
+- **可热重载。** 在带 DSH HMR 的 profile 中，`/tower reload`、`tower_reload` 与 `npm run dev:hmr` 让 linked 插件代码改动无需重启即生效；`plugin_manager` 安装/更新本身即时生效。
+- **测试证据门与事件。** worker 可在 `tower_complete` 记录 `checks`，`gates.requireChecks` 可强制；每次 mutation 后发射 `tower/*` 事件并刷新 `MISSIONS.md`。
 
 ## 环境要求
 
@@ -112,11 +116,11 @@ tower_teardown  repoRoot=D:\work\repo
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知顶层键会被拒绝（防止拼写错误静默失效），嵌套分组内的未知键会被忽略。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（19 个）
+## 工具（20 个核心）
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
 
-`tower_control` 仅在 `allowAgentControl: true` 时存在（随包 patch 默认开启，因此安装后共 20 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+`tower_control` 仅在 `allowAgentControl: true` 时注册；`tower_reload` 仅在 profile 提供 DSH HMR 时注册（默认开启，因此最多 22 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
@@ -126,7 +130,7 @@ tower_teardown  repoRoot=D:\work\repo
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-24 个稳定 blocker/failure code（含 gate 守卫与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
+25 个稳定 blocker/failure code（含 gate 守卫、`no-check-evidence` 与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 
 ## 工作原理
 
@@ -158,13 +162,15 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 npm test        # node --test tests/*.test.mjs
 ```
 
+热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `lib/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
+
 离线套件不需要 DSH 进程，只在系统临时目录创建一次性 Git 仓库。隔离 Web 运行时检查、模型驱动验收和会话诊断脚本见 `tests/README.md`。
 
 ## 文档
 
 - [docs/README.md](docs/README.md) — 文档索引（新用户 / 运维 / 维护者三条阅读路径）
 - [中文文档](docs/zh/README.md) · [快速开始](docs/guide/quickstart.md) · [安装、升级与迁移](docs/guide/install-upgrade-migration.md)
-- [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md) · [错误码](docs/reference/errors.md)
+- [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md) · [错误码](docs/reference/errors.md) · [事件](docs/reference/events.md) · [热重载](docs/guide/hot-reload.md)
 - [架构与状态机](docs/architecture/overview.md) · [运维 runbook](docs/operations/runbook.md) · [安全模型](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [示例](docs/examples/first-mission.md)
 

@@ -31,15 +31,21 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **1.x → 2.0（未发布）**：不需要迁移状态（`schemaVersion` 保持 1；新字段都是可选的）。需要留意的
+  行为变化：Tower 模式激活期间，`mode.denyTools` 现在还会拒绝 `workflow`、`ralph`、`subagent`、
+  `subagent_fork`、`wait_agent` 与 `team_task_list`（可用显式列表覆盖）；`spawn.maxLiveWorkers`
+  默认为 4；`mode.workspaceLock` 默认关闭。worker 不能再直接完成/放弃/扩大 mission 的 scope——
+  请使用 `tower_complete`。新工具：`tower_interrupt`，以及 HMR 可用时的 `tower_reload`。升级后重启
+  一次 DSH；见[热重载](hot-reload.md)。
+- **1.3 → 1.4**：不需要迁移状态。新增：仓库级配置（`<git-common-dir>/dsh-tower/config.json`）、
+  稳定的 `[tower:<code>]` 工具错误、`tower_findings`，以及 `id`/`missionId` 与 snake/camel 输入
+  别名。既有调用保持可用；重启 DSH 以加载新工具面（`tower_findings` 与更新的 output schema）。
 - **1.2 → 1.3**：reviewer 从共享的 `tower-worker` preset 迁移到新的只读 `tower-reviewer` preset。
   重新安装/重启，确保两个 preset 行都存在。`tower_spawn role=reviewer` 现在要求 mission 为
   `completed`。
 - **1.1 → 1.2**：合并失败新增 `merge-hook-failed`、`cleanup` 与对账行为；不需要迁移状态。
 - **1.0 → 1.1**：包名从 `@local/dsh-tower` 改为 `dsh-tower`。先移除旧 bundle
   （`remove_bundle` 目标 `@local/dsh-tower`），再安装 `dsh-tower`。
-- **1.3 → 1.4**：不需要迁移状态。新增：仓库级配置（`<git-common-dir>/dsh-tower/config.json`）、
-  稳定的 `[tower:<code>]` 工具错误、`tower_findings`，以及 `id`/`missionId` 与 snake/camel 输入
-  别名。既有调用保持可用；重启 DSH 以加载新工具面（`tower_findings` 与更新的 output schema）。
 
 ## 卸载
 

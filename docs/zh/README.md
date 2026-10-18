@@ -10,19 +10,23 @@
 | 你是 | 从这里开始 |
 |---|---|
 | 新用户 | [快速开始](guide/quickstart.md) → [工具参考](reference/tools.md) → [第一个 mission 示例（英文）](../examples/first-mission.md) |
-| 运维 | [运维 runbook（英文）](../operations/runbook.md) → [blocker 与失败码](reference/blockers.md) → [错误码](reference/errors.md) → [安全模型](operations/security.md) |
-| 维护者 | [架构与状态机（英文）](../architecture/overview.md) → [配置参考](reference/config.md) → [贡献指南](../../CONTRIBUTING.md) |
+| 运维 | [运维 runbook（英文）](../operations/runbook.md) → [blocker 与失败码](reference/blockers.md) → [错误码](reference/errors.md) → [事件](reference/events.md) → [安全模型](operations/security.md) |
+| 维护者 | [架构与状态机（英文）](../architecture/overview.md) → [配置参考](reference/config.md) → [热重载](guide/hot-reload.md) → [贡献指南](../../CONTRIBUTING.md) |
 
 参考页是当前发行版的权威说明；CI 中的 `npm run docs:check` 会校验文档与实现一致（包括中文页）。
+本版本有 20 个核心工具，随包 patch 下通常为 21 个（含 `tower_control`），HMR 可用时最多 22 个
+（含 `tower_reload`）；详见[工具参考](reference/tools.md)。
 
 ## 全部中文页面
 
 - [快速开始](guide/quickstart.md)
 - [安装、升级与迁移](guide/install-upgrade-migration.md)
+- [热重载（开发）](guide/hot-reload.md)
 - [工具参考](reference/tools.md)
 - [配置参考](reference/config.md)
 - [blocker 与失败码](reference/blockers.md)
 - [工具错误码](reference/errors.md)
+- [Tower 事件](reference/events.md)
 - [FAQ](faq.md)
 - [安全模型](operations/security.md)
 

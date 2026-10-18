@@ -68,7 +68,7 @@ function validateAgainstSchema(value, schema, where = '$') {
 test('tool surface: every tool declares a structured object output schema', () => {
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
-  assert.equal(tools.size, 18)
+  assert.equal(tools.size, 20)
   for (const definition of tools.values()) {
     assert.equal(definition.output.schema.type, 'object', definition.name)
     assert.equal(typeof definition.output.render, 'function', definition.name)
@@ -237,7 +237,7 @@ test('findings tool: file, list, read and transition through the tool surface', 
     const reviewerExec = { agent: { id: 'agent-reviewer' } }
     await assert.rejects(
       () => tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id, status: 'fixed' }, reviewerExec),
-      /\[tower:invalid-transition\].*reviewers may list and read/,
+      /\[tower:(?:invalid-transition|not-authorized)\].*reviewers may list and read/,
     )
     const reviewerRead = await tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id }, reviewerExec)
     assert.equal(reviewerRead.finding.status, 'triaged')

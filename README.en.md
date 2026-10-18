@@ -21,6 +21,10 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 - **Traceable finding lifecycle.** `tower_findings` lists, reads, and moves findings through `open → triaged → fixed` / `wontfix` (and can reopen); only the tower or a worker may change state, while reviewers can only read.
 - **Repository-level config.** Any repository can override review/merge/worktree/spawn policy in `<git-common-dir>/dsh-tower/config.json`; tool arguments override the repository layer, so no profile edit is needed per repository.
 - **Stable error codes.** Tool failures carry a `[tower:<code>]` prefix (for example `mission-not-found`, `preset-missing`, `config-invalid`) so callers can branch deterministically.
+- **Role enforcement and control.** Workers cannot complete/abandon a mission or widen its scope directly (completion goes through the `tower_complete` evidence gate); the tower can stop a runaway agent with `tower_interrupt`, and `tower_send(interrupt:true)` interrupts a running turn.
+- **Workspace exclusivity and limits.** Optional `mode.workspaceLock` allows one Tower session per repository; `spawn.maxLiveWorkers`, `send.maxPerMinute` and roster stale flags bound concurrency and message bursts.
+- **Hot reload.** In a profile with DSH HMR, `/tower reload`, `tower_reload` and `npm run dev:hmr` apply linked plugin changes without a restart; `plugin_manager` install/update already applies live.
+- **Evidence gate and events.** Workers can record `checks` in `tower_complete` and `gates.requireChecks` can require them; every mutation emits `tower/*` events and refreshes `MISSIONS.md`.
 
 ## Requirements
 
@@ -112,11 +116,11 @@ Image and file attachments are forwarded together with the instruction as one co
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown top-level keys are rejected so typos cannot silently disable security-relevant settings, while unknown keys inside a group are ignored. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
-## Tools (19)
+## Tools (20 core)
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
 
-`tower_control` exists only when `allowAgentControl: true` (the bundled patch enables it, so an installed build exposes 20 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+`tower_control` exists only when `allowAgentControl: true`; `tower_reload` exists only when the profile provides DSH HMR (enabled by default, so up to 22 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
@@ -126,7 +130,7 @@ Image and file attachments are forwarded together with the instruction as one co
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-24 stable blocker/failure codes (including gate guards and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md).
+25 stable blocker/failure codes (including gate guards, `no-check-evidence`, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 
 ## How it works
 
@@ -160,13 +164,17 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 npm test        # node --test tests/*.test.mjs
 ```
 
+Hot-reload development: `npm run dev:hmr` adds this checkout to the current profile's HMR watch roots
+(one DSH restart); afterwards `/tower reload` or the automatic watcher applies `lib/` edits. See
+[docs/guide/hot-reload.md](docs/guide/hot-reload.md).
+
 The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.
 
 ## Documentation
 
 - [docs/README.md](docs/README.md) — documentation index (new user / operator / maintainer paths)
 - [Chinese docs](docs/zh/README.md) · [Quick start](docs/guide/quickstart.md) · [Install, upgrade and migration](docs/guide/install-upgrade-migration.md)
-- [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md) · [Error codes](docs/reference/errors.md)
+- [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md) · [Error codes](docs/reference/errors.md) · [Events](docs/reference/events.md) · [Hot reload](docs/guide/hot-reload.md)
 - [Architecture and state machine](docs/architecture/overview.md) · [Operations runbook](docs/operations/runbook.md) · [Security model](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [Examples](docs/examples/first-mission.md)
 

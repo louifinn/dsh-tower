@@ -40,9 +40,29 @@ roster 中的 reviewer 只能列出和读取。
 **worker 能用 Tower 工具 merge 或 spawn 吗？**
 不能。worker preset 只包含 mission/进度工具；merge 与 spawn 属于上级控制塔。
 
+**worker 卡住或失控了，怎么停下它？**
+用 `tower_interrupt({to:"worker-m1",reason:"..."})`；它会调用宿主子代理中断，并把 roster 条目记录为
+`interrupted`。如果你已经中断过它并想要一个全新的 owner，用 `takeover:true` spawn。仍在运行的 worker
+不能被接管（`takeover-refused`）。
+
+**两个会话想驱动同一个仓库。**
+开启 `mode.workspaceLock:true`：第一个调用仓库级工具的 Tower 会话拥有
+`<git-common-dir>/dsh-tower/tower.lock`；其他会话会得到 `[tower:workspace-busy]`，直到 owner 执行
+`/tower off` 或锁过期（`mode.workspaceStaleMs`）。
+
+**能否不重启 DSH 就重载插件？**
+可以，在装有 DSH HMR 服务的 profile 中：`/tower reload` 或 `tower_reload` 工具会对账 profile 并替换
+变更的 linked 包。先运行一次 `npm run dev:hmr` 把仓库加入 profile 的 HMR 监视 root（然后重启 DSH
+一次）；见[热重载](guide/hot-reload.md)。`plugin_manager` 的安装/更新本身就会即时生效。
+
+**如何让完成证据成为强制要求？**
+worker 可以给 `tower_complete` 传 `checks`；设置 `gates.requireChecks:true` 后，没有 checks 的
+completed mission 会被阻止合并（`no-check-evidence`）。
+
 **Tower 把状态存在哪里？**
-目标仓库的 `<git-common-dir>/dsh-tower/state.json` 与 `activity.jsonl`；模式状态在
-`$DSH_HOME/tower-mode/modes.json`。worktree 位于检出旁边的 `.dsh-tower-worktrees/`。
+目标仓库的 `<git-common-dir>/dsh-tower/state.json`、`activity.jsonl`，以及可供人阅读的
+`MISSIONS.md`；模式状态在 `$DSH_HOME/tower-mode/modes.json`。worktree 位于检出旁边的
+`.dsh-tower-worktrees/`。
 
 **如何修改审查轮数上限或 preset？**
 使用 `review.maxRoundsPerReviewer` 与 `spawn.workerPreset`/`spawn.reviewerPreset`；见

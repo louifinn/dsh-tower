@@ -45,8 +45,33 @@ for (const code of [
   'merge-shape',
   'rebase-conflict',
   'worktree-dirty',
+  'no-check-evidence',
 ]) blockerCodes.add(code)
 const missingBlockers = [...blockerCodes].filter((code) => !blockersSource.includes(`\`${code}\``)).sort()
+
+const eventNames = [
+  'init',
+  'plan',
+  'mission',
+  'spawn',
+  'complete',
+  'review',
+  'merge',
+  'rebase',
+  'teardown',
+  'finding',
+  'findings',
+  'send',
+  'inbox',
+  'interrupt',
+  'diff',
+  'adopt',
+  'roster',
+  'status',
+  'preflight',
+]
+const documentedEvents = read('docs/reference/events.md')
+const missingEvents = eventNames.filter((name) => !documentedEvents.includes(`\`tower/${name}\``))
 
 const errorsSource = read('lib/errors.js')
 const documentedErrors = read('docs/reference/errors.md')
@@ -61,6 +86,7 @@ const problems = []
 if (missingTools.length > 0) problems.push(`docs/reference/tools.md misses tools: ${missingTools.join(', ')}`)
 if (missingBlockers.length > 0) problems.push(`docs/reference/blockers.md misses codes: ${missingBlockers.join(', ')}`)
 if (missingErrors.length > 0) problems.push(`docs/reference/errors.md misses codes: ${missingErrors.join(', ')}`)
+if (missingEvents.length > 0) problems.push(`docs/reference/events.md misses events: ${missingEvents.join(', ')}`)
 if (missingChangelog) problems.push(`CHANGELOG.md misses version ${packageJson.version}`)
 
 // Chinese parity: when the translation tree exists it must cover the same
@@ -71,7 +97,9 @@ if (exists('docs/zh')) {
     'docs/zh/reference/tools.md': (text) => toolNames.filter((name) => !text.includes(`\`${name}\``)),
     'docs/zh/reference/blockers.md': (text) => [...blockerCodes].filter((code) => !text.includes(`\`${code}\``)),
     'docs/zh/reference/errors.md': (text) => errorCodes.filter((code) => !text.includes(`\`${code}\``)),
+    'docs/zh/reference/events.md': (text) => eventNames.filter((name) => !text.includes(`\`tower/${name}\``)),
     'docs/zh/reference/config.md': null,
+    'docs/zh/guide/hot-reload.md': null,
   }
   for (const [page, check] of Object.entries(zhPages)) {
     if (!exists(page)) {
@@ -90,5 +118,5 @@ if (problems.length > 0) {
   process.exit(1)
 }
 console.log(
-  `docs ok: ${toolNames.length} tools, ${blockerCodes.size} blocker codes, ${errorCodes.length} error codes, version ${packageJson.version}`,
+  `docs ok: ${toolNames.length} tools, ${blockerCodes.size} blocker codes, ${errorCodes.length} error codes, ${eventNames.length} events, version ${packageJson.version}`,
 )

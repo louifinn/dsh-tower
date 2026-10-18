@@ -16,6 +16,14 @@
   与英文参考页保持同一套工具名、blocker 与错误码。
 - **测试与门禁**：新增仓库配置、finding 生命周期、工具别名/错误码/输出 schema、spawn mock
   与全流程 schema 校验用例；`docs:check` 同时校验中英文参考页、工具名、blocker 与错误码。
+- **协议硬化**：`tower_interrupt`（停止 running agent）、`tower_send(interrupt:true)`；
+  `tower_init` 支持 `autoGitInit`/`snapshotDirty`/`reanchor`；worker 不能直接完成/放弃/扩界，
+  completed 必须经 `tower_complete`；单 mission 单活 worker + `takeover` 接管 + generation。
+- **治理与可观测**：可选 `mode.workspaceLock` 仓库互斥；`spawn.maxLiveWorkers`、`send.maxPerMinute`
+  与 roster stale 标记；`tower_status` 分页/单 mission 明细/gate digest/markdown；`MISSIONS.md`
+  人类可读门板；`tower/*` 进程内事件；`tower_complete.checks` + `gates.requireChecks`。
+- **热重载**：`/tower reload` 与 `tower_reload` 调用 DSH HMR `reconcileProfile`；新增
+  `npm run dev:hmr` 脚本把 linked 仓库加入 profile HMR watch root；`docs/guide/hot-reload.md`。
 
 ### 变更
 
@@ -29,7 +37,15 @@
   `findingsByStatus`；worker/reviewer preset 允许 `tower_findings`。
 - **配置解析**：兼容别名只用于补缺——同时设置 `section` 与 `mode.promptSection` 时规范键优先；
   仓库配置增加 1 MiB 大小上限与 `__proto__`/`constructor`/`prototype` 等危险键拒绝。
-- **离线套件**：测试增至 51 项（原有 26 项保持通过）。
+- **配置默认值**：`mode.denyTools` 追加 workflow/ralph/subagent/subagent_fork/wait_agent/team_task_list
+  （Tower 模式与其它编排互斥）；新增 `spawn.maxLiveWorkers:4`、`spawn.staleMs:60000`、
+  `send.maxPerMinute:120`、`gates.requireChecks:false`、`docs.board:true`、`dev.hotReload:true`。
+- **briefing**：worker/reviewer 生成历史审查、上一轮 findings/decision、completion checks 与
+  related findings，长文本截断；reviewer 必须核对 completion checks。
+- **输出/工具面**：`tower_status` 返回 total/offset/nextOffset/detail/markdown；`tower_adopt`
+  支持 `retireMissing:false`；`tower_mode` 返回 pluginVersion/HMR/workspace lock；`tower_roster`
+  增加 `stale`。工具总数最多 22（含可选的 control/reload）。
+- **离线套件**：测试增至 107 项（含 2.0 新测试；原有 26 项保持通过）。
 - 无破坏性变更：既有工具参数与输出保持兼容，新增能力均为追加。
 
 ### 修复
@@ -42,6 +58,10 @@
 - **findings 只读路径**：列表/读取不再获取写锁，与工具描述一致，长合并或 hook 期间也能读取。
 - **mission id 规范化**：`tower_mission` 对首尾空白的 `id` 先 trim 再查找，不再误报
   `mission-not-found`。
+- **角色绕过**：worker 之前可经 `tower_mission` 直接 completed/abandoned/扩界或清 blocker，
+  绕过 `tower_complete` 的未读/提交证据；现由服务端角色强制。
+- **并发与接管**：同一 mission 不再允许出现第二个 live worker；stale/interrupted/failed 的
+  worker 可显式 takeover，running worker 必须先中断，否则 `takeover-refused`。
 
 ## 1.3.0 — 2026-10-18
 

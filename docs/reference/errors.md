@@ -28,6 +28,13 @@ message without a more specific match is reported as `tool-internal`.
 | `provider-missing` | No subagent provider is registered. | an empty provider list |
 | `preset-missing` | The configured agent preset is not registered. | missing `tower-worker`/`tower-reviewer` preset rows, DSH not restarted |
 | `reviewer-prerequisite` | The reviewer spawn prerequisite is not met. | reviewer spawned before the mission is `completed`, or before a worktree exists |
+| `not-authorized` | The calling agent role may not perform this action. | a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings |
+| `workspace-busy` | Another Tower session owns this repository's workspace lock. | `mode.workspaceLock:true` and a second session calls a repo-scoped tool |
+| `worker-limit` | The repository reached `spawn.maxLiveWorkers` live workers. | spawning a fifth worker with the default limit |
+| `rate-limited` | The `tower_send` per-minute rate limit was reached. | `send.maxPerMinute` exceeded; retry later |
+| `takeover-refused` | The mission still has a running worker. | `tower_spawn({takeover:true})` before `tower_interrupt` |
+| `reload-unavailable` | The DSH HMR service is not available in this profile. | `tower_reload` / `/tower reload` on a profile without HMR |
+| `reload-failed` | The HMR reload failed. | `reconcileProfile` threw; check the DSH log and restart |
 | `tool-internal` | An unexpected failure. | a bug; read the message and the activity log |
 
 ## Why thrown?

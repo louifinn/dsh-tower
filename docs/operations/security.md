@@ -7,6 +7,11 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Review binding.** `tower_review` records the branch tip it inspected; the gate rejects a moved tip
   (`tip-moved`) unless a clean conflict-free rebase waived it. A reviewer that modifies the branch after
   spawning is rejected (`reviewer must not modify the mission branch`).
+- **Role enforcement.** The caller is resolved against the roster. Worker mission updates are limited to
+  task/blocker/note; `completed`, `abandoned`, scope widening and blocker clearing are tower-only, and
+  completion (with its unread-inbox/commit gates) must go through `tower_complete`. Tower-only tools reject
+  roster workers with `[tower:not-authorized]`. One live worker per mission; taking over a stopped worker
+  is explicit.
 - **Read-only reviewer preset.** The `tower-reviewer` preset removes `write`, `edit`, `pwsh`,
   `tower_mission` and `tower_complete` from the tool surface; reviewers can only read, diff, message,
   file findings, and submit a review.
@@ -18,6 +23,8 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
   but must state a reason; the shipped patch enables that by default — set it to `false` to make the
   mode human-only.
 - **No automatic goal resume.** Entering pauses the active goal; leaving does not resume it.
+- **Advisory workspace lock.** `mode.workspaceLock` prevents two Tower sessions from accidentally driving
+  one repository; it is a same-user coordination lock, not authentication between users.
 
 ## Not enforced by the plugin (deployment concerns)
 
@@ -29,6 +36,8 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
   high-value branches.
 - **Repository hooks.** `git merge` runs the target repository's hooks (`pre-merge-commit` etc.). Tower
   cannot make those safe; review hooks before running Tower on an untrusted repository.
+- **HMR reload.** With `dev.hotReload`, `/tower reload`/`tower_reload` asks DSH to re-import the plugin
+  from disk. Only enable HMR watch roots for checkouts you trust; a reload executes the current files.
 - **Prompt injection.** The reviewer reads untrusted branch content (diff/comments). The read-only preset
   limits impact, but no model-side protection is absolute.
 - **Base branch protection.** Tower writes to the local base branch; server-side branch protection/push

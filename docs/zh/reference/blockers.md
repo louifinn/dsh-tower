@@ -5,7 +5,7 @@
 `tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
 在操作失败时返回相同结构。code 稳定；detail 面向人。
 
-## 门禁 blocker（19 个）
+## 门禁 blocker（20 个）
 
 | Code | 含义 / 下一步 |
 |---|---|
@@ -13,6 +13,7 @@
 | `mission-not-completed` | mission 不是 `completed`；只有 `completed`（等待审查）的 mission 才能合并。 |
 | `tasks-open` | 仍有未完成任务；worker 必须先完成，或带理由 `task_drop`。 |
 | `blockers-present` | mission 仍有 blocker；解决后清除。 |
+| `no-check-evidence` | 启用了 `gates.requireChecks` 且完成报告没有 `checks`；带证据重新调用 `tower_complete`。 |
 | `branch-missing` | 还没有 worktree/分支：先 spawn worker。 |
 | `stale-base` | 分支不包含基线 tip：执行 `tower_rebase`。 |
 | `read-only-survey` | survey mission 修改了文件；survey mission 必须只读。 |
@@ -28,6 +29,9 @@
 | `worker-busy` | 该 mission 的 roster agent 正在运行；等待或让其退役。 |
 | `base-wrong-branch` | 主检出不在记录的基线分支上。 |
 | `branch-owned-by-closed-missions` | mission 已 merged/abandoned；用新标题重新 plan。 |
+
+门禁 blocker 共 20 个；加上合并失败 3 个与 rebase 失败 3 个（`worker-busy` 与门禁共用），
+稳定的 blocker code 共 25 个。
 
 ## 合并失败（3 个）
 

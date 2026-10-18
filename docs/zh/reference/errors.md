@@ -30,6 +30,13 @@
 | `provider-missing` | 没有注册的 subagent provider。 | provider 列表为空 |
 | `preset-missing` | 配置的 agent preset 未注册。 | 缺少 `tower-worker`/`tower-reviewer` preset 行、DSH 未重启 |
 | `reviewer-prerequisite` | reviewer spawn 的前置条件未满足。 | mission 尚未 `completed` 或还没有 worktree 就 spawn reviewer |
+| `not-authorized` | 调用方 agent 角色无权执行该操作。 | worker 调用仅限控制塔的工具，或修改 mission 状态/scope；reviewer 修改 finding |
+| `workspace-busy` | 另一个 Tower 会话持有该仓库的 workspace 锁。 | `mode.workspaceLock:true` 时第二个会话调用仓库级工具 |
+| `worker-limit` | 仓库达到 `spawn.maxLiveWorkers` 个活跃 worker。 | 默认上限下 spawn 第五个 worker |
+| `rate-limited` | 达到 `tower_send` 的每分钟速率限制。 | 超出 `send.maxPerMinute`；稍后重试 |
+| `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |
+| `reload-unavailable` | 当前 profile 中没有可用的 DSH HMR 服务。 | 在没有 HMR 的 profile 上调用 `tower_reload` / `/tower reload` |
+| `reload-failed` | HMR reload 失败。 | `reconcileProfile` 抛错；检查 DSH 日志并重启 |
 | `tool-internal` | 意外失败。 | bug；阅读消息与 activity 日志 |
 
 ## 为什么抛出？

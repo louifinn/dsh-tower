@@ -4,14 +4,17 @@
 
 ```
 Host plugin (index.js)
- ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control)
- ├─ lib/tools.js  -> 18 repository tools incl. tower_diff and tower_findings
+ ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
+ ├─ lib/tools.js  -> 19 repository tools incl. tower_diff, tower_findings and tower_interrupt
+ │                   (+ optional tower_reload when DSH HMR is available)
  └─ lib/tower.js  -> Tower domain: missions, gates, worktrees, roster, review, findings, merge
-       ├─ lib/git.js     minimal git port (execFile, bounded output, timeout classification)
-       ├─ lib/store.js   repo-scoped lock + atomic JSON + activity.jsonl
-       ├─ lib/config.js  Config schema + profile/repo layers + runtime snapshot
-       ├─ lib/errors.js  stable tool error codes and classification
-       └─ lib/modeStore.js  per-agent Tower mode persistence
+       ├─ lib/git.js          minimal git port (execFile, bounded output, timeout classification)
+       ├─ lib/store.js        repo-scoped lock + atomic JSON + activity.jsonl
+       ├─ lib/config.js       Config schema + profile/repo layers + runtime snapshot
+       ├─ lib/errors.js       stable tool error codes and classification
+       ├─ lib/workspaceLock.js  optional one-Tower-session-per-repository advisory lock
+       ├─ lib/hmr.js          optional DSH HMR bridge (tower_reload / /tower reload)
+       └─ lib/modeStore.js    per-agent Tower mode persistence
 Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
  └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding (read-only)

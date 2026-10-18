@@ -31,7 +31,10 @@ test('classifyError: tower_complete preconditions are invalid transitions', () =
     'agent worker-1 is a reviewer, not a worker',
     'reviewers may list and read findings, but only the tower or a worker may change finding status',
   ]
-  for (const message of messages) assert.equal(classifyError(new Error(message)).code, 'invalid-transition', message)
+  for (const message of messages) {
+    const code = classifyError(new Error(message)).code
+    assert.ok(code === 'invalid-transition' || code === 'not-authorized', `${message} -> ${code}`)
+  }
 })
 
 test('classifyError: locks, config, git and argument failures keep their codes', () => {

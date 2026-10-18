@@ -6,10 +6,24 @@
 // forwarded to the model as the next user message. With
 // config.allowAgentControl the model may also enter or leave the mode through
 // `tower_control` when the user intent or task state clearly calls for it.
+//
+// `/tower reload` asks DSH HMR to reconcile this profile and reload the Tower
+// plugin from disk when the HMR service is present (dev/linked installs).
+import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { registerTowerTools } from './lib/tools.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
+import { TowerToolError } from './lib/errors.js'
+import { resolveRepo } from './lib/git.js'
+import {
+  acquireWorkspaceLock,
+  inspectWorkspaceLock,
+  releaseWorkspaceLock,
+  touchWorkspaceLock,
+  workspaceLockToken,
+} from './lib/workspaceLock.js'
+import { createHmrBridge } from './lib/hmr.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
@@ -17,6 +31,7 @@ export const Config = ConfigSchema
 
 let MODE = new Map()
 let denyTools = new Set(DEFAULT_DENY_TOOLS)
+let pluginVersion = null
 
 const BASE_REMINDER = [
   'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
@@ -27,6 +42,17 @@ const BASE_REMINDER = [
 
 const AGENT_CONTROL_NOTE =
   'If tower_control is available you may also enter or leave Tower mode yourself when the user intent or task state clearly calls for it, and you must state a concrete reason.'
+
+function readPluginVersion() {
+  if (pluginVersion !== null) return pluginVersion
+  try {
+    const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+    pluginVersion = typeof pkg.version === 'string' ? pkg.version : null
+  } catch {
+    pluginVersion = null
+  }
+  return pluginVersion
+}
 
 function agentKey(agent) {
   if (!agent) return null
@@ -53,9 +79,10 @@ function persistModes() {
 /** Parse `/tower` arguments: bare and free text both mean "ensure on". */
 function parseTowerInput(rawInput) {
   const raw = String(rawInput ?? '').trim()
+  if (/^reload$/i.test(raw)) return { action: 'reload' }
   const match = /^(on|off)(?:\s+([\s\S]*))?$/i.exec(raw)
-  if (match) return { active: match[1].toLowerCase() === 'on', message: (match[2] ?? '').trim() }
-  return { active: true, message: raw }
+  if (match) return { action: 'mode', active: match[1].toLowerCase() === 'on', message: (match[2] ?? '').trim() }
+  return { action: 'mode', active: true, message: raw }
 }
 
 /**
@@ -105,6 +132,7 @@ function enterMode(ctx, key, agent, by, reason) {
   MODE.set(key, {
     on: true,
     pausedGoal,
+    lock: previous?.lock ?? null,
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
@@ -112,12 +140,23 @@ function enterMode(ctx, key, agent, by, reason) {
   return { wasOn, pausedGoal, goalNote }
 }
 
-function exitMode(key, by, reason) {
+async function exitMode(key, by, reason) {
   const previous = MODE.get(key)
   if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null }
   MODE.delete(key)
   persistModes()
+  if (previous.lock) {
+    await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
+  }
   return { wasOn: true, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
+}
+
+async function releaseSessionLock(key) {
+  const entry = MODE.get(key)
+  if (!entry?.lock) return
+  await releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
+  entry.lock = null
+  persistModes()
 }
 
 function forwardInstruction(agent, message, attachments) {
@@ -164,7 +203,63 @@ export function apply(ctx, rawConfig) {
   const reminder = configSection(config, allowAgentControl)
   MODE = loadModes(config.mode.storePath || undefined)
   denyTools = new Set(config.mode.denyTools)
-  registerTowerTools(ctx)
+  const hmrBridge = createHmrBridge(ctx, {
+    requiredIds: config.dev?.reloadRequiredIds,
+    delayMs: config.dev?.reloadDelayMs,
+    logger: ctx.logger ?? console,
+  })
+
+  const workspace = {
+    /** Lazily acquire the advisory workspace lock on the first repo-scoped tool. */
+    async ensure(repoRoot, exec) {
+      if (runtimeConfig().mode.workspaceLock !== true) return
+      const key = agentKey(exec?.agent)
+      if (!key) return
+      const entry = MODE.get(key)
+      if (!entry) return
+      const repo = await resolveRepo(repoRoot)
+      const existing = entry.lock
+      if (existing && existing.commonDir !== repo.commonDir) {
+        throw new TowerToolError(
+          'workspace-busy',
+          `this Tower session already owns ${existing.commonDir}; /tower off before switching repositories`,
+        )
+      }
+      const result = await acquireWorkspaceLock(repo.commonDir, {
+        token: existing?.token ?? workspaceLockToken(),
+        sessionId: key,
+        agentId: key,
+        staleMs: Number(runtimeConfig().mode.workspaceStaleMs) || 300000,
+      })
+      if (!result.acquired) {
+        const holder = result.holder
+          ? `session ${String(result.holder.sessionId).slice(0, 12)} (since ${new Date(Number(result.holder.at ?? 0)).toISOString()})`
+          : 'an unreadable lock'
+        throw new TowerToolError(
+          'workspace-busy',
+          `workspace ${repo.root} is locked by ${holder}; another Tower session must /tower off or set mode.workspaceLock:false`,
+        )
+      }
+      entry.lock = { token: result.record.token, commonDir: repo.commonDir }
+      persistModes()
+    },
+    async status(entry) {
+      if (!entry?.lock) return { enabled: runtimeConfig().mode.workspaceLock === true, held: false }
+      const info = await inspectWorkspaceLock(entry.lock.commonDir, {
+        sessionId: agentKey(entry.agentId ?? null),
+        staleMs: Number(runtimeConfig().mode.workspaceStaleMs) || 300000,
+      }).catch(() => null)
+      return {
+        enabled: runtimeConfig().mode.workspaceLock === true,
+        held: true,
+        commonDir: entry.lock.commonDir,
+        stale: info?.stale === true,
+        holder: info?.holder ?? null,
+      }
+    },
+  }
+
+  registerTowerTools(ctx, { workspace })
 
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
@@ -189,11 +284,23 @@ export function apply(ctx, rawConfig) {
     text: (context) => (context && MODE.has(agentKey(context.agent)) ? reminder : ''),
   })
 
+  // Workspace-lock heartbeat; only sessions holding a lock do I/O.
+  ctx.effect(() => {
+    const timer = setInterval(() => {
+      for (const entry of MODE.values()) {
+        if (!entry?.lock) continue
+        touchWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
+      }
+    }, Math.max(1000, Number(config.mode.heartbeatMs) || 10000))
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  })
+
   ctx.effect(() =>
     ctx.tools.register({
       name: 'tower_mode',
       description:
-        'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, and any goal paused on entry.',
+        'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, any goal paused on entry, the workspace lock, HMR availability and the plugin version.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output: {
         schema: {
@@ -206,6 +313,9 @@ export function apply(ctx, rawConfig) {
             pausedGoal: {},
             deniedWhileActive: { type: 'array', items: { type: 'string' } },
             persistedAt: { type: 'string' },
+            pluginVersion: {},
+            hotReload: {},
+            workspaceLock: {},
           },
           required: ['mode', 'allowAgentControl', 'deniedWhileActive'],
           additionalProperties: true,
@@ -223,6 +333,9 @@ export function apply(ctx, rawConfig) {
           pausedGoal: entry?.pausedGoal ?? null,
           deniedWhileActive: [...denyTools],
           persistedAt: storePath(config.mode.storePath || undefined),
+          pluginVersion: readPluginVersion(),
+          hotReload: hmrBridge.status(),
+          workspaceLock: entry ? await workspace.status(entry) : { enabled: config.mode.workspaceLock === true, held: false },
         }
       },
     }),
@@ -272,7 +385,7 @@ export function apply(ctx, rawConfig) {
           const outcome =
             args.action === 'enter'
               ? enterMode(ctx, key, exec.agent, 'agent', reason)
-              : exitMode(key, 'agent', reason)
+              : await exitMode(key, 'agent', reason)
           return {
             ok: true,
             action: args.action,
@@ -291,15 +404,26 @@ export function apply(ctx, rawConfig) {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
       name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction',
-      input: { hint: '[on|off] [message]', attachments: true },
+      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower reload reloads the plugin via HMR',
+      input: { hint: '[on|off|reload] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
-        const { active, message } = parseTowerInput(rawInput)
+        const parsed = parseTowerInput(rawInput)
+        if (parsed.action === 'reload') {
+          if (!hmrBridge.available) {
+            return { kind: 'error', text: 'Tower reload is unavailable: this DSH profile has no HMR service. Restart DSH instead.' }
+          }
+          const outcome = hmrBridge.schedule()
+          return {
+            kind: 'success',
+            text: `Tower reload scheduled in ${outcome.delayMs}ms (required entries: ${outcome.requiredIds.join(', ')}). If the new code does not appear, restart DSH.`,
+          }
+        }
+        const { active, message } = parsed
         const outcome = active
           ? enterMode(ctx, key, agent, 'user', message || null)
-          : exitMode(key, 'user', message || null)
+          : await exitMode(key, 'user', message || null)
 
         let forwarded = false
         try {

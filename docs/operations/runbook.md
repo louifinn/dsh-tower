@@ -23,6 +23,29 @@
 leaves the branch untouched — then call `tower_merge` to record it. A conflict marks the mission
 `blocked`; resolve in the worktree, set the mission back to `active` (or `completed`), retry.
 
+## Interrupt, stale roster and takeover
+
+A runaway agent: `tower_interrupt({to:"worker-m1",reason:"..."})` interrupts the host subagent turn and
+records `state:"interrupted"`. `tower_roster` shows `stale:true` when an active entry has no catalog
+activity beyond `spawn.staleMs`; `tower_adopt` retires such entries (`retireMissing:false` marks them
+`missing` instead). After the old owner is interrupted/failed/missing, spawn a replacement with
+`takeover:true`; a still-running owner returns `takeover-refused`.
+
+## Workspace lock
+
+With `mode.workspaceLock:true`, `<git-common-dir>/dsh-tower/tower.lock` names the owning session. A second
+Tower session gets `[tower:workspace-busy]`. Let the owner run `/tower off`; if the owner is gone, wait
+`mode.workspaceStaleMs` (default 5 min) for the stale takeover, or delete the lock deliberately only after
+confirming no Tower session is active. Heartbeats refresh the lock every `mode.heartbeatMs`.
+
+## Hot reload
+
+`/tower reload` or `tower_reload` asks DSH HMR to reconcile the profile and reload the Host plugin; the
+reload is scheduled after the tool result (`dev.reloadDelayMs`). It fails with `reload-unavailable` on a
+profile without HMR. Run `npm run dev:hmr` once to add this checkout to the profile's HMR watch roots
+(one DSH restart after the profile patch change); see [hot reload](../guide/hot-reload.md). If a reload
+fails, the previous plugin code no longer runs: restart DSH and check the HMR log.
+
 ## State lock
 
 `tower state is locked by another writer` means an operation holds `state.lock`. Wait and retry. Only if

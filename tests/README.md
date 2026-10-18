@@ -13,11 +13,37 @@ npm test
 
 > Node's `--test` no longer accepts a directory argument; pass a glob instead. A bare directory fails with `Cannot find module`.
 
+The 2.0 suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
+
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-ASCII titles, glob matching.
+- `errors.test.mjs` — the stable `[tower:<code>]` classifier for every documented failure family.
+- `config.repo.test.mjs` — repository config layer: path, precedence, legacy keys, and invalid input codes.
+- `findings.test.mjs` — the finding lifecycle through the domain class.
 - `protocol.e2e.test.mjs` — drives the `Tower` class through a real temporary Git repository: init → plan → worktree → tasks → unread-inbox block → complete → finding → review → preflight → merge → teardown, plus automatic dependency for overlapping scopes and rejection of unknown dependencies.
 - `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
+- `state-machine.test.mjs` — the documented mission transition table (allowed and denied), completion/merge entry points, and a seeded 200-step fuzz that must keep the state valid and the revision monotonic.
+- `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
+- `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
+- `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
+- `concurrency.test.mjs` — `spawn.maxLiveWorkers`, `tower_send` per-minute rate limiting, stale roster entries (`spawn.staleMs`), and parallel writers serializing on the state lock with a monotonic revision.
+- `faults.test.mjs` — corrupt/unsupported state JSON (`state-corrupt`), a held writer lock (`state-locked`), and a vanished worktree reported as `branch-missing` instead of throwing.
+- `status.test.mjs` — `tower_status` pagination, one-mission detail, `includeGate` digests, `format:"markdown"` and the `MISSIONS.md` board written by mutations.
+- `briefing.test.mjs` — worker/reviewer briefing history injection (previous review rounds, findings, completion report and checks) and truncation bounds, including a real `missionContext` fixture.
+- `init.test.mjs` — `tower_init` policies: `autoGitInit` in a plain directory, `snapshotDirty` mission baselines, `reanchor` preconditions, and dirty-tree reporting.
+- `tools.test.mjs` / `tool-schemas.test.mjs` / `spawn.mock.test.mjs` — tool surface, aliases, stable error prefixes, full output-schema walk, and mock-spawn role/preset/briefing behavior.
+- `hmr.test.mjs` / `reload.test.mjs` — the HMR bridge (availability, scheduling, error codes, CLI block editing) and the `/tower reload` + `tower_reload` wiring.
+- `regressions.test.mjs` — fixes found in the 2.0 review round: spawn limit must reject before any activation, repo-config `send.interruptDefault`/`init.snapshotDirty`, and classifier coverage for actionable refusals.
 
 All temporary repositories and state are created under the OS temp directory and cleaned up automatically.
+
+### Coverage and watch mode
+
+```powershell
+npm run test:coverage   # same suite plus Node's experimental coverage report
+npm run test:watch      # re-run the offline suite while editing
+```
+
+Coverage is a diagnostic, not a gate; the meaningful signal is that the offline suite is green and the new behaviour has a dedicated case.
 
 ## 2. Real Web runtime (isolated profile)
 
@@ -57,6 +83,15 @@ node tests/live/model.cjs
 
 `model.cjs` asks the model to: `tower_control enter` → read `tower_mode` → call `create_goal` (must be denied by the guard) → `tower_control exit`.
 
+### Hot reload and UI bundle (dev runtime)
+
+`npm run dev:hmr` enables the DSH HMR service for this repository in the selected profile (idempotent; supports `--dry-run` and `--remove`; needs one restart). See `docs/guide/hot-reload.md` for the profile patch details.
+
+- `node tests/live/hmr.cjs` — opt-in live acceptance for `/tower reload` and the `tower_reload` tool. It drives only `DSH_TEST_URL`; Playwright or `DSH_TEST_URL` missing prints SKIP and exits 0. Set `DSH_TEST_HMR_ROOT` to a scratch copy under `%TEMP%` when you want the script to touch a watched file.
+- `node tests/live/ui-slots.cjs` — read-only check for the optional `ui-bundle/` hint in the same isolated server; `DSH_TEST_EXPECT_HINT=1` makes a missing hint a failure.
+
+Neither live script touches the desktop profile or the live `$DSH_HOME` session state.
+
 ### Cleanup
 
 ```powershell
@@ -93,4 +128,4 @@ After installing/restarting desktop (Host plugins load at process start, so a co
 7. After `/tower off`, `todo_write` works again and the tower guard no longer blocks `update_goal`.
 8. After a restart, `tower_mode` is still on for the same session id (`$DSH_HOME/tower-mode/modes.json`).
 9. With `allowAgentControl: true`, `tower_control` exists; with the default `false` it does not.
-10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising all 13 blocker codes (see the repository `README.md`).
+10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising all 25 blocker/failure codes (see the repository `README.md`).

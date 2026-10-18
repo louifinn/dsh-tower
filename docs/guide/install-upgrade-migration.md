@@ -29,6 +29,13 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **1.x → 2.0 (unreleased)**: no state migration is needed (`schemaVersion` stays 1; new fields are
+  optional). Behavior changes to review: `mode.denyTools` now also denies `workflow`, `ralph`, `subagent`,
+  `subagent_fork`, `wait_agent` and `team_task_list` while Tower mode is active (override with an explicit
+  list); `spawn.maxLiveWorkers` defaults to 4; `mode.workspaceLock` is off by default. Workers can no
+  longer complete/abandon/scope a mission directly — use `tower_complete`. New tools: `tower_interrupt`,
+  and `tower_reload` when HMR is available. Restart DSH once after upgrading; see
+  [hot reload](hot-reload.md).
 - **1.3 → 1.4**: no state migration is needed. New: repository-level config
   (`<git-common-dir>/dsh-tower/config.json`), stable `[tower:<code>]` tool errors, `tower_findings`,
   and `id`/`missionId` + snake/camel input aliases. Existing calls keep working; restart DSH to load
