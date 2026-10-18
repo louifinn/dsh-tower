@@ -8,6 +8,18 @@
 
 - **文档索引补齐**：根 README 的“文档”区补上《什么时候用 Tower》链接；`docs/README.md` 新增
   “All pages”完整页面索引（指南 / 参考 / 运维与背景），与中文文档索引对齐。
+- **全量文档与产品一致性审查（功能/哲学）**：把 `review.requireReview` 默认 `false`（审查可选）
+  同步到快速开始、示例、FAQ、blocker/测试/架构/配置/迁移说明与中英文页面；修正测试门禁描述为
+  当前分支 tip（而非“被审查 tip”）；修正单 mission 审查豁免需要
+  `gates.allowReviewExemption:true`；补齐 2.0.1–2.0.3 升级说明；README 的“何时使用/工作流对比”
+  不再把独立审查写成默认必经步骤。
+- **模型可见工具描述同步**：`tower_plan` 的 `reviewPolicy`、`tower_complete` 的完成语义、
+  `tower_preflight` 的 review blocker 条件，以及 reviewer 错误文案不再暗示“完成即等待审查”。
+
+### 修复
+
+- **文档与实现不一致**：`gates.requireTests` 文档原写“reviewed tip”，实现校验当前 mission 分支
+  tip；已同步英文/中文配置、测试与 blocker 参考。
 
 ## 2.0.3（2026-10-18）
 

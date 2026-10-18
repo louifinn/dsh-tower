@@ -3,16 +3,18 @@
 [English](../faq.md) | **简体中文**
 
 **什么时候该用 Tower，而不是 Agent Teams、Ralph、Workflow 或普通子代理？**
-当输出是单个 Git 仓库中需要审查并合入的变更时，用 Tower。只读探索或快速独立子任务用普通子代理；
+当输出是单个 Git 仓库中需要集成的变更时，用 Tower（需要独立结论时再开启审查）。只读探索或快速独立子任务用普通子代理；
 横切的人类协作/设计决策用 Agent Teams；对同一目标反复新鲜尝试用 Ralph；程序化高扇出分析用 Workflow。
 完整选择路径、场景与对比表见[什么时候用 Tower](guide/scenarios-and-philosophy.md)。
 
 **可以同时把 Tower 和 Team/Workflow/Ralph 组合使用吗？**
 同一会话中不能并发：Tower 模式会拒绝这些工具并清除 plan mode。请按阶段组合——先用 Workflow/Team
-分析与决策，再启动 Tower 执行并审查仓库变更。详见[完整指南](guide/scenarios-and-philosophy.md#4-tower-与其他-dsh-工作流模式的区别)。
+分析与决策，再启动 Tower 执行（可选审查）仓库变更。详见[完整指南](guide/scenarios-and-philosophy.md#4-tower-与其他-dsh-工作流模式的区别)。
 
 **为什么 worker 刚完成，`tower_preflight` 就因 `no-review` 失败？**
-这是预期行为：`completed` 的 mission 正在等待审查。spawn 一个 reviewer；干净审查后门禁就会变绿。
+只有在 `review.requireReview:true` 开启时才会如此：已完成的 mission 在等待独立审查。spawn 一个
+reviewer；干净审查后门禁就会变绿。默认 `review.requireReview:false` 时审查可选，不会产生
+`no-review` blocker。
 
 **需要轮询 worker 吗？**
 不需要。worker 的最终报告会送回本会话；`tower_roster` 显示实时活动。轮询只会浪费回合。
@@ -33,8 +35,8 @@
 
 **可以要求强制独立审查吗？**
 可以。在 profile 或仓库配置中设 `review.requireReview:true` 可开启全局审查门禁（默认 `false`，
-即审查可选）。开启后可用 mission 级 `reviewPolicy:"none"` + 理由做更窄的豁免。`tower_review`
-始终可用并记录结论。
+即审查可选）。开启后可用 mission 级 `reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true`
+做更窄的豁免。`tower_review` 始终可用并记录结论。
 
 **reviewer 能修改文件吗？**
 不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支

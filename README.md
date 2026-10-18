@@ -15,7 +15,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 - **由人类掌握的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
-- **审查门禁合并。** 审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选，设 `review.requireReview:true` 可全局强制（仍可随时提交 review）。
+- **审查门禁合并。** 开启 `review.requireReview:true` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选（门禁关闭）；全局开启时，单个 mission 用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
 - **默认安全。** Tower 模式开启期间拒绝 `create_goal`、`update_goal(resume)`、`todo_write`、Team 任务板与 `spawn_teammate`；被暂停的 goal 不会被自动恢复。
 - **可追溯的 finding 生命周期。** `tower_findings` 列表、读取并按 `open → triaged → fixed` / `wontfix` 流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
@@ -33,7 +33,7 @@ Tower 是**面向 Git 仓库变更的交付协议**，不是所有多代理场�
 
 - 一个特性/重构能拆成 2–8 个 scope 清晰、可独立审查的 mission；
 - 有依赖顺序、需要分支新鲜度与 scope 约束的迁移；
-- 敏感仓库、发布绑定变更，或需要"被审查 commit + 测试证据 + 可审计合并"的工作；
+- 敏感仓库、发布绑定变更，或需要"可审计合并 + 测试证据"（需要时开启独立审查）的工作；
 - 跨上下文压缩、重启、多天协作，需要从本地状态恢复的工作；
 - 需要把"完成"定义成任务 + 测试（可选独立审查），而不是聊天里的一句"好了"。
 
@@ -87,16 +87,17 @@ tower_init      repoRoot=D:\work\repo            # 首次初始化，记录 base
 tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # worker 在 worktree 内实现并提交，调用 tower_complete；最终报告会返回本会话
+# 可选：需要强制独立审查时，先开启 review.requireReview:true
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # reviewer 只读审查并调用 tower_review（clean+merge 或 p1-Nitems/p2-Nitems）
-tower_preflight repoRoot=D:\work\repo missionId=M1    # 审查前 预期 no-review；审查后应为 ok:true
+tower_preflight repoRoot=D:\work\repo missionId=M1    # 默认审查可选；开启 review.requireReview 时审查前预期 no-review，审查后 ok:true
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
 /tower off
 ```
 
-小改动通常一轮 worker + 一轮 reviewer 即可完成。完整可复制示例见 [docs/examples/first-mission.md](docs/examples/first-mission.md)，逐工具参数见 [docs/reference/tools.md](docs/reference/tools.md)。
+小改动通常一轮 worker 即可完成；需要独立审查时再加一轮 reviewer。完整可复制示例见 [docs/examples/first-mission.md](docs/examples/first-mission.md)，逐工具参数见 [docs/reference/tools.md](docs/reference/tools.md)。
 
 ## 命令
 
@@ -124,6 +125,7 @@ tower_teardown  repoRoot=D:\work\repo
       autoPauseGoal: true
       denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
     review:
+      requireReview: false       # 默认审查可选；需要强制独立审查时改为 true
       maxRoundsPerReviewer: 5
     merge:
       timeoutMs: 900000
@@ -149,7 +151,7 @@ tower_teardown  repoRoot=D:\work\repo
 ## 安全与约束
 
 - **门禁不全绿不合并。** `tower_preflight` 是只读检查，返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
-- **审查绑定提交。** 审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。
+- **审查绑定提交。** 开启 `review.requireReview` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。
 - **scope 强制。** mission 只能修改其 scope glob 匹配的文件，越界会以 `out-of-scope` 阻止合并。
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。

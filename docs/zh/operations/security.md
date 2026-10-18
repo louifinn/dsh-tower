@@ -6,9 +6,9 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 
 ## 由插件强制执行的约束
 
-- **审查绑定。** `tower_review` 会记录它检查的分支 tip；tip 变化后门禁会拒绝（`tip-moved`），除非
-  一次干净且无冲突的 rebase 给予了豁免。reviewer 在 spawn 之后修改分支会被拒绝
-  （`reviewer must not modify the mission branch`）。
+- **审查绑定（开启审查时）。** `tower_review` 会记录它检查的分支 tip；开启 `review.requireReview` 后
+  tip 变化会被门禁拒绝（`tip-moved`），除非一次干净且无冲突的 rebase 给予了豁免。reviewer 在 spawn
+  之后修改分支会被拒绝（`reviewer must not modify the mission branch`）。
 - **审查默认可选，可配置强制。** `review.requireReview:false` 是默认值；设为 `true` 才启用独立审查
   门禁。全局开启时，mission 级 `reviewPolicy:"none"` + 理由是更窄的豁免。关闭门禁时插件不强制职责
   分离；只应用于可信仓库或有人类监督的会话。

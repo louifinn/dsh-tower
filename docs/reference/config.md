@@ -22,7 +22,7 @@ win, profile keys survive when the repo does not set them. `tower_status` report
 
 ```json
 {
-  "review": { "maxRoundsPerReviewer": 3 },
+  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" },
   "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
@@ -78,8 +78,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `tests.autoChecks` | `true` | Attach an automatic `tests` check to the completion report. |
 | `tests.allowPackageDiscovery` | `true` | Allow repo-controlled `tower.testDiscovery` commands (executes worktree code; see security). |
 | `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
-| `gates.requireTests` | `false` | Require a passing discovery receipt for the reviewed tip (`tests-missing`). |
-| `gates.allowReviewExemption` | `false` | Allow `reviewPolicy:"none"` + reason to skip review blockers; default off deliberately. |
+| `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. |
+| `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
 | `docs.board` | `true` | Write `MISSIONS.md` after mutations. |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |

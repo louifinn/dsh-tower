@@ -29,13 +29,18 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
-- **1.x → 2.0 (unreleased)**: no state migration is needed (`schemaVersion` stays 1; new fields are
+- **2.0.1 → 2.0.3**: no state migration. Independent review became **optional by default** in 2.0.3
+  (`review.requireReview:false`); set it to `true` to keep the old review-gated merges. 2.0.1 added
+  `tower_batch` `abandon`, accepted merged members in batch close, made doctor skip torn-down worktrees,
+  and fixed terminal-mission spawn/preflight edge cases. The optional `ui-bundle` 0.2.1 adds the
+  persistent Tower-mode chip and mode-aware denied-tool rows.
+- **1.x → 2.0 (released)**: no state migration is needed (`schemaVersion` stays 1; new fields are
   optional). Behavior changes to review: `mode.denyTools` now also denies `workflow`, `ralph`, `subagent`,
   `subagent_fork`, `wait_agent` and `team_task_list` while Tower mode is active (override with an explicit
-  list); `spawn.maxLiveWorkers` defaults to 4; `mode.workspaceLock` is off by default. Workers can no
-  longer complete/abandon/scope a mission directly — use `tower_complete`. New tools: `tower_interrupt`,
-  and `tower_reload` when HMR is available. Restart DSH once after upgrading; see
-  [hot reload](hot-reload.md).
+  list); `spawn.maxLiveWorkers` defaults to 4; `mode.workspaceLock` is off in the code default and on in
+  the bundled patch. Workers can no longer complete/abandon/scope a mission directly — use
+  `tower_complete`. New tools: `tower_interrupt`, and `tower_reload` when HMR is available. Restart DSH
+  once after upgrading; see [hot reload](hot-reload.md).
 - **1.3 → 1.4**: no state migration is needed. New: repository-level config
   (`<git-common-dir>/dsh-tower/config.json`), stable `[tower:<code>]` tool errors, `tower_findings`,
   and `id`/`missionId` + snake/camel input aliases. Existing calls keep working; restart DSH to load

@@ -22,7 +22,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 
 ```json
 {
-  "review": { "maxRoundsPerReviewer": 3 },
+  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" },
   "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
@@ -77,8 +77,8 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `tests.autoChecks` | `true` | 向完成报告附加自动 `tests` 检查。 |
 | `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
-| `gates.requireTests` | `false` | 要求针对被审查 tip 的通过测试回执（`tests-missing`）。 |
-| `gates.allowReviewExemption` | `false` | 允许用 `reviewPolicy:"none"` + 理由跳过审查 blocker；默认故意关闭。 |
+| `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。 |
+| `gates.allowReviewExemption` | `false` | 在 `review.requireReview:true` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；全局审查关闭时无影响。 |
 | `docs.board` | `true` | 变更后写入 `MISSIONS.md`。 |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。 |
 | `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |

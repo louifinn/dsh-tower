@@ -23,7 +23,8 @@ Wait for the worker's final report (delivered to this session) or check `tower_r
 creates `src/greet.txt`, commits on `tower/m1-add-greeting`, marks both tasks done, and calls
 `tower_complete`.
 
-Spawn the reviewer:
+This example follows the strict workflow: enable `review.requireReview:true` in the profile or
+repository config before the review step (default is optional review). Spawn the reviewer:
 
 ```json
 {"repoRoot":"D:\\work\\demo","missionId":"M1","role":"reviewer"}

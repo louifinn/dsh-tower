@@ -11,7 +11,7 @@
   workspace 锁、roster、worktree 归属、测试策略与租约，不写任何状态。
 - **测试发现与完成证据**：[测试、发现与证据](reference/testing.md)。仓库可在
   `package.json.tower.testDiscovery` 声明发现命令；回执可自动附加到 `tower_complete`，
-  `gates.requireTests` 可要求针对被审查 tip 的通过回执。
+  `gates.requireTests` 可要求针对当前 mission 分支 tip 的通过回执（与审查门禁独立）。
 - **证据批次、咨询式租约、旧版导入**：[批次、租约与旧版导入](reference/operations.md)
   （`tower_batch`、`tower_resource`、`tower_import_legacy`、`tower_legacy_map`）。
 - **workspace 锁与计划模式**：`mode.workspaceLock` 限制每个仓库同时只有一个 Tower 会话，

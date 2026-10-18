@@ -10,7 +10,7 @@
 | Code | 含义 / 下一步 |
 |---|---|
 | `mission-missing` | 未知 mission id。用 `tower_status` 查看。 |
-| `mission-not-completed` | mission 不是 `completed`；只有 `completed`（等待审查）的 mission 才能合并。 |
+| `mission-not-completed` | mission 不是 `completed`；只有 `completed`（可进入 preflight/合并）的 mission 才能合并。 |
 | `tasks-open` | 仍有未完成任务；worker 必须先完成，或带理由 `task_drop`。 |
 | `blockers-present` | mission 仍有 blocker；解决后清除。 |
 | `no-check-evidence` | 启用了 `gates.requireChecks` 且完成报告没有 `checks`。把 completed mission 退回 `active`，带 checks 重新调用 `tower_complete`，然后重新审查。 |
@@ -20,20 +20,20 @@
 | `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未 merged/abandoned。 |
-| `no-review` | 分支上没有审查：spawn reviewer。 |
-| `review-mission-mismatch` | 最新审查属于另一个 mission。 |
-| `not-clean` | 最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮。 |
-| `review-hold` | 最新审查建议 hold；必须由后续的干净审查取代。 |
-| `review-not-approved` | 最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
-| `tip-moved` | 审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |
+| `no-review` | `review.requireReview:true` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
+| `review-mission-mismatch` | `review.requireReview:true` 且最新审查属于另一个 mission。 |
+| `not-clean` | `review.requireReview:true` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮。 |
+| `review-hold` | `review.requireReview:true` 且最新审查建议 hold；必须由后续的干净审查取代。 |
+| `review-not-approved` | `review.requireReview:true` 且最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
+| `tip-moved` | `review.requireReview:true` 且审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |
 | `worker-busy` | 该 mission 的 roster agent 正在运行；等待或让其退役。 |
 | `worker-status-unknown` | 父目录不可用，无法证明 live roster agent 已停止；等目录恢复后重试，或先 adopt。 |
 | `base-wrong-branch` | 主检出不在记录的基线分支上。 |
 | `branch-owned-by-closed-missions` | mission 已 merged/abandoned；用新标题重新 plan。 |
 | `worker-stale` | 该 mission 的 roster worker 超过 `spawn.staleMs` 没有目录活动；合并前 adopt（只有确实还在运行时才 interrupt）。 |
-| `tests-missing` | 启用了 `gates.requireTests` 且没有针对被审查 tip 的通过测试回执；运行 `tower_test` 或 `tower_complete`。 |
+| `tests-missing` | 启用了 `gates.requireTests` 且没有针对当前分支 tip 的通过测试回执；运行 `tower_test` 或 `tower_complete`。 |
 | `tests-failed` | 最新测试发现回执失败，或不满足 minCount/required 检查。修复测试并重跑。 |
-| `review-exemption-invalid` | mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
+| `review-exemption-invalid` | `review.requireReview:true` 且 mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
 | `merge-intent-pending` | 崩溃/失败前记录了合并意图；先运行 `tower_merge` 对账，再进行其他门禁。 |
 
 ## 合并失败（4 个）

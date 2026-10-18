@@ -1,7 +1,8 @@
 # FAQ
 
 **When should I use Tower instead of Agent Teams, Ralph, Workflow, or ordinary subagents?**
-Use Tower when the output is a reviewed, integrated change to one Git repository. Use ordinary
+Use Tower when the output is an integrated change to one Git repository (enable review when you also
+need an independent verdict). Use ordinary
 subagents for read-only exploration or quick independent subtasks, Agent Teams for cross-cutting human
 collaboration, Ralph for repeated fresh attempts at one objective, and Workflow for programmatic
 high-fan-out analysis. The full decision guide, scenarios, and comparison table are in
@@ -9,12 +10,13 @@ high-fan-out analysis. The full decision guide, scenarios, and comparison table 
 
 **Can I combine Tower with Team/Workflow/Ralph?**
 Not concurrently in the same session: Tower mode refuses their tools and clears plan mode. Compose by
-phase instead—use Workflow/Team to analyze and decide, then start Tower to execute and review the
-repository change. See the [full guide](guide/scenarios-and-philosophy.md#4-how-tower-differs-from-other-dsh-workflow-patterns).
+phase instead—use Workflow/Team to analyze and decide, then start Tower to execute (and optionally
+review) the repository change. See the [full guide](guide/scenarios-and-philosophy.md#4-how-tower-differs-from-other-dsh-workflow-patterns).
 
 **Why did `tower_preflight` fail with `no-review` right after the worker finished?**
-That is expected: a completed mission awaits review. Spawn a reviewer; after a clean review the gate
-turns green.
+That happens only when `review.requireReview:true` is enabled: a completed mission awaits an
+independent review. Spawn a reviewer; after a clean review the gate turns green. With the default
+`review.requireReview:false`, review is optional and no `no-review` blocker is produced.
 
 **Do I need to poll the worker?**
 No. The worker's final report is delivered to this session; `tower_roster` shows live activity. Polling
@@ -39,7 +41,8 @@ instead of rebasing.
 **Can I require independent review?**
 Yes. Set `review.requireReview:true` in the profile or repository config to enable the global review
 gate (default is `false`, review optional). When enabled, mission-level `reviewPolicy:"none"` + a
-reason is the narrower exemption. `tower_review` works and records verdicts either way.
+reason + `gates.allowReviewExemption:true` is the narrower exemption. `tower_review` works and records
+verdicts either way.
 
 **Can a reviewer edit files?**
 No. Reviewers use the read-only `tower-reviewer` preset (no write/edit/pwsh); a branch changed after the

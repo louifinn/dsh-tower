@@ -32,14 +32,17 @@ tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
 调用立即返回子代理 id。worker 在 mission worktree 内工作、提交、把任务标记完成，并调用
 `tower_complete`；它的最终报告会送回本会话。用 `tower_roster` 观察活动，不要循环轮询。
 
-## 4. 审查
+## 4. 可选：审查
+
+独立审查默认可选。若要采用严格流程，先在 profile 或仓库配置中开启
+`review.requireReview:true`，然后：
 
 ```
 tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
 ```
 
-reviewer 使用只读的 `tower-reviewer` preset。它查看 `tower_diff` 并提交 `tower_review`。只有
-`clean` + `merge` 的结论才允许合并。
+reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交 `tower_review`。开启
+`review.requireReview:true` 后，只有 `clean` + `merge` 的结论才允许合并。
 
 ## 5. 门禁、合并与清理
 
@@ -49,8 +52,9 @@ tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 ```
 
-审查前运行 `tower_preflight` 预期报告 `no-review`；干净审查之后应为 `ok:true`。存在 blocker 时
-`tower_merge` 拒绝合并。`tower_teardown` 移除已 merged/abandoned 的 worktree 与分支。
+开启审查门禁时，审查前运行 `tower_preflight` 会报告 `no-review`；干净审查之后应为 `ok:true`。
+默认 `review.requireReview:false` 时没有审查 blocker。存在其他 blocker 时 `tower_merge` 拒绝合并。
+`tower_teardown` 移除已 merged/abandoned 的 worktree 与分支。
 
 ```
 /tower off
@@ -59,8 +63,9 @@ tower_teardown  repoRoot=D:\work\repo
 ## 如果失败
 
 阅读 blocker code 并查阅 [blocker 参考](../reference/blockers.md)。最常见的情况：`stale-base`
-（执行 `tower_rebase`）、`no-review`（spawn reviewer）、`merge-hook-failed`（重试，或调大
-`timeoutMs`）、`tip-moved`（审查后分支已变化，需要重新审查）。
+（执行 `tower_rebase`）、`no-review`（仅在 `review.requireReview:true` 时；spawn reviewer）、
+`merge-hook-failed`（重试，或调大 `timeoutMs`）、`tip-moved`（仅在审查门禁开启时；审查后分支
+已变化，需要重新审查）。
 
 工具抛出的错误带 `[tower:<code>]` 前缀；见[错误码](../reference/errors.md)（例如
 `preset-missing` 表示安装 bundle 后需要重启 DSH，`not-initialized` 表示先运行 `tower_init`）。
@@ -72,7 +77,7 @@ tower_teardown  repoRoot=D:\work\repo
 
 ```json
 {
-  "review": { "maxRoundsPerReviewer": 3 },
+  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" }
 }

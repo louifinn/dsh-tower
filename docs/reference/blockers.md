@@ -8,7 +8,7 @@ return the same shape for operation failures. Codes are stable; the detail is hu
 | Code | Meaning / next action |
 |---|---|
 | `mission-missing` | Unknown mission id. Check `tower_status`. |
-| `mission-not-completed` | Mission is not `completed`; only a completed mission (awaiting review) merges. |
+| `mission-not-completed` | Mission is not `completed`; only a completed mission (ready for preflight/merge) merges. |
 | `tasks-open` | Open tasks remain; the worker must finish or `task_drop` with a reason. |
 | `blockers-present` | The mission has blockers; clear them after resolving. |
 | `no-check-evidence` | `gates.requireChecks` is enabled and the completion report has no `checks`. Return the completed mission to `active`, re-run `tower_complete` with checks, then review again. |
@@ -18,20 +18,20 @@ return the same shape for operation failures. Codes are stable; the detail is hu
 | `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. |
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
 | `deps-unmerged` | A dependency mission is not merged/abandoned. |
-| `no-review` | No review on the branch: spawn a reviewer. |
-| `review-mission-mismatch` | The latest review belongs to another mission. |
-| `not-clean` | Latest review is `p1-Nitems`/`p2-Nitems`; another round is required. |
-| `review-hold` | Latest review recommends hold; a later clean review must supersede it. |
-| `review-not-approved` | Latest clean review says `fix-then-merge` or `hold`; only `merge` approves. |
-| `tip-moved` | The branch changed after review; review again (or use a clean rebase waiver). |
+| `no-review` | `review.requireReview:true` and no review exists on the branch: spawn a reviewer (or disable the review gate). |
+| `review-mission-mismatch` | `review.requireReview:true` and the latest review belongs to another mission. |
+| `not-clean` | `review.requireReview:true` and latest review is `p1-Nitems`/`p2-Nitems`; another round is required. |
+| `review-hold` | `review.requireReview:true` and latest review recommends hold; a later clean review must supersede it. |
+| `review-not-approved` | `review.requireReview:true` and latest clean review says `fix-then-merge` or `hold`; only `merge` approves. |
+| `tip-moved` | `review.requireReview:true` and the branch changed after review; review again (or use a clean rebase waiver). |
 | `worker-busy` | A roster agent for this mission is running; wait or retire it. |
 | `worker-status-unknown` | The parent catalog is unavailable, so a live roster agent cannot be proven stopped; retry after the catalog recovers or adopt it. |
 | `base-wrong-branch` | The main checkout is not on the recorded base branch. |
 | `branch-owned-by-closed-missions` | The mission is already merged/abandoned; re-plan under a new title. |
 | `worker-stale` | A roster worker for this mission has no catalog activity beyond `spawn.staleMs`; adopt it (or interrupt it only if it is actually running) before merge. |
-| `tests-missing` | `gates.requireTests` is enabled and there is no passing discovery receipt for the reviewed tip; run `tower_test` or `tower_complete`. |
+| `tests-missing` | `gates.requireTests` is enabled and there is no passing discovery receipt for the current branch tip; run `tower_test` or `tower_complete`. |
 | `tests-failed` | The latest discovery receipt failed or did not meet minCount/required checks. Fix the tests and re-run. |
-| `review-exemption-invalid` | The mission requests `reviewPolicy:"none"` but `gates.allowReviewExemption` is off (or the reason is missing). |
+| `review-exemption-invalid` | `review.requireReview:true` and the mission requests `reviewPolicy:"none"` while `gates.allowReviewExemption` is off (or the reason is missing). |
 | `merge-intent-pending` | A merge intent was recorded before a crash/failure; run `tower_merge` to reconcile before another gate. |
 
 ## Merge failures (4)

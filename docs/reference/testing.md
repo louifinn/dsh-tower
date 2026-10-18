@@ -50,7 +50,8 @@ discovery fails.
 - `tower_test({repoRoot,missionId})` runs discovery on demand and records a receipt.
 - `tower_complete` adds a `tests` check when `tests.autoChecks` is on.
 - `gates.requireChecks` requires any completion check; `gates.requireTests` requires a passing receipt
-  for the reviewed tip (`tests-missing`).
+  for the current mission branch tip (`tests-missing`). Review is independent of this gate: with
+  `review.requireReview:false` the tests gate still checks the branch tip.
 
 ## Trust boundary
 

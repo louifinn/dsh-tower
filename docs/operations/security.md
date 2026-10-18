@@ -4,9 +4,10 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 
 ## Enforced by the plugin
 
-- **Review binding.** `tower_review` records the branch tip it inspected; the gate rejects a moved tip
-  (`tip-moved`) unless a clean conflict-free rebase waived it. A reviewer that modifies the branch after
-  spawning is rejected (`reviewer must not modify the mission branch`).
+- **Review binding (when review is enabled).** `tower_review` records the branch tip it inspected;
+  with `review.requireReview:true`, the gate rejects a moved tip (`tip-moved`) unless a clean
+  conflict-free rebase waived it. A reviewer that modifies the branch after spawning is rejected
+  (`reviewer must not modify the mission branch`).
 - **Review is optional by default, enforceable by config.** `review.requireReview:false` is the
   default; set it to `true` to enforce the independent-review gate. Mission-level
   `reviewPolicy:"none"` + reason is the narrower exemption when the global gate is on. With the gate

@@ -31,14 +31,17 @@ The call returns immediately with the child agent id. The worker works inside th
 commits, marks tasks done, and calls `tower_complete`; its final report is delivered back to this
 session. Use `tower_roster` to observe activity; do not poll in a loop.
 
-## 4. Review
+## 4. Optional: review
+
+Independent review is optional by default. If you want the strict workflow, enable it in the profile
+or repository config first (`review.requireReview:true`), then:
 
 ```
 tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
 ```
 
 Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_diff` and submit
-`tower_review`. A `clean` + `merge` verdict is required to merge.
+`tower_review`; with `review.requireReview:true`, a `clean` + `merge` verdict is required to merge.
 
 ## 5. Gate, merge, clean up
 
@@ -48,8 +51,9 @@ tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 ```
 
-`tower_preflight` before review is expected to report `no-review`; after a clean review it should be
-`ok:true`. `tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned
+With the review gate enabled, `tower_preflight` before review reports `no-review`, and after a clean
+review it should be `ok:true`. With the default (`review.requireReview:false`), no review blocker is
+required. `tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned
 worktrees and branches.
 
 ```
@@ -59,8 +63,9 @@ worktrees and branches.
 ## If something fails
 
 Read the blocker code and use [the blocker reference](../reference/blockers.md). The most common cases:
-`stale-base` (run `tower_rebase`), `no-review` (spawn a reviewer), `merge-hook-failed` (retry, or raise
-`timeoutMs`), `tip-moved` (the branch changed after review; review again).
+`stale-base` (run `tower_rebase`), `no-review` (only with `review.requireReview:true`; spawn a
+reviewer), `merge-hook-failed` (retry, or raise `timeoutMs`), `tip-moved` (only with the review gate;
+the branch changed after review, review again).
 
 Thrown tool failures carry a `[tower:<code>]` prefix; see [error codes](../reference/errors.md)
 (e.g. `preset-missing` means restart DSH after installing the bundle, `not-initialized` means run
@@ -73,7 +78,7 @@ JSON file at `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/c
 
 ```json
 {
-  "review": { "maxRoundsPerReviewer": 3 },
+  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" }
 }

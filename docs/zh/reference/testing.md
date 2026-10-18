@@ -49,8 +49,9 @@ stdout/stderr 文件、SHA-256 哈希、退出码、计数、required 名称、w
 
 - `tower_test({repoRoot,missionId})` 按需运行发现并记录回执。
 - `tests.autoChecks` 开启时，`tower_complete` 会添加一条 `tests` 检查。
-- `gates.requireChecks` 要求任意完成检查；`gates.requireTests` 要求针对被审查 tip 的通过回执
-  （`tests-missing`）。
+- `gates.requireChecks` 要求任意完成检查；`gates.requireTests` 要求针对当前 mission 分支 tip 的
+  通过回执（`tests-missing`）。测试门禁与审查独立：即使 `review.requireReview:false`，测试门禁仍
+  检查分支 tip。
 
 ## 信任边界
 

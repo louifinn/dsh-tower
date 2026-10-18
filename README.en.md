@@ -15,7 +15,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 - **Human-owned Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step.
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
-- **Review-gated merges.** A reviewer bound to the current branch tip can submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default; set `review.requireReview:true` to enforce it globally (or use `reviewPolicy:"none"` + reason to exempt a single mission when it is on).
+- **Review-gated merges.** When `review.requireReview:true`, a reviewer bound to the current branch tip must submit a `clean` / `merge` verdict before merge; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default (the gate is off); use `reviewPolicy:"none"` + reason plus `gates.allowReviewExemption:true` for a single mission when the global gate is on.
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
 - **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
 - **Traceable finding lifecycle.** `tower_findings` lists, reads, and moves findings through `open → triaged → fixed` / `wontfix` (and can reopen); only the tower or a worker may change state, while reviewers can only read.
@@ -33,7 +33,7 @@ Tower is a **delivery protocol for changes to a Git repository**, not the defaul
 
 - a feature or refactor splits into 2–8 missions with clear scopes that can be reviewed independently;
 - ordering matters (migrations, dependencies, branch freshness, scope reservations);
-- the repository is sensitive or release-bound, and you need a reviewed commit, test evidence, and an auditable merge;
+- the repository is sensitive or release-bound, and you need an auditable merge plus test evidence (enable independent review when required);
 - work spans context compaction, restarts, or multiple days and must be recoverable from local state;
 - "done" means tasks + tests (and optionally an independent review), not just a confident message in chat.
 
@@ -87,16 +87,17 @@ tower_init      repoRoot=D:\work\repo            # records the base (current bra
 tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # the worker implements and commits in its worktree, calls tower_complete; its final report returns here
+# Optional: enable review.requireReview:true first if you need mandatory independent review
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # the reviewer inspects read-only and calls tower_review (clean+merge, or p1-Nitems/p2-Nitems)
-tower_preflight repoRoot=D:\work\repo missionId=M1    # expect no-review before review; ok:true after it
+tower_preflight repoRoot=D:\work\repo missionId=M1    # review optional by default; with review.requireReview expect no-review before review and ok:true after
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
 /tower off
 ```
 
-A small change usually takes one worker mission and one reviewer round. A full copy-paste example is in [docs/examples/first-mission.md](docs/examples/first-mission.md); per-tool parameters are in [docs/reference/tools.md](docs/reference/tools.md).
+A small change usually takes one worker mission; add one reviewer round when independent review is required. A full copy-paste example is in [docs/examples/first-mission.md](docs/examples/first-mission.md); per-tool parameters are in [docs/reference/tools.md](docs/reference/tools.md).
 
 ## Commands
 
@@ -124,6 +125,7 @@ Image and file attachments are forwarded together with the instruction as one co
       autoPauseGoal: true
       denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
     review:
+      requireReview: false      # review optional by default; set true to enforce independent review
       maxRoundsPerReviewer: 5
     merge:
       timeoutMs: 900000
@@ -149,7 +151,7 @@ Image and file attachments are forwarded together with the instruction as one co
 ## Safety and guardrails
 
 - **No merge without a green gate.** `tower_preflight` is read-only and reports stable blocker codes; `tower_merge` refuses when any blocker remains.
-- **Review is bound to a commit.** A moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected.
+- **Review is bound to a commit when enabled.** With `review.requireReview:true`, a moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected.
 - **Scope enforcement.** A mission may only change files matched by its declared scope globs; `out-of-scope` blocks the merge.
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.

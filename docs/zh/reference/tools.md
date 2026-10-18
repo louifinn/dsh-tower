@@ -32,7 +32,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | 工具 | 参数 | 用途 / 说明 |
 |---|---|---|
 | `tower_init` | `base?`、`autoGitInit?`、`snapshotDirty?`、`reanchor?` | 创建 `<git-common-dir>/dsh-tower/state.json`。`autoGitInit` 执行 `git init` 并创建空的初始提交；`snapshotDirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。返回 `dirty`、`snapshotCommit`、`reanchored`。 |
-| `tower_plan` | `missions[]`（`title`、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。`reviewPolicy:"none"` 需要理由，并且要求 `gates.allowReviewExemption`。 |
+| `tower_plan` | `missions[]`（`title`、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。 |
 | `tower_status` | `missionId?`、`offset?`、`limit?`、`includeGate?`、`format?` | 默认返回面板。`missionId` 返回完整详情（任务/备注/审查/finding/完成报告）。`offset`/`limit` 对 mission 分页（默认 20，最大 100），`includeGate` 附带门禁摘要，`format:"markdown"` 返回看板。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`waitMs?`、`takeover?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`。`takeover:true` 替换已不再运行的 worker 条目（ownerGeneration 递增）。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。 |
@@ -41,7 +41,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_diff` | `missionId`（别名 `id`）、`maxBytes?` | 只读 merge-base diff：文件、提交、有上限的 patch。供 reviewer 安全使用。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息；对运行中的 agent 会即时投递。`interrupt:true` 先中断运行中的回合（Kimi 风格）再投递；`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
-| `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，等待审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息。`checks` 记录 `{name, command?, exitCode?, evidence?}` 证据；`gates.requireChecks` 可以强制要求。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。 |
+| `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，可进入 preflight 与可选审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息。`checks` 记录 `{name, command?, exitCode?, evidence?}` 证据；`gates.requireChecks` 可以强制要求。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。 |
 | `tower_interrupt` | `to?`（roster 名称）、`agentId?`、`reason?` | 通过 `subagents.interrupt` 中断一个运行中的 roster agent，并记录 `state:"interrupted"`。幂等（未运行 → `interrupted:false`）。 |
 | `tower_finding` | `type`、`title`、`summary`、`details`、`suggested_fix`、`severity?`、`missionId?`、`location?` | 记录 scope 之外的问题；reviewer 用它代替直接改文件。新 finding 初始为 `open`。 |
 | `tower_findings` | `id?`、`status?`、`note?`、过滤（`type?`、`severity?`、`missionId?`、`open?`、`limit?`） | 生命周期工具：列出/读取/流转。状态为 `open → triaged → fixed`/`wontfix`，允许重新打开。只有控制塔或 worker 能修改；reviewer 只能列出/读取。 |
