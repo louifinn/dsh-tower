@@ -27,6 +27,28 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **测试证据门与事件。** worker 可在 `tower_complete` 记录 `checks`，`gates.requireChecks` 可强制；每次 mutation 后发射 `tower/*` 事件并刷新 `MISSIONS.md`。
 - **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_doctor` 只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import_legacy` / `tower_legacy_map` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
 
+## 何时使用 Tower
+
+Tower 是**面向 Git 仓库变更的交付协议**，不是所有多代理场景的默认答案。它适合：
+
+- 一个特性/重构能拆成 2–8 个 scope 清晰、可独立审查的 mission；
+- 有依赖顺序、需要分支新鲜度与 scope 约束的迁移；
+- 敏感仓库、发布绑定变更，或需要"被审查 commit + 测试证据 + 可审计合并"的工作；
+- 跨上下文压缩、重启、多天协作，需要从本地状态恢复的工作；
+- 需要把"完成"定义成任务 + 测试 + 独立审查，而不是聊天里的一句"好了"。
+
+不适合：单文件/一行 hotfix、需求仍在探索、开放式研究、大量极小的独立任务、交互式 UI 配对、或跨仓库工作。判断标准：**如果你不会为它开 PR，Tower 很可能太重。**
+
+与其他模式的区别（详见[完整指南](docs/guide/scenarios-and-philosophy.md)）：
+
+- **普通并行子代理**：便宜、灵活，适合只读探索/试方案；没有 worktree、审查与合并门禁。
+- **Agent Teams**：共享任务板与多人/多 agent 协作，适合设计、研究、横切决策；集成通常由人做，没有 Git 隔离的硬门禁。
+- **Ralph 循环**：用新鲜 agent 对同一目标反复尝试，适合迭代搜索/修复；没有 mission 契约与合并审查。
+- **Workflow 编排**：脚本化高扇出/流水线，适合批量分析、审计、验证；不做 Git 分支隔离与合并门禁。
+- **Tower**：少量 mission + 隔离写入 + 独立审查 + 证据 + 合并门禁，适合"决定要做、需要安全落地"的仓库变更。
+
+Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan mode，避免两套编排协议同时驱动一个会话；请按阶段组合，例如先用 Workflow/Team 分析决策，再用 Tower 执行仓库变更。
+
 ## 环境要求
 
 - DeepSeek Harness `0.2.1-rc.2`（或兼容的新版本）

@@ -26,7 +26,8 @@
 
 | 你是 | 从这里开始 |
 |---|---|
-| 新用户 | [快速开始](guide/quickstart.md) → [工具参考](reference/tools.md) → [第一个 mission 示例（英文）](../examples/first-mission.md) |
+| 新用户 | [什么时候用 Tower](guide/scenarios-and-philosophy.md) → [快速开始](guide/quickstart.md) → [工具参考](reference/tools.md) → [第一个 mission 示例（英文）](../examples/first-mission.md) |
+| 正在选择工作流 | [Tower 与 Agent Teams、Ralph、Workflow、普通并行子代理的区别](guide/scenarios-and-philosophy.md) |
 | 运维 | [运维 runbook（英文）](../operations/runbook.md) → [blocker 与失败码](reference/blockers.md) → [错误码](reference/errors.md) → [事件](reference/events.md) → [Doctor](reference/doctor.md) → [测试](reference/testing.md) → [批次/租约/旧版](reference/operations.md) → [安全模型](operations/security.md) |
 | 维护者 | [架构与状态机（英文）](../architecture/overview.md) → [配置参考](reference/config.md) → [热重载](guide/hot-reload.md) → [贡献指南](../../CONTRIBUTING.md) |
 
@@ -35,6 +36,7 @@
 ## 全部中文页面
 
 - [快速开始](guide/quickstart.md)
+- [什么时候用 Tower，与 Agent Teams / Ralph / Workflow / 并行子代理的区别](guide/scenarios-and-philosophy.md)
 - [安装、升级与迁移](guide/install-upgrade-migration.md)
 - [热重载（开发）](guide/hot-reload.md)
 - [工具参考](reference/tools.md)

@@ -27,6 +27,28 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 - **Hot reload.** In a profile with DSH HMR, `/tower reload`, `tower_reload` and `npm run dev:hmr` apply linked plugin changes without a restart; `plugin_manager` install/update already applies live.
 - **Evidence gate and events.** Workers can record `checks` in `tower_complete` and `gates.requireChecks` can require them; every mutation emits `tower/*` events and refreshes `MISSIONS.md`.
 
+## When to use Tower
+
+Tower is a **delivery protocol for changes to a Git repository**, not the default answer for every multi-agent task. It fits when:
+
+- a feature or refactor splits into 2–8 missions with clear scopes that can be reviewed independently;
+- ordering matters (migrations, dependencies, branch freshness, scope reservations);
+- the repository is sensitive or release-bound, and you need a reviewed commit, test evidence, and an auditable merge;
+- work spans context compaction, restarts, or multiple days and must be recoverable from local state;
+- "done" means tasks + tests + independent review, not just a confident message in chat.
+
+It is a poor fit for one-file or one-line hotfixes, requirements still being discovered, open-ended research, many tiny independent tasks, interactive UI pairing, or cross-repository work. Rule of thumb: **if you would not open a PR for it, Tower is probably too heavy.**
+
+How it differs (full guide: [When to use Tower](docs/guide/scenarios-and-philosophy.md)):
+
+- **Ordinary parallel subagents**: cheap and flexible for read-only exploration or trying approaches; no worktree, review, or merge gate.
+- **Agent Teams**: shared task board and peer collaboration for design, research, and cross-cutting decisions; integration is usually human, with no hard Git gate.
+- **Ralph loop**: fresh agents retry one objective, good for iterative search/repair; no mission contract or merge review.
+- **Workflow orchestration**: scripted high fan-out/pipelines for audits, batch analysis, and verification; no branch isolation or merge gate.
+- **Tower**: a few missions + isolated writers + independent review + evidence + a merge gate, for "we have decided; land it safely".
+
+Tower mode refuses Team/Workflow/Ralph/ordinary subagent tools and clears plan mode so two orchestration protocols do not drive one session. Compose by phase instead: use Workflow/Team to analyze and decide, then Tower to execute the repository change.
+
 ## Requirements
 
 - DeepSeek Harness `0.2.1-rc.2` (or a compatible newer build)
