@@ -196,7 +196,20 @@ export function apply(ctx, rawConfig) {
         'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, and any goal paused on entry.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output: {
-        schema: { type: 'object' },
+        schema: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['on', 'off', 'unknown'] },
+            agentId: {},
+            allowAgentControl: { type: 'boolean' },
+            lastChange: {},
+            pausedGoal: {},
+            deniedWhileActive: { type: 'array', items: { type: 'string' } },
+            persistedAt: { type: 'string' },
+          },
+          required: ['mode', 'allowAgentControl', 'deniedWhileActive'],
+          additionalProperties: true,
+        },
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(_args, exec) {
@@ -231,7 +244,22 @@ export function apply(ctx, rawConfig) {
           additionalProperties: false,
         },
         output: {
-          schema: { type: 'object' },
+          schema: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              action: { type: 'string', enum: ['enter', 'exit'] },
+              mode: { type: 'string', enum: ['on', 'off'] },
+              changed: { type: 'boolean' },
+              changedBy: { type: 'string', enum: ['agent', 'user'] },
+              reason: { type: 'string' },
+              pausedGoal: {},
+              goalNote: {},
+              error: { type: 'string' },
+            },
+            required: ['ok'],
+            additionalProperties: true,
+          },
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
         },
         async execute(args, exec) {

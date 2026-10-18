@@ -18,6 +18,12 @@ process.env.DSH_HOME = home
 
 const { apply } = await import('../index.js')
 const { loadModes } = await import('../lib/modeStore.js')
+const { validateJsonSchema } = await import('./schema-validator.mjs')
+
+function assertSchema(tool, value) {
+  const violations = validateJsonSchema(tool.output.schema, value)
+  assert.deepEqual(violations, [], `${tool.name}: ${violations.join('; ')}`)
+}
 
 function makeCtx(options = {}) {
   const tools = new Map()
@@ -297,4 +303,43 @@ test('tower_control is gated by config and requires a reason', async () => {
   // The read-only reporter must never fail when the mode is unknown.
   const anonymous = await tools.get('tower_mode').execute({}, { agent: undefined })
   assert.equal(anonymous.mode, 'unknown')
+})
+
+test('mode tool outputs satisfy their declared schemas, including null fields', async () => {
+  // DSH validates every successful tool value against output.schema, so a
+  // nullable field declared as `type: 'object'` would fail in the real runtime.
+  const { ctx, tools, commands } = makeCtx()
+  apply(ctx, { allowAgentControl: true })
+  const agent = makeAgent('agent-schema')
+  const modeTool = tools.get('tower_mode')
+  const controlTool = tools.get('tower_control')
+
+  const off = await modeTool.execute({}, { agent })
+  assertSchema(modeTool, off)
+  assert.equal(off.lastChange, null)
+  assert.equal(off.pausedGoal, null)
+
+  const anonymous = await modeTool.execute({}, {})
+  assertSchema(modeTool, anonymous)
+  assert.equal(anonymous.agentId, null)
+  assert.equal(anonymous.mode, 'unknown')
+
+  await callCommand(commands, agent, '')
+  const on = await modeTool.execute({}, { agent })
+  assertSchema(modeTool, on)
+  assert.equal(on.mode, 'on')
+  assert.equal(typeof on.lastChange, 'object')
+
+  // Entering with no goals service leaves pausedGoal and goalNote null.
+  const entered = await controlTool.execute({ action: 'enter', reason: 'schema check' }, { agent })
+  assertSchema(controlTool, entered)
+  assert.equal(entered.pausedGoal, null)
+  assert.equal(entered.goalNote, null)
+
+  const exited = await controlTool.execute({ action: 'exit', reason: 'schema check' }, { agent })
+  assertSchema(controlTool, exited)
+
+  const noAgent = await controlTool.execute({ action: 'exit', reason: 'schema check' }, {})
+  assertSchema(controlTool, noAgent)
+  assert.equal(noAgent.ok, false)
 })

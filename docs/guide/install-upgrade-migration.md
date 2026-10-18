@@ -29,6 +29,10 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **1.3 → 1.4**: no state migration is needed. New: repository-level config
+  (`<git-common-dir>/dsh-tower/config.json`), stable `[tower:<code>]` tool errors, `tower_findings`,
+  and `id`/`missionId` + snake/camel input aliases. Existing calls keep working; restart DSH to load
+  the new tool surface (`tower_findings` and the newer output schemas).
 - **1.2 → 1.3**: reviewers moved from the shared `tower-worker` preset to the new read-only
   `tower-reviewer` preset. Reinstall/restart so both preset rows exist. `tower_spawn role=reviewer`
   now requires the mission to be `completed`.

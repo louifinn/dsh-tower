@@ -28,6 +28,17 @@ instead of rebasing.
 No. Reviewers use the read-only `tower-reviewer` preset (no write/edit/pwsh); a branch changed after the
 reviewer spawned is rejected. Reviewers file `tower_finding` for issues outside the mission.
 
+**What is the difference between `tower_finding` and `tower_findings`?**
+`tower_finding` creates one finding (`open`). `tower_findings` is the lifecycle tool: list/read, and
+transition `open → triaged → fixed`/`wontfix` (reopen allowed). Only the tower or a worker may change the
+status; a roster reviewer may list and read.
+
+**How do I set config for one repository only?**
+Create `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) with the same
+JSON groups as the profile config (`review`, `merge`, `worktrees`, `spawn`, and legacy aliases). The
+repository layer wins over the profile; per-call tool arguments win over both. No restart is required
+because the file is read when a Tower tool opens the repository.
+
 **Can workers use Tower tools to merge or spawn?**
 No. The worker preset contains mission/progress tools only; merge and spawn live in the parent tower.
 

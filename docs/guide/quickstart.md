@@ -58,8 +58,40 @@ worktrees and branches.
 
 ## If something fails
 
-Read the blocker code and use [the blocker reference](reference/blockers.md). The most common cases:
+Read the blocker code and use [the blocker reference](../reference/blockers.md). The most common cases:
 `stale-base` (run `tower_rebase`), `no-review` (spawn a reviewer), `merge-hook-failed` (retry, or raise
 `timeoutMs`), `tip-moved` (the branch changed after review; review again).
+
+Thrown tool failures carry a `[tower:<code>]` prefix; see [error codes](../reference/errors.md)
+(e.g. `preset-missing` means restart DSH after installing the bundle, `not-initialized` means run
+`tower_init` first).
+
+## Optional: per-repository config
+
+A repository can tune review, merge, worktree and spawn policy without touching the DSH profile. Put a
+JSON file at `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`):
+
+```json
+{
+  "review": { "maxRoundsPerReviewer": 3 },
+  "merge": { "timeoutMs": 1800000 },
+  "worktrees": { "root": "D:/tower-worktrees" }
+}
+```
+
+The repository layer overrides the profile config; per-call tool arguments override both. See the
+[config reference](../reference/config.md) for the full table and precedence.
+
+## Optional: findings
+
+Out-of-scope observations go to `tower_finding`. Later, list or close them without editing code:
+
+```
+tower_findings repoRoot=D:\work\repo
+tower_findings repoRoot=D:\work\repo id=F1 status=fixed note="fixed in M2"
+```
+
+Statuses are `open → triaged → fixed` / `wontfix`, and `fixed`/`wontfix` can reopen to `open`. Only the
+tower or a worker may change a finding; reviewers can list and read.
 
 A complete copy-paste example: [examples/first-mission.md](../examples/first-mission.md).

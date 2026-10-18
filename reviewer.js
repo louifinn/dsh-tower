@@ -13,6 +13,7 @@ const ALLOW = [
   'tower_send',
   'tower_inbox',
   'tower_finding',
+  'tower_findings',
   'tower_review',
   'skill',
 ]

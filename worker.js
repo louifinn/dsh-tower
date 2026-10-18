@@ -16,6 +16,7 @@ const ALLOW = [
   'tower_inbox',
   'tower_complete',
   'tower_finding',
+  'tower_findings',
   'skill',
 ]
 

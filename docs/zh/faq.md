@@ -1,0 +1,52 @@
+# FAQ
+
+[English](../faq.md) | **简体中文**
+
+**为什么 worker 刚完成，`tower_preflight` 就因 `no-review` 失败？**
+这是预期行为：`completed` 的 mission 正在等待审查。spawn 一个 reviewer；干净审查后门禁就会变绿。
+
+**需要轮询 worker 吗？**
+不需要。worker 的最终报告会送回本会话；`tower_roster` 显示实时活动。轮询只会浪费回合。
+
+**`/tower` 显示模式已开启，但没有 `tower_control`。**
+`mode.allowAgentControl` 关闭了。在 profile patch 中把它设为 `true` 并重启 DSH。
+
+**合并钩子要跑几分钟，`tower_merge` 失败了。**
+用更大的 `timeoutMs` 重试：`tower_merge({ missionId, timeoutMs: 1800000 })`。默认超时是 15 分钟，
+合并输出最多缓冲 64 MB。钩子失败返回 `merge-hook-failed`，并保持仓库干净以便重试。
+
+**合并提交已存在，但 Tower 说 mission 未合并。**
+再次调用 `tower_merge`。它会检测已落地的合并提交（`reconciled`），或恢复“命令失败但提交已存在”的
+情况（`recoveredFromFailure`）并记录。
+
+**`tower_rebase` 返回 `alreadyMerged` 且什么都没改。**
+正确：分支已经包含在基线中。此时调用 `tower_merge` 记录已落地的合并，而不是 rebase。
+
+**reviewer 能修改文件吗？**
+不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支
+被改动，审查会被拒绝。mission 之外的问题用 `tower_finding` 记录，不要直接改文件。
+
+**`tower_finding` 与 `tower_findings` 有什么区别？**
+`tower_finding` 创建单条 finding（`open`）。`tower_findings` 是生命周期工具：列出/读取，并在
+`open → triaged → fixed`/`wontfix` 之间流转（允许重新打开）。只有控制塔或 worker 可以修改状态；
+roster 中的 reviewer 只能列出和读取。
+
+**如何只给一个仓库设置配置？**
+创建 `<git-common-dir>/dsh-tower/config.json`（普通检出通常是 `.git/dsh-tower/config.json`），
+使用与 profile 配置相同的 JSON 分组（`review`、`merge`、`worktrees`、`spawn`，以及兼容别名）。
+仓库配置层优先于 profile；单次工具参数又优先于两者。不需要重启，因为每次 Tower 工具打开仓库时都会
+读取该文件。
+
+**worker 能用 Tower 工具 merge 或 spawn 吗？**
+不能。worker preset 只包含 mission/进度工具；merge 与 spawn 属于上级控制塔。
+
+**Tower 把状态存在哪里？**
+目标仓库的 `<git-common-dir>/dsh-tower/state.json` 与 `activity.jsonl`；模式状态在
+`$DSH_HOME/tower-mode/modes.json`。worktree 位于检出旁边的 `.dsh-tower-worktrees/`。
+
+**如何修改审查轮数上限或 preset？**
+使用 `review.maxRoundsPerReviewer` 与 `spawn.workerPreset`/`spawn.reviewerPreset`；见
+[配置](reference/config.md)。修改 profile 配置后重启 DSH。
+
+**Tower 会把数据发到别处吗？**
+不会。它没有遥测，也没有网络服务；所有状态都在本地。

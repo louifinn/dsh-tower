@@ -1,0 +1,51 @@
+# 安装、升级与迁移
+
+[English](../../guide/install-upgrade-migration.md) | **简体中文**
+
+## 环境要求
+
+- DSH `0.2.1-rc.2` 或更新版本
+- Node.js 22+
+- Git（本地 worktree；不需要网络访问）
+
+## 安装
+
+```bash
+dsh plugin --profile web add dsh-tower
+```
+
+或在 DSH 内执行：`plugin_manager({ action: "install_bundle", target: "dsh-tower" })`。从本地 checkout 安装：
+
+```bash
+dsh plugin --profile web add github:louifinn/dsh-tower
+```
+
+Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
+
+## 升级
+
+1. 阅读 [CHANGELOG.md](../../../CHANGELOG.md) 了解行为变化。
+2. 更新依赖（`dsh plugin --profile web add dsh-tower@latest` 或你固定的版本）。
+3. 重启 DSH；用 `tower_mode` 检查 `allowAgentControl` 是否符合预期。
+4. 既有 mission state 保持兼容：1.2/1.3 的状态 schema 未变。
+
+## 迁移说明
+
+- **1.2 → 1.3**：reviewer 从共享的 `tower-worker` preset 迁移到新的只读 `tower-reviewer` preset。
+  重新安装/重启，确保两个 preset 行都存在。`tower_spawn role=reviewer` 现在要求 mission 为
+  `completed`。
+- **1.1 → 1.2**：合并失败新增 `merge-hook-failed`、`cleanup` 与对账行为；不需要迁移状态。
+- **1.0 → 1.1**：包名从 `@local/dsh-tower` 改为 `dsh-tower`。先移除旧 bundle
+  （`remove_bundle` 目标 `@local/dsh-tower`），再安装 `dsh-tower`。
+- **1.3 → 1.4**：不需要迁移状态。新增：仓库级配置（`<git-common-dir>/dsh-tower/config.json`）、
+  稳定的 `[tower:<code>]` 工具错误、`tower_findings`，以及 `id`/`missionId` 与 snake/camel 输入
+  别名。既有调用保持可用；重启 DSH 以加载新工具面（`tower_findings` 与更新的 output schema）。
+
+## 卸载
+
+```text
+plugin_manager({ action: "remove_bundle", target: "dsh-tower" })
+```
+
+重启 DSH。`<git-common-dir>/dsh-tower/` 下的 mission state 与
+`<主检出父目录>/.dsh-tower-worktrees/` 下的 worktree 会保留；确认没有活跃 mission 后再手工清理。

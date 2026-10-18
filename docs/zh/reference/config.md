@@ -1,0 +1,81 @@
+# 配置参考
+
+[English](../../reference/config.md) | **简体中文**
+
+每个键都是可选的；默认值即随包行为。未知顶层键会被拒绝。
+`section` 与 `allowAgentControl` 是 `mode.promptSection` 与 `mode.allowAgentControl` 的兼容别名。
+兼容别名只用于补缺：同时设置两种写法时，规范的 `mode.*` 键优先。
+
+## 层级与优先级
+
+从低到高：
+
+1. 代码默认值（下表中的默认值），
+2. profile 配置（挂载 `dsh-tower` 的 Cordis patch 传给 `apply()` 的配置），
+3. 仓库配置 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`），
+4. 单次工具参数，例如 `worktreeRoot` 与 `timeoutMs`。
+
+每次 Tower 工具打开仓库时都会读取仓库配置层，因此仓库可以在不修改 profile 的情况下调整 review、
+merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON 形状（相同的分组与兼容别名），
+并按分组合并：仓库设置的键优先，仓库未设置的 profile 键保留。`tower_status` 会报告
+`config.path` 与 `config.repoConfigPresent`。文件不存在不是错误。
+
+```json
+{
+  "review": { "maxRoundsPerReviewer": 3 },
+  "merge": { "timeoutMs": 1800000 },
+  "worktrees": { "root": "D:/tower-worktrees" },
+  "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
+}
+```
+
+`mode.*` 分组是会话级的，不是仓库级的：为兼容 schema，它可以在仓库文件中出现，但只有 profile
+配置能控制 Tower 模式提示与模型切换开关。文件格式错误、值不是对象、未知顶层键，或违反声明 schema
+的值（例如 `merge.timeoutMs` 小于 1000）会以稳定的 `config-invalid` / `config-unknown-key`
+工具错误码失败。
+
+| 键 | 默认值 | 含义 |
+|---|---|---|
+| `section` | `''` | 兼容别名：替换整段 Tower 模式提示文案。空值保留内置提醒。 |
+| `allowAgentControl` | `false`（随包 patch：`true`） | 兼容别名：注册 `tower_control`。 |
+| `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
+| `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
+| `mode.allowAgentControl` | `false` | 注册 `tower_control`；模型可带理由进入/退出。 |
+| `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
+| `mode.denyTools` | 六个 goal/todo/team 工具 | 模式激活期间被拒绝的工具。 |
+| `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
+| `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
+| `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
+| `merge.timeoutMs` | `900000`（15 分钟） | `tower_merge` 默认超时，包含钩子；单次调用的 `timeoutMs` 优先。 |
+| `merge.maxBufferBytes` | `67108864`（64 MB） | 合并输出缓冲区。 |
+| `worktrees.root` | `''` | 默认 worktree 父目录；空值推导为 `<主检出父目录>/.dsh-tower-worktrees/<hash>`。 |
+| `spawn.workerPreset` | `tower-worker` | `role=worker` 使用的 preset。 |
+| `spawn.reviewerPreset` | `tower-reviewer` | `role=reviewer` 使用的 preset。 |
+| `spawn.maxDepth` | `1` | spawn 时请求的子代理深度。 |
+| `spawn.provider` | `''` | 子代理 provider id；空值优先 `spawn`，否则取第一个 provider。 |
+| `spawn.workerModel` | `{}` | worker 可选模型路由 `{provider, model, reasoningEffort, maxTokens}`。 |
+| `spawn.reviewerModel` | `{}` | reviewer 可选模型路由；使用不同模型可获得更强的独立审查。 |
+
+## 示例
+
+```yaml
+- id: tower
+  name: 'dsh-tower'
+  config:
+    mode:
+      allowAgentControl: true
+      sectionAppend: 'Team conventions: tests are mandatory.'
+    review:
+      maxRoundsPerReviewer: 3
+    merge:
+      timeoutMs: 1800000
+    spawn:
+      reviewerModel:
+        provider: deepseek-account
+        model: deepseek-flash
+```
+
+## 查看实际生效的 schema
+
+插件声明 `Config` 后（本版本已声明），用 `cordis_inspect_query` 调用
+`Config.listConfigs({ name: "dsh-tower" })` 可返回投影后的 JSON Schema。

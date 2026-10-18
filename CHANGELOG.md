@@ -1,5 +1,48 @@
 # Changelog
 
+> 自下一个发布版起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
+
+## 未发布（Unreleased）
+
+### 新增
+
+- **仓库级配置层**：`Tower.open()` 读取 `<git-common-dir>/dsh-tower/config.json`，优先级为
+  代码默认 < profile 配置 < 仓库配置 < 工具参数；`review`/`merge`/`worktrees`/`spawn` 分组生效。
+- **稳定工具错误码**：新增 `lib/errors.js`，工具失败统一 `[tower:<code>]` 前缀，覆盖 17 个 code；
+  新增 `docs/reference/errors.md` 并由 `npm run docs:check` 校验。
+- **finding 生命周期**：新增 `tower_findings`（列表/读取/状态流转/备注），状态为
+  `open → triaged → fixed` / `wontfix` 且可重新打开；只有 tower 或 worker 能改状态，reviewer 只读。
+- **中文文档**：新增 `docs/zh/`（文档索引、quickstart、工具/配置/blocker/错误码参考），
+  与英文参考页保持同一套工具名、blocker 与错误码。
+- **测试与门禁**：新增仓库配置、finding 生命周期、工具别名/错误码/输出 schema、spawn mock
+  与全流程 schema 校验用例；`docs:check` 同时校验中英文参考页、工具名、blocker 与错误码。
+
+### 变更
+
+- **结构化输出 schema**：全部工具声明 output schema（spawn/status/diff/merge/review/preflight
+  等核心工具含字段结构），并按 DSH 的输出校验规则保证可空字段可空。
+- **命名统一（兼容别名）**：mission 级工具同时接受 `id` 与 `missionId`；`task_done`/`taskDone`、
+  `task_drop`/`taskDrop`、`clear_blockers`/`clearBlockers`、`include_read`/`includeRead`、
+  `dry_run`/`dryRun`、`timeoutMs`/`timeout_ms`、`waitMs`/`wait_ms` 等写法均可，并在参数 schema
+  中显式声明；输出保持既有规范。
+- **诊断信息**：`tower_status` 增加 `config.path`、`config.repoConfigPresent` 与
+  `findingsByStatus`；worker/reviewer preset 允许 `tower_findings`。
+- **配置解析**：兼容别名只用于补缺——同时设置 `section` 与 `mode.promptSection` 时规范键优先；
+  仓库配置增加 1 MiB 大小上限与 `__proto__`/`constructor`/`prototype` 等危险键拒绝。
+- **离线套件**：测试增至 51 项（原有 26 项保持通过）。
+- 无破坏性变更：既有工具参数与输出保持兼容，新增能力均为追加。
+
+### 修复
+
+- **模式工具 schema 与返回值不一致**：`tower_mode`/`tower_control` 的 `lastChange`、`pausedGoal`、
+  `goalNote` 在正常路径返回 `null`，原 schema 会触发 DSH 强制输出校验失败；已改为可空并补回归测试。
+- **错误码分类补全**：state 校验失败统一归为 `state-corrupt`；`tower_complete` 的未完成任务、
+  blocker、无提交、未读消息等前置条件归为 `invalid-transition`，不再落到 `tool-internal`。
+- **findings 更新后的计数**：状态流转后返回的 `counts` 之前是旧值，现在按变更后重新统计。
+- **findings 只读路径**：列表/读取不再获取写锁，与工具描述一致，长合并或 hook 期间也能读取。
+- **mission id 规范化**：`tower_mission` 对首尾空白的 `id` 先 trim 再查找，不再误报
+  `mission-not-found`。
+
 ## 1.3.0 — 2026-10-18
 
 - **独立的只读 reviewer preset**：新增 `reviewer.js` / `tower-reviewer`，去掉 `write`/`edit`/`pwsh`/

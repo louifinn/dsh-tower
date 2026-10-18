@@ -89,5 +89,15 @@ test('config: defaults, legacy aliases and unknown-key rejection', () => {
   assert.equal(nested.review.maxRoundsPerReviewer, 2)
   assert.equal(nested.spawn.maxDepth, 2)
 
+  // Canonical keys win over the legacy aliases when both are present.
+  const both = resolveTowerConfig({
+    section: 'legacy text',
+    allowAgentControl: true,
+    mode: { promptSection: 'canonical text', allowAgentControl: false },
+  })
+  assert.equal(both.section, 'canonical text')
+  assert.equal(both.mode.promptSection, 'canonical text')
+  assert.equal(both.mode.allowAgentControl, false)
+
   assert.throws(() => resolveTowerConfig({ allowAgentToggle: true }), /unknown key/i)
 })

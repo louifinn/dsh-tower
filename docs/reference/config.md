@@ -2,7 +2,38 @@
 
 Every key is optional; defaults reproduce the shipped behavior. Unknown top-level keys are rejected.
 `section` and `allowAgentControl` are legacy aliases for `mode.promptSection` and
-`mode.allowAgentControl`.
+`mode.allowAgentControl`. A legacy alias only fills a gap: when both forms are set, the canonical
+`mode.*` key wins.
+
+## Layers and precedence
+
+Lowest precedence first:
+
+1. code defaults (the table below),
+2. profile config (the Cordis patch that mounts `dsh-tower` passes it to `apply()`),
+3. repository config at `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`),
+4. per-call tool arguments such as `worktreeRoot` and `timeoutMs`.
+
+The repository layer is read every time a Tower tool opens a repository, so a repository can tune
+review, merge, worktree and spawn policy without editing the profile. It uses the same JSON shape as
+the profile config (the same groups and the legacy aliases) and is merged group by group: repo keys
+win, profile keys survive when the repo does not set them. `tower_status` reports
+`config.path` and `config.repoConfigPresent`.
+
+```json
+{
+  "review": { "maxRoundsPerReviewer": 3 },
+  "merge": { "timeoutMs": 1800000 },
+  "worktrees": { "root": "D:/tower-worktrees" },
+  "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
+}
+```
+
+The `mode.*` group is session-scoped, not repository-scoped: it is accepted in the repository file
+for schema compatibility but only the profile config controls the Tower-mode prompt and the
+model-controlled toggle. A malformed file, a non-object value, unknown top-level keys, or a value that
+violates the declared schema (for example `merge.timeoutMs` below 1000) fail with the stable
+`config-invalid` / `config-unknown-key` tool error codes.
 
 | Key | Default | Meaning |
 |---|---|---|
