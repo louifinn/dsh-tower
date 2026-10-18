@@ -13,7 +13,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 ## 特性
 
-- **由人类掌握的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。
+- **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_control` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
 - **审查门禁合并。** 开启 `review.requireReview:true` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选（门禁关闭）；全局开启时，单个 mission 用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
@@ -137,7 +137,7 @@ tower_teardown  repoRoot=D:\work\repo
       maxDepth: 1
 ```
 
-- 代码中 `mode.allowAgentControl` 默认 `false`；随包 `cordis.patch.yml` 设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 15s。
+- 代码中 `mode.allowAgentControl` 默认 `true`；随包 `cordis.patch.yml` 也显式设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 15s。
 - `/tower base <branch>` 可设置会话级 init base 偏好；`/tower on` 会清除活跃 plan mode（`mode.planModePolicy:"refuse"` 则拒绝进入），保证 plan/tower 互斥。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知顶层键会被拒绝（防止拼写错误静默失效），嵌套分组内的未知键会被忽略。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
@@ -146,7 +146,7 @@ tower_teardown  repoRoot=D:\work\repo
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` 仅在 `allowAgentControl: true` 时注册；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 28 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+`tower_control` 默认注册（`allowAgentControl:true`）；设为 `false` 可禁用；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 28 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
@@ -203,7 +203,7 @@ npm test        # node --test tests/*.test.mjs
 ## 常见问题
 
 - **安装/更新后插件不出现。** Host 插件在 DSH 启动时加载，请重启 DSH；并确认安装目标指向本仓库根目录（含 `package.json` 与 `cordis.patch.yml` 的那一层），而不是子目录。
-- **没有 `tower_control`。** 配置 `allowAgentControl` 为 `false`；改为 `true` 并重启。
+- **没有 `tower_control`。** 配置中被设为 `allowAgentControl:false`；改回 `true` 并重启。
 - **合并被阻止。** 运行 `tower_preflight` 查看 blocker code；`stale-base` 表示先执行 `tower_rebase`。
 - **基线前进后分支过期。** `tower_rebase` 在 worktree 内完成 rebase；干净且无冲突的 rebase 可免去上一轮审查的重审。
 - **合并提交已经存在，但 `tower_merge` 报了失败。** 重新执行 `tower_merge` 即可：它会检测已落地的合并提交（或分支已包含在 base 中）并记录为 reconciled，不会重复合并。
@@ -215,7 +215,7 @@ npm test        # node --test tests/*.test.mjs
 
 ## 致谢
 
-- **Kimi Code（Moonshot AI）**：Tower 模式的整体概念——由人类开启的模式、每个 mission 独立 Git worktree、审查门禁合并协议——灵感来自 Kimi Code 的实验性 Tower 模式（[官网](https://www.kimi.com/code)、[源码](https://github.com/MoonshotAI/kimi-code)）。本项目在 DeepSeek Harness 的服务之上重新实现这些想法，不包含 Kimi Code 源码，也与 Moonshot AI 无隶属关系。
+- **Kimi Code（Moonshot AI）**：Tower 模式的整体概念——明确的会话级模式开关、每个 mission 独立 Git worktree、审查门禁合并协议——灵感来自 Kimi Code 的实验性 Tower 模式（[官网](https://www.kimi.com/code)、[源码](https://github.com/MoonshotAI/kimi-code)）。本项目在 DeepSeek Harness 的服务之上重新实现这些想法，不包含 Kimi Code 源码，也与 Moonshot AI 无隶属关系。
 - **DeepSeek Harness**：本插件构建所依赖的插件、工具、会话与子代理 API。
 
 ## License

@@ -15,6 +15,9 @@
   不再把独立审查写成默认必经步骤。
 - **模型可见工具描述同步**：`tower_plan` 的 `reviewPolicy`、`tower_complete` 的完成语义、
   `tower_preflight` 的 review blocker 条件，以及 reviewer 错误文案不再暗示“完成即等待审查”。
+- **模式控制默认改为 Agent 可操作**：`mode.allowAgentControl` 默认 `true`，`tower_control` 默认注册，
+  模型可带理由进出 Tower 模式；设 `false` 可恢复仅人类控制。同步删除文档中的“human-owned/人类掌握”
+  表述，改为“可配置、显式且可归因”；模式提示、工具参考、安全模型与 UI 说明一并更新。
 
 ### 修复
 

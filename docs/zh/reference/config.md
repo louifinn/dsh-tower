@@ -37,12 +37,12 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `section` | `''` | 兼容别名：替换整段 Tower 模式提示文案。空值保留内置提醒。 |
-| `allowAgentControl` | `false`（随包 patch：`true`） | 兼容别名：注册 `tower_control`。 |
+| `allowAgentControl` | `true`（`mode.allowAgentControl` 的别名） | 兼容别名：注册 `tower_control`，允许模型切换模式。 |
 | `init.autoGitInit` | `false`（随包 patch：`true`） | 当 `repoRoot` 是绝对、已存在但不是仓库的目录时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
 | `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪**改动快照为游离提交作为 mission 基线（不含未跟踪文件；该提交通过 `refs/tower/snapshot/*` 保持存活）。 |
 | `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
 | `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
-| `mode.allowAgentControl` | `false` | 注册 `tower_control`；模型可带理由进入/退出。 |
+| `mode.allowAgentControl` | `true` | 注册 `tower_control`；模型可带理由进入/退出。设为 `false` 则仅人类可控制模式。 |
 | `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
 | `mode.requireResumeAuthorization` | `false` | 恢复因 `pauseCause:user` 暂停的 mission 时，必须提供 `authorization` 引用。 |
 | `mode.workspaceLock` | `false`（随包 patch：`true`） | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |

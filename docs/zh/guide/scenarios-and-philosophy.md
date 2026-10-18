@@ -36,9 +36,13 @@ worker 永远不合并。控制塔运行 preflight；只有之后 `tower_merge` 
 
 Tower 宁可显示 blocker，也不静默修复。stale worker 被标记而不是假设已死；脏 base 阻止合并；开启审查时，审查后 tip 变化阻止合并；merge 期间崩溃会留下持久 intent，由下一次 `tower_merge` 对账。代价是偶尔需要人工清理，收益是状态不会谎报已集成的内容。
 
-### 1.7 人类拥有模式
+### 1.7 模式切换显式且可归因
 
-Tower 模式改变会话姿态：收窄工具面并注入 mission 协议。随包 patch 允许模型给出理由后切换，但该模式存在的前提是人类需要交付纪律。进入会暂停活跃 goal 并清除 plan mode；退出不会静默恢复。Tower 激活期间刻意拒绝 `goal`、`todo`、Team 任务板、Workflow、Ralph 与普通 subagent 工具，避免两套编排协议争夺同一会话。
+Tower 模式改变会话姿态：收窄工具面并注入 mission 协议。人类始终可以用 `/tower` 切换；默认情况下
+模型也可以带具体理由用 `tower_control` 进出，每次变更记录操作者与理由。设计重点不是某一方拥有
+开关，而是切换必须显式、可见；若部署需要仅人类控制，设 `mode.allowAgentControl:false`。进入会
+暂停活跃 goal 并清除 plan mode；退出不会静默恢复。Tower 激活期间刻意拒绝 `goal`、`todo`、
+Team 任务板、Workflow、Ralph 与普通 subagent 工具，避免两套编排协议争夺同一会话。
 
 ### 1.8 本地优先，无隐藏服务
 

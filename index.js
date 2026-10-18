@@ -1,11 +1,12 @@
 // dsh-tower — Host entry.
 //
-// Tower mode is a session-level stance. The human owns it through the
-// `/tower` command: bare `/tower`, `/tower on [message]`, `/tower off
-// [message]`, and `/tower <message>` all work, and any trailing text is
-// forwarded to the model as the next user message. With
-// config.allowAgentControl the model may also enter or leave the mode through
-// `tower_control` when the user intent or task state clearly calls for it.
+// Tower mode is a session-level stance. It is intentionally operable by both
+// sides: the `/tower` command (bare `/tower`, `/tower on [message]`, `/tower
+// off [message]`, and `/tower <message>`; trailing text is forwarded to the
+// model as the next user message) and, when config.allowAgentControl is true
+// (the default), the model through `tower_control`. Every change is recorded
+// with its actor and reason; set allowAgentControl:false for human-only mode
+// control.
 //
 // `/tower reload` asks DSH HMR to reconcile this profile and reload the Tower
 // plugin from disk when the HMR service is present (dev/linked installs).
@@ -44,11 +45,11 @@ const BASE_REMINDER = [
   'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
   'Mission tracking lives in tower_plan / tower_mission / tower_status, not todo_write or the Team task board.',
   'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_preflight.',
-  'Only the human can normally change this mode with /tower on|off.',
+  'Tower mode changes are explicit and recorded; the user can always use /tower on|off.',
 ].join(' ')
 
 const AGENT_CONTROL_NOTE =
-  'If tower_control is available you may also enter or leave Tower mode yourself when the user intent or task state clearly calls for it, and you must state a concrete reason.'
+  'You may also enter or leave Tower mode with tower_control when the user intent or task state clearly calls for it; always state a concrete reason.'
 
 function readPluginVersion() {
   if (pluginVersion !== null) return pluginVersion

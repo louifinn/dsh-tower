@@ -25,9 +25,10 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
   changes block the merge.
 - **Worktree isolation.** Workers operate in a dedicated worktree and branch; the main checkout is only
   touched by merge/teardown.
-- **Human-owned mode.** `/tower` is user-owned. With `mode.allowAgentControl` the model may toggle it,
-  but must state a reason; the shipped patch enables that by default — set it to `false` to make the
-  mode human-only.
+- **Mode control is explicit and configurable.** `/tower` is always available. With
+  `mode.allowAgentControl:true` (the default), the model may also enter/leave with `tower_control` and
+  a mandatory reason; every change records actor/reason. Set it to `false` for human-only mode control.
+  The point is an attributable change, not a particular owner.
 - **No automatic goal resume.** Entering pauses the active goal; leaving does not resume it.
 - **Advisory workspace lock.** `mode.workspaceLock` prevents two Tower sessions from accidentally driving
   one repository; it is a same-user coordination lock, not authentication between users.

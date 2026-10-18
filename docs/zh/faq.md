@@ -20,7 +20,8 @@ reviewer；干净审查后门禁就会变绿。默认 `review.requireReview:fals
 不需要。worker 的最终报告会送回本会话；`tower_roster` 显示实时活动。轮询只会浪费回合。
 
 **`/tower` 显示模式已开启，但没有 `tower_control`。**
-`mode.allowAgentControl` 关闭了。在 profile patch 中把它设为 `true` 并重启 DSH。
+`mode.allowAgentControl` 被关闭了。它默认为 `true`；如果被显式设为 `false`，在 profile patch 中改回
+`true` 并重启 DSH。
 
 **合并钩子要跑几分钟，`tower_merge` 失败了。**
 用更大的 `timeoutMs` 重试：`tower_merge({ missionId, timeoutMs: 1800000 })`。默认超时是 15 分钟，

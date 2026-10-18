@@ -89,10 +89,14 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   const plain = makeCtx()
   apply(plain.ctx, {})
   assert.ok(plain.tools.has('tower_mode'))
-  assert.equal(plain.tools.has('tower_control'), false, 'agent control is off by default')
+  assert.ok(plain.tools.has('tower_control'), 'agent control is on by default')
   const command = plain.commands.get('tower')
   assert.equal(command.input.hint, '[on|off|reload|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
+
+  const disabled = makeCtx()
+  apply(disabled.ctx, { mode: { allowAgentControl: false } })
+  assert.equal(disabled.tools.has('tower_control'), false)
 
   const controlled = makeCtx()
   apply(controlled.ctx, { allowAgentControl: true })
@@ -208,7 +212,7 @@ test('guard: denied tools while active, allowed again after /tower off', async (
   assert.equal(guard({ agent, name: 'create_goal', arguments: {} }), undefined)
 })
 
-test('prompt section is dynamic per agent and mentions agent control when enabled', async () => {
+test('prompt section is dynamic per agent and mentions agent control by default', async () => {
   const plain = makeCtx()
   apply(plain.ctx, {})
   const section = plain.sections[0]
@@ -218,8 +222,14 @@ test('prompt section is dynamic per agent and mentions agent control when enable
   assert.equal(section.text({ agent }), '')
   await callCommand(plain.commands, agent, '')
   assert.match(section.text({ agent }), /Tower mode is active/)
-  assert.doesNotMatch(section.text({ agent }), /tower_control/)
+  assert.match(section.text({ agent }), /tower_control/)
   assert.equal(section.text({ agent: makeAgent('other') }), '')
+
+  const disabled = makeCtx()
+  apply(disabled.ctx, { mode: { allowAgentControl: false } })
+  const disabledAgent = makeAgent('agent-disabled')
+  await callCommand(disabled.commands, disabledAgent, '')
+  assert.doesNotMatch(disabled.sections[0].text({ agent: disabledAgent }), /tower_control/)
 
   const controlled = makeCtx()
   apply(controlled.ctx, { allowAgentControl: true })

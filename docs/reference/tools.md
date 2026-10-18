@@ -2,7 +2,7 @@
 
 All tools take `repoRoot` (an absolute path inside the target Git repository) and return JSON.
 The build exposes up to 28 tools: 19 core repository tools below (including `tower_interrupt`),
-`tower_mode`, `tower_control` when `mode.allowAgentControl` is enabled (the bundled patch enables it),
+`tower_mode`, `tower_control` (registered by default; set `mode.allowAgentControl:false` to disable),
 `tower_reload` while `dev.hotReload` is on, and the 2.1 verification/ops tools `tower_doctor`,
 `tower_test`, `tower_batch`, `tower_resource`, `tower_import_legacy`, `tower_legacy_map`.
 
@@ -50,7 +50,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_rebase` | `missionId` (alias `id`) | Rebase the branch onto the base in its worktree. Refuses while the worker runs or the worktree is dirty. Already-contained branches return `alreadyMerged` untouched. |
 | `tower_teardown` | `force?`, `exclude?`, `dry_run?` (alias `dryRun`) | Remove eligible merged/abandoned worktrees and branches; running agents are always kept. |
 | `tower_mode` | — | Report mode, last change, paused goal, denied tools, store path, plugin version, HMR availability, workspace-lock holder. |
-| `tower_control` | `action` (`enter`/`exit`), `reason` | Model-initiated mode change; only when `mode.allowAgentControl` is true; reason is mandatory. |
+| `tower_control` | `action` (`enter`/`exit`), `reason` | Model-initiated mode change; registered by default; disable with `mode.allowAgentControl:false`; reason is mandatory. |
 | `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while `dev.hotReload` is on; scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
 | `tower_doctor` | — (takes `repoRoot`) | Read-only health contract: git, state schema, config, presets/subagents/HMR, workspace lock, roster, worktree realpath/ownership, test config, leases. Returns `{ok, checks[{id,status,detail}], environmentContract}`. Never writes. |
 | `tower_test` | `missionId` (alias `id`) | Run the worktree's `package.json` `tower.testDiscovery` and record a receipt; `ok:false` on failure. Use `tower_complete` for automatic admission checks. |

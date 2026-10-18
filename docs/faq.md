@@ -23,7 +23,8 @@ No. The worker's final report is delivered to this session; `tower_roster` shows
 wastes turns.
 
 **`/tower` says the mode is on but `tower_control` is missing.**
-`mode.allowAgentControl` is off. Set it to `true` in the profile patch and restart DSH.
+`mode.allowAgentControl` is disabled. It defaults to `true`; if it was set to `false`, set it back to
+`true` in the profile patch and restart DSH.
 
 **The merge hook takes minutes and `tower_merge` failed.**
 Retry with a larger `timeoutMs`: `tower_merge({ missionId, timeoutMs: 1800000 })`. The default is 15

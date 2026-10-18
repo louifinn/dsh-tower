@@ -65,14 +65,16 @@ dirty base blocks a merge; with the review gate on, a moved review tip blocks a 
 merge leaves a persistent intent that the next `tower_merge` reconciles. The cost is occasional manual
 cleanup; the benefit is that state never lies about what was integrated.
 
-### 1.7 The human owns the mode
+### 1.7 Mode control is explicit and attributable
 
 Tower mode changes the session's stance: it narrows the tool surface and injects the mission protocol.
-The shipped patch allows the model to toggle it with a stated reason, but the mode exists because a
-human asked for delivery discipline. Entering pauses an active goal and clears plan mode; leaving does
-not silently resume either. Tower intentionally refuses `goal`, `todo`, Team task-board, Workflow,
-Ralph, and ordinary subagent tools while it is active, so two orchestration protocols do not fight over
-one session.
+The user can always change it with `/tower`; by default the model can also enter or leave with
+`tower_control`, provided it states a concrete reason. Every change records the actor and reason. The
+design point is not that one side owns the switch, but that toggling is deliberate and visible; set
+`mode.allowAgentControl:false` if a deployment wants human-only control. Entering pauses an active goal
+and clears plan mode; leaving does not silently resume either. Tower intentionally refuses `goal`,
+`todo`, Team task-board, Workflow, Ralph, and ordinary subagent tools while it is active, so two
+orchestration protocols do not fight over one session.
 
 ### 1.8 Local-first, no hidden service
 

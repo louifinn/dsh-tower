@@ -13,7 +13,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 ## Features
 
-- **Human-owned Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step.
+- **Configurable Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step. By default the model may also enter/leave with `tower_control` and a concrete reason; set `mode.allowAgentControl:false` for human-only control.
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
 - **Review-gated merges.** When `review.requireReview:true`, a reviewer bound to the current branch tip must submit a `clean` / `merge` verdict before merge; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default (the gate is off); use `reviewPolicy:"none"` + reason plus `gates.allowReviewExemption:true` for a single mission when the global gate is on.
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
@@ -137,7 +137,7 @@ Image and file attachments are forwarded together with the instruction as one co
       maxDepth: 1
 ```
 
-- `mode.allowAgentControl` defaults to `false` in code; the bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave when the user intent or task state warrants it, always stating a reason. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
+- `mode.allowAgentControl` defaults to `true` in code; the bundled `cordis.patch.yml` also sets it explicitly to `true` so the model may enter/leave when the user intent or task state warrants it, always stating a reason. Set it to `false` for human-only control. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
 - `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown top-level keys are rejected so typos cannot silently disable security-relevant settings, while unknown keys inside a group are ignored. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
@@ -146,7 +146,7 @@ Image and file attachments are forwarded together with the instruction as one co
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` exists only when `allowAgentControl: true`; `tower_reload` is registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 28 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+`tower_control` is registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 28 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
@@ -207,7 +207,7 @@ The offline suite needs no DSH process and creates throwaway Git repositories in
 ## Troubleshooting
 
 - **The plugin does not appear after install/update.** Host plugins load at DSH startup; restart DSH. Confirm the entry point targets this repository root (the folder with `package.json` and `cordis.patch.yml`), not a subdirectory.
-- **`tower_control` is missing.** The config `allowAgentControl` is `false`; set it to `true` and restart.
+- **`tower_control` is missing.** The config sets `allowAgentControl:false`; set it back to `true` and restart.
 - **Merge is blocked.** Run `tower_preflight` and read the blocker codes above; `stale-base` means run `tower_rebase` first.
 - **A mission branch is stale after base moved.** `tower_rebase` rebases inside the worktree; a clean conflict-free rebase waives re-review for the previous verdict.
 - **A merge commit exists but `tower_merge` reported a failure.** Re-run `tower_merge`: it detects the landed merge commit (or a branch already contained in the base) and records it as reconciled instead of merging twice.
@@ -219,7 +219,7 @@ Issues and pull requests are welcome. Please run `npm test` before opening a PR;
 
 ## Acknowledgements
 
-- **Kimi Code (Moonshot AI)** — the Tower mode concept, including human-owned activation, an isolated Git worktree per mission, and the review-gated merge protocol, is inspired by the experimental Tower mode in [Kimi Code](https://www.kimi.com/code) ([source](https://github.com/MoonshotAI/kimi-code)). This project re-implements those ideas on top of DeepSeek Harness services; it contains no Kimi Code source code and is not affiliated with or endorsed by Moonshot AI.
+- **Kimi Code (Moonshot AI)** — the Tower mode concept, including an explicit session-level mode switch, an isolated Git worktree per mission, and the review-gated merge protocol, is inspired by the experimental Tower mode in [Kimi Code](https://www.kimi.com/code) ([source](https://github.com/MoonshotAI/kimi-code)). This project re-implements those ideas on top of DeepSeek Harness services; it contains no Kimi Code source code and is not affiliated with or endorsed by Moonshot AI.
 - **DeepSeek Harness** — for the plugin, tool, session, and subagent APIs this project is built on.
 
 ## License

@@ -38,12 +38,12 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | Key | Default | Meaning |
 |---|---|---|
 | `section` | `''` | Legacy alias: replace the whole Tower-mode prompt text. Empty keeps the built-in reminder. |
-| `allowAgentControl` | `false` (bundled patch: `true`) | Legacy alias: register `tower_control`. |
+| `allowAgentControl` | `true` (alias of `mode.allowAgentControl`) | Legacy alias: register `tower_control` so the model may toggle the mode. |
 | `init.autoGitInit` | `false` (bundled patch: `true`) | `tower_init` may run `git init` + an empty initial commit when `repoRoot` is an absolute, existing directory that is not a repository. |
 | `init.snapshotDirty` | `false` | `tower_init` may snapshot uncommitted **tracked** changes into a dangling commit used as the mission baseline (untracked files are not included; the commit is kept alive under `refs/tower/snapshot/*`). |
 | `mode.promptSection` | `''` | Replacement prompt text (takes precedence over `section` when both set). |
 | `mode.sectionAppend` | `''` | Extra text appended after the reminder (team conventions). |
-| `mode.allowAgentControl` | `false` | Register `tower_control`; the model may enter/leave with a reason. |
+| `mode.allowAgentControl` | `true` | Register `tower_control`; the model may enter/leave with a reason. Set `false` for human-only mode control. |
 | `mode.autoPauseGoal` | `true` | Pause an active goal on entry; the goal is never auto-resumed on exit. |
 | `mode.requireResumeAuthorization` | `false` | Resuming a mission paused with `pauseCause:user` requires an `authorization` reference. |
 | `mode.workspaceLock` | `false` (bundled patch: `true`) | Allow only one Tower session per repository (`tower.lock`); others get `workspace-busy`. |

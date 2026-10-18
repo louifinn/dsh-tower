@@ -20,8 +20,9 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
   `tower_mission` 与 `tower_complete`；reviewer 只能读、看 diff、发消息、记录 finding 和提交审查。
 - **Scope 门禁。** mission 只能修改其声明 scope glob 匹配的文件；越界改动会阻止合并。
 - **Worktree 隔离。** worker 在独立 worktree 与分支上工作；主检出只会被 merge/teardown 触及。
-- **人类掌握模式。** `/tower` 归用户所有。开启 `mode.allowAgentControl` 后模型可以切换，但必须
-  给出理由；随包 patch 默认开启——设为 `false` 可让模式只由人类控制。
+- **模式控制显式且可配置。** `/tower` 始终可用。`mode.allowAgentControl:true`（默认）时，模型也可以
+  带必填理由用 `tower_control` 进出；每次变更记录操作者与理由。设为 `false` 则仅人类可控制模式。
+  重点是变更可归因，而不是固定由某一方拥有。
 - **不自动恢复 goal。** 进入模式会暂停活跃 goal；退出时不会恢复它。
 - **建议性 workspace 锁。** `mode.workspaceLock` 防止两个 Tower 会话意外驱动同一个仓库；它是同用户
   之间的协调锁，不是用户间的认证机制。
