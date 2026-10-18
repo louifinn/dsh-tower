@@ -43,10 +43,10 @@ does `tower_merge` perform a `--no-ff` merge. The gate re-checks scope, base fre
 binding, worktree ownership, worker state, tests, and evidence. Separation of duties is the point:
 the agent that wrote the code is not the agent that approves it, and neither is the agent that merges.
 
-Independent review is mandatory by default but is **configurable**: `review.requireReview:false`
-lets a completed mission merge without a reviewer (the `no-review`/`not-clean`/`tip-moved` blockers are
-skipped). This is a deliberate escape hatch for low-risk repositories or tightly supervised work, not
-the recommended default; reviews can still be submitted and recorded when the flag is off.
+Independent review is optional by default: `review.requireReview:true` enforces it (and then a complete
+mission must carry a clean, merge-approved review from a reviewer bound to the branch tip). Set the flag
+to `true` for sensitive repositories; `reviewPolicy:"none"` + a reason remains available as a per-mission
+exemption when the global gate is on. Reviews can be submitted and recorded either way.
 
 ### 1.5 Evidence over assertion
 
@@ -89,7 +89,7 @@ The table is the quick version; the subsections below explain each row.
 | Sensitive or release-bound change | A payments service change or a public library release needing a reviewed commit and test evidence | Review binding, checks/runs, human-readable audit |
 | Long-running work | A multi-day dependency upgrade interrupted by restarts and context resets | Durable mission/roster/review/worktree state |
 | Hard integration boundary | Four services in one monorepo, each with an owner, then one release review | Parallel missions with a single merge gate |
-| Checkable definition of done | A task list plus required tests plus an independent review verdict | Completion/review evidence is visible to another agent |
+| Checkable definition of done | A task list plus required tests plus an optional independent review verdict | Completion/review evidence is visible to another agent |
 
 ### 2.1 A feature that naturally splits into independent slices
 
@@ -177,7 +177,7 @@ integration, and what "done" means.**
 | Isolation | Git worktree + branch per mission; one writer per mission | Shared workspace; coordination by task ownership | Fresh child per round; no built-in branch/merge contract | Per-step child; no Git isolation | Child sessions; may share workspace |
 | Durable state | Git metadata + JSON state + activity + board | Team task board + sessions | Minimal; each round starts fresh | Run record/results; not a merge ledger | Session/subagent records |
 | Integration authority | Tower only, after review + gate | Humans/teammates merge or edit manually | Usually the parent/worker applies results | Script applies results | Parent applies results |
-| Review / gate | Mandatory independent review + preflight/merge gate | Review is a collaboration convention, not a hard gate | No built-in review gate | No built-in review gate | No built-in review gate |
+| Review / gate | Optional independent review (enable `review.requireReview`) + preflight/merge gate | Review is a collaboration convention, not a hard gate | No built-in review gate | No built-in review gate | No built-in review gate |
 | Parallelism | Multiple missions, disjoint scopes, serialized merges | Many teammates, shared board | Sequential rounds (or external fan-out) | High fan-out, script-controlled | High fan-out |
 | Human role | Owns the mode; can inspect evidence and release | Collaborator/coordinator | Author of the repeated objective | Author of the orchestration script | Delegator |
 | Best for | Feature delivery, migrations, release-bound changes | Design, research, cross-cutting collaboration | Iterative search/repair with fresh context | Large audits, batch analysis, deterministic pipelines | Quick exploration or independent subtasks |
@@ -235,14 +235,14 @@ Tower entry clears an active plan (or refuses entry under `mode.planModePolicy:"
 Tower session cannot use the goal/todo/team/workflow tools. Plan first, then execute; do not expect
 Tower to discover the plan for you.
 
-### 4.6 Review can be optional
+### 4.6 Review is optional by default
 
-`review.requireReview:true` is the default. Set it to `false` in the profile or repo config when
-independent review is not worth the latency (for example a scratch repo, a single-owner tool, or a
-human pair-reviewing every turn). The gate then skips `no-review`, `not-clean`, `review-hold`,
-`review-not-approved`, `tip-moved`, and `review-mission-mismatch`; review records and `tower_review`
-remain available. Prefer mission-level `reviewPolicy:"none"` + a reason when only one mission should
-skip review, and keep the global switch on for normal delivery.
+`review.requireReview:false` is the default, so a completed mission can merge without a reviewer for
+low-risk repositories, scratch work, or human-supervised sessions. Set it to `true` to enforce the
+independent review gate; the gate then re-checks `no-review`, `not-clean`, `review-hold`,
+`review-not-approved`, `tip-moved`, and `review-mission-mismatch`. `tower_review` is always available
+and records verdicts even when the gate is off. For one mission only, prefer `reviewPolicy:"none"` + a
+reason while the global gate is on.
 
 ### 4.6 Concrete examples by workflow
 

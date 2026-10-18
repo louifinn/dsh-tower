@@ -54,7 +54,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `mode.denyTools` | goal/todo/team/workflow/subagent tools | Tools refused while the mode is active (12 defaults). |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | Directory for `modes.json`. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries (1–2000). |
-| `review.requireReview` | `true` | Require an independent clean review before merge. Set `false` to skip `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch` globally; `tower_review` still works. Prefer mission-level `reviewPolicy:"none"` for a single exemption. |
+| `review.requireReview` | `false` | Enforce an independent clean review before merge. Default `false` (review optional); set `true` to require `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch` checks. `tower_review` remains available either way. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per branch. |
 | `merge.timeoutMs` | `900000` (15 min) | Default `tower_merge` timeout, including hooks. A per-call `timeoutMs` wins. |
 | `merge.maxBufferBytes` | `67108864` (64 MB) | Merge output buffer. |

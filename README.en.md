@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [中文说明](README.md)
 
-**Tower** is a multi-agent orchestration plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns one agent session into a small engineering team: the session acts as the *control tower*, worker agents do the implementation inside isolated Git worktrees, and nothing reaches your base branch without an independent review and a hard merge gate.
+**Tower** is a multi-agent orchestration plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns one agent session into a small engineering team: the session acts as the *control tower*, worker agents do the implementation inside isolated Git worktrees, and changes pass scope/merge gates into the base branch; independent review can be enforced by config.
 
 Tower mode and its mission/review workflow are inspired by the experimental **Tower mode in [Kimi Code](https://www.kimi.com/code)** by Moonshot AI. This is an independent implementation for DSH and is not affiliated with Moonshot AI; see [Acknowledgements](#acknowledgements).
 
@@ -15,7 +15,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 - **Human-owned Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step.
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
-- **Review-gated merges.** A reviewer bound to the current branch tip must submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is mandatory by default and can be disabled globally with `review.requireReview:false` (or per mission with `reviewPolicy:"none"` + reason).
+- **Review-gated merges.** A reviewer bound to the current branch tip can submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default; set `review.requireReview:true` to enforce it globally (or use `reviewPolicy:"none"` + reason to exempt a single mission when it is on).
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
 - **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
 - **Traceable finding lifecycle.** `tower_findings` lists, reads, and moves findings through `open → triaged → fixed` / `wontfix` (and can reopen); only the tower or a worker may change state, while reviewers can only read.
@@ -35,7 +35,7 @@ Tower is a **delivery protocol for changes to a Git repository**, not the defaul
 - ordering matters (migrations, dependencies, branch freshness, scope reservations);
 - the repository is sensitive or release-bound, and you need a reviewed commit, test evidence, and an auditable merge;
 - work spans context compaction, restarts, or multiple days and must be recoverable from local state;
-- "done" means tasks + tests + independent review, not just a confident message in chat.
+- "done" means tasks + tests (and optionally an independent review), not just a confident message in chat.
 
 It is a poor fit for one-file or one-line hotfixes, requirements still being discovered, open-ended research, many tiny independent tasks, interactive UI pairing, or cross-repository work. Rule of thumb: **if you would not open a PR for it, Tower is probably too heavy.**
 
@@ -45,7 +45,7 @@ How it differs (full guide: [When to use Tower](docs/guide/scenarios-and-philoso
 - **Agent Teams**: shared task board and peer collaboration for design, research, and cross-cutting decisions; integration is usually human, with no hard Git gate.
 - **Ralph loop**: fresh agents retry one objective, good for iterative search/repair; no mission contract or merge review.
 - **Workflow orchestration**: scripted high fan-out/pipelines for audits, batch analysis, and verification; no branch isolation or merge gate.
-- **Tower**: a few missions + isolated writers + independent review + evidence + a merge gate, for "we have decided; land it safely".
+- **Tower**: a few missions + isolated writers + optional independent review + evidence + a merge gate, for "we have decided; land it safely".
 
 Tower mode refuses Team/Workflow/Ralph/ordinary subagent tools and clears plan mode so two orchestration protocols do not drive one session. Compose by phase instead: use Workflow/Team to analyze and decide, then Tower to execute the repository change.
 

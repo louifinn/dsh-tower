@@ -166,6 +166,13 @@ test('mission transitions: the full allowed/denied table matches the implementat
 test('tower_complete and tower_merge enforce their own state preconditions', async () => {
   const { root, repo } = seedRepo('dsh-tower-machine-entry-')
   try {
+    // This test asserts the mandatory-review gate; opt back into it explicitly
+    // because review is optional by default.
+    fs.mkdirSync(path.join(repo, '.git', 'dsh-tower'), { recursive: true })
+    fs.writeFileSync(
+      path.join(repo, '.git', 'dsh-tower', 'config.json'),
+      JSON.stringify({ review: { requireReview: true } }),
+    )
     const tower = await Tower.open(repo)
     await tower.init({})
     const planned = await tower.plan({

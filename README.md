@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [English](README.en.md)
 
-**Tower** 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的多代理编排插件。它把一个 agent 会话变成一个小型工程团队：会话本身是*控制塔*，worker agent 在隔离的 Git worktree 里实现任务，任何改动都必须经过独立审查和硬门禁才能合入基线分支。
+**Tower** 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的多代理编排插件。它把一个 agent 会话变成一个小型工程团队：会话本身是*控制塔*，worker agent 在隔离的 Git worktree 里实现任务，改动经 scope/合并门禁合入基线分支；独立审查可在配置中强制开启。
 
 Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Code** 中实验性的 Tower 模式（[Kimi Code](https://www.kimi.com/code)）。本项目是面向 DSH 的独立实现，与 Moonshot AI 无隶属关系；详见[致谢](#致谢)。
 
@@ -15,7 +15,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 - **由人类掌握的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
-- **审查门禁合并。** 审查者必须针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认强制，可用 `review.requireReview:false` 全局关闭（低风险/人工逐轮监督场景；仍可提交 review）。
+- **审查门禁合并。** 审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选，设 `review.requireReview:true` 可全局强制（仍可随时提交 review）。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
 - **默认安全。** Tower 模式开启期间拒绝 `create_goal`、`update_goal(resume)`、`todo_write`、Team 任务板与 `spawn_teammate`；被暂停的 goal 不会被自动恢复。
 - **可追溯的 finding 生命周期。** `tower_findings` 列表、读取并按 `open → triaged → fixed` / `wontfix` 流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
@@ -35,7 +35,7 @@ Tower 是**面向 Git 仓库变更的交付协议**，不是所有多代理场�
 - 有依赖顺序、需要分支新鲜度与 scope 约束的迁移；
 - 敏感仓库、发布绑定变更，或需要"被审查 commit + 测试证据 + 可审计合并"的工作；
 - 跨上下文压缩、重启、多天协作，需要从本地状态恢复的工作；
-- 需要把"完成"定义成任务 + 测试 + 独立审查，而不是聊天里的一句"好了"。
+- 需要把"完成"定义成任务 + 测试（可选独立审查），而不是聊天里的一句"好了"。
 
 不适合：单文件/一行 hotfix、需求仍在探索、开放式研究、大量极小的独立任务、交互式 UI 配对、或跨仓库工作。判断标准：**如果你不会为它开 PR，Tower 很可能太重。**
 
@@ -45,7 +45,7 @@ Tower 是**面向 Git 仓库变更的交付协议**，不是所有多代理场�
 - **Agent Teams**：共享任务板与多人/多 agent 协作，适合设计、研究、横切决策；集成通常由人做，没有 Git 隔离的硬门禁。
 - **Ralph 循环**：用新鲜 agent 对同一目标反复尝试，适合迭代搜索/修复；没有 mission 契约与合并审查。
 - **Workflow 编排**：脚本化高扇出/流水线，适合批量分析、审计、验证；不做 Git 分支隔离与合并门禁。
-- **Tower**：少量 mission + 隔离写入 + 独立审查 + 证据 + 合并门禁，适合"决定要做、需要安全落地"的仓库变更。
+- **Tower**：少量 mission + 隔离写入 + 可选独立审查 + 证据 + 合并门禁，适合"决定要做、需要安全落地"的仓库变更。
 
 Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan mode，避免两套编排协议同时驱动一个会话；请按阶段组合，例如先用 Workflow/Team 分析决策，再用 Tower 执行仓库变更。
 

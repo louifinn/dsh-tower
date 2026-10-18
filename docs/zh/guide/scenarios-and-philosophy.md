@@ -26,7 +26,7 @@ mission 不是聊天线程或任务卡，而是绑定到分支与 worktree 的�
 
 worker 永远不合并。reviewer 审查特定分支 tip；控制塔运行 preflight；只有之后 `tower_merge` 才执行 `--no-ff` 合并。门禁重新检查 scope、base 新鲜度、任务、审查绑定、worktree 归属、worker 状态、测试与证据。职责分离是重点：写代码的 agent 不批准，批准的 agent 也不合并。
 
-独立审查默认强制，但**可配置**：`review.requireReview:false` 允许已完成的 mission 在无 reviewer 时合并（跳过 `no-review`/`not-clean`/`tip-moved` 等 blocker）。这是给低风险仓库或人类逐轮监督场景的显式逃生门，不是推荐默认；关闭时仍可提交并记录 review。
+独立审查默认可选：设 `review.requireReview:true` 才会强制（此时已完成 mission 必须带有绑定 tip 的 clean/merge 审查）。对敏感仓库建议开启；全局开启时仍可用 `reviewPolicy:"none"` + 理由做单个 mission 豁免。无论开关如何，都可以提交并记录 review。
 
 ### 1.5 证据优先于断言
 
@@ -56,7 +56,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 | 敏感或发布绑定变更 | 支付服务改动或公共库发布，需要被审查 commit 与测试证据 | 审查绑定、checks/testRuns、人类可审计 |
 | 长期工作 | 多日依赖升级，期间重启、换会话、上下文重置 | mission/roster/review/worktree 持久 |
 | 硬集成边界 | monorepo 四个服务各有 owner，最后统一发布审查 | 多 mission 并行，单一合并门禁 |
-| 可检查的完成定义 | 任务清单 + 必需测试 + 独立审查结论 | 另一个 agent 能检查证据 |
+| 可检查的完成定义 | 任务清单 + 必需测试 + 可选独立审查结论 | 另一个 agent 能检查证据 |
 
 ### 2.1 能自然拆成独立切片的特性
 
@@ -123,7 +123,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 | 隔离 | 每 mission 独立 worktree/分支；单写入者 | 共享工作区；靠任务归属协调 | 每轮新 child；无内置分支/合并契约 | 每步 child；无 Git 隔离 | 子会话；可能共享工作区 |
 | 持久状态 | Git 元数据 + JSON state + 活动日志 + 看板 | Team 任务板 + 会话 | 很少；每轮从零开始 | 运行记录/结果；不是合并账本 | 会话/子代理记录 |
 | 集成权限 | 仅控制塔，且需审查 + 门禁 | 人类/teammate 手动合并或编辑 | 通常由父 agent/worker 应用结果 | 脚本应用结果 | 父 agent 应用结果 |
-| 审查/门禁 | 强制独立审查 + preflight/merge 门禁 | 审查是协作约定，不是硬门禁 | 无内置审查门禁 | 无内置审查门禁 | 无内置审查门禁 |
+| 审查/门禁 | 可选独立审查（`review.requireReview` 开启）+ preflight/merge 门禁 | 审查是协作约定，不是硬门禁 | 无内置审查门禁 | 无内置审查门禁 | 无内置审查门禁 |
 | 并行度 | 多 mission、互斥 scope、合并串行 | 多 teammate、共享任务板 | 顺序轮次（或外部扇出） | 高扇出，由脚本控制 | 高扇出 |
 | 人的角色 | 拥有模式；可检查证据与发布 | 协作者/协调者 | 重复目标的作者 | 编排脚本作者 | 委派者 |
 | 最适合 | 特性交付、迁移、发布绑定变更 | 设计、研究、横切协作 | 迭代搜索/修复，需要新鲜上下文 | 大规模审计、批量分析、确定性流水线 | 快速探索或独立子任务 |
@@ -202,9 +202,13 @@ Plan mode 决定做什么；Tower 把已决定的计划执行到仓库。进入 
 3. Tower mission 实现这六个改动，经审查与合并落地。
 4. 合并后仍有一个顽固 flaky 测试、且不需要新 mission 契约时，再用 Ralph。
 
-### 4.7 审查可以选择性关闭
+### 4.7 审查默认可选
 
-`review.requireReview` 默认为 `true`。当独立审查不值得其延迟时（临时仓库、单人维护工具、人类逐轮监督等），可在 profile 或 repo config 中设为 `false`。此时门禁跳过 `no-review`、`not-clean`、`review-hold`、`review-not-approved`、`tip-moved`、`review-mission-mismatch`；`tower_review`/审查记录仍可用。只让单个 mission 豁免时，优先用 `reviewPolicy:"none"` + 理由；正常交付建议保持全局开启。
+`review.requireReview:false` 是默认值，因此低风险仓库、临时工作或人类逐轮监督的会话可以在没有
+reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查门禁；此时检查 `no-review`、
+`not-clean`、`review-hold`、`review-not-approved`、`tip-moved`、`review-mission-mismatch`。
+`tower_review` 始终可用并记录结论。只豁免单个 mission 时，在全局开启的前提下用
+`reviewPolicy:"none"` + 理由。
 
 ## 5. 具体场景示例
 

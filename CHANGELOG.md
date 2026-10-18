@@ -6,16 +6,16 @@
 
 ### 新增
 
-- **`review.requireReview` 全局开关**：默认 `true`；设为 `false` 时合并门禁不再要求独立审查
-  （跳过 `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/
-  `review-mission-mismatch`），`tower_review` 仍可提交并记录。单 mission 仍可用
+- **`review.requireReview` 全局开关**：默认 `false`（审查可选）；设为 `true` 时合并门禁强制独立 clean
+  审查（`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/
+  `review-mission-mismatch`）。`tower_review` 始终可提交并记录；全局开启时单 mission 仍可用
   `reviewPolicy:"none"` + 理由做更窄的豁免。
 
 ### 变更
 
 - **应用场景文档补充具体举例**：`docs/guide/scenarios-and-philosophy.md` 与中文版新增 Tower 七类
   场景的“具体例子/为什么用 Tower”速查表，以及 Tower、Agent Teams、Ralph 循环、Workflow 编排、
-  普通并行子代理和混合阶段各自的具体例子；同时说明独立审查默认强制、可全局关闭，并更新 README、
+  普通并行子代理和混合阶段各自的具体例子；同时说明独立审查默认可选、可全局强制，并更新 README、
   FAQ、配置/安全参考页与中文对应页。
 - **离线套件**：219 项（新增 `review.requireReview:false` 无 reviewer 合并用例）。
 

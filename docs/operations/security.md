@@ -7,10 +7,11 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Review binding.** `tower_review` records the branch tip it inspected; the gate rejects a moved tip
   (`tip-moved`) unless a clean conflict-free rebase waived it. A reviewer that modifies the branch after
   spawning is rejected (`reviewer must not modify the mission branch`).
-- **Review is mandatory by default, optionally disabled.** `review.requireReview:true` is the default;
-  setting it to `false` removes the independent-review gate globally (mission-level
-  `reviewPolicy:"none"` + reason is the narrower option). Disabling it weakens the separation-of-duties
-  guarantee and is intended for low-risk repositories or human-supervised sessions, not untrusted code.
+- **Review is optional by default, enforceable by config.** `review.requireReview:false` is the
+  default; set it to `true` to enforce the independent-review gate. Mission-level
+  `reviewPolicy:"none"` + reason is the narrower exemption when the global gate is on. With the gate
+  off, separation of duties is not enforced by the plugin; use it only for trusted or human-supervised
+  repositories.
 - **Role enforcement.** The caller is resolved against the roster. Worker mission updates are limited to
   task/blocker/note; `completed`, `abandoned`, scope widening and blocker clearing are tower-only, and
   completion (with its unread-inbox/commit gates) must go through `tower_complete`. Tower-only tools reject
