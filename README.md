@@ -193,7 +193,7 @@ npm test        # node --test tests/*.test.mjs
 ## 文档
 
 - [docs/README.md](docs/README.md) — 文档索引（新用户 / 运维 / 维护者三条阅读路径）
-- [中文文档](docs/zh/README.md) · [快速开始](docs/guide/quickstart.md) · [安装、升级与迁移](docs/guide/install-upgrade-migration.md)
+- [中文文档](docs/zh/README.md) · [快速开始](docs/guide/quickstart.md) · [何时使用 Tower](docs/guide/scenarios-and-philosophy.md) · [安装、升级与迁移](docs/guide/install-upgrade-migration.md)
 - [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md) · [错误码](docs/reference/errors.md) · [事件](docs/reference/events.md) · [测试准入](docs/reference/testing.md) · [批次/租约/旧版](docs/reference/operations.md) · [Doctor](docs/reference/doctor.md) · [热重载](docs/guide/hot-reload.md)
 - [架构与状态机](docs/architecture/overview.md) · [运维 runbook](docs/operations/runbook.md) · [安全模型](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [示例](docs/examples/first-mission.md)

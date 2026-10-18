@@ -16,3 +16,33 @@ Reference pages are the source of truth for the current release; the [tools refe
 implementation by `npm run docs:check` in CI (including the Chinese pages).
 
 Other useful pages: [When to use Tower](guide/scenarios-and-philosophy.md), [Install, upgrade and migration](guide/install-upgrade-migration.md), [Hot reload](guide/hot-reload.md), [FAQ](faq.md), [CHANGELOG](../CHANGELOG.md).
+
+## All pages
+
+**Guides**
+
+- [When to use Tower, and how it differs from Agent Teams, Ralph, Workflow and parallel subagents](guide/scenarios-and-philosophy.md)
+- [Quick start](guide/quickstart.md)
+- [Install, upgrade and migration](guide/install-upgrade-migration.md)
+- [Hot reload (development)](guide/hot-reload.md)
+
+**Reference**
+
+- [Tools](reference/tools.md)
+- [Configuration](reference/config.md)
+- [Blockers and failure codes](reference/blockers.md)
+- [Tool error codes](reference/errors.md)
+- [Events](reference/events.md)
+- [Testing and evidence](reference/testing.md)
+- [Batches, leases and legacy import](reference/operations.md)
+- [Doctor](reference/doctor.md)
+
+**Operations and background**
+
+- [Operations runbook](operations/runbook.md)
+- [Security model](operations/security.md)
+- [Architecture and state machine](architecture/overview.md)
+- [First mission example](examples/first-mission.md)
+- [FAQ](faq.md)
+
+Chinese pages: [中文文档索引](zh/README.md).

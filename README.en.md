@@ -197,7 +197,7 @@ The offline suite needs no DSH process and creates throwaway Git repositories in
 ## Documentation
 
 - [docs/README.md](docs/README.md) — documentation index (new user / operator / maintainer paths)
-- [Chinese docs](docs/zh/README.md) · [Quick start](docs/guide/quickstart.md) · [Install, upgrade and migration](docs/guide/install-upgrade-migration.md)
+- [Chinese docs](docs/zh/README.md) · [Quick start](docs/guide/quickstart.md) · [When to use Tower](docs/guide/scenarios-and-philosophy.md) · [Install, upgrade and migration](docs/guide/install-upgrade-migration.md)
 - [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md) · [Error codes](docs/reference/errors.md) · [Events](docs/reference/events.md) · [Testing](docs/reference/testing.md) · [Batches/leases/legacy](docs/reference/operations.md) · [Doctor](docs/reference/doctor.md) · [Hot reload](docs/guide/hot-reload.md)
 - [Architecture and state machine](docs/architecture/overview.md) · [Operations runbook](docs/operations/runbook.md) · [Security model](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [Examples](docs/examples/first-mission.md)
