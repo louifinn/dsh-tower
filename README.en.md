@@ -149,6 +149,8 @@ The offline suite needs no DSH process and creates throwaway Git repositories in
 - **`tower_control` is missing.** The config `allowAgentControl` is `false`; set it to `true` and restart.
 - **Merge is blocked.** Run `tower_preflight` and read the blocker codes above; `stale-base` means run `tower_rebase` first.
 - **A mission branch is stale after base moved.** `tower_rebase` rebases inside the worktree; a clean conflict-free rebase waives re-review for the previous verdict.
+- **A merge commit exists but `tower_merge` reported a failure.** Re-run `tower_merge`: it detects the landed merge commit (or a branch already contained in the base) and records it as reconciled instead of merging twice.
+- **The repository runs a slow `pre-merge-commit` hook.** The merge timeout defaults to 15 minutes and can be raised per call with `tower_merge({ ..., timeoutMs: 900000 })`; hook output is buffered up to 64 MB. A hook failure returns `merge-hook-failed` (with `timeout: true` when it timed out) and leaves the repository clean for a retry.
 
 ## Contributing
 

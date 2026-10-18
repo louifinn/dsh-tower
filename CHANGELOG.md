@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 — 2026-10-18
+
+- **`tower_merge` 对“提交已落地但调用报错”的恢复**：合并命令失败/超时后检查 `HEAD`，若已是
+  `[baseTip, branchTip]` 双父合并提交则视为成功并记录；失败时清理 `MERGE_HEAD` 与陈旧锁文件，
+  只回滚与本 mission 相关的路径，避免 index/工作树残留。
+- **区分失败类型**：真实内容冲突返回 `merge-conflict`（保留 blocked 语义）；hook/进程失败返回
+  `merge-hook-failed`，附带 `timeout: true`（超时）与 `cleanup` 字段，mission 保持 `completed`
+  以便重试。
+- **合并超时可配置**：`tower_merge` 新增 `timeoutMs` 参数（默认 15 分钟），并把合并输出缓冲提升到
+  64 MB，慢速 `pre-merge-commit` 钩子不再被 15 秒默认超时误杀。
+- **自动对账已落地合并**：`tower_merge` 检测 branch/reviewed commit 已包含在 base 中时，找到对应
+  merge commit（或落地 tip）并直接记录为 merged（`reconciled: true`），无需手工改 Git 历史。
+- **`tower_rebase`**：branch 已包含于 base 时返回 `alreadyMerged`/`skipped` 且不再把分支
+  fast-forward 到 base tip，保留已审查的 tip 供 `tower_merge` 记录。
+- **状态机**：允许 `blocked → completed`；`missionSummary` 暴露 `mergedCommit`/`mergedAt`。
+- 测试：22 项（新增 reconcile、rebase skip、hook 失败、hook 超时四个协议用例）。
+- 修复 GitHub issues #1 / #2。
+
 ## 1.1.2 — 2026-10-18
 
 - README 文件更名：默认 `README.md` 改为中文版，英文版移到 `README.en.md`；两边的语言切换链接、

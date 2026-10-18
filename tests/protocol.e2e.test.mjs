@@ -150,3 +150,187 @@ test('tower plan: overlapping scopes auto-add a dependency and cycles are reject
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+/** Build a repository with one completed, clean-reviewed mission. */
+async function reviewedMission(prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, ['init'])
+  git(repo, ['config', 'user.email', 'tower@test'])
+  git(repo, ['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'seed'])
+
+  const tower = await Tower.open(repo)
+  await tower.init({})
+  await tower.plan({
+    missions: [{ title: 'Merge case', scope: ['src/**'], tasks: ['write file', 'commit'] }],
+  })
+  const provisioned = await tower.provision({ missionId: 'M1' })
+  const wt = provisioned.worktree.path
+  fs.mkdirSync(path.join(wt, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(wt, 'src', 'a.txt'), 'a\n')
+  git(wt, ['add', '-A'])
+  git(wt, ['commit', '-m', 'M1 a'])
+
+  await tower.mission({ id: 'M1', status: 'active' })
+  await tower.mission({ id: 'M1', task_done: 'write file' })
+  await tower.mission({ id: 'M1', task_done: 'commit' })
+  const agentId = 'agent-merge-e2e'
+  await tower.recordSpawn({
+    missionId: 'M1',
+    name: 'worker-merge-e2e',
+    role: 'worker',
+    agentId,
+    parentSessionId: 'session-e2e',
+    cwd: wt,
+    branch: provisioned.worktree.branch,
+  })
+  await tower.complete({ missionId: 'M1', agentId, report: 'done' })
+  await tower.submitReview({
+    missionId: 'M1',
+    agentId: 'reviewer-not-in-roster',
+    status: 'clean',
+    merge: 'merge',
+    findings: 'none',
+    decision: 'single in-scope file',
+    breakGlassReason: 'protocol e2e has no independent reviewer',
+  })
+  return { root, repo, tower, wt, branch: provisioned.worktree.branch }
+}
+
+test('merge reconciles a merge commit that landed before the tool recorded it', async () => {
+  const ctx = await reviewedMission('dsh-tower-reconcile-')
+  try {
+    git(ctx.repo, ['merge', '--no-ff', ctx.branch, '-m', 'manual merge'])
+    const manualTip = git(ctx.repo, ['rev-parse', 'HEAD'])
+    const result = await ctx.tower.merge({ missionId: 'M1', activity: {} })
+    assert.equal(result.ok, true)
+    assert.equal(result.reconciled, true)
+    assert.equal(result.mergedCommit, manualTip)
+    assert.equal(git(ctx.repo, ['rev-parse', 'HEAD']), manualTip, 'must not create a second merge commit')
+    const status = await ctx.tower.status()
+    assert.equal(status.counts.merged, 1)
+    assert.equal(status.missions[0].status, 'merged')
+    assert.equal(status.missions[0].mergedCommit, manualTip)
+  } finally {
+    fs.rmSync(ctx.root, { recursive: true, force: true })
+  }
+})
+
+test('rebase leaves an already-landed branch untouched and merge records it', async () => {
+  const ctx = await reviewedMission('dsh-tower-rebase-landed-')
+  try {
+    git(ctx.repo, ['merge', '--no-ff', ctx.branch, '-m', 'manual merge'])
+    const manualTip = git(ctx.repo, ['rev-parse', 'HEAD'])
+    const reviewedTip = git(ctx.wt, ['rev-parse', 'HEAD'])
+
+    const rebase = await ctx.tower.rebase({ missionId: 'M1', activity: {} })
+    assert.equal(rebase.ok, true)
+    assert.equal(rebase.alreadyMerged, true)
+    assert.equal(rebase.skipped, true)
+    assert.equal(rebase.newTip, reviewedTip)
+    assert.equal(git(ctx.wt, ['rev-parse', 'HEAD']), reviewedTip, 'branch tip must not be fast-forwarded to base')
+
+    // The exact shape from the report: the branch was fast-forwarded to the base tip.
+    git(ctx.wt, ['reset', '--hard', manualTip])
+    const result = await ctx.tower.merge({ missionId: 'M1', activity: {} })
+    assert.equal(result.ok, true)
+    assert.equal(result.reconciled, true)
+    assert.equal(result.mergedCommit, manualTip)
+    const status = await ctx.tower.status()
+    assert.equal(status.missions[0].status, 'merged')
+  } finally {
+    fs.rmSync(ctx.root, { recursive: true, force: true })
+  }
+})
+
+test('merge hook failure aborts cleanly and leaves the mission retryable', async () => {
+  const ctx = await reviewedMission('dsh-tower-hook-')
+  try {
+    const hooks = path.join(ctx.repo, '.git', 'hooks')
+    fs.mkdirSync(hooks, { recursive: true })
+    const hook = path.join(hooks, 'pre-merge-commit')
+    fs.writeFileSync(hook, '#!/bin/sh\necho "pre-merge hook failure" >&2\nexit 1\n')
+    try {
+      fs.chmodSync(hook, 0o755)
+    } catch {
+      // Windows has no executable bit; Git for Windows still runs shell hooks.
+    }
+
+    const before = git(ctx.repo, ['rev-parse', 'HEAD'])
+    const result = await ctx.tower.merge({ missionId: 'M1', activity: {} })
+    assert.equal(result.ok, false)
+    assert.equal(result.blockers[0].code, 'merge-hook-failed')
+    assert.equal(['aborted', 'aborted-after-lock-cleanup', 'none'].includes(result.blockers[0].cleanup), true)
+    assert.equal(git(ctx.repo, ['rev-parse', 'HEAD']), before, 'HEAD must be unchanged')
+    assert.equal(git(ctx.repo, ['status', '--porcelain']), '', 'index/worktree must be restored')
+    assert.equal(fs.existsSync(path.join(ctx.repo, '.git', 'MERGE_HEAD')), false, 'MERGE_HEAD must be gone')
+    const status = await ctx.tower.status()
+    assert.equal(status.missions[0].status, 'completed', 'mission must stay retryable')
+  } finally {
+    fs.rmSync(ctx.root, { recursive: true, force: true })
+  }
+})
+
+test('merge hook timeout is reported as merge-hook-failed and leaves a clean repo', async () => {
+  const ctx = await reviewedMission('dsh-tower-hook-timeout-')
+  const stopFile = path.join(ctx.root, 'stop-hook')
+  try {
+    const hooks = path.join(ctx.repo, '.git', 'hooks')
+    fs.mkdirSync(hooks, { recursive: true })
+    const hook = path.join(hooks, 'pre-merge-commit')
+    // The hook waits for a marker file so the killed git process does not leave
+    // an unkillable `sleep` holding the temporary directory on Windows.
+    fs.writeFileSync(
+      hook,
+      `#!/bin/sh\nwhile [ ! -f "${stopFile.replace(/\\/g, '/')}" ]; do sleep 1; done\nexit 0\n`,
+    )
+    try {
+      fs.chmodSync(hook, 0o755)
+    } catch {
+      // Windows has no executable bit; Git for Windows still runs shell hooks.
+    }
+
+    const before = git(ctx.repo, ['rev-parse', 'HEAD'])
+    const result = await ctx.tower.merge({ missionId: 'M1', activity: {}, timeoutMs: 1000 })
+    assert.equal(result.ok, false)
+    assert.equal(result.blockers[0].code, 'merge-hook-failed')
+    assert.equal(result.blockers[0].timeout, true)
+    assert.equal(git(ctx.repo, ['rev-parse', 'HEAD']), before, 'HEAD must be unchanged')
+    assert.equal(git(ctx.repo, ['status', '--porcelain']), '', 'index/worktree must be restored')
+    assert.equal(fs.existsSync(path.join(ctx.repo, '.git', 'MERGE_HEAD')), false, 'MERGE_HEAD must be gone')
+    assert.equal(fs.existsSync(path.join(ctx.repo, '.git', 'index.lock')), false, 'stale index.lock must be gone')
+    const status = await ctx.tower.status()
+    assert.equal(status.missions[0].status, 'completed', 'mission must stay retryable')
+  } finally {
+    fs.writeFileSync(stopFile, 'stop\n')
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    fs.rmSync(ctx.root, { recursive: true, force: true })
+  }
+})
+
+test('mission transitions: blocked can be marked completed again', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-transition-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, ['init'])
+  git(repo, ['config', 'user.email', 'tower@test'])
+  git(repo, ['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'seed'])
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Transition case', scope: ['src/**'] }] })
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', status: 'blocked', note: 'test block' })
+    const completed = await tower.mission({ id: 'M1', status: 'completed' })
+    assert.equal(completed.mission.status, 'completed')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

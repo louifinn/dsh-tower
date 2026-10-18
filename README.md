@@ -149,6 +149,8 @@ npm test        # node --test tests/*.test.mjs
 - **没有 `tower_control`。** 配置 `allowAgentControl` 为 `false`；改为 `true` 并重启。
 - **合并被阻止。** 运行 `tower_preflight` 查看 blocker code；`stale-base` 表示先执行 `tower_rebase`。
 - **基线前进后分支过期。** `tower_rebase` 在 worktree 内完成 rebase；干净且无冲突的 rebase 可免去上一轮审查的重审。
+- **合并提交已经存在，但 `tower_merge` 报了失败。** 重新执行 `tower_merge` 即可：它会检测已落地的合并提交（或分支已包含在 base 中）并记录为 reconciled，不会重复合并。
+- **仓库的 `pre-merge-commit` 钩子很慢。** 合并超时默认 15 分钟，可按次通过 `tower_merge({ ..., timeoutMs: 900000 })` 调大；钩子输出缓冲上限 64 MB。钩子失败返回 `merge-hook-failed`（超时带 `timeout: true`），并保持仓库干净以便重试。
 
 ## 贡献
 
