@@ -10,6 +10,7 @@ import path from 'node:path'
 
 import { registerTowerTools } from '../lib/tools.js'
 import { Tower } from '../lib/tower.js'
+import { Config, resolveTowerConfig } from '../lib/config.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -489,6 +490,156 @@ test('2.1 merge intent: a crash intent that created no commit is cleared by towe
     const after = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     assert.equal(after.mergeIntent ?? null, null)
     assert.equal(after.missions.find((mission) => mission.id === missionId).status, 'merged')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('2.0.1 config: explicit legacy allowAgentControl survives Cordis schema defaults', () => {
+  const parsed = Config({ allowAgentControl: true, mode: { workspaceLock: true } })
+  assert.equal(parsed.allowAgentControl, true)
+  assert.equal(parsed.mode.allowAgentControl, undefined)
+  assert.equal(resolveTowerConfig(parsed).mode.allowAgentControl, true)
+  assert.equal(resolveTowerConfig({}).mode.allowAgentControl, false)
+})
+
+test('2.0.1 preflight: an unknown mission returns a lossless blocker shape', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const result = await call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M99' })
+    assert.equal(result.ok, false)
+    assert.equal(result.missionId, 'M99')
+    assert.equal(result.branchTip, null)
+    assert.equal(result.baseTip, null)
+    assert.deepEqual(result.changedFiles, [])
+    assert.equal(result.review, null)
+    assert.ok(result.blockers.some((blocker) => blocker.code === 'mission-missing'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('2.0.1 plan: an unknown dependency is an actionable invalid-argument', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await assert.rejects(
+      () => call(tools, 'tower_plan', {
+        repoRoot: repo,
+        missions: [{ title: 'Dependent', scope: ['dep.txt'], deps: ['M42'] }],
+      }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.match(error.message, /depends on unknown mission/)
+        return true
+      },
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('2.0.1 spawn: a worker cannot be spawned on a merged or abandoned mission', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools, activations } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const tower = await Tower.open(repo)
+    const state = await tower.load()
+    state.missions[0].status = 'merged'
+    fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+    await assert.rejects(
+      () => call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' }),
+      /\[tower:invalid-transition\].*merged/,
+    )
+    assert.equal(activations.length, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('2.0.1 batch: close accepts a merged member and abandon retires a stale batch', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(spawned.worktree.path, ['add', '-A'])
+    git(spawned.worktree.path, ['commit', '-m', 'work'])
+    const workerExec = { agent: { id: spawned.agentId } }
+    for (const task of (await (await Tower.open(repo)).missionDetail(missionId)).mission.tasks) {
+      await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: task.text }, workerExec)
+    }
+    await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
+    const created = await call(tools, 'tower_batch', {
+      repoRoot: repo,
+      action: 'create',
+      missionIds: [missionId],
+      requiredChecks: ['check'],
+    })
+    const tower = await Tower.open(repo)
+    const state = await tower.load()
+    state.missions[0].status = 'merged'
+    state.missions[0].mergedCommit = 'f'.repeat(40)
+    fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+    const closed = await call(tools, 'tower_batch', {
+      repoRoot: repo,
+      action: 'close',
+      batchId: created.batch.id,
+      checks: [{ name: 'check', exitCode: 0, evidence: 'ok' }],
+    })
+    assert.equal(closed.ok, true, JSON.stringify(closed.blockers))
+    assert.equal(closed.batch.status, 'closed')
+
+    const stale = await call(tools, 'tower_batch', {
+      repoRoot: repo,
+      action: 'create',
+      missionIds: [missionId],
+    })
+    const abandoned = await call(tools, 'tower_batch', {
+      repoRoot: repo,
+      action: 'abandon',
+      batchId: stale.batch.id,
+      reason: 'superseded',
+    })
+    assert.equal(abandoned.ok, true)
+    assert.equal(abandoned.batch.status, 'abandoned')
+    assert.equal(abandoned.batch.abandonReason, 'superseded')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('2.0.1 doctor: an intentionally removed worktree is not a failure', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const tower = await Tower.open(repo)
+    const state = await tower.load()
+    state.missions[0].worktree = {
+      path: path.join(root, 'removed-worktree'),
+      branch: 'tower/removed',
+      baseCommit: 'a'.repeat(40),
+    }
+    state.missions[0].worktreeRemovedAt = Date.now()
+    fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const worktrees = doctor.checks.find((check) => check.id === 'worktrees')
+    assert.equal(worktrees.status, 'pass')
+    assert.match(worktrees.detail, /removed by teardown/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

@@ -18,7 +18,7 @@ canonical camelCase names.
 
 Roster roles are resolved from `exec.agent` + the roster. Mission-scoped tools (`tower_interrupt`,
 `tower_init`, `tower_plan`, `tower_spawn`, `tower_merge`, `tower_rebase`, `tower_teardown`,
-`tower_adopt`, `tower_reload`) are **tower only**. `tower_batch` create/close, `tower_resource`
+`tower_adopt`, `tower_reload`) are **tower only**. `tower_batch` create/close/abandon, `tower_resource`
 acquire/release, `tower_import_legacy`, `tower_legacy_map` map and review-exemption planning are
 tower-only; their read-only status actions are open to roster roles. A worker may call `tower_mission`
 only for `task_done`/`task_drop`/`blocker`/`note`; status changes, scope widening, `clear_blockers` and
@@ -54,7 +54,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while `dev.hotReload` is on; scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
 | `tower_doctor` | — (takes `repoRoot`) | Read-only health contract: git, state schema, config, presets/subagents/HMR, workspace lock, roster, worktree realpath/ownership, test config, leases. Returns `{ok, checks[{id,status,detail}], environmentContract}`. Never writes. |
 | `tower_test` | `missionId` (alias `id`) | Run the worktree's `package.json` `tower.testDiscovery` and record a receipt; `ok:false` on failure. Use `tower_complete` for automatic admission checks. |
-| `tower_batch` | `action` (`create`/`status`/`close`), `missionIds?`, `exclusions?`, `requiredChecks?`, `receiptPaths?`, `batchId?`, `checks?`, `treeTip?`, `receiptHashes?` | Finite evidence batch. Create freezes members/checks/receipts; close verifies every required check and receipt hash. Membership is immutable; close never deletes missions. |
+| `tower_batch` | `action` (`create`/`status`/`close`/`abandon`), `missionIds?`, `exclusions?`, `requiredChecks?`, `receiptPaths?`, `batchId?`, `checks?`, `treeTip?`, `receiptHashes?`, `reason?` | Finite evidence batch. Create freezes members/checks/receipts; close verifies every required check and receipt hash; merged members are eligible; abandon retires a stale open batch without deleting missions. Membership is immutable. |
 | `tower_resource` | `action` (`acquire`/`release`/`status`), `name?`, `holder?`, `token?`, `ttlMs?`, `force?` | Advisory per-repository lease in `<common>/dsh-tower/leases.json`. No OS CPU/memory hard cap; expired leases require explicit `force` and the correct token. |
 | `tower_import_legacy` | `sourcePath` | Read-only import of a Tower Codex `schemaVersion:1` or DSH legacy state. Full payload goes under `<common>/dsh-tower/legacy/<sha256>.json`; state stores a summary only. Never activates/adopts/resumes paused missions. |
 | `tower_legacy_map` | `action` (`map`/`status`), `sourceHash?`, `oldId?`, `newMissionId?` | Audit-only legacy-id mapping; mappings are append-only and never adopt a mission. |

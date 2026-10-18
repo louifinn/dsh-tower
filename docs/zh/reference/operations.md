@@ -9,10 +9,12 @@
 - `create` 冻结 `missionIds`、`exclusions`、`requiredChecks`（默认 `["check"]`）与精确的相对
   `receiptPaths`。成员必须是已知 mission，且只有暂停的旧版 mission 可以被排除；创建后成员关系不可变。
 - `status` 汇总成员与待处理/失败的检查。
-- `close` 校验已完成成员的每条必需检查（来自 `completionReport.checks`、`testRuns` 或 close 时的
-  `checks`），在提供 `treeTip` 时校验它，并要求每个冻结的回执路径都在
+- `close` 校验已完成、**merged** 或 abandoned 成员的每条必需检查（来自 `completionReport.checks`、
+  `testRuns` 或 close 时的 `checks`），在提供 `treeTip` 时校验它，并要求每个冻结的回执路径都在
   `receiptHashes`/`receipts` 中提供（或通过 `receiptHash` 绑定到通过的检查）。缺少证据会返回
   `{ok:false, blockers}`；不会删除任何内容。
+- `abandon` 用 `batchId`（可选 `reason`）退掉过期的 open batch，不修改 mission 状态；当证据窗口
+  已过（例如先 merge 后 close）时用它收尾。
 
 close 失败不是部分关闭：batch 保持 `open`，修复证据后可以重试。
 

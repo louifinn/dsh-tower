@@ -8,10 +8,13 @@
   relative `receiptPaths`. Members must be known missions and only paused legacy missions may be
   excluded; membership is immutable after create.
 - `status` summarizes members and pending/failed checks.
-- `close` verifies every required check for completed members (from `completionReport.checks`,
-  `testRuns`, or close-time `checks`), checks `treeTip` when provided, and requires every frozen
-  receipt path to be supplied in `receiptHashes`/`receipts` (or bound to a passing check with
-  `receiptHash`). Missing evidence returns `{ok:false, blockers}`; nothing is deleted.
+- `close` verifies every required check for completed, **merged**, or abandoned members (from
+  `completionReport.checks`, `testRuns`, or close-time `checks`), checks `treeTip` when provided, and
+  requires every frozen receipt path to be supplied in `receiptHashes`/`receipts` (or bound to a
+  passing check with `receiptHash`). Missing evidence returns `{ok:false, blockers}`; nothing is
+  deleted.
+- `abandon` retires a stale open batch (`batchId`, optional `reason`) without touching mission state;
+  it is the escape hatch when the evidence window has passed (for example after merging before close).
 
 A failed close is not a partial close: the batch stays `open` and can be retried after evidence is
 fixed.

@@ -243,13 +243,13 @@ test('validateClose: failed recorded checks block with tests-failed', () => {
   assert.match(result.blockers[0].message, /did not pass/)
 })
 
-test('validateClose: active, unknown, or abandoned batch members are rejected', () => {
+test('validateClose: active or unknown batch members are rejected', () => {
   const state = makeState()
   expectBatchError(() => validateClose(state, makeBatch({ missionIds: [] })), /non-empty array/)
 
   const active = validateClose(state, makeBatch({ missionIds: ['M3'] }))
   assert.equal(active.ok, false)
-  assert.match(active.blockers[0].message, /not completed or abandoned/)
+  assert.match(active.blockers[0].message, /not completed, merged or abandoned/)
 
   const unknown = validateClose(state, makeBatch({ missionIds: ['missing'] }))
   assert.equal(unknown.ok, false)

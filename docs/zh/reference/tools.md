@@ -20,7 +20,7 @@ status 上的 `include_gate`/`includeGate`、adopt 上的 `retire_missing`/`reti
 
 roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tower_interrupt`、
 `tower_init`、`tower_plan`、`tower_spawn`、`tower_merge`、`tower_rebase`、`tower_teardown`、
-`tower_adopt`、`tower_reload`）**仅限控制塔**。`tower_batch` 的 create/close、`tower_resource`
+`tower_adopt`、`tower_reload`）**仅限控制塔**。`tower_batch` 的 create/close/abandon、`tower_resource`
 的 acquire/release、`tower_import_legacy`、`tower_legacy_map` 的 map 以及 review-exemption 规划
 仅限控制塔；它们的只读 status 动作对 roster 角色开放。worker 调用 `tower_mission` 时只能使用
 `task_done`/`task_drop`/`blocker`/`note`；状态变更、扩大 scope、`clear_blockers` 与 `completed`
@@ -55,7 +55,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`dev.hotReload` 开启时注册；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
 | `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], environmentContract}`。从不写状态。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
-| `tower_batch` | `action`（`create`/`status`/`close`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希。成员关系不可变；close 从不删除 mission。 |
+| `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |
 | `tower_resource` | `action`（`acquire`/`release`/`status`）、`name?`、`holder?`、`token?`、`ttlMs?`、`force?` | 每个仓库的咨询式租约，位于 `<common>/dsh-tower/leases.json`。没有 OS CPU/内存硬上限；过期的租约需要显式 `force` 与正确 token。 |
 | `tower_import_legacy` | `sourcePath` | 只读导入 Tower Codex `schemaVersion:1` 或 DSH 旧版 state。完整 payload 存到 `<common>/dsh-tower/legacy/<sha256>.json`；state 中只保存摘要。绝不激活/接管/恢复暂停的 mission。 |
 | `tower_legacy_map` | `action`（`map`/`status`）、`sourceHash?`、`oldId?`、`newMissionId?` | 仅审计用途的旧 id 映射；映射只追加，绝不容纳 mission。 |

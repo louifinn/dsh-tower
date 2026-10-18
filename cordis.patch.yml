@@ -2,13 +2,13 @@
     - id: tower
       name: 'dsh-tower'
       config:
-        allowAgentControl: true
-        init:
-          autoGitInit: true
         mode:
+          allowAgentControl: true
           workspaceLock: true
           workspaceLockScope: all
           planModePolicy: clear
+        init:
+          autoGitInit: true
         send:
           interruptDefault: true
         spawn:

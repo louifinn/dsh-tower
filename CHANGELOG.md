@@ -2,6 +2,38 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## 2.0.1（2026-10-18）
+
+### 新增
+
+- **`tower_batch` 的 `abandon` 动作**：可带 `reason` 退掉过期的 open batch，不修改 mission 状态；
+  用于"先 merge 后 close"或证据窗口已过的场景。
+
+### 修复
+
+- **#3 `allowAgentControl` 被 schema 默认值遮蔽**：移除 `mode.allowAgentControl` 的 schema 默认值，
+  在 legacy 别名解析后再应用默认；随包 patch 改用 canonical `mode.allowAgentControl: true`。
+  Cordis 校验后的配置现在能正确注册 `tower_control`。
+- **#4 `tower_preflight` 未知 mission 产生非 lossless 输出**：`evaluateGate` 的 early return 与工具
+  包装补齐 `branchTip/baseTip/changedFiles/review` 的 `null`/`[]` 形状。
+- **#5 未知依赖被分类为 `tool-internal`**：`depends on unknown mission` 归入 `invalid-argument`。
+- **#6 worker 可 spawn 到 merged/abandoned mission**：spawn 前拒绝终态 mission，不再 provision/
+  activation，不再改写已合并 mission 的 owner/generation。
+- **#7 live `tests/live/ui-slots.cjs` 在新会话 dock 隐藏时误报**：先提交 host-handled `/tower`
+  命令绑定会话，再断言 dock；`DSH_TEST_EXPECT_HINT=1` 才要求 dock 可见。
+- **#8 `plan-mode.test.mjs` 写入真实 `$DSH_HOME`**：测试前设置临时 `DSH_HOME` 并在 after 清理；
+  清理了历史 `session-plan-test` 残留。
+- **#9 `tower_batch` close 拒绝 merged 成员/无法退掉 stale batch**：`merged` 与 completed 一样
+  可 close（checks 仍从完成报告/testRuns/close-time checks 解析）；新增 `abandon` 且 batch 状态
+  可退，不会永久卡死。
+- **#10 `tower_doctor` 在成功 teardown 后误报 worktree missing**：跳过带 `worktreeRemovedAt` 的
+  mission，并在检查详情中注明已移除数量。
+
+### 变更
+
+- 离线套件增至 212 项（新增 issue 回归覆盖）；`docs:check` 仍为 28 tools / 32 blockers /
+  30 errors / 25 events。
+
 ## 2.0.0（2026-10-18）
 
 ### 新增

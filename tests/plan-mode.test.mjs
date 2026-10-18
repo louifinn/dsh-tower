@@ -1,7 +1,15 @@
 // Plan-mode / Tower-mode mutual exclusion (2.1).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { apply } from '../index.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plan-mode-'))
+process.env.DSH_HOME = TEST_HOME
+test.after(() => fs.rmSync(TEST_HOME, { recursive: true, force: true }))
+
+const { apply } = await import('../index.js')
 
 function makeCtx(modePolicy = 'clear') {
   const tools = new Map()

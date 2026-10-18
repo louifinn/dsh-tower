@@ -137,6 +137,34 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
     log('new-session:not-found (continuing with the current view)')
   }
 
+  // On DSH 0.2.1-rc.2 a brand-new Session mounts the hero composer and the
+  // session-scoped dock outlet stays hidden until a session-bound conversation
+  // exists. Bind one with a host-handled command (no model turn) before probing
+  // the dock; the bundle's own registration report does not depend on this.
+  try {
+    const composer = page.locator('div[role="textbox"][contenteditable="true"]').first()
+    await composer.waitFor({ state: 'visible', timeout: 10000 })
+    await composer.click({ timeout: 10000 })
+    await composer.pressSequentially('/tower', { delay: 20 })
+    await page.waitForTimeout(400)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(150)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(3000)
+    await page.waitForFunction(() => {
+      const nodes = [...document.querySelectorAll('[data-composer-dock]')]
+      return nodes.some((node) => {
+        const rect = node.getBoundingClientRect()
+        return rect.width > 0 && rect.height > 0
+      })
+    }, { timeout: 8000 })
+    log('session-bound-by-command')
+    await page.screenshot({ path: path.join(OUT, 'ui-slots-bound.png') })
+    log('screenshot:ui-slots-bound.png')
+  } catch (error) {
+    log(`session-bind:not-confirmed (${String(error && error.message ? error.message : error).split('\n')[0]})`)
+  }
+
   // `conversation.composer.dock` hosts a session-scoped list slot; the
   // ui-conversation Client renders its outlet as div[data-composer-dock].
   const dock = await page.evaluate(() => {
@@ -200,7 +228,7 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
   if (pageErrors.length > 0) failures.push(`${pageErrors.length} page error(s)`)
   if (consoleErrors.length > 0) failures.push(`${consoleErrors.length} console error(s)`)
   if (dock.count === 0) failures.push('no [data-composer-dock] outlet in the page')
-  if (dock.count > 0 && dock.visible === 0) failures.push('composer dock outlet is not visible')
+  if (dock.count > 0 && EXPECT_HINT && dock.visible === 0) failures.push('composer dock outlet is not visible')
   if (EXPECT_HINT && !hintRendered) failures.push('/tower hint not rendered (DSH_TEST_EXPECT_HINT=1)')
 
   // Full registration assertions only when the bundle actually loaded.

@@ -23,7 +23,8 @@
 
 检查覆盖：git 可用性、仓库身份、state schema/加载、仓库配置是否存在、worker/reviewer preset 名称、
 subagents 与 HMR 服务、workspace 锁持有者/是否过期、实时 roster、worktree 是否存在/归属/是否脏、
-test-discovery 策略、旧版快照、batch 与租约。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+test-discovery 策略、旧版快照、batch 与租约。被 `tower_teardown` 正常清理的 mission worktree 会被
+跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 处理。state 加载失败会作为失败的检查报告而不是抛出，因此 doctor 在损坏的仓库上仍然有用。
 
 环境契约仅供参考；它不是身份或授权证明。`tower_init` 仍要求控制塔角色，`tower_spawn` 仍会检查
