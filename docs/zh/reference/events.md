@@ -7,7 +7,7 @@ Tower 在工具成功调用（变更与只读）后发出进程内 Cordis 事件
 
 ```js
 ctx.on('tower/merge', (payload) => {
-  // payload.tool、payload.repoRoot、payload.value（工具的 JSON 结果）
+  // payload.tool, payload.repoRoot, payload.value (the tool's JSON result)
 })
 ```
 
@@ -32,6 +32,12 @@ ctx.on('tower/merge', (payload) => {
 | `tower/roster` | `tower_roster` 读取 roster 之后 |
 | `tower/status` | `tower_status` 读取面板之后 |
 | `tower/preflight` | `tower_preflight` 评估门禁之后 |
+| `tower/doctor` | `tower_doctor` 完成只读检查之后 |
+| `tower/test` | `tower_test` 运行测试发现之后 |
+| `tower/batch` | `tower_batch` 创建、查看或关闭 batch 之后 |
+| `tower/resource` | `tower_resource` 获取/释放/查看租约之后 |
+| `tower/import_legacy` | `tower_import_legacy` 保存旧版快照之后 |
+| `tower/legacy_map` | `tower_legacy_map` 映射或列出旧 id 之后 |
 
 `tower_mode`、`tower_control` 与 `tower_reload` 不发出 Tower 事件。payload 是 JSON：
 `{tool, repoRoot, value}`。监听器抛错不会影响工具结果。

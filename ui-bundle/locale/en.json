@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Tower Hint",
-    "description": "Shows the /tower command hint in the composer dock."
+    "title": "Tower UI",
+    "description": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip."
   }
 }

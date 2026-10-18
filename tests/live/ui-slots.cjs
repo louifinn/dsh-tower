@@ -1,4 +1,4 @@
-// Opt-in live check for the optional Tower Client hint (ui-bundle/).
+// Opt-in live check for the optional Tower Client bundle (ui-bundle/).
 //
 // Read-only: this script never installs anything and never opens the live
 // desktop profile. Point DSH_TEST_URL at an isolated DSH Web server that you
@@ -13,8 +13,14 @@
 // Optional environment:
 //   DSH_TEST_CHROME     force a browser executable (Playwright browser by default)
 //   DSH_TEST_EXPECT_HINT=1
-//                       fail when the `/tower` hint is not rendered; use this
-//                       after installing ui-bundle into that isolated profile.
+//                       require the bundle to be installed: fail when the
+//                       `/tower` hint or the `window.__TOWER_UI_DIAG__`
+//                       registration report is missing. Without it the script
+//                       still passes on an empty dock (bundle not installed).
+//
+// When the bundle is installed, the client module exposes a read-only
+// diagnostic object (window.__TOWER_UI_DIAG__) naming every slot registration
+// it applied; this script asserts the toolview keys, dock id and overlay id.
 //
 // The script prints SKIP and exits 0 when DSH_TEST_URL or Playwright is
 // missing, so it is safe to run in the offline CI checkout.
@@ -29,6 +35,22 @@ const OUT = __dirname
 const LOG = path.join(OUT, 'ui-slots.log')
 const URL = process.env.DSH_TEST_URL
 const EXPECT_HINT = process.env.DSH_TEST_EXPECT_HINT === '1'
+
+// Keys ui-bundle/client.js must have registered with the Chat tool-call tree.
+const EXPECTED_TOOLVIEWS = [
+  'tower_batch',
+  'tower_complete',
+  'tower_doctor',
+  'tower_interrupt',
+  'tower_merge',
+  'tower_mission',
+  'tower_preflight',
+  'tower_review',
+  'tower_roster',
+  'tower_spawn',
+  'tower_status',
+  'tower_teardown',
+]
 
 function skip(reason) {
   console.log(`SKIP ui-slots: ${reason}`)
@@ -135,6 +157,26 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
   const hintRendered = dock.text.includes('/tower')
   log(`hint:/tower rendered=${hintRendered}`)
 
+  // The bundle exposes a read-only registration report (not DOM, not Host
+  // state). Present means the Client half applied; absent means the bundle is
+  // not installed in this isolated profile.
+  const ui = await page.evaluate(() => {
+    let diag = null
+    try {
+      diag = window.__TOWER_UI_DIAG__ ? JSON.parse(JSON.stringify(window.__TOWER_UI_DIAG__)) : null
+    } catch (error) {
+      diag = { errors: [{ where: 'read-diagnostics', message: String(error) }] }
+    }
+    return {
+      diag,
+      dockHints: document.querySelectorAll('[data-tower-ui="dock-hint"]').length,
+      dockSummaries: document.querySelectorAll('[data-tower-ui="dock"]').length,
+      statusStrips: document.querySelectorAll('[data-tower-ui="status-strip"]').length,
+      toolviewCards: document.querySelectorAll('[data-tower-toolview]').length,
+    }
+  })
+  log(`ui: ${JSON.stringify(ui)}`)
+
   await browser.close()
   log('closed')
 
@@ -161,9 +203,39 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
   if (dock.count > 0 && dock.visible === 0) failures.push('composer dock outlet is not visible')
   if (EXPECT_HINT && !hintRendered) failures.push('/tower hint not rendered (DSH_TEST_EXPECT_HINT=1)')
 
+  // Full registration assertions only when the bundle actually loaded.
+  if (ui.diag === null) {
+    if (EXPECT_HINT) {
+      failures.push('Tower UI client module did not load (window.__TOWER_UI_DIAG__ missing)')
+    }
+  } else {
+    log('tower-ui:diagnostics-present')
+    if (ui.diag.applied !== true) failures.push('tower-ui diagnostics: apply() did not run')
+    if (Array.isArray(ui.diag.errors) && ui.diag.errors.length > 0) {
+      failures.push(`tower-ui registration error(s): ${JSON.stringify(ui.diag.errors).slice(0, 400)}`)
+    }
+    const toolviews = Array.isArray(ui.diag.toolviews) ? [...ui.diag.toolviews].sort() : []
+    if (JSON.stringify(toolviews) !== JSON.stringify(EXPECTED_TOOLVIEWS)) {
+      failures.push(`tower-ui toolview keys mismatch: ${JSON.stringify(toolviews)}`)
+    }
+    const slots = Array.isArray(ui.diag.slots) ? ui.diag.slots : []
+    for (const required of ['tool.call.toolview', 'conversation.composer.dock', 'shell.overlay']) {
+      if (!slots.some((entry) => entry && entry.slot === required)) {
+        failures.push(`tower-ui missing ${required} registration`)
+      }
+    }
+    if (ui.dockHints + ui.dockSummaries === 0) failures.push('tower-ui dock entry did not render')
+    if (ui.dockSummaries > 0) log('tower-ui:dock-summary-rendered (conversation already has a Tower tool result)')
+    if (ui.statusStrips > 0) log('tower-ui:status-strip-rendered')
+  }
+
   if (failures.length > 0) {
     console.error(`FAIL ui-slots: ${failures.join('; ')}`)
     process.exitCode = 1
+    return
+  }
+  if (ui.diag !== null) {
+    console.log('PASS ui-slots (dock present, tower-ui registrations verified, no page/console errors)')
     return
   }
   if (!hintRendered) {

@@ -3,7 +3,7 @@
 `tower_preflight` returns `{ok:false, blockers:[{code, detail}]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing.
 
-## Gate blockers (20)
+## Gate blockers (26)
 
 | Code | Meaning / next action |
 |---|---|
@@ -25,16 +25,23 @@ return the same shape for operation failures. Codes are stable; the detail is hu
 | `review-not-approved` | Latest clean review says `fix-then-merge` or `hold`; only `merge` approves. |
 | `tip-moved` | The branch changed after review; review again (or use a clean rebase waiver). |
 | `worker-busy` | A roster agent for this mission is running; wait or retire it. |
+| `worker-status-unknown` | The parent catalog is unavailable, so a live roster agent cannot be proven stopped; retry after the catalog recovers or adopt it. |
 | `base-wrong-branch` | The main checkout is not on the recorded base branch. |
 | `branch-owned-by-closed-missions` | The mission is already merged/abandoned; re-plan under a new title. |
+| `worker-stale` | A roster worker for this mission has no catalog activity beyond `spawn.staleMs`; adopt it (or interrupt it only if it is actually running) before merge. |
+| `tests-missing` | `gates.requireTests` is enabled and there is no passing discovery receipt for the reviewed tip; run `tower_test` or `tower_complete`. |
+| `tests-failed` | The latest discovery receipt failed or did not meet minCount/required checks. Fix the tests and re-run. |
+| `review-exemption-invalid` | The mission requests `reviewPolicy:"none"` but `gates.allowReviewExemption` is off (or the reason is missing). |
+| `merge-intent-pending` | A merge intent was recorded before a crash/failure; run `tower_merge` to reconcile before another gate. |
 
-## Merge failures (3)
+## Merge failures (4)
 
 | Code | Meaning / next action |
 |---|---|
 | `merge-conflict` | Real index conflict; the mission is `blocked`. Resolve, restore the mission to `active`/`completed`, retry. |
 | `merge-hook-failed` | A hook/process failed before a commit existed; repository restored, mission stays `completed`. Retry; `timeout: true` means the git process timed out. Raise `timeoutMs` for slow hooks. |
 | `merge-shape` | Git produced unexpected merge parents; inspect the repository, do not force. |
+| `batch-invalid` | A batch id/member/receipt/check reference is invalid or close evidence is incomplete. |
 
 A merge that already landed is **not** a blocker: `tower_merge` records it (`reconciled`,
 `alreadyLanded`) or recovers it (`recoveredFromFailure`, `warnings`).

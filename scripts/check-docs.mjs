@@ -46,6 +46,13 @@ for (const code of [
   'rebase-conflict',
   'worktree-dirty',
   'no-check-evidence',
+  'worker-stale',
+  'worker-status-unknown',
+  'tests-missing',
+  'tests-failed',
+  'review-exemption-invalid',
+  'merge-intent-pending',
+  'batch-invalid',
 ]) blockerCodes.add(code)
 const missingBlockers = [...blockerCodes].filter((code) => !blockersSource.includes(`\`${code}\``)).sort()
 
@@ -69,6 +76,12 @@ const eventNames = [
   'roster',
   'status',
   'preflight',
+  'doctor',
+  'test',
+  'batch',
+  'resource',
+  'import_legacy',
+  'legacy_map',
 ]
 const documentedEvents = read('docs/reference/events.md')
 const missingEvents = eventNames.filter((name) => !documentedEvents.includes(`\`tower/${name}\``))

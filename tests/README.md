@@ -33,6 +33,11 @@ The 2.0 suites are grouped by concern; each file runs as its own process with re
 - `tools.test.mjs` / `tool-schemas.test.mjs` / `spawn.mock.test.mjs` — tool surface, aliases, stable error prefixes, full output-schema walk, and mock-spawn role/preset/briefing behavior.
 - `hmr.test.mjs` / `reload.test.mjs` — the HMR bridge (availability, scheduling, error codes, CLI block editing) and the `/tower reload` + `tower_reload` wiring.
 - `regressions.test.mjs` — fixes found in the 2.0 review round: spawn limit must reject before any activation, repo-config `send.interruptDefault`/`init.snapshotDirty`, and classifier coverage for actionable refusals.
+- `discovery.test.mjs` / `batch.test.mjs` — test-discovery config/TAP/json parsing, budgets, receipts, and pure batch create/close validation.
+- `leases.test.mjs` / `legacy.test.mjs` / `worktree-ownership.test.mjs` — advisory leases, Tower Codex/DSH legacy import + audit mapping, and realpath/worktree ownership checks.
+- `integration-2.1.test.mjs` — end-to-end 2.1: references/review exemption, discovery admission/auto checks, failing admission without a child, batch close, leases/requireLease, legacy import/map, doctor, stale watchdog gate, board location, delivery ack, `gates.requireTests`.
+- `plan-mode.test.mjs` — Tower entry clears/refuses plan mode and the pre-step keeps them mutually exclusive.
+- `ui-bundle.test.mjs` — plain-JS UI module syntax, toolview/dock/overlay registrations, locale parity, theme tokens and defensive rendering.
 
 All temporary repositories and state are created under the OS temp directory and cleaned up automatically.
 

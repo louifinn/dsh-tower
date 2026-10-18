@@ -37,6 +37,12 @@
 | `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |
 | `reload-unavailable` | 当前 profile 中没有可用的 DSH HMR 服务。 | 在没有 HMR 的 profile 上调用 `tower_reload` / `/tower reload` |
 | `reload-failed` | HMR reload 失败。 | `reconcileProfile` 抛错；检查 DSH 日志并重启 |
+| `tests-failed` | 声明的测试发现失败，或不满足准入要求。 | 命令非零退出、输出格式错误、minCount/required 不足 |
+| `tests-timeout` | 测试发现超出时间或输出预算。 | `tests.timeoutMs`，或 stdout 超过 `tests.maxBytes` |
+| `lease-busy` | 另一个持有者拥有请求的咨询式租约。 | `heavy-ci` 被持有时调用 `tower_resource acquire` |
+| `lease-token` | 租约释放 token 与持有者不匹配。 | 用另一个会话的 token 释放 |
+| `batch-invalid` | batch 请求或其 close 证据无效。 | 未知成员、重复 id、不安全的回执路径、缺少回执哈希 |
+| `legacy-invalid` | 旧版快照或映射无效。 | 未知 schema、源路径位于 Tower state 目录内、映射重写 |
 | `tool-internal` | 意外失败。 | bug；阅读消息与 activity 日志 |
 
 ## 为什么抛出？

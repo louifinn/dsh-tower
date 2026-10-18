@@ -37,7 +37,7 @@ Tower 是 Host 插件：它的工具与提示段落在 DSH 启动时加载。DSH
 
 ```powershell
 npm run dev:hmr
-# 等价于：
+# equivalent to:
 node scripts/enable-dev-hmr.mjs
 ```
 

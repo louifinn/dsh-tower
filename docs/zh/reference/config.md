@@ -38,17 +38,19 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 |---|---|---|
 | `section` | `''` | 兼容别名：替换整段 Tower 模式提示文案。空值保留内置提醒。 |
 | `allowAgentControl` | `false`（随包 patch：`true`） | 兼容别名：注册 `tower_control`。 |
-| `init.autoGitInit` | `false` | 当 `repoRoot` 不是仓库时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
-| `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪文件**改动快照为游离提交作为 mission 基线（不含未跟踪文件）。 |
+| `init.autoGitInit` | `false`（随包 patch：`true`） | 当 `repoRoot` 是绝对、已存在但不是仓库的目录时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
+| `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪**改动快照为游离提交作为 mission 基线（不含未跟踪文件；该提交通过 `refs/tower/snapshot/*` 保持存活）。 |
 | `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
 | `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
 | `mode.allowAgentControl` | `false` | 注册 `tower_control`；模型可带理由进入/退出。 |
 | `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
 | `mode.requireResumeAuthorization` | `false` | 恢复因 `pauseCause:user` 暂停的 mission 时，必须提供 `authorization` 引用。 |
-| `mode.workspaceLock` | `false` | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |
+| `mode.workspaceLock` | `false`（随包 patch：`true`） | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |
+| `mode.workspaceLockScope` | `all` | `all` 锁定所有仓库工具；`mutations` 对只读工具跳过 workspace 锁。 |
+| `mode.planModePolicy` | `clear` | 进入 Tower 模式会清除活跃的 plan mode（或 `refuse` 直到退出计划）；前置步骤也会清除稍后激活的计划。 |
 | `mode.workspaceStaleMs` | `300000` | 超过该时长的 workspace 锁可以被接管。 |
 | `mode.heartbeatMs` | `10000` | workspace 锁的心跳间隔。 |
-| `mode.denyTools` | goal/todo/team/workflow/subagent 工具 | 模式激活期间被拒绝的工具（默认 12 个）。 |
+| `mode.denyTools` | goal/todo/team/workflow/subagent 工具（默认 12 个） | 模式激活期间被拒绝的工具。 |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
 | `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
 | `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
@@ -62,11 +64,23 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `spawn.workerModel` | `{}` | worker 可选模型路由 `{provider, model, reasoningEffort, maxTokens}`。 |
 | `spawn.reviewerModel` | `{}` | reviewer 可选模型路由；使用不同模型可获得更强的独立审查。 |
 | `spawn.maxLiveWorkers` | `4` | 每个仓库同时存活的 worker 上限（空闲 `inactive`、failed/interrupted/missing/stale/retired 不计入）；超过返回 `worker-limit`。 |
-| `spawn.staleMs` | `60000` | roster 条目在该时长内没有目录活动就显示 `stale:true`（0 关闭）。 |
+| `spawn.staleMs` | `15000` | 超过该时长没有目录活动的 roster 条目会被标记为 `stale` 并阻止合并（`worker-stale`）；0 关闭。 |
+| `spawn.maxWaitMs` | `90000` | `tower_spawn.waitMs` 的上限（与 Kimi 兼容的 90s 默认值）。 |
+| `spawn.requireLease` | `''` | worker spawn 前必须持有的可选租约名。 |
 | `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
-| `send.interruptDefault` | `false` | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
+| `send.interruptDefault` | `false`（随包 patch：`true`） | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
+| `tests.enabled` | `true` | worktree 的 `package.json` 配置了测试发现时运行它。 |
+| `tests.admission` | `complete` | `spawn` 在启动 worker 前运行发现（fail-closed，不启动子代理）；`complete` 在 `tower_complete` 时运行；`off` 只在显式 `tower_test` 时运行。 |
+| `tests.timeoutMs` | `60000` | 每条发现命令的超时。 |
+| `tests.maxBytes` | `16777216`（16 MiB） | 每条命令捕获的 stdout 上限。 |
+| `tests.autoChecks` | `true` | 向完成报告附加自动 `tests` 检查。 |
+| `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
-| `docs.board` | `true` | 变更后写入 `<git-common-dir>/dsh-tower/MISSIONS.md`。 |
+| `gates.requireTests` | `false` | 要求针对被审查 tip 的通过测试回执（`tests-missing`）。 |
+| `gates.allowReviewExemption` | `false` | 允许用 `reviewPolicy:"none"` + 理由跳过审查 blocker；默认故意关闭。 |
+| `docs.board` | `true` | 变更后写入 `MISSIONS.md`。 |
+| `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。 |
+| `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |
 | `dev.hotReload` | `true` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用。无 HMR 服务时调用返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |
 | `dev.reloadRequiredIds` | 四个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |

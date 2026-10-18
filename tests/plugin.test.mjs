@@ -91,7 +91,7 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   assert.ok(plain.tools.has('tower_mode'))
   assert.equal(plain.tools.has('tower_control'), false, 'agent control is off by default')
   const command = plain.commands.get('tower')
-  assert.equal(command.input.hint, '[on|off|reload] [message]')
+  assert.equal(command.input.hint, '[on|off|reload|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const controlled = makeCtx()

@@ -31,6 +31,12 @@ ctx.on('tower/merge', (payload) => {
 | `tower/roster` | `tower_roster` read the roster |
 | `tower/status` | `tower_status` read the dashboard |
 | `tower/preflight` | `tower_preflight` evaluated the gate |
+| `tower/doctor` | `tower_doctor` completed its read-only checks |
+| `tower/test` | `tower_test` ran discovery |
+| `tower/batch` | `tower_batch` created, inspected or closed a batch |
+| `tower/resource` | `tower_resource` acquired/released/inspected leases |
+| `tower/import_legacy` | `tower_import_legacy` stored a legacy snapshot |
+| `tower/legacy_map` | `tower_legacy_map` mapped or listed legacy ids |
 
 `tower_mode`, `tower_control` and `tower_reload` do not emit Tower events. Payloads are JSON:
 `{tool, repoRoot, value}`. Listener exceptions never affect the tool result.

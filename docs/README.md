@@ -7,7 +7,7 @@ Choose a path:
 | You are | Start here |
 |---|---|
 | New user | [Quick start](guide/quickstart.md) → [Tools](reference/tools.md) → [Example](examples/first-mission.md) |
-| Operator | [Runbook](operations/runbook.md) → [Blockers](reference/blockers.md) → [Error codes](reference/errors.md) → [Events](reference/events.md) → [Security](operations/security.md) |
+| Operator | [Runbook](operations/runbook.md) → [Blockers](reference/blockers.md) → [Error codes](reference/errors.md) → [Events](reference/events.md) → [Doctor](reference/doctor.md) → [Testing](reference/testing.md) → [Batches/leases/legacy](reference/operations.md) → [Security](operations/security.md) |
 | Maintainer | [Architecture](architecture/overview.md) → [Config](reference/config.md) → [Hot reload](guide/hot-reload.md) → [Contributing](../CONTRIBUTING.md) |
 
 Reference pages are the source of truth for the current release; the [tools reference](reference/tools.md),

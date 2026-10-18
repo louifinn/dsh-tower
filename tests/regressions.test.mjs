@@ -301,12 +301,13 @@ test('regression: mode persistence keeps workspace lock tokens across a reload',
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-modes-'))
   try {
     const modes = new Map([
-      ['session-a', { on: true, lock: { token: 'token-a', commonDir: 'C:/repo/.git' }, at: 1000 }],
+      ['session-a', { on: true, lock: { token: 'token-a', commonDir: 'C:/repo/.git' }, baseBranch: 'main', at: 1000 }],
       ['session-b', { on: true, lock: null, at: 900 }],
     ])
     assert.equal(saveModes(modes, dir), true)
     const loaded = loadModes(dir)
     assert.deepEqual(loaded.get('session-a').lock, { token: 'token-a', commonDir: 'C:/repo/.git' })
+    assert.equal(loaded.get('session-a').baseBranch, 'main')
     assert.equal(loaded.get('session-b').lock, null)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })

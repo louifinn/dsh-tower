@@ -35,6 +35,12 @@ message without a more specific match is reported as `tool-internal`.
 | `takeover-refused` | The mission still has a running worker. | `tower_spawn({takeover:true})` before `tower_interrupt` |
 | `reload-unavailable` | The DSH HMR service is not available in this profile. | `tower_reload` / `/tower reload` on a profile without HMR |
 | `reload-failed` | The HMR reload failed. | `reconcileProfile` threw; check the DSH log and restart |
+| `tests-failed` | Declared test discovery failed or did not meet admission requirements. | nonzero command, malformed output, minCount/required shortfall |
+| `tests-timeout` | Test discovery exceeded its time or output budget. | `tests.timeoutMs`, or stdout over `tests.maxBytes` |
+| `lease-busy` | Another holder owns the requested advisory lease. | `tower_resource acquire` while `heavy-ci` is held |
+| `lease-token` | The lease release token does not match the holder. | releasing with another session's token |
+| `batch-invalid` | A batch request or its close evidence is invalid. | unknown member, duplicate id, unsafe receipt path, missing receipt hash |
+| `legacy-invalid` | The legacy snapshot or mapping is invalid. | unknown schema, source inside the Tower state dir, mapping rewrite |
 | `tool-internal` | An unexpected failure. | a bug; read the message and the activity log |
 
 ## Why thrown?

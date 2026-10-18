@@ -23,6 +23,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 - **Stable error codes.** Tool failures carry a `[tower:<code>]` prefix (for example `mission-not-found`, `preset-missing`, `config-invalid`) so callers can branch deterministically.
 - **Role enforcement and control.** Workers cannot complete/abandon a mission or widen its scope directly (completion goes through the `tower_complete` evidence gate); the tower can stop a runaway agent with `tower_interrupt`, and `tower_send(interrupt:true)` interrupts a running turn.
 - **Workspace exclusivity and limits.** Optional `mode.workspaceLock` allows one Tower session per repository; `spawn.maxLiveWorkers`, `send.maxPerMinute` and roster stale flags bound concurrency and message bursts.
+- **2.1 verification and operations.** `tower_test` runs the worktree's `tower.testDiscovery` (TAP/json-array, admission at spawn or complete), `tower_doctor` is a read-only health contract, `tower_batch` closes finite evidence batches, `tower_resource` manages advisory leases, and `tower_import_legacy`/`tower_legacy_map` import old snapshots and audit-map ids. Adds `worker-stale`, test gates, plan/Tower mutual exclusion, `workspaceLockScope`, `docs.boardLocation` and delivery acknowledgements.
 - **Hot reload.** In a profile with DSH HMR, `/tower reload`, `tower_reload` and `npm run dev:hmr` apply linked plugin changes without a restart; `plugin_manager` install/update already applies live.
 - **Evidence gate and events.** Workers can record `checks` in `tower_complete` and `gates.requireChecks` can require them; every mutation emits `tower/*` events and refreshes `MISSIONS.md`.
 
@@ -112,15 +113,16 @@ Image and file attachments are forwarded together with the instruction as one co
       maxDepth: 1
 ```
 
-- `mode.allowAgentControl` defaults to `false` in code; the bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave when the user intent or task state warrants it, always stating a reason.
+- `mode.allowAgentControl` defaults to `false` in code; the bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave when the user intent or task state warrants it, always stating a reason. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
+- `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown top-level keys are rejected so typos cannot silently disable security-relevant settings, while unknown keys inside a group are ignored. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
-## Tools (20 core)
+## Tools (26 core)
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` exists only when `allowAgentControl: true`; `tower_reload` is registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 22 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+`tower_control` exists only when `allowAgentControl: true`; `tower_reload` is registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 28 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
@@ -130,7 +132,7 @@ Image and file attachments are forwarded together with the instruction as one co
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-25 stable blocker/failure codes (including gate guards, `no-check-evidence`, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
+32 stable blocker/failure codes (including gate guards, `no-check-evidence`, `worker-stale`, test gates, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 
 ## How it works
 
@@ -174,7 +176,7 @@ The offline suite needs no DSH process and creates throwaway Git repositories in
 
 - [docs/README.md](docs/README.md) — documentation index (new user / operator / maintainer paths)
 - [Chinese docs](docs/zh/README.md) · [Quick start](docs/guide/quickstart.md) · [Install, upgrade and migration](docs/guide/install-upgrade-migration.md)
-- [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md) · [Error codes](docs/reference/errors.md) · [Events](docs/reference/events.md) · [Hot reload](docs/guide/hot-reload.md)
+- [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md) · [Error codes](docs/reference/errors.md) · [Events](docs/reference/events.md) · [Testing](docs/reference/testing.md) · [Batches/leases/legacy](docs/reference/operations.md) · [Doctor](docs/reference/doctor.md) · [Hot reload](docs/guide/hot-reload.md)
 - [Architecture and state machine](docs/architecture/overview.md) · [Operations runbook](docs/operations/runbook.md) · [Security model](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [Examples](docs/examples/first-mission.md)
 

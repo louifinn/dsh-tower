@@ -3,6 +3,16 @@
       name: 'dsh-tower'
       config:
         allowAgentControl: true
+        init:
+          autoGitInit: true
+        mode:
+          workspaceLock: true
+          workspaceLockScope: all
+          planModePolicy: clear
+        send:
+          interruptDefault: true
+        spawn:
+          staleMs: 15000
     - id: tower-skills
       name: 'dsh-tower/skills'
     - id: preset-tower-worker

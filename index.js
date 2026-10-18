@@ -31,6 +31,13 @@ export const Config = ConfigSchema
 
 let MODE = new Map()
 let denyTools = new Set(DEFAULT_DENY_TOOLS)
+const READ_ONLY_TOOL_NAMES = new Set([
+  'tower_status',
+  'tower_roster',
+  'tower_diff',
+  'tower_preflight',
+  'tower_doctor',
+])
 let pluginVersion = null
 
 const BASE_REMINDER = [
@@ -114,9 +121,44 @@ function pauseActiveGoal(ctx, agent) {
   }
 }
 
+function planModeState(ctx, agent) {
+  const service = ctx.get?.('planMode')
+  if (!service || !agent) return { available: false, active: false, pending: false, service: null }
+  try {
+    const state = service.get(agent) ?? {}
+    return { available: true, active: state.active === true, pending: state.pending === true, service }
+  } catch {
+    return { available: false, active: false, pending: false, service: null }
+  }
+}
+
+/** Tower and plan mode are mutually exclusive; clearing is the default policy. */
+function clearPlanModeForTower(ctx, agent) {
+  const state = planModeState(ctx, agent)
+  if (!state.available || (!state.active && !state.pending)) {
+    return { attempted: state.available, cleared: false, refused: false, result: null }
+  }
+  if (runtimeConfig().mode.planModePolicy === 'refuse') {
+    return { attempted: true, cleared: false, refused: true, result: null }
+  }
+  try {
+    const result = state.service.set(agent, false)
+    return { attempted: true, cleared: true, refused: false, result }
+  } catch (error) {
+    return { attempted: true, cleared: false, refused: false, error: String(error?.message ?? error) }
+  }
+}
+
 function enterMode(ctx, key, agent, by, reason) {
   const previous = MODE.get(key)
   const wasOn = Boolean(previous && previous.on)
+  const plan = clearPlanModeForTower(ctx, agent)
+  if (plan.refused) {
+    throw new TowerToolError(
+      'invalid-transition',
+      'plan mode is active and mode.planModePolicy is "refuse"; exit plan mode before entering Tower',
+    )
+  }
   const autoPauseGoal = runtimeConfig().mode.autoPauseGoal !== false
   let pausedGoal = previous?.pausedGoal ?? null
   let goalNote = null
@@ -133,11 +175,13 @@ function enterMode(ctx, key, agent, by, reason) {
     on: true,
     pausedGoal,
     lock: previous?.lock ?? null,
+    baseBranch: previous?.baseBranch ?? null,
+    planModeCleared: plan.cleared,
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
   persistModes()
-  return { wasOn, pausedGoal, goalNote }
+  return { wasOn, pausedGoal, goalNote, planModeCleared: plan.cleared, planModeResult: plan.result ?? null }
 }
 
 async function exitMode(key, by, reason) {
@@ -206,8 +250,9 @@ export function apply(ctx, rawConfig) {
 
   const workspace = {
     /** Lazily acquire the advisory workspace lock on the first repo-scoped tool. */
-    async ensure(repoRoot, exec) {
+    async ensure(repoRoot, exec, toolName) {
       if (runtimeConfig().mode.workspaceLock !== true) return
+      if (runtimeConfig().mode.workspaceLockScope === 'mutations' && READ_ONLY_TOOL_NAMES.has(toolName)) return
       const key = agentKey(exec?.agent)
       if (!key) return
       const entry = MODE.get(key)
@@ -257,6 +302,10 @@ export function apply(ctx, rawConfig) {
         holder: info?.holder ?? null,
       }
     },
+    basePreference(exec) {
+      const key = agentKey(exec?.agent)
+      return key ? MODE.get(key)?.baseBranch ?? null : null
+    },
   }
 
   registerTowerTools(ctx, { workspace, hmrBridge })
@@ -287,6 +336,24 @@ export function apply(ctx, rawConfig) {
       }
       return undefined
     }),
+  )
+
+  // Plan mode and Tower mode are mutually exclusive. Clearing at entry covers
+  // the normal path; this pre-step listener also clears a plan activated later
+  // in the same session, before the next step can run plan-policy tooling.
+  ctx.effect(() =>
+    typeof ctx.on === 'function'
+      ? ctx.on('agent/pre-step', (payload, next) => {
+          const key = agentKey(payload?.agent)
+          if (key && MODE.has(key)) {
+            // Once Tower is active, Tower wins regardless of entry policy: clear
+            // any plan state so the two policies cannot coexist.
+            const state = planModeState(ctx, payload.agent)
+            if (state.available && (state.active || state.pending)) state.service.set(payload.agent, false)
+          }
+          return next()
+        })
+      : () => {},
   )
 
   ctx.systemPrompt.section({
@@ -346,6 +413,11 @@ export function apply(ctx, rawConfig) {
           persistedAt: storePath(config.mode.storePath || undefined),
           pluginVersion: readPluginVersion(),
           hotReload: hmrBridge ? hmrBridge.status() : { available: false, disabled: true },
+          planMode: (() => {
+            const state = planModeState(ctx, exec.agent)
+            return { available: state.available, active: state.active, pending: state.pending }
+          })(),
+          baseBranch: entry?.baseBranch ?? null,
           workspaceLock: entry
             ? await workspace.status(entry, key)
             : { enabled: config.mode.workspaceLock === true, held: false },
@@ -417,11 +489,19 @@ export function apply(ctx, rawConfig) {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
       name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower reload reloads the plugin via HMR',
-      input: { hint: '[on|off|reload] [message]', attachments: true },
+      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
+      input: { hint: '[on|off|reload|base <branch>] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
+        const baseMatch = String(rawInput ?? '').trim().match(/^base\s+(\S+)\s*$/i)
+        if (baseMatch) {
+          const entry = MODE.get(key)
+          if (!entry) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
+          entry.baseBranch = baseMatch[1]
+          persistModes()
+          return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }
+        }
         const parsed = parseTowerInput(rawInput)
         if (parsed.action === 'reload') {
           if (!hotReloadEnabled) {

@@ -25,6 +25,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **仓库互斥与限流。** 可选 `mode.workspaceLock` 让同一仓库只有一个 Tower 会话；`spawn.maxLiveWorkers`、`send.maxPerMinute`、roster stale 标记约束并发与消息风暴。
 - **可热重载。** 在带 DSH HMR 的 profile 中，`/tower reload`、`tower_reload` 与 `npm run dev:hmr` 让 linked 插件代码改动无需重启即生效；`plugin_manager` 安装/更新本身即时生效。
 - **测试证据门与事件。** worker 可在 `tower_complete` 记录 `checks`，`gates.requireChecks` 可强制；每次 mutation 后发射 `tower/*` 事件并刷新 `MISSIONS.md`。
+- **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_doctor` 只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import_legacy` / `tower_legacy_map` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
 
 ## 环境要求
 
@@ -112,15 +113,16 @@ tower_teardown  repoRoot=D:\work\repo
       maxDepth: 1
 ```
 
-- 代码中 `mode.allowAgentControl` 默认 `false`；随包 `cordis.patch.yml` 设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。
+- 代码中 `mode.allowAgentControl` 默认 `false`；随包 `cordis.patch.yml` 设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 15s。
+- `/tower base <branch>` 可设置会话级 init base 偏好；`/tower on` 会清除活跃 plan mode（`mode.planModePolicy:"refuse"` 则拒绝进入），保证 plan/tower 互斥。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知顶层键会被拒绝（防止拼写错误静默失效），嵌套分组内的未知键会被忽略。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（20 个核心）
+## 工具（26 个核心）
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` 仅在 `allowAgentControl: true` 时注册；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 22 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+`tower_control` 仅在 `allowAgentControl: true` 时注册；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 28 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
@@ -130,7 +132,7 @@ tower_teardown  repoRoot=D:\work\repo
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-25 个稳定 blocker/failure code（含 gate 守卫、`no-check-evidence` 与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
+32 个稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 
 ## 工作原理
 
@@ -170,7 +172,7 @@ npm test        # node --test tests/*.test.mjs
 
 - [docs/README.md](docs/README.md) — 文档索引（新用户 / 运维 / 维护者三条阅读路径）
 - [中文文档](docs/zh/README.md) · [快速开始](docs/guide/quickstart.md) · [安装、升级与迁移](docs/guide/install-upgrade-migration.md)
-- [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md) · [错误码](docs/reference/errors.md) · [事件](docs/reference/events.md) · [热重载](docs/guide/hot-reload.md)
+- [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md) · [错误码](docs/reference/errors.md) · [事件](docs/reference/events.md) · [测试准入](docs/reference/testing.md) · [批次/租约/旧版](docs/reference/operations.md) · [Doctor](docs/reference/doctor.md) · [热重载](docs/guide/hot-reload.md)
 - [架构与状态机](docs/architecture/overview.md) · [运维 runbook](docs/operations/runbook.md) · [安全模型](docs/operations/security.md)
 - [FAQ](docs/faq.md) · [示例](docs/examples/first-mission.md)
 

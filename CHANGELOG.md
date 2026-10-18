@@ -24,6 +24,18 @@
   人类可读门板；`tower/*` 进程内事件；`tower_complete.checks` + `gates.requireChecks`。
 - **热重载**：`/tower reload` 与 `tower_reload` 调用 DSH HMR `reconcileProfile`；新增
   `npm run dev:hmr` 脚本把 linked 仓库加入 profile HMR watch root；`docs/guide/hot-reload.md`。
+- **2.1 测试准入**：读取 worktree `package.json` 的 `tower.testDiscovery`（TAP/json-array），支持
+  `tests.admission:spawn|complete`、16 MiB/60s 预算、minCount/required；`tower_test` 与
+  `tower_complete` 自动生成 `tests` check；`gates.requireTests` / `tests-missing` / `tests-failed`。
+- **2.1 批次与运营**：`tower_batch`（create/status/close，冻结成员、requiredChecks、receiptPaths）、
+  `tower_resource`（advisory lease，token/过期显式 force）、`tower_doctor`（只读健康契约）、
+  `tower_import_legacy` / `tower_legacy_map`（只读快照 + 审计映射）。
+- **2.1 治理**：per-repo roster watchdog（`spawn.staleMs` 15s 标记 stale 并阻断合并）、
+  `spawn.maxWaitMs` 90s、`mode.workspaceLockScope`、plan/tower 互斥（默认清除 plan）、
+  `/tower base <branch>`、`docs.boardLocation`、delivery ack、merge intent 持久化。
+- **2.1 UI**：ui-bundle 增加 12 个 tower tool 卡片、composer dock 最新摘要与 shell.overlay 瞬时状态条；
+  纯会话派生，无 Host RPC/iframe。
+- **2.1 文档**：`docs/reference/testing.md`、`operations.md`、`doctor.md` 与中文同步；工具面 28。
 
 ### 变更
 
@@ -38,14 +50,16 @@
 - **配置解析**：兼容别名只用于补缺——同时设置 `section` 与 `mode.promptSection` 时规范键优先；
   仓库配置增加 1 MiB 大小上限与 `__proto__`/`constructor`/`prototype` 等危险键拒绝。
 - **配置默认值**：`mode.denyTools` 追加 workflow/ralph/subagent/subagent_fork/wait_agent/team_task_list
-  （Tower 模式与其它编排互斥）；新增 `spawn.maxLiveWorkers:4`、`spawn.staleMs:60000`、
-  `send.maxPerMinute:120`、`gates.requireChecks:false`、`docs.board:true`、`dev.hotReload:true`。
+  （Tower 模式与其它编排互斥）；新增 `spawn.maxLiveWorkers:4`、`spawn.staleMs:15000`、
+  `spawn.maxWaitMs:90000`、`send.maxPerMinute:120`、`gates.requireChecks:false`、
+  `gates.requireTests:false`、`docs.board:true`、`leases.ttlMs:900000`、`dev.hotReload:true`；
+  随包 patch 打开 `workspaceLock`/`interruptDefault`/`autoGitInit`。
 - **briefing**：worker/reviewer 生成历史审查、上一轮 findings/decision、completion checks 与
   related findings，长文本截断；reviewer 必须核对 completion checks。
 - **输出/工具面**：`tower_status` 增加 total/offset/nextOffset/detail/markdown，并**默认只返回前 20 个 mission**（旧版返回全部；旧调用需要更多时用 `limit`/`offset`）；`tower_adopt`
   支持 `retireMissing:false`；`tower_mode` 返回 pluginVersion/HMR/workspace lock；`tower_roster`
-  增加 `stale`。工具总数最多 22（含可选的 control/reload）。
-- **离线套件**：测试增至 111 项（含 2.0 新测试；原有 26 项保持通过）。
+  增加 `stale`。工具总数最多 28（含 doctor/test/batch/resource/import/legacy_map 与可选的 control/reload）。
+- **离线套件**：测试增至 206 项（含 2.1 discovery/batch/leases/legacy/doctor/UI/plan-mode/integration 用例）。
 - 除 `tower_status` 默认分页与 `mode.denyTools` 默认扩充外，既有工具参数与输出保持兼容。
 
 ### 修复

@@ -5,17 +5,32 @@
 英文文档是权威来源；本页是中文翻译入口。英文文档位于 [docs/](../README.md)，仓库主页见
 [README.md](../../README.md)。
 
+## 2.1 能力概览
+
+- **只读健康检查**：[Doctor](reference/doctor.md)（`tower_doctor`）检查 git、state、配置、preset、
+  workspace 锁、roster、worktree 归属、测试策略与租约，不写任何状态。
+- **测试发现与完成证据**：[测试、发现与证据](reference/testing.md)。仓库可在
+  `package.json.tower.testDiscovery` 声明发现命令；回执可自动附加到 `tower_complete`，
+  `gates.requireTests` 可要求针对被审查 tip 的通过回执。
+- **证据批次、咨询式租约、旧版导入**：[批次、租约与旧版导入](reference/operations.md)
+  （`tower_batch`、`tower_resource`、`tower_import_legacy`、`tower_legacy_map`）。
+- **workspace 锁与计划模式**：`mode.workspaceLock` 限制每个仓库同时只有一个 Tower 会话，
+  `mode.workspaceLockScope:"mutations"` 对只读工具跳过锁；`mode.planModePolicy` 控制进入 Tower
+  时如何处理活跃的 plan mode。
+- **可观察性**：成功的工具调用发出进程内 [Tower 事件](reference/events.md)；稳定
+  [工具错误码](reference/errors.md) 与 [blocker code](reference/blockers.md) 可被程序匹配。
+- **工具面**：本构建最多 28 个工具（含可选的 `tower_control` 与 `tower_reload`）；详见
+  [工具参考](reference/tools.md)。
+
 ## 选择阅读路径
 
 | 你是 | 从这里开始 |
 |---|---|
 | 新用户 | [快速开始](guide/quickstart.md) → [工具参考](reference/tools.md) → [第一个 mission 示例（英文）](../examples/first-mission.md) |
-| 运维 | [运维 runbook（英文）](../operations/runbook.md) → [blocker 与失败码](reference/blockers.md) → [错误码](reference/errors.md) → [事件](reference/events.md) → [安全模型](operations/security.md) |
+| 运维 | [运维 runbook（英文）](../operations/runbook.md) → [blocker 与失败码](reference/blockers.md) → [错误码](reference/errors.md) → [事件](reference/events.md) → [Doctor](reference/doctor.md) → [测试](reference/testing.md) → [批次/租约/旧版](reference/operations.md) → [安全模型](operations/security.md) |
 | 维护者 | [架构与状态机（英文）](../architecture/overview.md) → [配置参考](reference/config.md) → [热重载](guide/hot-reload.md) → [贡献指南](../../CONTRIBUTING.md) |
 
 参考页是当前发行版的权威说明；CI 中的 `npm run docs:check` 会校验文档与实现一致（包括中文页）。
-本版本有 20 个核心工具，随包 patch 下通常为 21 个（含 `tower_control`），HMR 可用时最多 22 个
-（含 `tower_reload`）；详见[工具参考](reference/tools.md)。
 
 ## 全部中文页面
 
@@ -27,6 +42,9 @@
 - [blocker 与失败码](reference/blockers.md)
 - [工具错误码](reference/errors.md)
 - [Tower 事件](reference/events.md)
+- [测试、发现与证据](reference/testing.md)
+- [批次、租约与旧版导入](reference/operations.md)
+- [Doctor](reference/doctor.md)
 - [FAQ](faq.md)
 - [安全模型](operations/security.md)
 
