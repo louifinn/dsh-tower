@@ -11,11 +11,12 @@ const ALLOW = [
   'pwsh',
   'tower_mission',
   'tower_status',
+  'tower_diff',
   'tower_send',
   'tower_inbox',
   'tower_complete',
   'tower_finding',
-  'tower_review',
+  'skill',
 ]
 
 const PROTOCOL = [
@@ -24,7 +25,7 @@ const PROTOCOL = [
   'Commit your work on the mission branch. Update the mission as you go with tower_mission',
   '(task_done, blocker, status), and put the full handoff in your final message: what changed,',
   'every file path, how you verified it, and anything left undone.',
-  'Do not spawn other agents and do not merge branches; the tower owns integration.',
+  'Do not spawn other agents, do not review, and do not merge branches; the tower owns integration.',
 ].join(' ')
 
 export function apply(ctx) {

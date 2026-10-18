@@ -1,0 +1,66 @@
+# Architecture and state machine
+
+## Components
+
+```
+Host plugin (index.js)
+ ├─ /tower command + Tower mode (guard, prompt section, tower_control)
+ ├─ lib/tools.js  -> 17 tools (+ tower_diff) registered on ctx.tools
+ └─ lib/tower.js  -> Tower domain: missions, gates, worktrees, roster, review, merge
+       ├─ lib/git.js     minimal git port (execFile, bounded output, timeout classification)
+       ├─ lib/store.js   repo-scoped lock + atomic JSON + activity.jsonl
+       ├─ lib/config.js  Config schema + runtime snapshot
+       └─ lib/modeStore.js  per-agent Tower mode persistence
+Subagents
+ ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools
+ └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding
+```
+
+The main checkout is the control-tower repo; each mission has a branch `tower/<id>-<slug>` and a
+worktree in `.dsh-tower-worktrees/<hash>/<missionId>`. The plugin never operates on the main checkout's
+working tree except merge and the read-only diff.
+
+## Mission state machine
+
+```
+planned ──spawn worker──▶ active ──tower_complete──▶ completed ──tower_merge──▶ merged
+   │                        │  ▲                         │
+   │                        │  └──── review round not clean ────┐
+   └── abandon ──▶ abandoned│                                   │
+                            ├── blocker ──▶ blocked ──active/completed──▶ ...
+                            └── pause ─────▶ paused ──active──▶ ...
+```
+
+`merged` and `abandoned` are terminal. `tower_mission` may set `blocked → completed`; `merged` is only
+set by `tower_merge`/reconciliation.
+
+## Gate pipeline (`tower_preflight`)
+
+1. Mission status must be `completed`; tasks and blockers are checked.
+2. The worktree exists; the base tip is an ancestor of the branch tip; changed files are computed
+   against the merge base.
+3. Survey missions must not change files; build missions must stay inside `scope`.
+4. The main checkout must be clean for the files this merge would overwrite and on the base branch.
+5. Dependency missions must be merged/abandoned.
+6. A review must exist, belong to this mission, be clean, approve merge, and be bound to the tip
+   (unless a clean rebase waived it). No worker may be running.
+
+## Merge
+
+`tower_merge` runs `git merge --no-ff` with a configurable timeout (default 15 min) and 64 MB buffer.
+After the command, regardless of exit status, it inspects `HEAD`:
+
+- merge commit with parents `[baseTip, branchTip]` → record merged (including `recoveredFromFailure`);
+- otherwise classify the failure: unmerged index → `merge-conflict` (mission blocked); no unmerged
+  entries → `merge-hook-failed` (mission retryable), with abort/reset cleanup.
+- If the branch or its reviewed commit is already contained in the base, reconcile instead of merging.
+
+## State files
+
+| Path | Contents |
+|---|---|
+| `<git-common-dir>/dsh-tower/state.json` | missions, roster, reviews, findings, messages, reviews sequence |
+| `<git-common-dir>/dsh-tower/activity.jsonl` | append-only activity |
+| `<git-common-dir>/dsh-tower/state.lock` | single-writer lock (stale locks are reported, never stolen) |
+| `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | mission worktree |
+| `$DSH_HOME/tower-mode/modes.json` | Tower mode per agent/session |

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0 — 2026-10-18
+
+- **独立的只读 reviewer preset**：新增 `reviewer.js` / `tower-reviewer`，去掉 `write`/`edit`/`pwsh`/
+  `tower_mission`/`tower_complete`，只保留读、`tower_diff`、消息、finding、review；`tower_spawn`
+  按 role 映射 preset，reviewer 必须等待 mission `completed`。`tower_review` 会记录 reviewer spawn
+  时的 tip，审查期间改动分支将被拒绝（修复自审风险）。
+- **新增 `tower_diff`**：只读 merge-base diff（files/commits/patch），供 reviewer 使用。
+- **声明 `Config` schema**：`section`/`allowAgentControl` 兼容别名 + `mode`/`review`/`merge`/
+  `worktrees`/`spawn` 分组；评审轮数、合并超时/缓冲、worktree 根、spawn preset/model 等可配置；
+  `mode.storePath`/`maxEntries`/`autoPauseGoal`/`denyTools`/`sectionAppend` 生效。
+- **spawn 健壮性**：preset 存在性预检、按 role 选择 preset/model、失败/空闲状态写回 roster。
+- **内置 Agent Skills**：`skills/tower-worker-protocol`、`skills/tower-review`、`skills/tower-recovery`，
+  通过 `dsh-tower/skills` provider 注册；worker/reviewer preset 允许 `skill`。
+- **文档**：新增 `docs/`（quickstart、安装升级迁移、工具/配置/blocker 参考、架构、运维、安全、FAQ、
+  示例）；README quick start 修正为“先 reviewer 后 preflight 全绿”，工具数/测试数/blocker 数修正；
+  `npm run docs:check` 与 CI 校验文档与代码一致。
+- `package.json` 增加 `@deepseek-ai/schemastery` 依赖、`files` 补充 reviewer/skills/docs/贡献与安全文档。
+- 测试 26 项（新增 preset/skills/config 四个用例）。
+
 ## 1.2.0 — 2026-10-18
 
 - **`tower_merge` 对“提交已落地但调用报错”的恢复**：合并命令失败/超时后检查 `HEAD`，若已是

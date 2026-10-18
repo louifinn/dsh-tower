@@ -50,24 +50,23 @@ Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**�
 
 ## 快速开始
 
-```
+```text
 /tower on
 
-tower_init        <repoRoot>
-tower_plan        <repoRoot> missions=[...]
-tower_spawn       <repoRoot> missionId=M1 role=worker
-# worker 实现并汇报完成
-tower_preflight   <repoRoot> missionId=M1    # 必须全绿才能合并
-tower_spawn       <repoRoot> missionId=M1 role=reviewer
-tower_review      ...                        # 审查者提交结论
-tower_preflight   <repoRoot> missionId=M1
-tower_merge       <repoRoot> missionId=M1
-tower_teardown    <repoRoot>
+tower_init      repoRoot=D:\work\repo            # 首次初始化，记录 base（默认当前分支）
+tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
+tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
+# worker 在 worktree 内实现并提交，调用 tower_complete；最终报告会返回本会话
+tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
+# reviewer 只读审查并调用 tower_review（clean+merge 或 p1-Nitems/p2-Nitems）
+tower_preflight repoRoot=D:\work\repo missionId=M1    # 审查前 预期 no-review；审查后应为 ok:true
+tower_merge     repoRoot=D:\work\repo missionId=M1
+tower_teardown  repoRoot=D:\work\repo
 
 /tower off
 ```
 
-小改动通常一轮 worker + 一轮 reviewer 即可完成。
+小改动通常一轮 worker + 一轮 reviewer 即可完成。完整可复制示例见 [docs/examples/first-mission.md](docs/examples/first-mission.md)，逐工具参数见 [docs/reference/tools.md](docs/reference/tools.md)。
 
 ## 命令
 
@@ -88,28 +87,42 @@ tower_teardown    <repoRoot>
 - id: tower
   name: 'dsh-tower'
   config:
-    section: '（可选）覆盖 Tower 模式系统提示文案'
-    allowAgentControl: true   # true 时注册 tower_control；false 时只有人类能切换
+    section: '（可选，兼容别名）覆盖 Tower 模式系统提示文案'
+    allowAgentControl: true   # 兼容别名；等价于 mode.allowAgentControl
+    mode:
+      allowAgentControl: true
+      autoPauseGoal: true
+      denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
+    review:
+      maxRoundsPerReviewer: 5
+    merge:
+      timeoutMs: 900000
+    worktrees:
+      root: ''                 # 空 = <主检出父目录>/.dsh-tower-worktrees/<hash>
+    spawn:
+      workerPreset: tower-worker
+      reviewerPreset: tower-reviewer
+      maxDepth: 1
 ```
 
-- 代码中 `allowAgentControl` 默认 `false`；仓库自带的 `cordis.patch.yml` 把它设为 `true`：当用户意图或任务状态明确时，模型可以自行进出 Tower 模式，但必须给出理由。
-- 设为 `false` 时只有人类能切换模式。
+- 代码中 `mode.allowAgentControl` 默认 `false`；随包 `cordis.patch.yml` 设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。
+- 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键会被拒绝（防止拼写错误静默失效）。
 
-## 工具（17 个）
+## 工具（18 个）
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
 
-`tower_control` 仅在 `allowAgentControl: true` 时存在。
+`tower_control` 仅在 `allowAgentControl: true` 时存在（随包 patch 默认开启，因此安装后共 19 个工具）。
 
 ## 安全与约束
 
 - **门禁不全绿不合并。** `tower_preflight` 是只读检查，返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
-- **审查绑定提交。** 审查后分支 tip 变化会报 `tip-moved`，必须重新审查；唯一的例外是干净 rebase 的免审豁免。
+- **审查绑定提交。** 审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。
 - **scope 强制。** mission 只能修改其 scope glob 匹配的文件，越界会以 `out-of-scope` 阻止合并。
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-13 个稳定 blocker code：`branch-missing`、`deps-unmerged`、`read-only-survey`、`stale-base`、`no-review`、`review-hold`、`not-clean`、`review-not-approved`、`tip-moved`、`review-mission-mismatch`、`out-of-scope`、`base-dirty`、`branch-owned-by-closed-missions`（另有 mission/worker 守卫）。
+13 个稳定 blocker code（另有 6 个 gate 守卫与 6 个 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。
 
 ## 工作原理
 
@@ -142,6 +155,14 @@ npm test        # node --test tests/*.test.mjs
 ```
 
 离线套件不需要 DSH 进程，只在系统临时目录创建一次性 Git 仓库。隔离 Web 运行时检查、模型驱动验收和会话诊断脚本见 `tests/README.md`。
+
+## 文档
+
+- [docs/README.md](docs/README.md) — 文档索引（新用户 / 运维 / 维护者三条阅读路径）
+- [快速开始](docs/guide/quickstart.md) · [安装、升级与迁移](docs/guide/install-upgrade-migration.md)
+- [工具参考](docs/reference/tools.md) · [配置参考](docs/reference/config.md) · [blocker 与失败码](docs/reference/blockers.md)
+- [架构与状态机](docs/architecture/overview.md) · [运维 runbook](docs/operations/runbook.md) · [安全模型](docs/operations/security.md)
+- [FAQ](docs/faq.md) · [示例](docs/examples/first-mission.md)
 
 ## 常见问题
 

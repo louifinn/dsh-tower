@@ -9,20 +9,14 @@
 import { randomUUID } from 'node:crypto'
 import { registerTowerTools } from './lib/tools.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
+import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
+export const Config = ConfigSchema
 
-const MODE = loadModes()
-
-const DENY_TOOLS = new Set([
-  'create_goal',
-  'todo_write',
-  'team_task_create',
-  'team_task_update',
-  'team_task_reopen',
-  'spawn_teammate',
-])
+let MODE = new Map()
+let denyTools = new Set(DEFAULT_DENY_TOOLS)
 
 const BASE_REMINDER = [
   'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
@@ -40,18 +34,20 @@ function agentKey(agent) {
   return key === undefined || key === null ? null : String(key)
 }
 
-function resolveConfig(config) {
-  const input = config ?? {}
-  const unknown = Object.keys(input).filter((key) => !['section', 'allowAgentControl'].includes(key))
-  if (unknown.length > 0) {
-    throw new Error(
-      `Tower config has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl? }`,
-    )
-  }
-  const section = typeof input.section === 'string' && input.section.trim().length > 0
-    ? input.section
+function configSection(config, allowAgentControl) {
+  const configured = config.mode.promptSection && config.mode.promptSection.trim().length > 0
+    ? config.mode.promptSection
     : BASE_REMINDER
-  return { section, allowAgentControl: input.allowAgentControl === true }
+  const appended = config.mode.sectionAppend && config.mode.sectionAppend.trim().length > 0
+    ? ` ${config.mode.sectionAppend.trim()}`
+    : ''
+  const control = allowAgentControl ? ` ${AGENT_CONTROL_NOTE}` : ''
+  return `${configured}${appended}${control}`
+}
+
+function persistModes() {
+  const config = runtimeConfig()
+  saveModes(MODE, config.mode.storePath || undefined, config.mode.maxEntries)
 }
 
 /** Parse `/tower` arguments: bare and free text both mean "ensure on". */
@@ -94,9 +90,10 @@ function pauseActiveGoal(ctx, agent) {
 function enterMode(ctx, key, agent, by, reason) {
   const previous = MODE.get(key)
   const wasOn = Boolean(previous && previous.on)
+  const autoPauseGoal = runtimeConfig().mode.autoPauseGoal !== false
   let pausedGoal = previous?.pausedGoal ?? null
   let goalNote = null
-  if (!wasOn) {
+  if (!wasOn && autoPauseGoal) {
     const paused = pauseActiveGoal(ctx, agent)
     if (paused.attempted && paused.ok) pausedGoal = paused.goal
     else if (paused.attempted && !paused.ok) goalNote = `pause-failed: ${paused.reason}`
@@ -111,7 +108,7 @@ function enterMode(ctx, key, agent, by, reason) {
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
-  saveModes(MODE)
+  persistModes()
   return { wasOn, pausedGoal, goalNote }
 }
 
@@ -119,7 +116,7 @@ function exitMode(key, by, reason) {
   const previous = MODE.get(key)
   if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null }
   MODE.delete(key)
-  saveModes(MODE)
+  persistModes()
   return { wasOn: true, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
 }
 
@@ -162,14 +159,18 @@ function describeChange(active, outcome, forwarded, message, allowAgentControl) 
 }
 
 export function apply(ctx, rawConfig) {
-  const config = resolveConfig(rawConfig)
+  const config = configureRuntime(rawConfig)
+  const allowAgentControl = config.mode.allowAgentControl === true
+  const reminder = configSection(config, allowAgentControl)
+  MODE = loadModes(config.mode.storePath || undefined)
+  denyTools = new Set(config.mode.denyTools)
   registerTowerTools(ctx)
 
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
       const key = agentKey(execution.agent)
       if (!key || !MODE.has(key)) return undefined
-      if (DENY_TOOLS.has(execution.name)) {
+      if (denyTools.has(execution.name)) {
         return `tower mode: ${execution.name} is disabled while Tower mode is active; use the Tower tools or /tower off`
       }
       if (execution.name === 'update_goal') {
@@ -185,12 +186,7 @@ export function apply(ctx, rawConfig) {
   ctx.systemPrompt.section({
     name: 'tower:mode',
     order: 15000,
-    text: (context) =>
-      context && MODE.has(agentKey(context.agent))
-        ? config.allowAgentControl
-          ? `${config.section} ${AGENT_CONTROL_NOTE}`
-          : config.section
-        : '',
+    text: (context) => (context && MODE.has(agentKey(context.agent)) ? reminder : ''),
   })
 
   ctx.effect(() =>
@@ -209,17 +205,17 @@ export function apply(ctx, rawConfig) {
         return {
           mode: entry && entry.on === true ? 'on' : key ? 'off' : 'unknown',
           agentId: key,
-          allowAgentControl: config.allowAgentControl,
+          allowAgentControl,
           lastChange: entry?.lastChange ?? null,
           pausedGoal: entry?.pausedGoal ?? null,
-          deniedWhileActive: [...DENY_TOOLS],
-          persistedAt: storePath(),
+          deniedWhileActive: [...denyTools],
+          persistedAt: storePath(config.mode.storePath || undefined),
         }
       },
     }),
   )
 
-  if (config.allowAgentControl) {
+  if (allowAgentControl) {
     ctx.effect(() =>
       ctx.tools.register({
         name: 'tower_control',
@@ -288,7 +284,7 @@ export function apply(ctx, rawConfig) {
         }
         return {
           kind: 'success',
-          text: describeChange(active, outcome, forwarded, message, config.allowAgentControl),
+          text: describeChange(active, outcome, forwarded, message, allowAgentControl),
         }
       },
     })

@@ -3,6 +3,8 @@
       name: 'dsh-tower'
       config:
         allowAgentControl: true
+    - id: tower-skills
+      name: 'dsh-tower/skills'
     - id: preset-tower-worker
       name: '@deepseek-ai/dsh-agent-preset'
       config:
@@ -21,3 +23,23 @@
               sampleOverCapGlobResults: false
           - id: tower-worker-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
+    - id: preset-tower-reviewer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tower-reviewer
+        name: Tower Reviewer
+        description: Read-only independent reviewer for a completed Tower mission.
+        order: 61
+        plugins:
+          - id: tower-reviewer-policy
+            name: 'dsh-tower/reviewer'
+          - id: tower-reviewer-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+              readImage: false
+          - id: tower-reviewer-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false

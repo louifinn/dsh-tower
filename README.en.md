@@ -50,24 +50,23 @@ The Host plugin is loaded when the DSH process starts, so **restart DSH after in
 
 ## Quick start
 
-```
+```text
 /tower on
 
-tower_init        <repoRoot>
-tower_plan        <repoRoot> missions=[...]
-tower_spawn       <repoRoot> missionId=M1 role=worker
-# worker implements and reports completion
-tower_preflight   <repoRoot> missionId=M1    # must be green before merging
-tower_spawn       <repoRoot> missionId=M1 role=reviewer
-tower_review      ...                        # reviewer submits verdict
-tower_preflight   <repoRoot> missionId=M1
-tower_merge       <repoRoot> missionId=M1
-tower_teardown    <repoRoot>
+tower_init      repoRoot=D:\work\repo            # records the base (current branch by default)
+tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
+tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
+# the worker implements and commits in its worktree, calls tower_complete; its final report returns here
+tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
+# the reviewer inspects read-only and calls tower_review (clean+merge, or p1-Nitems/p2-Nitems)
+tower_preflight repoRoot=D:\work\repo missionId=M1    # expect no-review before review; ok:true after it
+tower_merge     repoRoot=D:\work\repo missionId=M1
+tower_teardown  repoRoot=D:\work\repo
 
 /tower off
 ```
 
-A typical run takes one worker mission and one reviewer round for a small change.
+A small change usually takes one worker mission and one reviewer round. A full copy-paste example is in [docs/examples/first-mission.md](docs/examples/first-mission.md); per-tool parameters are in [docs/reference/tools.md](docs/reference/tools.md).
 
 ## Commands
 
@@ -88,28 +87,42 @@ Image and file attachments are forwarded together with the instruction as one co
 - id: tower
   name: 'dsh-tower'
   config:
-    section: 'Optional replacement for the Tower-mode system prompt text'
-    allowAgentControl: true   # true registers tower_control; false makes the mode human-only
+    section: 'Optional legacy alias replacing the Tower-mode prompt text'
+    allowAgentControl: true   # legacy alias for mode.allowAgentControl
+    mode:
+      allowAgentControl: true
+      autoPauseGoal: true
+      denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
+    review:
+      maxRoundsPerReviewer: 5
+    merge:
+      timeoutMs: 900000
+    worktrees:
+      root: ''                 # empty = <checkout parent>/.dsh-tower-worktrees/<hash>
+    spawn:
+      workerPreset: tower-worker
+      reviewerPreset: tower-reviewer
+      maxDepth: 1
 ```
 
-- `allowAgentControl` defaults to `false` in code. The bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave Tower mode when the user intent or task state clearly warrants it, always stating a reason.
-- When disabled, only the human can change the mode.
+- `mode.allowAgentControl` defaults to `false` in code; the bundled `cordis.patch.yml` enables it (`true`) so the model may enter/leave when the user intent or task state warrants it, always stating a reason.
+- Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected so typos cannot silently disable security-relevant settings.
 
-## Tools (17)
+## Tools (18)
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_finding` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode`
 
-`tower_control` exists only when `allowAgentControl: true`.
+`tower_control` exists only when `allowAgentControl: true` (the bundled patch enables it, so an installed build exposes 19 tools).
 
 ## Safety and guardrails
 
 - **No merge without a green gate.** `tower_preflight` is read-only and reports stable blocker codes; `tower_merge` refuses when any blocker remains.
-- **Review is bound to a commit.** If the branch tip moves after a review, the gate reports `tip-moved`; re-review is required (a clean rebase waiver is the only exception).
+- **Review is bound to a commit.** A moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected.
 - **Scope enforcement.** A mission may only change files matched by its declared scope globs; `out-of-scope` blocks the merge.
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-The 13 stable blocker codes are: `branch-missing`, `deps-unmerged`, `read-only-survey`, `stale-base`, `no-review`, `review-hold`, `not-clean`, `review-not-approved`, `tip-moved`, `review-mission-mismatch`, `out-of-scope`, `base-dirty`, `branch-owned-by-closed-missions` (plus mission/worker guards).
+13 stable blocker codes (plus 6 additional gate guards and 6 merge/rebase failure codes) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md).
 
 ## How it works
 
@@ -122,14 +135,16 @@ A mission moves through `planned → active → completed → merged` (or `block
 | `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | per-mission worktree |
 | `$DSH_HOME/tower-mode/modes.json` | Tower mode state per agent/session |
 
-Workers and reviewers are ordinary DSH subagents started with the bundled `tower-worker` preset; their tools are restricted to the mission surface (filesystem, shell, and Tower protocol tools), never merge/spawn.
+Workers use the bundled `tower-worker` preset (writable worktree surface); reviewers use the separate read-only `tower-reviewer` preset and can only inspect (`tower_diff`) and submit `tower_review`. The reviewer records the branch tip at spawn; if the branch moves, the review is rejected. Neither preset can merge or spawn.
 
 ## Project layout
 
 | Path | Contents |
 |---|---|
 | `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (inserts the Host plugin and the `tower-worker` preset) |
-| `index.js`, `lib/`, `worker.js` | Host entry, protocol implementation, worker preset policy |
+| `index.js`, `lib/`, `worker.js`, `reviewer.js` | Host entry, protocol/config implementation, worker and reviewer preset policies |
+| `skills.js`, `skills/` | bundled agent skills (worker protocol, review checklist, recovery playbook) |
+| `docs/` | guides, reference, architecture, operations, FAQ and examples |
 | `locale/`, `icon.svg` | localization and icon |
 | `tests/` | pure-function, protocol end-to-end, and plugin-level tests; optional isolated Web-runtime scripts |
 | `ui-bundle/` | optional Client widget (static `/tower` hint), not installed by default |
@@ -142,6 +157,14 @@ npm test        # node --test tests/*.test.mjs
 ```
 
 The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — documentation index (new user / operator / maintainer paths)
+- [Quick start](docs/guide/quickstart.md) · [Install, upgrade and migration](docs/guide/install-upgrade-migration.md)
+- [Tools reference](docs/reference/tools.md) · [Config reference](docs/reference/config.md) · [Blockers and failure codes](docs/reference/blockers.md)
+- [Architecture and state machine](docs/architecture/overview.md) · [Operations runbook](docs/operations/runbook.md) · [Security model](docs/operations/security.md)
+- [FAQ](docs/faq.md) · [Examples](docs/examples/first-mission.md)
 
 ## Troubleshooting
 
