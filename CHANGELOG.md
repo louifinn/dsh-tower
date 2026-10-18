@@ -42,11 +42,11 @@
   `send.maxPerMinute:120`、`gates.requireChecks:false`、`docs.board:true`、`dev.hotReload:true`。
 - **briefing**：worker/reviewer 生成历史审查、上一轮 findings/decision、completion checks 与
   related findings，长文本截断；reviewer 必须核对 completion checks。
-- **输出/工具面**：`tower_status` 返回 total/offset/nextOffset/detail/markdown；`tower_adopt`
+- **输出/工具面**：`tower_status` 增加 total/offset/nextOffset/detail/markdown，并**默认只返回前 20 个 mission**（旧版返回全部；旧调用需要更多时用 `limit`/`offset`）；`tower_adopt`
   支持 `retireMissing:false`；`tower_mode` 返回 pluginVersion/HMR/workspace lock；`tower_roster`
   增加 `stale`。工具总数最多 22（含可选的 control/reload）。
-- **离线套件**：测试增至 107 项（含 2.0 新测试；原有 26 项保持通过）。
-- 无破坏性变更：既有工具参数与输出保持兼容，新增能力均为追加。
+- **离线套件**：测试增至 111 项（含 2.0 新测试；原有 26 项保持通过）。
+- 除 `tower_status` 默认分页与 `mode.denyTools` 默认扩充外，既有工具参数与输出保持兼容。
 
 ### 修复
 

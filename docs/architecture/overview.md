@@ -6,7 +6,7 @@
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
  ├─ lib/tools.js  -> 19 repository tools incl. tower_diff, tower_findings and tower_interrupt
- │                   (+ optional tower_reload when DSH HMR is available)
+ │                   (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
  └─ lib/tower.js  -> Tower domain: missions, gates, worktrees, roster, review, findings, merge
        ├─ lib/git.js          minimal git port (execFile, bounded output, timeout classification)
        ├─ lib/store.js        repo-scoped lock + atomic JSON + activity.jsonl

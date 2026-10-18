@@ -26,7 +26,8 @@ Tower 是 Host 插件：它的工具与提示段落在 DSH 启动时加载。DSH
 - 仍然可以显式请求对账（`/tower reload`、`tower_reload` 或 `plugin_manager`）；即使 `root: []`，
   它也会比较已加载模块与磁盘，并替换发生变化的模块。监视只是让保存后自动触发这次对账。
 - HMR 只为 profile 启动挂载（没有 `profileContext` 时 `disabled`）。没有 profile 启动的进程会报告
-  reload 不可用，也不会注册 `tower_reload`。
+  reload 不可用（`dev.hotReload` 开启时 `tower_reload` 仍注册，因此返回 `reload-unavailable`，
+  而不是消失）。
 - profile patch 层在 DSH 启动时加载。编辑它——实际就是 hmr 的 `root` 列表——需要**重启一次 DSH**
   才生效。运行中的进程不会重新读取 HMR 行自身的配置。
 
@@ -94,7 +95,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 
 | 配置键 | 含义 |
 |---|---|
-| `dev.hotReload` | 当 DSH HMR 服务可用时注册 `tower_reload` 与 `/tower reload`（默认 `true`）。关闭时两者都不注册。 |
+| `dev.hotReload` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用（默认 `true`）。无 HMR 服务时工具仍注册，以便返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | 计划中的对账运行前的延迟，单位毫秒（默认 `50`），让工具/命令结果先送达模型，再替换插件。 |
 | `dev.reloadRequiredIds` | profile 必须保持活跃的 Loader 条目 id（默认 `tower`、`tower-skills`、`preset-tower-worker`、`preset-tower-reviewer`）。即使某个 required 条目早已处于非活跃状态，也会被报告为重载失败。 |
 
@@ -103,7 +104,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 工具结果必须先送达，Tower 插件才能替换自身。两个后果：
 
 - 延迟窗口内的一批重载请求会合并为一次对账；
-- 对账失败会记录为 `lastError`，而不会从工具调用返回，因此重载后请检查 `tower_status.hotReload`
+- 对账失败会记录为 `lastError`，而不会从工具调用返回，因此重载后请检查 `tower_mode.hotReload`
   与 DSH 日志。
 
 ### 阅读重载结果
@@ -112,7 +113,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 
 - **DSH 日志** —— 被替换模块的 `reload plugin at <path>`，以及 HMR 自身的告警与
   `restart required: <reason>` 消息。
-- **`tower_status.hotReload`** —— `{available, requiredIds, delayMs, scheduled, lastRunAt, lastError}`；
+- **`tower_mode.hotReload`** —— `{available, requiredIds, delayMs, scheduled, lastRunAt, lastError}`；
   `lastError` 保留最近一次失败，并在下次成功重载后清除。
 
 对账本身还会返回 `warnings`、`pending`（仍运行旧代码的模块）以及可选的 `restartReason`。由 Tower
@@ -139,7 +140,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 | 症状 | 处理 |
 |---|---|
 | `[tower:reload-unavailable]` / “Tower reload is unavailable” | 该进程没有 HMR 服务（未带 profile 启动、profile 中 HMR 被禁用，或服务在关闭过程中已 dispose）。重启 DSH。要检查 hmr 行，在非 desktop profile 上运行 `dsh --profile <name> --dump-config`（desktop profile 由 Electron 应用管理，拒绝 dump）。 |
-| `hotReload.lastError` 中出现 `[tower:reload-failed]` 且伴随语法/导入错误 | 修复文件后再次重载。损坏的替换会回滚到上一版代码，因此在重载成功前旧行为会继续运行。 |
+| `hotReload.lastError` 中出现 `[tower:reload-failed]` 且伴随语法/导入错误 | 修复文件后重启 DSH。替换失败会停掉旧插件实例，旧代码不再运行；重载本身不会回滚。 |
 | `HMR is disposed` | 服务随进程关闭。重启 DSH。 |
 | `HMR transactions cannot be nested` | 在另一个 HMR 事务内部请求了显式重载；请从普通工具回合调用。 |
 | `pending` 非空或设置了 `restartReason` | 先重启 DSH，再相信重载结果。 |

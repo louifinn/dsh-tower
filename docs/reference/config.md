@@ -62,13 +62,13 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `spawn.provider` | `''` | Subagent provider id; empty prefers `spawn`, then the first provider. |
 | `spawn.workerModel` | `{}` | Optional `{provider, model, reasoningEffort, maxTokens}` for workers. |
 | `spawn.reviewerModel` | `{}` | Optional model route for reviewers; independent review is stronger with a different model. |
-| `spawn.maxLiveWorkers` | `4` | Maximum non-retired worker entries per repository; exceeding it returns `worker-limit`. |
+| `spawn.maxLiveWorkers` | `4` | Maximum live worker entries per repository (idle `inactive`, failed, interrupted, missing, stale and retired entries do not count); exceeding it returns `worker-limit`. |
 | `spawn.staleMs` | `60000` | Roster entries without catalog activity after this age show `stale:true` (0 disables). |
 | `send.maxPerMinute` | `120` | Per-repository `tower_send` rate limit (0 disables); exceeding it returns `rate-limited`. |
 | `send.interruptDefault` | `false` | Default for `tower_send.interrupt` (interrupt the running turn before delivering). |
 | `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
 | `docs.board` | `true` | Write `<git-common-dir>/dsh-tower/MISSIONS.md` after mutations. |
-| `dev.hotReload` | `true` | Register `tower_reload` and `/tower reload` when the DSH HMR service is available. |
+| `dev.hotReload` | `true` | Register `tower_reload`; `/tower reload` is disabled when off. It returns `reload-unavailable` when the profile has no HMR service. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. |
 | `dev.reloadRequiredIds` | four Tower loader ids | Entry ids passed to `reconcileProfile` as required. |
 

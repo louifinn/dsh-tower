@@ -1,9 +1,10 @@
 # Tools reference
 
 All tools take `repoRoot` (an absolute path inside the target Git repository) and return JSON.
-The build exposes 22 tools: 19 repository tools below, `tower_interrupt`, `tower_mode`,
+The build exposes up to 22 tools: 19 repository tools below, `tower_interrupt`, `tower_mode`,
 `tower_control` when `mode.allowAgentControl` is enabled (the bundled patch enables it), and
-`tower_reload` when the DSH HMR service is available (`dev.hotReload`, default true).
+`tower_reload` while `dev.hotReload` is on (default true; it fails with `reload-unavailable` when the
+profile has no HMR service).
 
 `tower_mission` uses `id` (alias `missionId`); every other mission-scoped tool uses `missionId`
 (alias `id`). Other input aliases: `task_done`/`taskDone`, `task_drop`/`taskDrop`,
@@ -48,7 +49,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_teardown` | `force?`, `exclude?`, `dry_run?` (alias `dryRun`) | Remove eligible merged/abandoned worktrees and branches; running agents are always kept. |
 | `tower_mode` | — | Report mode, last change, paused goal, denied tools, store path, plugin version, HMR availability, workspace-lock holder. |
 | `tower_control` | `action` (`enter`/`exit`), `reason` | Model-initiated mode change; only when `mode.allowAgentControl` is true; reason is mandatory. |
-| `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Scheduled after the result (default 50 ms). Fails with `reload-unavailable` without HMR. |
+| `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while `dev.hotReload` is on; scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
 
 ## Workspace lock
 

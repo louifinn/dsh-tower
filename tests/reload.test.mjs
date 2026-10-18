@@ -126,6 +126,19 @@ test('HMR wiring: without HMR the tool reports reload-unavailable and /tower rel
   assert.match(reply.text, /HMR|restart/i)
 })
 
+test('HMR wiring: dev.hotReload:false removes the tool and disables the command branch', async () => {
+  const { ctx, tools, commands } = makeCtx(undefined)
+  apply(ctx, { dev: { hotReload: false } })
+  assert.equal(tools.has('tower_reload'), false)
+  const reply = await commands.get('tower').handler({
+    agent: { id: 'agent-reload-off' },
+    rawInput: 'reload',
+    attachments: [],
+  })
+  assert.equal(reply.kind, 'error')
+  assert.match(reply.text, /disabled/i)
+})
+
 test('HMR wiring: /tower reload does not disturb on/off parsing', async () => {
   const hmr = {
     async runExclusive(operation) {

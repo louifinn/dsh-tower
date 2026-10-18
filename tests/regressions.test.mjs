@@ -9,6 +9,7 @@ import path from 'node:path'
 
 import { registerTowerTools } from '../lib/tools.js'
 import { Tower } from '../lib/tower.js'
+import { loadModes, saveModes } from '../lib/modeStore.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -46,7 +47,9 @@ function makeCtx(options = {}) {
       activations.push({ ...input, childId })
       return {
         childId,
-        result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
+        result: options.pending
+          ? new Promise(() => {})
+          : Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
       }
     },
     sendMessage: async () => {},
@@ -81,7 +84,7 @@ async function call(tools, name, args, exec = { agent: { id: 'tower-agent' } }) 
 test('regression: a worker-limit rejection happens before any activation or worktree', async () => {
   const { root, repo } = makeRepo()
   writeRepoConfig(repo, { spawn: { maxLiveWorkers: 1 } })
-  const { ctx, tools, activations } = makeCtx()
+  const { ctx, tools, activations } = makeCtx({ pending: true })
   registerTowerTools(ctx)
   try {
     await call(tools, 'tower_init', { repoRoot: repo })
@@ -123,6 +126,8 @@ test('regression: repo config send.interruptDefault and init.snapshotDirty are h
     writeRepoConfig(repo, { init: { snapshotDirty: true }, send: { interruptDefault: true } })
     const initialized = await call(tools, 'tower_init', { repoRoot: repo })
     assert.ok(initialized.snapshotCommit, 'repo config init.snapshotDirty must be honored')
+    const snapshotRefs = git(repo, ['for-each-ref', '--format=%(refname)', 'refs/tower/snapshot/'])
+    assert.ok(snapshotRefs.includes(initialized.snapshotCommit), 'the snapshot commit must stay reachable through a ref')
     const planned = await call(tools, 'tower_plan', {
       repoRoot: repo,
       missions: [{ title: 'Interrupt default', scope: ['src/**'] }],
@@ -150,6 +155,11 @@ test('regression: actionable refusals classify into stable codes, not tool-inter
     ['refusing to send a message to yourself', 'invalid-argument'],
     ['agent reviewer-1 is a reviewer; only an assigned reviewer or the tower (break-glass) may review', 'not-authorized'],
     ['mission M1 already has a live worker "worker-m1"', 'invalid-transition'],
+    ['worker worker-1 does not own mission M1 (owner: worker-2)', 'not-authorized'],
+    ['agent worker-1 is interrupted; a stopped worker cannot report completion', 'invalid-transition'],
+    ['roster name already used: worker-m1', 'invalid-argument'],
+    ['agent child-1 is already in the roster', 'invalid-argument'],
+    ['mission M1 is merged; a blocker cannot reopen a terminal mission', 'invalid-transition'],
   ]
   for (const [message, code] of cases) {
     assert.equal(classifyError(new Error(message)).code, code, message)
@@ -158,7 +168,7 @@ test('regression: actionable refusals classify into stable codes, not tool-inter
 
 test('regression: a duplicate live worker is rejected before any activation', async () => {
   const { root, repo } = makeRepo()
-  const { ctx, tools, activations } = makeCtx()
+  const { ctx, tools, activations } = makeCtx({ pending: true })
   registerTowerTools(ctx)
   try {
     await call(tools, 'tower_init', { repoRoot: repo })
@@ -173,6 +183,82 @@ test('regression: a duplicate live worker is rejected before any activation', as
       /\[tower:invalid-transition\].*live worker/,
     )
     assert.equal(activations.length, 1, 'a duplicate worker must be rejected before activation')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('regression: rework rounds can spawn again with unique default names and takeover', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools, activations } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Rework', scope: ['src/**'] }],
+    })
+    const missionId = planned.missions[0].id
+    const first = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    assert.equal(first.name, 'worker-m1')
+    await new Promise((resolve) => setTimeout(resolve, 50)) // let recordSpawnOutcome mark it inactive
+    const second = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    assert.equal(second.name, 'worker-m1-2')
+    assert.equal(activations.length, 2)
+    const tower = await Tower.open(repo)
+    const view = await tower.rosterView()
+    const workers = view.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker')
+    assert.equal(workers.filter((entry) => entry.state !== 'retired').length, 1)
+    const takeover = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker', takeover: true })
+    assert.equal(takeover.name, 'worker-m1-3')
+    const after = await (await Tower.open(repo)).rosterView()
+    assert.equal(after.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker' && entry.state !== 'retired').length, 1)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('regression: gates.requireChecks blocks a completion without evidence', async () => {
+  const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { gates: { requireChecks: true } })
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Checks', scope: ['src/**'], tasks: ['do it'] }],
+    })
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    const worktree = spawned.worktree.path
+    fs.mkdirSync(path.join(worktree, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(worktree, 'src', 'a.txt'), 'a\n')
+    git(worktree, ['add', '-A'])
+    git(worktree, ['commit', '-m', 'work'])
+    const workerExec = { agent: { id: spawned.agentId } }
+    await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: 'do it' }, workerExec)
+    await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
+    const tower = await Tower.open(repo)
+    const gate = await tower.evaluateGate({ missionId, activity: {} })
+    assert.ok(gate.blockers.some((blocker) => blocker.code === 'no-check-evidence'))
+    const reviewed = await call(
+      tools,
+      'tower_review',
+      {
+        repoRoot: repo,
+        missionId,
+        status: 'clean',
+        merge: 'merge',
+        findings: 'none',
+        decision: 'ok',
+        breakGlassReason: 'regression test has no independent reviewer',
+      },
+      { agent: { id: 'tower-agent' } },
+    )
+    assert.equal(reviewed.missionStatus, 'completed')
+    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
+    assert.ok(preflight.blockers.some((blocker) => blocker.code === 'no-check-evidence'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -208,5 +294,21 @@ test('regression: docs.board:false suppresses MISSIONS.md; user-paused resume ca
     assert.equal(resumed.mission.authorizationRef, 'human-approval-123')
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('regression: mode persistence keeps workspace lock tokens across a reload', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-modes-'))
+  try {
+    const modes = new Map([
+      ['session-a', { on: true, lock: { token: 'token-a', commonDir: 'C:/repo/.git' }, at: 1000 }],
+      ['session-b', { on: true, lock: null, at: 900 }],
+    ])
+    assert.equal(saveModes(modes, dir), true)
+    const loaded = loadModes(dir)
+    assert.deepEqual(loaded.get('session-a').lock, { token: 'token-a', commonDir: 'C:/repo/.git' })
+    assert.equal(loaded.get('session-b').lock, null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
   }
 })

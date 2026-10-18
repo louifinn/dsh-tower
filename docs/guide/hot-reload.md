@@ -26,7 +26,8 @@ This page covers the development loop. It is not required to use Tower.
   `plugin_manager`); it compares already-loaded modules with disk and replaces the changed ones even
   with `root: []`. Watching only makes that happen automatically after a save.
 - HMR is only mounted for profile boots (`disabled` when there is no `profileContext`). A process
-  booted without a profile reports reload as unavailable and does not register `tower_reload`.
+  booted without a profile reports reload as unavailable (`tower_reload` stays registered while
+  `dev.hotReload` is on, so the tool returns `reload-unavailable` instead of disappearing).
 - The profile patch layer is loaded when DSH boots. Editing it — in practice the hmr `root` list —
   takes effect after **one DSH restart**. Nothing in the running process re-reads the HMR row's own
   configuration.
@@ -98,7 +99,7 @@ The bridge behind the tool follows the `dev` config group:
 
 | Config key | Meaning |
 |---|---|
-| `dev.hotReload` | Register `tower_reload` and `/tower reload` when the DSH HMR service is available (default `true`). When off, neither is registered. |
+| `dev.hotReload` | Register `tower_reload`; `/tower reload` is disabled when off (default `true`). Without the HMR service the tool is still registered so it can return `reload-unavailable`. |
 | `dev.reloadDelayMs` | Delay before the scheduled reconciliation runs, in milliseconds (default `50`), so the tool/command result reaches the model before the plugin is replaced. |
 | `dev.reloadRequiredIds` | Loader entry ids the profile must keep active (default `tower`, `tower-skills`, `preset-tower-worker`, `preset-tower-reviewer`). An inactive required entry is reported as a reload failure even if it was already inactive. |
 
@@ -109,7 +110,7 @@ the Tower plugin replaces itself. Two consequences:
 
 - a burst of reload requests inside the delay coalesces into a single reconciliation;
 - a reconciliation failure is recorded as `lastError` instead of coming back from the tool call, so
-  check `tower_status.hotReload` and the DSH log after a reload.
+  check `tower_mode.hotReload` and the DSH log after a reload.
 
 ### Reading a reload result
 
@@ -117,7 +118,7 @@ The outcome of the scheduled reconciliation surfaces in:
 
 - **the DSH log** — `reload plugin at <path>` for replaced modules, plus HMR's warnings and
   `restart required: <reason>` messages from its own watcher.
-- **`tower_status.hotReload`** — `{available, requiredIds, delayMs, scheduled, lastRunAt, lastError}`;
+- **`tower_mode.hotReload`** — `{available, requiredIds, delayMs, scheduled, lastRunAt, lastError}`;
   `lastError` keeps the most recent failure and is cleared by the next successful reload.
 
 The reconciliation itself also returns `warnings`, `pending` (modules still on their previous code)
@@ -148,7 +149,7 @@ means the change was not watched. What does need a restart:
 | Symptom | What to do |
 |---|---|
 | `[tower:reload-unavailable]` / "Tower reload is unavailable" | This process has no HMR service (booted without a profile, HMR disabled in the profile, or the service was disposed during shutdown). Restart DSH. To inspect the hmr row, run `dsh --profile <name> --dump-config` on a non-desktop profile (the desktop profile is managed by the Electron app and refuses the dump). |
-| `[tower:reload-failed]` in `hotReload.lastError` with a syntax/import error | Fix the file, then reload again. A broken replacement rolls the module back to the previous code, so the old behavior keeps running until the reload succeeds. |
+| `[tower:reload-failed]` in `hotReload.lastError` with a syntax/import error | Fix the file, then restart DSH. A replacement that fails to import stops the previous plugin instance and its old code no longer runs; the reload itself cannot roll back. |
 | `HMR is disposed` | The service shut down with the process. Restart DSH. |
 | `HMR transactions cannot be nested` | An explicit reload was requested from inside another HMR transaction; call the tool from a normal tool turn instead. |
 | `pending` is non-empty or `restartReason` is set | Restart DSH before trusting the reload result. |

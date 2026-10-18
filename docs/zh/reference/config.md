@@ -61,13 +61,13 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `spawn.provider` | `''` | 子代理 provider id；空值优先 `spawn`，否则取第一个 provider。 |
 | `spawn.workerModel` | `{}` | worker 可选模型路由 `{provider, model, reasoningEffort, maxTokens}`。 |
 | `spawn.reviewerModel` | `{}` | reviewer 可选模型路由；使用不同模型可获得更强的独立审查。 |
-| `spawn.maxLiveWorkers` | `4` | 每个仓库允许的非 retired worker 条目上限；超出返回 `worker-limit`。 |
+| `spawn.maxLiveWorkers` | `4` | 每个仓库同时存活的 worker 上限（空闲 `inactive`、failed/interrupted/missing/stale/retired 不计入）；超过返回 `worker-limit`。 |
 | `spawn.staleMs` | `60000` | roster 条目在该时长内没有目录活动就显示 `stale:true`（0 关闭）。 |
 | `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
 | `send.interruptDefault` | `false` | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
 | `docs.board` | `true` | 变更后写入 `<git-common-dir>/dsh-tower/MISSIONS.md`。 |
-| `dev.hotReload` | `true` | DSH HMR 服务可用时注册 `tower_reload` 与 `/tower reload`。 |
+| `dev.hotReload` | `true` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用。无 HMR 服务时调用返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |
 | `dev.reloadRequiredIds` | 四个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |
 

@@ -151,14 +151,6 @@ async function exitMode(key, by, reason) {
   return { wasOn: true, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
 }
 
-async function releaseSessionLock(key) {
-  const entry = MODE.get(key)
-  if (!entry?.lock) return
-  await releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
-  entry.lock = null
-  persistModes()
-}
-
 function forwardInstruction(agent, message, attachments) {
   const content = [...(Array.isArray(attachments) ? attachments : [])]
   if (message) content.push({ type: 'text', text: message })
@@ -203,11 +195,14 @@ export function apply(ctx, rawConfig) {
   const reminder = configSection(config, allowAgentControl)
   MODE = loadModes(config.mode.storePath || undefined)
   denyTools = new Set(config.mode.denyTools)
-  const hmrBridge = createHmrBridge(ctx, {
-    requiredIds: config.dev?.reloadRequiredIds,
-    delayMs: config.dev?.reloadDelayMs,
-    logger: ctx.logger ?? console,
-  })
+  const hotReloadEnabled = config.dev?.hotReload !== false
+  const hmrBridge = hotReloadEnabled
+    ? createHmrBridge(ctx, {
+        requiredIds: config.dev?.reloadRequiredIds,
+        delayMs: config.dev?.reloadDelayMs,
+        logger: ctx.logger ?? console,
+      })
+    : null
 
   const workspace = {
     /** Lazily acquire the advisory workspace lock on the first repo-scoped tool. */
@@ -233,7 +228,11 @@ export function apply(ctx, rawConfig) {
       })
       if (!result.acquired) {
         const holder = result.holder
-          ? `session ${String(result.holder.sessionId).slice(0, 12)} (since ${new Date(Number(result.holder.at ?? 0)).toISOString()})`
+          ? `session ${String(result.holder.sessionId).slice(0, 12)} (since ${
+              Number.isFinite(Number(result.holder.at))
+                ? new Date(Number(result.holder.at)).toISOString()
+                : 'unknown'
+            })`
           : 'an unreadable lock'
         throw new TowerToolError(
           'workspace-busy',
@@ -243,23 +242,35 @@ export function apply(ctx, rawConfig) {
       entry.lock = { token: result.record.token, commonDir: repo.commonDir }
       persistModes()
     },
-    async status(entry) {
+    async status(entry, key) {
       if (!entry?.lock) return { enabled: runtimeConfig().mode.workspaceLock === true, held: false }
       const info = await inspectWorkspaceLock(entry.lock.commonDir, {
-        sessionId: agentKey(entry.agentId ?? null),
+        sessionId: key ?? null,
         staleMs: Number(runtimeConfig().mode.workspaceStaleMs) || 300000,
       }).catch(() => null)
       return {
         enabled: runtimeConfig().mode.workspaceLock === true,
-        held: true,
+        held: info?.held === true,
         commonDir: entry.lock.commonDir,
-        stale: info?.stale === true,
+        self: info?.self === true,
+        stale: info?.stale === true || info === null,
         holder: info?.holder ?? null,
       }
     },
   }
 
-  registerTowerTools(ctx, { workspace })
+  registerTowerTools(ctx, { workspace, hmrBridge })
+
+  // On dispose (including an HMR reload) release advisory workspace locks this
+  // process still owns; a reloaded plugin restores the entries from modes.json.
+  ctx.effect(() => () => {
+    if (hmrBridge) hmrBridge.dispose?.()
+    for (const entry of MODE.values()) {
+      if (entry?.lock) {
+        releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
+      }
+    }
+  })
 
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
@@ -334,8 +345,10 @@ export function apply(ctx, rawConfig) {
           deniedWhileActive: [...denyTools],
           persistedAt: storePath(config.mode.storePath || undefined),
           pluginVersion: readPluginVersion(),
-          hotReload: hmrBridge.status(),
-          workspaceLock: entry ? await workspace.status(entry) : { enabled: config.mode.workspaceLock === true, held: false },
+          hotReload: hmrBridge ? hmrBridge.status() : { available: false, disabled: true },
+          workspaceLock: entry
+            ? await workspace.status(entry, key)
+            : { enabled: config.mode.workspaceLock === true, held: false },
         }
       },
     }),
@@ -411,7 +424,10 @@ export function apply(ctx, rawConfig) {
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
         const parsed = parseTowerInput(rawInput)
         if (parsed.action === 'reload') {
-          if (!hmrBridge.available) {
+          if (!hotReloadEnabled) {
+            return { kind: 'error', text: 'Tower reload is disabled by dev.hotReload:false; restart DSH instead.' }
+          }
+          if (!hmrBridge || !hmrBridge.available) {
             return { kind: 'error', text: 'Tower reload is unavailable: this DSH profile has no HMR service. Restart DSH instead.' }
           }
           const outcome = hmrBridge.schedule()

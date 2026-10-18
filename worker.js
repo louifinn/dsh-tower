@@ -23,8 +23,9 @@ const ALLOW = [
 const PROTOCOL = [
   'You are a Tower worker in a DeepSeek Harness Tower workspace.',
   'Work only inside the git worktree named in your briefing; never modify the main checkout.',
-  'Commit your work on the mission branch. Update the mission as you go with tower_mission',
-  '(task_done, blocker, status), and put the full handoff in your final message: what changed,',
+  'Commit your work on the mission branch. Update progress with tower_mission (task_done/task_drop,',
+  'blocker, note); lifecycle status and scope are owned by the tower. Finish with tower_complete',
+  '(report + checks evidence), then put the full handoff in your final message: what changed,',
   'every file path, how you verified it, and anything left undone.',
   'Do not spawn other agents, do not review, and do not merge branches; the tower owns integration.',
 ].join(' ')

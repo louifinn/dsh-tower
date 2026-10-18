@@ -3,9 +3,9 @@
 [English](../../reference/tools.md) | **简体中文**
 
 所有工具都接受 `repoRoot`（目标 Git 仓库内的绝对路径）并返回 JSON。
-本构建有 20 个核心工具：下列 19 个仓库工具与 `tower_mode`；随包 patch 开启
-`mode.allowAgentControl` 时注册 `tower_control`（共 21 个），DSH HMR 服务可用时
-（`dev.hotReload`，默认 `true`）再注册 `tower_reload`（最多 22 个）。
+本构建最多 22 个工具：下列 19 个仓库工具、`tower_interrupt`、`tower_mode`、`mode.allowAgentControl`
+开启时注册的 `tower_control`，以及 `dev.hotReload`（默认 `true`）开启时注册的 `tower_reload`
+（profile 无 HMR 服务时调用返回 `reload-unavailable`）。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、
@@ -49,7 +49,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
 | `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
 | `tower_control` | `action`（`enter`/`exit`）、`reason` | 模型主动切换模式；仅当 `mode.allowAgentControl` 为 `true` 时可用；`reason` 必填。 |
-| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。在工具结果返回后调度（默认 50 ms）。没有 HMR 时以 `reload-unavailable` 失败。 |
+| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`dev.hotReload` 开启时注册；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
 
 ## workspace 锁
 

@@ -11,7 +11,7 @@ return the same shape for operation failures. Codes are stable; the detail is hu
 | `mission-not-completed` | Mission is not `completed`; only a completed mission (awaiting review) merges. |
 | `tasks-open` | Open tasks remain; the worker must finish or `task_drop` with a reason. |
 | `blockers-present` | The mission has blockers; clear them after resolving. |
-| `no-check-evidence` | `gates.requireChecks` is enabled and the completion report has no `checks`; rerun `tower_complete` with evidence. |
+| `no-check-evidence` | `gates.requireChecks` is enabled and the completion report has no `checks`. Return the completed mission to `active`, re-run `tower_complete` with checks, then review again. |
 | `branch-missing` | No worktree/branch yet: spawn a worker first. |
 | `stale-base` | The branch does not contain the base tip: run `tower_rebase`. |
 | `read-only-survey` | Survey mission changed files; survey missions must be read-only. |
