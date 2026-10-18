@@ -2,12 +2,42 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## 2.0.2（2026-10-18）
+
+### 新增
+
+- **UI 常驻 Tower 模式指示器（#11）**：`dsh-tower-ui` 0.2.1 在 composer dock 显示
+  `Tower · on` chip（历史推导、刷新后仍在），tooltip 包含 `/tower off`、仓库 basename、
+  workspace lock 状态与最后变更者；不再只有一次性命令输出。
+- **模式感知的 disabled 工具行（#12）**：Tower 模式激活时动态注册 denyTools 的 toolview
+  （含 `update_goal` resume），把 guard 拒绝渲染为独立的 `Tower mode · disabled` 行；模式关闭后
+  销毁注册，原生 toolview 恢复。所有 `mode.denyTools`（可见时）与默认 12 项均覆盖。
+
+### 变更
+
+- **文档变更补记**：2.0.1 已随包发布中英文
+  [应用场景与设计哲学指南](docs/guide/scenarios-and-philosophy.md)
+  （[中文](docs/zh/guide/scenarios-and-philosophy.md)），并在 README、文档索引与 FAQ 增加入口；
+  本条补记避免发布日志遗漏纯文档变更。UI bundle 版本升至 0.2.1（private，不单独发布）。
+
+### 修复
+
+- **#11 Web UI 缺少 Tower 模式/workspace lock 的持久指示**：dock chip 从会话历史推导模式，
+  `/tower on|off`、`tower_control`、`tower_mode` 更新后重新渲染；无模式事件时回退到静态提示。
+- **#12 Tower 模式拒绝的工具显示为普通失败**：对 `tower mode:` 拒绝使用 warn/neutral 样式与
+  `Tower mode · disabled` 标签，保留可操作消息与 `/tower off` 提示；普通错误样式不变。
+
 ## 2.0.1（2026-10-18）
 
 ### 新增
 
 - **`tower_batch` 的 `abandon` 动作**：可带 `reason` 退掉过期的 open batch，不修改 mission 状态；
   用于"先 merge 后 close"或证据窗口已过的场景。
+- **应用场景与设计哲学文档**：新增中英文
+  [`docs/guide/scenarios-and-philosophy.md`](docs/guide/scenarios-and-philosophy.md) /
+  [`docs/zh/guide/scenarios-and-philosophy.md`](docs/zh/guide/scenarios-and-philosophy.md)，覆盖 Tower
+  设计哲学、适用/不适用场景、与 Agent Teams / Ralph 循环 / Workflow 编排 / 普通并行子代理的对比表、
+  5 个落地场景、选择路径、成本/反模式与检查清单；根 README、文档索引和 FAQ 增加入口与摘要。
 
 ### 修复
 

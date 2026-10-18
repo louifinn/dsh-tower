@@ -179,7 +179,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 | `docs/` | guides, reference, architecture, operations, FAQ and examples |
 | `locale/`, `icon.svg` | localization and icon |
 | `tests/` | pure-function, protocol end-to-end, and plugin-level tests; optional isolated Web-runtime scripts |
-| `ui-bundle/` | optional Client widget (static `/tower` hint), not installed by default |
+| `ui-bundle/` | optional Client widget (Tower tool cards, persistent Tower-mode chip, mode-aware denied rows, dock summary, transient overlay strip), not installed by default |
 | `.github/workflows/test.yml` | CI running the offline suite on Node 22/24 |
 
 ## Development and testing

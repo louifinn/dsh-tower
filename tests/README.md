@@ -93,7 +93,7 @@ node tests/live/model.cjs
 `npm run dev:hmr` enables the DSH HMR service for this repository in the selected profile (idempotent; supports `--dry-run` and `--remove`; needs one restart). See `docs/guide/hot-reload.md` for the profile patch details.
 
 - `node tests/live/hmr.cjs` — opt-in live acceptance for `/tower reload` and the `tower_reload` tool. It drives only `DSH_TEST_URL`; Playwright or `DSH_TEST_URL` missing prints SKIP and exits 0. Set `DSH_TEST_HMR_ROOT` to a scratch copy under `%TEMP%` when you want the script to touch a watched file.
-- `node tests/live/ui-slots.cjs` — read-only check for the optional `ui-bundle/` hint in the same isolated server; `DSH_TEST_EXPECT_HINT=1` makes a missing hint a failure.
+- `node tests/live/ui-slots.cjs` — read-only check for the optional `ui-bundle/`: it binds a session with a bare `/tower`, then verifies the state-aware dock chip, tool cards and `window.__TOWER_UI_DIAG__` registrations. `DSH_TEST_EXPECT_HINT=1` makes a missing dock entry a failure; `DSH_TEST_EXPECT_MODE=1` also requires the `Tower · on` chip.
 
 Neither live script touches the desktop profile or the live `$DSH_HOME` session state.
 

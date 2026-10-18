@@ -1,21 +1,33 @@
-// dsh-tower-ui 0.2.0 — optional Web Client surfaces for the Tower plugin.
+// dsh-tower-ui 0.2.1 — optional Web Client surfaces for the Tower plugin.
 //
-// Four registrations, all plain React (no iframe, no DOM writes, no Host RPC,
-// no Harness Client package imports):
+// Registrations, all plain React (no iframe, no DOM writes, no Host RPC, no
+// Harness Client package imports):
 //   1. `tool.call.toolview`  keyed cards for the twelve Tower tools.
-//   2. `conversation.composer.dock` — static `/tower` hint when the current
-//      conversation has no Tower tool result, otherwise a compact latest-status
-//      summary derived from the `useChat` standard prop (legacy chat slice).
+//   2. `conversation.composer.dock` — a history-derived Tower-mode chip while
+//      the displayed session is in Tower mode; otherwise the static `/tower`
+//      hint when the conversation has no Tower result, or a compact
+//      latest-status summary derived from the `useChat` standard prop.
 //   3. `shell.overlay` — a transient, non-blocking status strip for Tower tool
 //      start/result. The overlay slot is root-scoped, so it cannot read chat
 //      state itself; the chat-driven keyed toolview components publish the
 //      transition into a module-local observable that the overlay injects.
-//   4. locale dictionaries for the `tower-ui` namespace (en/zh).
+//   4. Dynamic `tool.call.toolview` entries for the tools Tower mode denies:
+//      registered at a lower priority than the native views while the
+//      displayed session is in Tower mode, disposed when it leaves the mode so
+//      the native toolviews return. Denial results render as a distinct
+//      `Tower mode · disabled` row instead of a generic tool error.
+//   5. locale dictionaries for the `tower-ui` namespace (en/zh).
+//
+// Tower mode has no Client RPC. The dock derives it from the durable session
+// history projected into the `useChat` legacy slice: the `/tower on|off`
+// command node and the `tower_mode` / `tower_control` result blocks. A page
+// refresh therefore re-derives the same stance from the loaded history window;
+// history older than the loaded window yields the unknown/off fallback.
 //
 // The bundle is a plain-JS artifact loaded by `window.__ModuleLoader__`; React
 // comes from the browser module table. Theme references are restricted to
 // `--dsw-alias-*` tokens. `window.__TOWER_UI_DIAG__` is a read-only diagnostic
-// object used by tests/live/ui-slots.cjs (it is not DOM and changes nothing).
+// object used by tests (it is not DOM and changes nothing).
 window.__ModuleLoader__.load({
   id: 'dsh-tower-ui',
   factory(require) {
@@ -23,10 +35,14 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const NS = 'tower-ui'
-    const VERSION = '0.2.0'
+    const VERSION = '0.2.1'
     const DIAG_KEY = '__TOWER_UI_DIAG__'
     const NOTICE_MS = 4500
     const MAX_TEXT = 150
+    // Native toolviews register at priority 0; the slot core renders the
+    // lowest priority, so a negative priority shadows them only while this
+    // registration is alive.
+    const DENIED_PRIORITY = -10
 
     const TOOL_NAMES = [
       'tower_status',
@@ -43,6 +59,22 @@ window.__ModuleLoader__.load({
       'tower_batch',
     ]
     const TOOL_SET = new Set(TOOL_NAMES)
+    // Mirrors lib/config.js DEFAULT_DENY_TOOLS; overridden by the
+    // `deniedWhileActive` list of the latest `tower_mode` output when present.
+    const DEFAULT_DENIED_TOOLS = [
+      'create_goal',
+      'todo_write',
+      'team_task_create',
+      'team_task_update',
+      'team_task_reopen',
+      'team_task_list',
+      'spawn_teammate',
+      'wait_agent',
+      'workflow',
+      'ralph',
+      'subagent',
+      'subagent_fork',
+    ]
     const TOOL_LABEL_KEYS = {
       tower_status: 'tool.status',
       tower_roster: 'tool.roster',
@@ -140,6 +172,17 @@ window.__ModuleLoader__.load({
       'dock.batch': 'batch {status}',
       'dock.doctor': 'doctor {status}',
       'dock.generic': 'done',
+      'dock.mode.onLabel': 'on',
+      'dock.mode.tooltip': 'Tower mode is on for this session. Run /tower off in the composer to leave Tower mode.',
+      'dock.mode.repo': 'repo {repo}',
+      'dock.mode.lockHeld': 'workspace lock held',
+      'dock.mode.lockFree': 'workspace lock free',
+      'dock.mode.lastBy': 'last change by {by}',
+      'deny.label': 'Tower mode · disabled',
+      'deny.hint': 'Run /tower off in the composer to use this tool again.',
+      'deny.running': 'Tower mode blocks this tool while it is active',
+      'deny.generic': '{tool} (Tower mode active)',
+      'deny.error': 'Tool error while Tower mode is active',
       'strip.started': 'Tower · {tool} started',
       'strip.finished': 'Tower · {tool} finished',
       'strip.failed': 'Tower · {tool} failed',
@@ -222,6 +265,17 @@ window.__ModuleLoader__.load({
       'dock.batch': '批量 {status}',
       'dock.doctor': '体检 {status}',
       'dock.generic': '已完成',
+      'dock.mode.onLabel': '已开启',
+      'dock.mode.tooltip': '此会话已开启 Tower 模式。在输入框中执行 /tower off 可退出。',
+      'dock.mode.repo': '仓库 {repo}',
+      'dock.mode.lockHeld': '工作区锁已持有',
+      'dock.mode.lockFree': '工作区锁空闲',
+      'dock.mode.lastBy': '最近变更者 {by}',
+      'deny.label': 'Tower 模式 · 已禁用',
+      'deny.hint': '在输入框中执行 /tower off 后即可重新使用该工具。',
+      'deny.running': 'Tower 模式启用期间该工具被禁用',
+      'deny.generic': '{tool}（Tower 模式启用中）',
+      'deny.error': 'Tower 模式启用期间的工具错误',
       'strip.started': 'Tower · {tool} 开始',
       'strip.finished': 'Tower · {tool} 完成',
       'strip.failed': 'Tower · {tool} 失败',
@@ -237,6 +291,8 @@ window.__ModuleLoader__.load({
       applied: false,
       slots: [],
       toolviews: [],
+      denied: { active: false, keys: [] },
+      mode: { known: false, on: null, denied: null },
       errors: [],
     }
     if (typeof window !== 'undefined') window[DIAG_KEY] = diagnostics
@@ -374,6 +430,40 @@ window.__ModuleLoader__.load({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
       },
+      modeChip: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '0 8px',
+        border: '0.5px solid var(--dsw-alias-border-l2)',
+        borderRadius: '999px',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-secondary)',
+        fontSize: '11px',
+        lineHeight: '18px',
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+      },
+      modeChipLabel: { color: 'var(--dsw-alias-label-primary)' },
+      modeChipOn: { color: 'var(--dsw-alias-state-success-primary)' },
+      denyCard: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        minWidth: 0,
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        margin: '2px 0 2px 4px',
+        padding: '8px 10px',
+        border: '0.5px solid var(--dsw-alias-border-l2)',
+        borderRadius: '8px',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-secondary)',
+        fontSize: '12px',
+        lineHeight: '18px',
+      },
+      denyLabel: { color: 'var(--dsw-alias-state-warn-primary)', flex: 'none' },
+      denyHint: { color: 'var(--dsw-alias-label-tertiary)' },
     }
     function dotStyle(tone) {
       return {
@@ -1006,10 +1096,333 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
-    // Composer dock: static `/tower` hint until this conversation has a Tower
-    // tool result or a running Tower call; then a compact latest summary.
-    // Derived only from the `useChat` session-standard selector hook.
+    // Dynamic denied-tool rows (#12). These entries exist only while the
+    // displayed session is in Tower mode, registered at DENIED_PRIORITY so the
+    // native toolviews (priority 0) return the moment the mode turns off. A
+    // real guard denial renders the distinct `Tower mode · disabled` row;
+    // anything else landing in these slots while the mode is on gets a
+    // defensive generic row instead of the native view.
     // ---------------------------------------------------------------------
+    function denialMessageOf(block) {
+      if (!isPlainObject(block)) return null
+      const candidates = []
+      if (isPlainObject(block.error) && typeof block.error.message === 'string') candidates.push(block.error.message)
+      const text = textOfBlock(block)
+      if (text !== '') candidates.push(text)
+      if (typeof block.text === 'string') candidates.push(block.text)
+      for (const raw of candidates) {
+        const message = normalizeDenialText(raw)
+        if (message !== null) return message
+      }
+      return null
+    }
+    function normalizeDenialText(raw) {
+      let value = String(raw === undefined || raw === null ? '' : raw).trim()
+      if (value === '') return null
+      if (value[0] === '{') {
+        try {
+          const parsed = JSON.parse(value)
+          if (isPlainObject(parsed) && typeof parsed.message === 'string') value = parsed.message.trim()
+        } catch (error) {
+          /* keep the raw text */
+        }
+      }
+      value = value.replace(/^Error:\s*/i, '')
+      const lower = value.toLowerCase()
+      if (!lower.includes('tower mode')) return null
+      const specific =
+        lower.includes('is disabled while tower mode is active') ||
+        lower.includes('goals cannot be resumed while tower mode is active')
+      if (!specific && !lower.includes('/tower off')) return null
+      return truncate(value, 400)
+    }
+    function deniedNames(configured) {
+      const source = Array.isArray(configured) && configured.length > 0 ? configured : DEFAULT_DENIED_TOOLS
+      const names = []
+      for (const entry of source) {
+        if (typeof entry !== 'string') continue
+        const name = entry.trim()
+        if (name === '' || names.includes(name)) continue
+        names.push(name)
+      }
+      // update_goal is denied only for action:"resume", but the guard special
+      // case exists regardless of the configured denyTools list.
+      if (!names.includes('update_goal')) names.push('update_goal')
+      return names
+    }
+    function DeniedToolRow(props) {
+      const t = seatT(props)
+      const toolName = props && typeof props.toolName === 'string' ? props.toolName : ''
+      const phase = props && typeof props.phase === 'string' ? props.phase : 'start'
+      if (phase !== 'result') {
+        return h(
+          'div',
+          { 'data-tower-toolview': toolName, 'data-tower-denied-view': 'running', style: ST.denyCard },
+          h(
+            'div',
+            { style: ST.header },
+            h('span', { 'aria-hidden': true, style: dotStyle('idle') }),
+            h('span', { style: ST.denyLabel }, translate(t, 'deny.label')),
+            h('span', { style: ST.dim }, '·'),
+            h('span', { style: ST.title }, toolName),
+            h('span', { style: ST.dim }, translate(t, 'deny.running')),
+          ),
+        )
+      }
+      const denial = denialMessageOf(props ? props.block : undefined)
+      if (denial !== null) {
+        return h(
+          'div',
+          {
+            'data-tower-toolview': toolName,
+            'data-tower-denied-view': 'denied',
+            role: 'note',
+            style: ST.denyCard,
+            title: denial,
+          },
+          h(
+            'div',
+            { style: ST.header },
+            h('span', { 'aria-hidden': true, style: dotStyle('warn') }),
+            h('span', { style: ST.denyLabel }, translate(t, 'deny.label')),
+            h('span', { style: ST.dim }, '·'),
+            h('span', { style: ST.title }, toolName),
+          ),
+          h('div', { style: ST.row }, denial),
+          h('div', { style: ST.denyHint }, translate(t, 'deny.hint')),
+        )
+      }
+      // Defensive fallback: the slot is ours only while Tower mode is on, so a
+      // non-denial result here has no native view to delegate to.
+      const payload = parsePayload(props ? props.block : undefined)
+      const error =
+        isPlainObject(props) && isPlainObject(props.block) && isPlainObject(props.block.error) ? props.block.error : null
+      let text = translate(t, 'deny.generic', { tool: toolName })
+      let tone = 'ok'
+      if (isPlainObject(payload) && payload.__error === true) {
+        tone = 'error'
+        const reason =
+          error !== null && typeof error.message === 'string'
+            ? error.message
+            : error !== null && typeof error.code === 'string'
+              ? error.code
+              : 'error'
+        text = translate(t, 'deny.error') + ': ' + firstLine(reason)
+      } else if (isPlainObject(payload) && typeof payload.text === 'string' && payload.text.trim() !== '') {
+        text = translate(t, 'deny.generic', { tool: toolName }) + translate(t, 'card.sep') + firstLine(payload.text)
+      }
+      return h(
+        'div',
+        { 'data-tower-toolview': toolName, 'data-tower-denied-view': 'generic', style: ST.denyCard },
+        h(
+          'div',
+          { style: ST.header },
+          h('span', { 'aria-hidden': true, style: dotStyle(tone) }),
+          h('span', { style: ST.title }, translate(t, 'card.title')),
+          h('span', { style: ST.dim }, '·'),
+          h('span', { style: ST.title }, toolName),
+          h('span', { style: tone === 'error' ? ST.rowError : ST.dim }, truncate(text, 120)),
+        ),
+      )
+    }
+
+    // ---------------------------------------------------------------------
+    // Composer dock: a history-derived Tower-mode chip while the displayed
+    // session is in Tower mode; otherwise the static `/tower` hint until this
+    // conversation has a Tower tool result or a running Tower call, then a
+    // compact latest summary. Everything is derived only from the `useChat`
+    // session-standard selector hook (the durable Chat legacy projection).
+    // ---------------------------------------------------------------------
+    function towerCommandAction(args) {
+      const raw = String(args === undefined || args === null ? '' : args).trim()
+      if (/^reload$/i.test(raw)) return null
+      if (/^base\s+\S+\s*$/i.test(raw)) return null
+      const match = /^(on|off)(?:\s+[\s\S]*)?$/i.exec(raw)
+      if (match) return match[1].toLowerCase()
+      // Bare `/tower` and `/tower <message>` both mean "ensure on".
+      return 'on'
+    }
+    function repoNameOf(value) {
+      if (typeof value !== 'string' || value === '') return null
+      let cleaned = value.replace(/[\\/]+$/, '')
+      if (/[\\/]\.git$/i.test(cleaned)) cleaned = cleaned.replace(/[\\/]\.git$/i, '')
+      const index = Math.max(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\'))
+      const name = index >= 0 ? cleaned.slice(index + 1) : cleaned
+      return name === '' ? null : name
+    }
+    // Fold the durable history the dock can see into one Tower-mode model. The
+    // last recognized event wins; `/tower reload|base` and failed commands do
+    // not change the stance. This is a loaded-history-window inference, not a
+    // Host read: entries older than the window yield `known: false`.
+    function modeModelFromLegacy(legacy) {
+      const model = {
+        known: false,
+        on: null,
+        denied: null,
+        repo: null,
+        lock: null,
+        lastBy: null,
+        lastReason: null,
+        source: null,
+      }
+      const nodes = isPlainObject(legacy) && Array.isArray(legacy.nodes) ? legacy.nodes : []
+      for (const node of nodes) {
+        if (!isPlainObject(node)) continue
+        if (node.kind === 'command') {
+          if (node.name !== 'tower') continue
+          const outcome = isPlainObject(node.outcome) ? node.outcome : null
+          if (outcome !== null && outcome.kind === 'error') continue
+          const action = towerCommandAction(node.args)
+          if (action === null) continue
+          model.known = true
+          model.on = action === 'on'
+          model.source = 'command'
+          model.lastBy = 'user'
+          model.lastReason = null
+          continue
+        }
+        const toolName = isPlainObject(node.call) ? node.call.name : null
+        if (toolName === 'tower_mode') {
+          const payload = parsePayload(node)
+          if (!isPlainObject(payload) || payload.__error === true) continue
+          if (payload.mode === 'on' || payload.mode === 'off') {
+            model.known = true
+            model.on = payload.mode === 'on'
+            model.source = 'tower_mode'
+          }
+          if (Array.isArray(payload.deniedWhileActive)) {
+            const names = []
+            for (const entry of payload.deniedWhileActive) {
+              if (typeof entry !== 'string') continue
+              const name = entry.trim()
+              if (name !== '' && !names.includes(name)) names.push(name)
+            }
+            if (names.length > 0) model.denied = names
+          }
+          const workspace = isPlainObject(payload.workspaceLock) ? payload.workspaceLock : null
+          if (workspace !== null) {
+            model.lock = { enabled: workspace.enabled === true, held: workspace.held === true }
+            const name = repoNameOf(workspace.commonDir)
+            if (name !== null) model.repo = name
+          }
+          if (isPlainObject(payload.lastChange)) {
+            if (typeof payload.lastChange.by === 'string') model.lastBy = payload.lastChange.by
+            if (typeof payload.lastChange.reason === 'string' && payload.lastChange.reason.trim() !== '') {
+              model.lastReason = payload.lastChange.reason.trim()
+            }
+          }
+          continue
+        }
+        if (toolName === 'tower_control') {
+          const payload = parsePayload(node)
+          if (!isPlainObject(payload) || payload.__error === true || payload.ok === false) continue
+          const mode =
+            payload.mode === 'on' || payload.mode === 'off'
+              ? payload.mode
+              : payload.action === 'enter'
+                ? 'on'
+                : payload.action === 'exit'
+                  ? 'off'
+                  : null
+          if (mode === null) continue
+          model.known = true
+          model.on = mode === 'on'
+          model.source = 'tower_control'
+          if (typeof payload.changedBy === 'string') model.lastBy = payload.changedBy
+          if (typeof payload.reason === 'string' && payload.reason.trim() !== '') model.lastReason = payload.reason.trim()
+          continue
+        }
+        if (toolName === 'tower_status') {
+          const payload = parsePayload(node)
+          if (isPlainObject(payload)) {
+            const name = repoNameOf(payload.repoRoot)
+            if (name !== null) model.repo = name
+          }
+        }
+      }
+      return model
+    }
+    const EMPTY_MODE = {
+      writer: null,
+      known: false,
+      on: null,
+      denied: null,
+      repo: null,
+      lock: null,
+      lastBy: null,
+      lastReason: null,
+      source: null,
+    }
+    // Module-local mode observable. The dock (session scope) publishes the
+    // stance it derived from history; the plugin uses it only to add/remove
+    // the dynamic denied-tool toolviews. It never holds or fetches Host state.
+    let modeValue = Object.assign({}, EMPTY_MODE)
+    const modeListeners = new Set()
+    let modeWriterSeq = 0
+    function nextDockWriter() {
+      modeWriterSeq += 1
+      return 'dock-' + modeWriterSeq
+    }
+    function modeSnapshot() {
+      return modeValue
+    }
+    function subscribeMode(listener) {
+      modeListeners.add(listener)
+      return function () {
+        modeListeners.delete(listener)
+      }
+    }
+    function sameMode(left, right) {
+      return (
+        left.known === right.known &&
+        left.on === right.on &&
+        JSON.stringify(left.denied) === JSON.stringify(right.denied) &&
+        left.repo === right.repo &&
+        JSON.stringify(left.lock) === JSON.stringify(right.lock) &&
+        left.lastBy === right.lastBy &&
+        left.source === right.source
+      )
+    }
+    function notifyMode() {
+      for (const listener of Array.from(modeListeners)) {
+        try {
+          listener()
+        } catch (error) {
+          /* a broken registration reconciler must not break the dock */
+        }
+      }
+    }
+    function publishMode(writer, next) {
+      const value = {
+        writer,
+        known: next.known === true,
+        on: next.known === true && next.on === true,
+        denied: Array.isArray(next.denied) ? next.denied.slice() : null,
+        repo: typeof next.repo === 'string' && next.repo !== '' ? next.repo : null,
+        lock: isPlainObject(next.lock) ? { enabled: next.lock.enabled === true, held: next.lock.held === true } : null,
+        lastBy: typeof next.lastBy === 'string' && next.lastBy !== '' ? next.lastBy : null,
+        lastReason: typeof next.lastReason === 'string' && next.lastReason !== '' ? next.lastReason : null,
+        source: typeof next.source === 'string' ? next.source : null,
+      }
+      diagnostics.mode = { known: value.known, on: value.on, denied: value.denied }
+      if (sameMode(value, modeValue)) {
+        modeValue = value
+        return
+      }
+      modeValue = value
+      notifyMode()
+    }
+    function clearMode(writer) {
+      if (modeValue.writer !== writer) return
+      const empty = Object.assign({}, EMPTY_MODE, { writer })
+      if (sameMode(empty, modeValue)) {
+        modeValue = empty
+        return
+      }
+      modeValue = empty
+      diagnostics.mode = { known: false, on: null, denied: null }
+      notifyMode()
+    }
     function renderDockHint(t) {
       return h(
         'div',
@@ -1152,15 +1565,53 @@ window.__ModuleLoader__.load({
     }
     function dockSelector(snapshot) {
       try {
-        const signal = latestTowerSignal(snapshot ? snapshot.legacy : undefined)
-        if (signal === null) return ''
-        if (signal.phase !== 'result') {
-          return JSON.stringify({ tool: signal.name, running: true, tone: 'idle' })
+        const legacy = snapshot ? snapshot.legacy : undefined
+        const mode = modeModelFromLegacy(legacy)
+        let summary = null
+        // While Tower mode is on the chip is the dock's message; the latest
+        // tool summary stays available again after /tower off.
+        if (!(mode.known === true && mode.on === true)) {
+          const signal = latestTowerSignal(legacy)
+          if (signal !== null) {
+            summary =
+              signal.phase !== 'result'
+                ? { tool: signal.name, running: true, tone: 'idle' }
+                : dockResultModel(signal.name, parsePayload(signal.block))
+          }
         }
-        return JSON.stringify(dockResultModel(signal.name, parsePayload(signal.block)))
+        return JSON.stringify({ mode, summary })
       } catch (error) {
         return ''
       }
+    }
+    function modeTooltip(t, mode) {
+      const parts = [translate(t, 'dock.mode.tooltip')]
+      if (typeof mode.repo === 'string' && mode.repo !== '') parts.push(translate(t, 'dock.mode.repo', { repo: mode.repo }))
+      if (isPlainObject(mode.lock)) {
+        parts.push(translate(t, mode.lock.held === true ? 'dock.mode.lockHeld' : 'dock.mode.lockFree'))
+      }
+      if (typeof mode.lastBy === 'string' && mode.lastBy !== '') parts.push(translate(t, 'dock.mode.lastBy', { by: mode.lastBy }))
+      return parts.join(translate(t, 'card.sep'))
+    }
+    function renderModeChip(t, mode) {
+      // Non-interactive on purpose: the existing inputActions.submit() submits
+      // the composer draft, so a programmatic /tower off would clobber what the
+      // user is typing. The tooltip is the actionable affordance instead.
+      return h(
+        'div',
+        {
+          'data-tower-ui': 'dock-mode',
+          'data-tower-mode': mode.on === true ? 'on' : 'off',
+          role: 'status',
+          'aria-live': 'polite',
+          title: modeTooltip(t, mode),
+          style: ST.modeChip,
+        },
+        h('span', { 'aria-hidden': true, style: dotStyle('ok') }),
+        h('span', { style: ST.modeChipLabel }, translate(t, 'card.title')),
+        h('span', { style: ST.dim }, '·'),
+        h('span', { style: ST.modeChipOn }, translate(t, 'dock.mode.onLabel')),
+      )
     }
     function TowerDock(props) {
       const t = seatT(props)
@@ -1170,25 +1621,43 @@ window.__ModuleLoader__.load({
     function TowerDockLive(props) {
       const t = seatT(props)
       const raw = props.useChat(dockSelector)
-      if (typeof raw !== 'string' || raw === '') return renderDockHint(t)
       let model = null
-      try {
-        model = JSON.parse(raw)
-      } catch (error) {
-        model = null
+      if (typeof raw === 'string' && raw !== '') {
+        try {
+          model = JSON.parse(raw)
+        } catch (error) {
+          model = null
+        }
       }
-      if (!isPlainObject(model)) return renderDockHint(t)
-      const text = model.running === true
-        ? translate(t, 'dock.running', { tool: toolLabel(t, model.tool) })
-        : model.key
-          ? translate(t, model.key, model.params)
+      const mode = isPlainObject(model) && isPlainObject(model.mode) ? model.mode : { known: false, on: null }
+      const writerState = React.useState(function () {
+        return nextDockWriter()
+      })
+      const writer = writerState[0]
+      const modeKey = JSON.stringify(mode)
+      React.useEffect(
+        function () {
+          publishMode(writer, mode)
+          return function () {
+            clearMode(writer)
+          }
+        },
+        [modeKey],
+      )
+      if (mode.known === true && mode.on === true) return renderModeChip(t, mode)
+      const summary = isPlainObject(model) ? model.summary : null
+      if (!isPlainObject(summary)) return renderDockHint(t)
+      const text = summary.running === true
+        ? translate(t, 'dock.running', { tool: toolLabel(t, summary.tool) })
+        : summary.key
+          ? translate(t, summary.key, summary.params)
           : translate(t, 'dock.generic')
-      const tone = model.running === true ? 'idle' : model.tone
+      const tone = summary.running === true ? 'idle' : summary.tone
       return h(
         'div',
-        { 'data-tower-ui': 'dock', style: ST.dock, title: toolLabel(t, model.tool) + translate(t, 'card.sep') + text },
+        { 'data-tower-ui': 'dock', style: ST.dock, title: toolLabel(t, summary.tool) + translate(t, 'card.sep') + text },
         h('span', { 'aria-hidden': true, style: dotStyle(tone) }),
-        h('span', { style: ST.dockTool }, toolLabel(t, model.tool)),
+        h('span', { style: ST.dockTool }, toolLabel(t, summary.tool)),
         h('span', { style: ST.dim }, '·'),
         h('span', { style: ST.dockText }, text),
       )
@@ -1349,6 +1818,84 @@ window.__ModuleLoader__.load({
               )
               recordSlot('shell.overlay', { id: 'tower-status-strip', order: 20 })
               return dispose
+            }),
+          )
+        })
+
+        // 4. Mode-aware denied-tool rows (#12). The dock publishes the Tower
+        //    stance it derives from the displayed session's history; while it
+        //    is on, shadow the denied tools' native keyed views at a lower
+        //    priority (the slot core renders the lowest priority). Disposing
+        //    these entries restores the native views exactly when mode is off.
+        guard('denied-toolviews', function () {
+          return ctx.slots.inject(
+            'tool.call.toolview',
+            guardedCallback('denied-toolviews', function () {
+              const disposers = new Map()
+              let currentKey = null
+              const reconcile = function () {
+                const mode = modeSnapshot()
+                const active = mode.known === true && mode.on === true
+                const names = active ? deniedNames(mode.denied) : []
+                const nextKey = names.join('\n')
+                if (nextKey === currentKey) return
+                currentKey = nextKey
+                for (const name of Array.from(disposers.keys())) {
+                  if (names.includes(name)) continue
+                  const dispose = disposers.get(name)
+                  disposers.delete(name)
+                  try {
+                    if (typeof dispose === 'function') dispose()
+                  } catch (error) {
+                    diagnostics.errors.push({
+                      where: 'denied-toolview-dispose:' + name,
+                      message: String(error && error.message ? error.message : error),
+                    })
+                  }
+                }
+                for (const name of names) {
+                  if (disposers.has(name)) continue
+                  try {
+                    disposers.set(
+                      name,
+                      ctx.slots.register(
+                        {
+                          name: 'tool.call.toolview',
+                          key: name,
+                          priority: DENIED_PRIORITY,
+                          locale: NS,
+                        },
+                        DeniedToolRow,
+                      ),
+                    )
+                  } catch (error) {
+                    diagnostics.errors.push({
+                      where: 'denied-toolview:' + name,
+                      message: String(error && error.message ? error.message : error),
+                    })
+                  }
+                }
+                diagnostics.denied = { active, keys: names.slice() }
+                recordSlot('tool.call.toolview', { denied: names.slice(), priority: DENIED_PRIORITY })
+              }
+              const unsubscribe = subscribeMode(reconcile)
+              reconcile()
+              return function () {
+                try {
+                  unsubscribe()
+                } catch (error) {
+                  /* already disposed */
+                }
+                for (const dispose of Array.from(disposers.values())) {
+                  try {
+                    if (typeof dispose === 'function') dispose()
+                  } catch (error) {
+                    /* registration already gone */
+                  }
+                }
+                disposers.clear()
+                currentKey = null
+              }
             }),
           )
         })

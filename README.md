@@ -177,7 +177,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | `index.js`、`lib/`、`worker.js` | Host 入口、协议实现、worker preset 策略 |
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
-| `ui-bundle/` | 可选 Client 小挂件（静态 `/tower` 提示），默认不安装 |
+| `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
 | `.github/workflows/test.yml` | CI：Node 22/24 上跑离线套件 |
 
 ## 开发与测试

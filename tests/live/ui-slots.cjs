@@ -14,13 +14,23 @@
 //   DSH_TEST_CHROME     force a browser executable (Playwright browser by default)
 //   DSH_TEST_EXPECT_HINT=1
 //                       require the bundle to be installed: fail when the
-//                       `/tower` hint or the `window.__TOWER_UI_DIAG__`
-//                       registration report is missing. Without it the script
-//                       still passes on an empty dock (bundle not installed).
+//                       bundle's dock entry (static hint, latest summary, or
+//                       the Tower-mode chip) or the
+//                       `window.__TOWER_UI_DIAG__` registration report is
+//                       missing. Without it the script still passes on an
+//                       empty dock (bundle not installed).
+//   DSH_TEST_EXPECT_MODE=1
+//                       fail when the session-bound `/tower` bind step did not
+//                       produce the history-derived `Tower · on` dock chip
+//                       (#11). Otherwise a missing chip is only a warning,
+//                       because the bind step is best-effort across DSH UIs.
 //
 // When the bundle is installed, the client module exposes a read-only
 // diagnostic object (window.__TOWER_UI_DIAG__) naming every slot registration
 // it applied; this script asserts the toolview keys, dock id and overlay id.
+// The script binds a fresh session with a bare `/tower` host command when one
+// is available; once bound and the bundle is installed, the history-derived
+// Tower-mode chip (`Tower · on`, #11) must be rendered in the dock.
 //
 // The script prints SKIP and exits 0 when DSH_TEST_URL or Playwright is
 // missing, so it is safe to run in the offline CI checkout.
@@ -35,6 +45,7 @@ const OUT = __dirname
 const LOG = path.join(OUT, 'ui-slots.log')
 const URL = process.env.DSH_TEST_URL
 const EXPECT_HINT = process.env.DSH_TEST_EXPECT_HINT === '1'
+const EXPECT_MODE = process.env.DSH_TEST_EXPECT_MODE === '1'
 
 // Keys ui-bundle/client.js must have registered with the Chat tool-call tree.
 const EXPECTED_TOOLVIEWS = [
@@ -141,6 +152,9 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
   // session-scoped dock outlet stays hidden until a session-bound conversation
   // exists. Bind one with a host-handled command (no model turn) before probing
   // the dock; the bundle's own registration report does not depend on this.
+  // The bare `/tower` command also turns Tower mode on (host semantics), which
+  // is the live signal for the history-derived `Tower · on` chip (#11).
+  let sessionBound = false
   try {
     const composer = page.locator('div[role="textbox"][contenteditable="true"]').first()
     await composer.waitFor({ state: 'visible', timeout: 10000 })
@@ -158,6 +172,7 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
         return rect.width > 0 && rect.height > 0
       })
     }, { timeout: 8000 })
+    sessionBound = true
     log('session-bound-by-command')
     await page.screenshot({ path: path.join(OUT, 'ui-slots-bound.png') })
     log('screenshot:ui-slots-bound.png')
@@ -199,6 +214,9 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
       diag,
       dockHints: document.querySelectorAll('[data-tower-ui="dock-hint"]').length,
       dockSummaries: document.querySelectorAll('[data-tower-ui="dock"]').length,
+      dockModes: document.querySelectorAll('[data-tower-ui="dock-mode"]').length,
+      dockModesOn: document.querySelectorAll('[data-tower-ui="dock-mode"][data-tower-mode="on"]').length,
+      deniedRows: document.querySelectorAll('[data-tower-denied-view]').length,
       statusStrips: document.querySelectorAll('[data-tower-ui="status-strip"]').length,
       toolviewCards: document.querySelectorAll('[data-tower-toolview]').length,
     }
@@ -229,7 +247,8 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
   if (consoleErrors.length > 0) failures.push(`${consoleErrors.length} console error(s)`)
   if (dock.count === 0) failures.push('no [data-composer-dock] outlet in the page')
   if (dock.count > 0 && EXPECT_HINT && dock.visible === 0) failures.push('composer dock outlet is not visible')
-  if (EXPECT_HINT && !hintRendered) failures.push('/tower hint not rendered (DSH_TEST_EXPECT_HINT=1)')
+
+  const dockEntryRendered = ui.dockHints + ui.dockSummaries + ui.dockModes > 0
 
   // Full registration assertions only when the bundle actually loaded.
   if (ui.diag === null) {
@@ -252,10 +271,24 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
         failures.push(`tower-ui missing ${required} registration`)
       }
     }
-    if (ui.dockHints + ui.dockSummaries === 0) failures.push('tower-ui dock entry did not render')
+    if (!dockEntryRendered) failures.push('tower-ui dock entry did not render')
+    if (ui.dockHints > 0) log('tower-ui:dock-hint-rendered')
     if (ui.dockSummaries > 0) log('tower-ui:dock-summary-rendered (conversation already has a Tower tool result)')
+    if (ui.dockModes > 0) log(`tower-ui:mode-chip-rendered modeOn=${ui.dockModesOn}`)
+    if (ui.deniedRows > 0) log(`tower-ui:denied-rows-rendered count=${ui.deniedRows}`)
     if (ui.statusStrips > 0) log('tower-ui:status-strip-rendered')
+    // The bind step runs a bare `/tower`, which turns the Host mode on; the
+    // bundle must then derive the stance from that durable command and show the
+    // chip instead of the static hint (#11).
+    if (sessionBound && ui.dockModesOn === 0) {
+      if (EXPECT_MODE) {
+        failures.push('Tower-mode chip not rendered after the /tower bind command (DSH_TEST_EXPECT_MODE=1, #11)')
+      } else {
+        console.warn('WARN ui-slots: Tower-mode chip not observed after the /tower bind step (set DSH_TEST_EXPECT_MODE=1 to require it)')
+      }
+    }
   }
+  if (EXPECT_HINT && !dockEntryRendered) failures.push('bundle dock entry not rendered (DSH_TEST_EXPECT_HINT=1)')
 
   if (failures.length > 0) {
     console.error(`FAIL ui-slots: ${failures.join('; ')}`)
@@ -263,7 +296,7 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
     return
   }
   if (ui.diag !== null) {
-    console.log('PASS ui-slots (dock present, tower-ui registrations verified, no page/console errors)')
+    console.log('PASS ui-slots (dock present, tower-ui registrations verified, mode chip checked, no page/console errors)')
     return
   }
   if (!hintRendered) {

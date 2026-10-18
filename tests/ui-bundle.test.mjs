@@ -118,8 +118,12 @@ function createFakeContext() {
         return () => {}
       },
       register(options, component) {
-        registrations.push({ owner: activeOwner, options, component })
-        return () => {}
+        const entry = { owner: activeOwner, options, component }
+        registrations.push(entry)
+        return () => {
+          const index = registrations.indexOf(entry)
+          if (index >= 0) registrations.splice(index, 1)
+        }
       },
     },
     get() {
@@ -230,10 +234,10 @@ test('client.js is a plain-JS __ModuleLoader__ module and syntax-checks', () => 
   assert.equal(typeof plugin.apply, 'function')
 })
 
-test('bundle manifest is private 0.2.0 and exports the client artifact', () => {
+test('bundle manifest is private 0.2.1 and exports the client artifact', () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'))
   assert.equal(pkg.name, 'dsh-tower-ui')
-  assert.equal(pkg.version, '0.2.0')
+  assert.equal(pkg.version, '0.2.1')
   assert.equal(pkg.private, true)
   assert.equal(pkg.exports['./client'], './client.js')
   assert.ok(pkg.files.includes('client.js'))
@@ -349,7 +353,7 @@ test('diagnostics record every registration and no guarded failure', () => {
   const diagnostics = window.__TOWER_UI_DIAG__
   assert.ok(diagnostics && typeof diagnostics === 'object')
   assert.equal(diagnostics.plugin, 'dsh-tower-ui')
-  assert.equal(diagnostics.version, '0.2.0')
+  assert.equal(diagnostics.version, '0.2.1')
   assert.equal(diagnostics.applied, true)
   assert.equal(diagnostics.errors.length, 0, JSON.stringify(diagnostics.errors))
   assert.deepEqual(diagnostics.toolviews.slice().sort(), TOOL_NAMES)
@@ -539,4 +543,247 @@ test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss
   // registered with ctx.effect; freeing effects must be safe and idempotent.
   assert.ok(effects.some((effect) => effect.label === 'tower-ui: status strip timer'))
   assert.doesNotThrow(() => freeTimer({ effects }))
+})
+
+// ---------------------------------------------------------------------------
+// 4. Tower-mode indicator (#11) and mode-aware denied rows (#12).
+// ---------------------------------------------------------------------------
+function chatSnapshot(nodes, runningCalls = []) {
+  return { legacy: { nodes, runningCalls } }
+}
+function chatUse(snapshot) {
+  return (selector) => selector(snapshot)
+}
+function commandNode(args, outcomeKind = 'success') {
+  return {
+    kind: 'command',
+    name: 'tower',
+    args,
+    outcome: { kind: outcomeKind, text: outcomeKind === 'error' ? 'error' : 'ok' },
+  }
+}
+function toolResultNode(name, payload) {
+  return {
+    kind: 'tool/result',
+    call: { name },
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+  }
+}
+function toolErrorNode(name, message) {
+  return {
+    kind: 'tool/result',
+    isError: true,
+    call: { name },
+    error: { message },
+    content: [{ type: 'text', text: 'Error: ' + message }],
+  }
+}
+function deniedRegistrations(registrations) {
+  return registrations.filter(
+    (entry) => entry.options.name === 'tool.call.toolview' && entry.options.priority === -10,
+  )
+}
+
+test('dock shows a persistent Tower-mode chip derived from durable command history', () => {
+  const nodes = [commandNode('on')]
+
+  const first = components()
+  const chip = render(first.react, first.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
+  assert.equal(chip.props['data-tower-ui'], 'dock-mode')
+  assert.equal(chip.props['data-tower-mode'], 'on')
+  assert.equal(chip.props.role, 'status')
+  assert.equal(chip.props['aria-live'], 'polite')
+  assert.equal(chip.tag, 'div')
+  assert.equal(chip.props.onClick, undefined)
+  assert.match(textOf(chip), /dock\.mode\.onLabel/)
+  assert.match(chip.props.title, /dock\.mode\.tooltip/)
+
+  // A page refresh re-derives the same stance from the same history.
+  const refreshed = components()
+  const again = render(refreshed.react, refreshed.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
+  assert.equal(again.props['data-tower-ui'], 'dock-mode')
+  assert.equal(again.props['data-tower-mode'], 'on')
+})
+
+test('dock mode inference follows /tower commands, tower_mode, and tower_control results', () => {
+  const cases = [
+    ['on command', [commandNode('on')], 'dock-mode'],
+    ['bare command means on', [commandNode('')], 'dock-mode'],
+    ['free text means on', [commandNode('plan the release')], 'dock-mode'],
+    ['off after on', [commandNode('on'), commandNode('off')], 'dock-hint'],
+    ['reload leaves stance', [commandNode('on'), commandNode('reload')], 'dock-mode'],
+    ['base leaves stance', [commandNode('on'), commandNode('base main')], 'dock-mode'],
+    ['failed mode command is ignored', [commandNode('on'), commandNode('off', 'error')], 'dock-mode'],
+    ['tower_mode off', [toolResultNode('tower_mode', { mode: 'off' })], 'dock-hint'],
+    ['tower_mode unknown is not on', [toolResultNode('tower_mode', { mode: 'unknown' })], 'dock-hint'],
+    ['tower_mode on', [toolResultNode('tower_mode', { mode: 'on' })], 'dock-mode'],
+    ['tower_control enter', [toolResultNode('tower_control', { ok: true, action: 'enter', mode: 'on', changedBy: 'agent' })], 'dock-mode'],
+    [
+      'tower_control exit',
+      [toolResultNode('tower_control', { ok: true, action: 'enter', mode: 'on' }), toolResultNode('tower_control', { ok: true, action: 'exit', mode: 'off' })],
+      'dock-hint',
+    ],
+    ['failed tower_control is ignored', [commandNode('on'), toolResultNode('tower_control', { ok: false, error: 'nope' })], 'dock-mode'],
+  ]
+  for (const [name, nodes, expected] of cases) {
+    const bundle = components()
+    const element = render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
+    assert.equal(element.props['data-tower-ui'], expected, name)
+  }
+})
+
+test('Tower mode dynamically registers the denied toolviews and disposes them off-mode', () => {
+  const bundle = components()
+  const { react, dock, registrations } = bundle
+  const modeNode = toolResultNode('tower_mode', {
+    mode: 'on',
+    deniedWhileActive: ['todo_write', 'custom_tool'],
+    workspaceLock: { enabled: true, held: true, commonDir: 'D:/projects/demo/.git' },
+    lastChange: { by: 'user', reason: 'release work' },
+  })
+  const chip = render(react, dock, { t, useChat: chatUse(chatSnapshot([modeNode])) })
+  assert.equal(chip.props['data-tower-ui'], 'dock-mode')
+  assert.match(chip.props.title, /dock\.mode\.repo:repo=demo/)
+  assert.match(chip.props.title, /dock\.mode\.lockHeld/)
+  assert.match(chip.props.title, /dock\.mode\.lastBy:by=user/)
+
+  // Configured denyTools replace the default list; update_goal is always in.
+  const registered = deniedRegistrations(registrations)
+  assert.deepEqual(
+    registered.map((entry) => entry.options.key).sort(),
+    ['custom_tool', 'todo_write', 'update_goal'],
+  )
+  for (const entry of registered) {
+    assert.equal(entry.options.locale, 'tower-ui')
+    assert.equal(entry.options.priority, -10)
+    assert.equal(typeof entry.component, 'function')
+  }
+  const diagnostics = bundle.window.__TOWER_UI_DIAG__
+  assert.equal(diagnostics.denied.active, true)
+  assert.deepEqual(diagnostics.denied.keys.slice().sort(), ['custom_tool', 'todo_write', 'update_goal'])
+
+  // `/tower off` disposes every dynamic registration, so native views return.
+  const hint = render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([modeNode, commandNode('off')])),
+  })
+  assert.equal(hint.props['data-tower-ui'], 'dock-hint')
+  assert.equal(deniedRegistrations(registrations).length, 0)
+  assert.equal(diagnostics.denied.active, false)
+  assert.deepEqual(diagnostics.denied.keys, [])
+})
+
+test('mode on without tower_mode uses the default deny list plus update_goal', () => {
+  const bundle = components()
+  render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  const keys = deniedRegistrations(bundle.registrations).map((entry) => entry.options.key).sort()
+  const expected = [
+    'create_goal',
+    'todo_write',
+    'team_task_create',
+    'team_task_update',
+    'team_task_reopen',
+    'team_task_list',
+    'spawn_teammate',
+    'wait_agent',
+    'workflow',
+    'ralph',
+    'subagent',
+    'subagent_fork',
+    'update_goal',
+  ].sort()
+  assert.deepEqual(keys, expected)
+
+  // An empty deniedWhileActive list also falls back to the defaults.
+  const emptyList = components()
+  render(emptyList.react, emptyList.dock, {
+    t,
+    useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'on', deniedWhileActive: [] })])),
+  })
+  assert.deepEqual(
+    deniedRegistrations(emptyList.registrations)
+      .map((entry) => entry.options.key)
+      .sort(),
+    expected,
+  )
+})
+
+test('denied rows render the Tower mode disabled treatment and keep ordinary results generic', () => {
+  const bundle = components()
+  const { react, dock, registrations } = bundle
+  render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  const todo = deniedRegistrations(registrations).find((entry) => entry.options.key === 'todo_write')
+  const updateGoal = deniedRegistrations(registrations).find((entry) => entry.options.key === 'update_goal')
+  assert.ok(todo && updateGoal)
+
+  const denialMessage = 'tower mode: todo_write is disabled while Tower mode is active; use the Tower tools or /tower off'
+  const denied = render(react, todo.component, {
+    toolName: 'todo_write',
+    phase: 'result',
+    callId: 'call-1',
+    block: toolErrorNode('todo_write', denialMessage),
+    t,
+  })
+  assert.equal(denied.props['data-tower-denied-view'], 'denied')
+  assert.equal(denied.props.role, 'note')
+  assert.match(textOf(denied), /deny\.label/)
+  assert.match(textOf(denied), /deny\.hint/)
+  assert.match(textOf(denied), /todo_write is disabled while Tower mode is active/)
+  assert.doesNotMatch(denied.props.style.color || '', /state-error/)
+
+  const resumeMessage = 'tower mode: goals cannot be resumed while Tower mode is active; use /tower off first'
+  const resume = render(react, updateGoal.component, {
+    toolName: 'update_goal',
+    phase: 'result',
+    callId: 'call-2',
+    block: toolErrorNode('update_goal', resumeMessage),
+    t,
+  })
+  assert.equal(resume.props['data-tower-denied-view'], 'denied')
+  assert.match(textOf(resume), /goals cannot be resumed while Tower mode is active/)
+
+  // Non-denial result while the dynamic view is active: defensive generic row.
+  const ordinary = render(react, todo.component, {
+    toolName: 'todo_write',
+    phase: 'result',
+    callId: 'call-3',
+    block: { kind: 'tool/result', call: { name: 'todo_write' }, content: [{ type: 'text', text: 'Todo list updated.' }] },
+    t,
+  })
+  assert.equal(ordinary.props['data-tower-denied-view'], 'generic')
+
+  // An ordinary failure is not mistaken for a Tower-mode denial.
+  const failure = render(react, todo.component, {
+    toolName: 'todo_write',
+    phase: 'result',
+    callId: 'call-4',
+    block: toolErrorNode('todo_write', 'boom: backend unavailable'),
+    t,
+  })
+  assert.equal(failure.props['data-tower-denied-view'], 'generic')
+  assert.match(textOf(failure), /deny\.error/)
+
+  // A live (preparing/start) row keeps the neutral disabled view.
+  const running = render(react, todo.component, {
+    toolName: 'todo_write',
+    phase: 'start',
+    callId: 'call-5',
+    block: { callId: 'call-5', name: 'todo_write' },
+    t,
+  })
+  assert.equal(running.props['data-tower-denied-view'], 'running')
+})
+
+test('mode off keeps the native priority-0 registrations and no dynamic entries', () => {
+  const bundle = components()
+  const element = render(bundle.react, bundle.dock, {
+    t,
+    useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'off' })])),
+  })
+  assert.equal(element.props['data-tower-ui'], 'dock-hint')
+  assert.equal(deniedRegistrations(bundle.registrations).length, 0)
+  const staticToolviews = bundle.registrations.filter(
+    (entry) => entry.options.name === 'tool.call.toolview' && entry.options.priority === undefined,
+  )
+  assert.equal(staticToolviews.length, TOOL_NAMES.length)
 })
