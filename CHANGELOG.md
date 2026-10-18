@@ -2,6 +2,23 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## 未发布（Unreleased）
+
+### 新增
+
+- **`review.requireReview` 全局开关**：默认 `true`；设为 `false` 时合并门禁不再要求独立审查
+  （跳过 `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/
+  `review-mission-mismatch`），`tower_review` 仍可提交并记录。单 mission 仍可用
+  `reviewPolicy:"none"` + 理由做更窄的豁免。
+
+### 变更
+
+- **应用场景文档补充具体举例**：`docs/guide/scenarios-and-philosophy.md` 与中文版新增 Tower 七类
+  场景的“具体例子/为什么用 Tower”速查表，以及 Tower、Agent Teams、Ralph 循环、Workflow 编排、
+  普通并行子代理和混合阶段各自的具体例子；同时说明独立审查默认强制、可全局关闭，并更新 README、
+  FAQ、配置/安全参考页与中文对应页。
+- **离线套件**：219 项（新增 `review.requireReview:false` 无 reviewer 合并用例）。
+
 ## 2.0.2（2026-10-18）
 
 ### 新增

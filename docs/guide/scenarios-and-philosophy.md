@@ -43,6 +43,11 @@ does `tower_merge` perform a `--no-ff` merge. The gate re-checks scope, base fre
 binding, worktree ownership, worker state, tests, and evidence. Separation of duties is the point:
 the agent that wrote the code is not the agent that approves it, and neither is the agent that merges.
 
+Independent review is mandatory by default but is **configurable**: `review.requireReview:false`
+lets a completed mission merge without a reviewer (the `no-review`/`not-clean`/`tip-moved` blockers are
+skipped). This is a deliberate escape hatch for low-risk repositories or tightly supervised work, not
+the recommended default; reviews can still be submitted and recorded when the flag is off.
+
 ### 1.5 Evidence over assertion
 
 "Done" is a claim; a commit, a diff, a passing test receipt, and an independent review are evidence.
@@ -73,6 +78,18 @@ does not call a cloud service, and does not send telemetry. The durable state li
 Git metadata, so it survives restarts and is visible to a human with ordinary Git tools.
 
 ## 2. Situations where Tower is a good fit
+
+The table is the quick version; the subsections below explain each row.
+
+| Situation | Concrete example | Why Tower |
+|---|---|---|
+| A feature with independent slices | Add OAuth: `token model` → `callback route` → `UI button` + a migration, four missions with mostly separate scopes | Isolated writers, scope reservation, one final review/merge |
+| Ordered refactor/migration | Rename `oldApi` across a monorepo: codemod → import cleanup → snapshots → docs, each depending on the previous merge | `deps`, branch freshness, serialized merges |
+| Investigation then change | A survey mission maps every caller of a deprecated crypto API; two build missions migrate and test | Survey cannot mutate; findings feed build missions |
+| Sensitive or release-bound change | A payments service change or a public library release needing a reviewed commit and test evidence | Review binding, checks/runs, human-readable audit |
+| Long-running work | A multi-day dependency upgrade interrupted by restarts and context resets | Durable mission/roster/review/worktree state |
+| Hard integration boundary | Four services in one monorepo, each with an owner, then one release review | Parallel missions with a single merge gate |
+| Checkable definition of done | A task list plus required tests plus an independent review verdict | Completion/review evidence is visible to another agent |
 
 ### 2.1 A feature that naturally splits into independent slices
 
@@ -217,6 +234,60 @@ Plan mode is for deciding what to do; Tower is for executing a decided plan agai
 Tower entry clears an active plan (or refuses entry under `mode.planModePolicy:"refuse"`), and a
 Tower session cannot use the goal/todo/team/workflow tools. Plan first, then execute; do not expect
 Tower to discover the plan for you.
+
+### 4.6 Review can be optional
+
+`review.requireReview:true` is the default. Set it to `false` in the profile or repo config when
+independent review is not worth the latency (for example a scratch repo, a single-owner tool, or a
+human pair-reviewing every turn). The gate then skips `no-review`, `not-clean`, `review-hold`,
+`review-not-approved`, `tip-moved`, and `review-mission-mismatch`; review records and `tower_review`
+remain available. Prefer mission-level `reviewPolicy:"none"` + a reason when only one mission should
+skip review, and keep the global switch on for normal delivery.
+
+### 4.6 Concrete examples by workflow
+
+**Tower** — output is a repository change that must land through isolation and review:
+
+- **OAuth login**: four missions (`token model`, `callback route`, `accept/decline API`, `UI`); the API depends on tokens and email.
+- **Node 18 → 22 upgrade**: survey breaking API usages, then codemod, test updates, CI config, release notes as separate missions.
+- **Deprecated crypto migration**: a read-only survey mission maps call sites; build missions replace them package by package.
+- **Release hardening**: three missions for the change, migration guide, and release notes; close a `tower_batch` with required tests before tagging.
+- **Monorepo service split**: one mission per package with disjoint scopes; a final review mission checks integration.
+
+**Agent Teams** — output is a decision, design, or cross-cutting collaboration, not a single mergeable branch:
+
+- Architecture review with a backend, frontend, and security teammate, each contributing findings to a shared board.
+- Incident postmortem: one teammate reconstructs the timeline, another checks logs, a third drafts actions.
+- Product requirements discovery: several perspectives converge on a spec; the human decides what to build.
+- Cross-repository investigation where there is no single repo to isolate or merge.
+
+**Ralph loop** — output is a better attempt at the *same* objective, with fresh context:
+
+- A flaky test that needs several independent attempts to reproduce and fix.
+- Performance optimization where each round tries a different hypothesis against an eval.
+- "Find any working approach" exploration where the parent does not know the path.
+- Repeated prompt/skill tuning until an eval threshold is met.
+
+**Workflow orchestration** — output is a large, programmatic fan-out or pipeline:
+
+- Audit 200 files for unsafe API usage and produce a structured report.
+- Run a dependency upgrade matrix across many packages/versions in parallel.
+- Multi-angle research or adversarial verification of a proposal.
+- Generate/translate/test many independent artifacts and aggregate the results.
+
+**Ordinary parallel subagents** — output is quick parallel read-mostly work or independent explorations:
+
+- Read five candidate files in parallel and summarize each.
+- Try three implementations of the same function and compare.
+- Scan a repo for a risky pattern without changing it.
+- Run independent document lookups before the parent writes the answer.
+
+**Mixed phases (recommended)** — analyze with Workflow/Teams, then deliver with Tower:
+
+1. Workflow audits 200 files → structured findings.
+2. Agent Teams reviews the findings and decides the top six changes.
+3. Tower missions implement those six changes with review and merge.
+4. Ralph is used after merge only for a stubborn flaky test that does not need a new mission contract.
 
 ## 5. Worked scenarios
 

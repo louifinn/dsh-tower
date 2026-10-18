@@ -36,6 +36,12 @@ whose commit exists (`recoveredFromFailure`) and records it.
 Correct: the branch is already contained in the base. Call `tower_merge` to record the landed merge
 instead of rebasing.
 
+**Can I disable the mandatory independent review?**
+Yes. Set `review.requireReview:false` in the profile or repository config to skip the global review
+gate (mission-level `reviewPolicy:"none"` + a reason is the narrower option). `tower_review` still
+works and records verdicts; the flag only removes the merge requirement. Keep it on for untrusted or
+release-bound code.
+
 **Can a reviewer edit files?**
 No. Reviewers use the read-only `tower-reviewer` preset (no write/edit/pwsh); a branch changed after the
 reviewer spawned is rejected. Reviewers file `tower_finding` for issues outside the mission.

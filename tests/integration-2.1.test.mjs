@@ -645,6 +645,34 @@ test('2.0.1 doctor: an intentionally removed worktree is not a failure', async (
   }
 })
 
+test('2.0.3 review toggle: review.requireReview:false allows a merge without a reviewer', async () => {
+  const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { review: { requireReview: false } })
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(spawned.worktree.path, ['add', '-A'])
+    git(spawned.worktree.path, ['commit', '-m', 'work'])
+    const workerExec = { agent: { id: spawned.agentId } }
+    for (const task of (await (await Tower.open(repo)).missionDetail(missionId)).mission.tasks) {
+      await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: task.text }, workerExec)
+    }
+    await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
+    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    assert.equal(preflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
+    const merged = await call(tools, 'tower_merge', { repoRoot: repo, missionId })
+    assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
+    assert.ok(merged.mergedCommit)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('2.1 delivery: inbox records an acknowledgement timestamp', async () => {
   const { root, repo } = makeRepo()
   const { ctx, tools } = makeCtx()

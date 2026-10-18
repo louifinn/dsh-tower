@@ -15,7 +15,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 - **Human-owned Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step.
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
-- **Review-gated merges.** A reviewer bound to the current branch tip must submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge.
+- **Review-gated merges.** A reviewer bound to the current branch tip must submit a `clean` / `merge` verdict; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is mandatory by default and can be disabled globally with `review.requireReview:false` (or per mission with `reviewPolicy:"none"` + reason).
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
 - **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
 - **Traceable finding lifecycle.** `tower_findings` lists, reads, and moves findings through `open → triaged → fixed` / `wontfix` (and can reopen); only the tower or a worker may change state, while reviewers can only read.

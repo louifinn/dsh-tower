@@ -31,6 +31,11 @@
 **`tower_rebase` 返回 `alreadyMerged` 且什么都没改。**
 正确：分支已经包含在基线中。此时调用 `tower_merge` 记录已落地的合并，而不是 rebase。
 
+**可以关闭强制独立审查吗？**
+可以。在 profile 或仓库配置中设 `review.requireReview:false` 可全局跳过审查门禁（更窄的做法是
+mission 级 `reviewPolicy:"none"` + 理由）。`tower_review` 仍可用并记录结论；该开关只移除合并要求。
+对不可信或发布绑定的代码建议保持开启。
+
 **reviewer 能修改文件吗？**
 不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支
 被改动，审查会被拒绝。mission 之外的问题用 `tower_finding` 记录，不要直接改文件。

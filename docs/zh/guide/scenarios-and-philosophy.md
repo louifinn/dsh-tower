@@ -26,6 +26,8 @@ mission 不是聊天线程或任务卡，而是绑定到分支与 worktree 的�
 
 worker 永远不合并。reviewer 审查特定分支 tip；控制塔运行 preflight；只有之后 `tower_merge` 才执行 `--no-ff` 合并。门禁重新检查 scope、base 新鲜度、任务、审查绑定、worktree 归属、worker 状态、测试与证据。职责分离是重点：写代码的 agent 不批准，批准的 agent 也不合并。
 
+独立审查默认强制，但**可配置**：`review.requireReview:false` 允许已完成的 mission 在无 reviewer 时合并（跳过 `no-review`/`not-clean`/`tip-moved` 等 blocker）。这是给低风险仓库或人类逐轮监督场景的显式逃生门，不是推荐默认；关闭时仍可提交并记录 review。
+
 ### 1.5 证据优先于断言
 
 "完成了"是声明；commit、diff、通过的测试回执、独立审查才是证据。Tower 全部记录：`tower_doctor` 检查环境，`tower_test` 记录发现，`tower_complete` 记录 checks，`tower_review` 把结论绑定到提交，`tower_batch` 只有在有限 mission 集合的必需证据齐全时才允许收口。
@@ -43,6 +45,18 @@ Tower 模式改变会话姿态：收窄工具面并注入 mission 协议。随�
 Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服务；不 push、不调用云服务、不发送遥测。持久状态位于仓库 Git 元数据，重启后仍在，人类用普通 Git 工具即可查看。
 
 ## 2. Tower 适合的场景
+
+先看速查表；下文逐项解释。
+
+| 场景 | 具体例子 | 为什么用 Tower |
+|---|---|---|
+| 可拆成独立切片的特性 | 加 OAuth：`token 模型` → `callback 路由` → `UI 按钮` + 迁移，四个 scope 基本独立的 mission | 写入隔离、scope 预留、最终统一审查/合并 |
+| 有顺序的迁移/重构 | monorepo 重命名 `oldApi`：codemod → import 清理 → 快照 → 文档，每步依赖前一步合并 | `deps`、分支新鲜度、合并串行 |
+| 先调查再修改 | survey mission 映射已弃用 crypto API 的所有调用者；两个 build mission 迁移与补测试 | survey 不能改文件；findings 喂给 build |
+| 敏感或发布绑定变更 | 支付服务改动或公共库发布，需要被审查 commit 与测试证据 | 审查绑定、checks/testRuns、人类可审计 |
+| 长期工作 | 多日依赖升级，期间重启、换会话、上下文重置 | mission/roster/review/worktree 持久 |
+| 硬集成边界 | monorepo 四个服务各有 owner，最后统一发布审查 | 多 mission 并行，单一合并门禁 |
+| 可检查的完成定义 | 任务清单 + 必需测试 + 独立审查结论 | 另一个 agent 能检查证据 |
 
 ### 2.1 能自然拆成独立切片的特性
 
@@ -142,6 +156,55 @@ Tower 是**仓库交付协议**，mission 数量少，不是高扇出数据平�
 ### 4.5 Tower vs Plan mode
 
 Plan mode 决定做什么；Tower 把已决定的计划执行到仓库。进入 Tower 会清除活跃 plan（`mode.planModePolicy:"refuse"` 时拒绝进入），且 Tower 会话不能使用 goal/todo/team/workflow 工具。先规划，再执行；不要指望 Tower 替你发现计划。
+
+### 4.6 各工作流的具体例子
+
+**Tower** —— 输出是必须经过隔离与审查才能落地的仓库变更：
+
+- **OAuth 登录**：四个 mission（`token 模型`、`callback 路由`、`接受/拒绝 API`、`UI`）；API 依赖 token 与邮件。
+- **Node 18 → 22 升级**：先 survey 破坏性 API，再拆 codemod、测试更新、CI 配置、release notes 为独立 mission。
+- **废弃 crypto 迁移**：只读 survey 映射调用点；build mission 按包替换。
+- **发布硬化**：变更、迁移指南、release notes 三个 mission；打 tag 前用 `tower_batch` 收口必需测试。
+- **monorepo 服务拆分**：每个包一个 scope 不重叠的 mission；最后一个审查 mission 检查集成。
+
+**Agent Teams** —— 输出是决策、设计或横切协作，而不是单个可合并分支：
+
+- 后端、前端、安全三个 teammate 做架构评审，把发现汇总到共享任务板。
+- 事故复盘：一人重建时间线，一人查日志，一人起草行动项。
+- 产品需求发现：多视角收敛成规格，由人类决定做什么。
+- 没有单一仓库可隔离/合并的跨仓库调查。
+
+**Ralph 循环** —— 输出是对*同一目标*的新鲜尝试：
+
+- flaky 测试需要多轮独立复现与修复。
+- 性能优化每轮换一个假设，对 eval 反复尝试。
+- 父 agent 不知道路径的"找到任意可行方案"探索。
+- 反复调 prompt/skill 直到 eval 阈值达标。
+
+**Workflow 编排** —— 输出是大规模程序化扇出或流水线：
+
+- 审计 200 个文件的不安全 API 用法并生成结构化报告。
+- 对多包/多版本并行跑依赖升级矩阵。
+- 多角度研究或对提案做对抗性验证。
+- 批量生成/翻译/测试独立产物并聚合结果。
+
+**普通并行子代理** —— 输出是快速的只读并行或独立探索：
+
+- 并行读五个候选文件并分别总结。
+- 同一函数写三种实现并比较。
+- 扫描仓库中的风险模式但不修改。
+- 父 agent 写答案前做独立的文档查找。
+
+**混合阶段（推荐）** —— 用 Workflow/Teams 分析，用 Tower 交付：
+
+1. Workflow 审计 200 个文件 → 结构化 findings。
+2. Agent Teams 评审 findings，决定前六个改动。
+3. Tower mission 实现这六个改动，经审查与合并落地。
+4. 合并后仍有一个顽固 flaky 测试、且不需要新 mission 契约时，再用 Ralph。
+
+### 4.7 审查可以选择性关闭
+
+`review.requireReview` 默认为 `true`。当独立审查不值得其延迟时（临时仓库、单人维护工具、人类逐轮监督等），可在 profile 或 repo config 中设为 `false`。此时门禁跳过 `no-review`、`not-clean`、`review-hold`、`review-not-approved`、`tip-moved`、`review-mission-mismatch`；`tower_review`/审查记录仍可用。只让单个 mission 豁免时，优先用 `reviewPolicy:"none"` + 理由；正常交付建议保持全局开启。
 
 ## 5. 具体场景示例
 

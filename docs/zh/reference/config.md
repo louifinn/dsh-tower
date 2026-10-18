@@ -53,6 +53,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `mode.denyTools` | goal/todo/team/workflow/subagent 工具（默认 12 个） | 模式激活期间被拒绝的工具。 |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
 | `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
+| `review.requireReview` | `true` | 合并前强制独立 clean 审查。设为 `false` 时全局跳过 `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`；`tower_review` 仍可用。只豁免单个 mission 时优先用 `reviewPolicy:"none"`。 |
 | `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
 | `merge.timeoutMs` | `900000`（15 分钟） | `tower_merge` 默认超时，包含钩子；单次调用的 `timeoutMs` 优先。 |
 | `merge.maxBufferBytes` | `67108864`（64 MB） | 合并输出缓冲区。 |

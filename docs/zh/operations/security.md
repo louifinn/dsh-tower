@@ -9,6 +9,9 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 - **审查绑定。** `tower_review` 会记录它检查的分支 tip；tip 变化后门禁会拒绝（`tip-moved`），除非
   一次干净且无冲突的 rebase 给予了豁免。reviewer 在 spawn 之后修改分支会被拒绝
   （`reviewer must not modify the mission branch`）。
+- **强制审查默认开启，可选择关闭。** `review.requireReview:true` 是默认值；设为 `false` 会全局移除
+  独立审查门禁（更窄的做法是 mission 级 `reviewPolicy:"none"` + 理由）。关闭会削弱职责分离保证，
+  只适合低风险仓库或有人类逐轮监督的场景，不应用于不可信代码。
 - **角色强制。** 调用方会根据 roster 解析。worker 的 mission 更新仅限于 task/blocker/note；
   `completed`、`abandoned`、扩大 scope 与清除 blocker 仅限控制塔，完成（连同未读消息/提交门禁）必须
   走 `tower_complete`。仅限控制塔的工具会以 `[tower:not-authorized]` 拒绝 roster 中的 worker。
