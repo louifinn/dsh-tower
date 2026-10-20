@@ -1,10 +1,10 @@
 # Tools reference
 
 All tools take `repoRoot` (an absolute path inside the target Git repository) and return JSON.
-The build exposes up to 28 tools: 19 core repository tools below (including `tower_interrupt`),
+The build exposes up to 29 tools: 19 core repository tools below (including `tower_interrupt`),
 `tower_mode`, `tower_control` (registered by default; set `mode.allowAgentControl:false` to disable),
 `tower_reload` while `dev.hotReload` is on, and the 2.1 verification/ops tools `tower_doctor`,
-`tower_test`, `tower_batch`, `tower_resource`, `tower_import_legacy`, `tower_legacy_map`.
+`tower_recover`, `tower_test`, `tower_batch`, `tower_resource`, `tower_import_legacy`, `tower_legacy_map`.
 
 `tower_mission` uses `id` (alias `missionId`); every other mission-scoped tool uses `missionId`
 (alias `id`). Other input aliases: `task_done`/`taskDone`, `task_drop`/`taskDrop`,
@@ -53,6 +53,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_control` | `action` (`enter`/`exit`), `reason` | Model-initiated mode change; registered by default; disable with `mode.allowAgentControl:false`; reason is mandatory. |
 | `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while `dev.hotReload` is on; scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
 | `tower_doctor` | — (takes `repoRoot`) | Read-only health contract: git, state schema, config, presets/subagents/HMR, workspace lock, roster, worktree realpath/ownership, test config, leases. Returns `{ok, checks[{id,status,detail}], environmentContract}`. Never writes. |
+| `tower_recover` | `action` (`status`/`clear-stale-lock`), `confirm?` | Recovery diagnostics plus an explicit stale state-lock repair. `clear-stale-lock` requires `confirm:"CLEAR_STALE_LOCK"` and only moves a lock whose PID is provably dead to a backup; it never resets state/worktrees. |
 | `tower_test` | `missionId` (alias `id`) | Run the worktree's `package.json` `tower.testDiscovery` and record a receipt; `ok:false` on failure. Use `tower_complete` for automatic admission checks. |
 | `tower_batch` | `action` (`create`/`status`/`close`/`abandon`), `missionIds?`, `exclusions?`, `requiredChecks?`, `receiptPaths?`, `batchId?`, `checks?`, `treeTip?`, `receiptHashes?`, `reason?` | Finite evidence batch. Create freezes members/checks/receipts; close verifies every required check and receipt hash; merged members are eligible; abandon retires a stale open batch without deleting missions. Membership is immutable. |
 | `tower_resource` | `action` (`acquire`/`release`/`status`), `name?`, `holder?`, `token?`, `ttlMs?`, `force?` | Advisory per-repository lease in `<common>/dsh-tower/leases.json`. No OS CPU/memory hard cap; expired leases require explicit `force` and the correct token. |

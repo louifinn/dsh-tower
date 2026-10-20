@@ -33,6 +33,8 @@
   mode/control/reload 事件、Git 超时配置、不可变 SHA merge、测试 receipt 体积上限等。
 - **模式状态未知时显式提示**：UI 在无法从已加载历史证明模式时显示 `mode unknown` chip，
   不再静默伪装为关闭；新增未知调用者对 `tower_mission` / `tower_test` / finding 工具的身份拒绝。
+- **`tower_recover`**：新增恢复诊断/显式 stale state-lock 清理工具；只移动 PID 已死的锁到备份，
+  需要 `confirm:"CLEAR_STALE_LOCK"`，绝不重置 state/worktree。
 - **文档与实现不一致**：`gates.requireTests` 文档原写“reviewed tip”，实现校验当前 mission 分支
   tip；已同步英文/中文配置、测试与 blocker 参考。
 

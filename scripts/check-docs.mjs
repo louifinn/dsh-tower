@@ -77,6 +77,7 @@ const eventNames = [
   'status',
   'preflight',
   'doctor',
+  'recover',
   'test',
   'batch',
   'resource',

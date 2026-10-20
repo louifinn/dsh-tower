@@ -3,7 +3,7 @@
 [English](../../reference/events.md) | **简体中文**
 
 Tower 在工具成功调用（变更与只读）后发出进程内 Cordis 事件，其他插件因此可以观察仓库，而不必轮询。
-本版本发出 28 个进程内事件。事件**不会**通过网络发送，也不包含遥测。
+本版本发出 29 个进程内事件。事件**不会**通过网络发送，也不包含遥测。
 
 ```js
 ctx.on('tower/merge', (payload) => {
@@ -33,6 +33,7 @@ ctx.on('tower/merge', (payload) => {
 | `tower/status` | `tower_status` 读取面板之后 |
 | `tower/preflight` | `tower_preflight` 评估门禁之后 |
 | `tower/doctor` | `tower_doctor` 完成只读检查之后 |
+| `tower/recover` | `tower_recover` 查看或清理 stale state 锁之后 |
 | `tower/test` | `tower_test` 运行测试发现之后 |
 | `tower/batch` | `tower_batch` 创建、查看或关闭 batch 之后 |
 | `tower/resource` | `tower_resource` 获取/释放/查看租约之后 |

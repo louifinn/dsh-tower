@@ -1,7 +1,7 @@
 # Tower events
 
 Tower emits process-local Cordis events after successful tool calls (mutations and read-only tools), so
-other plugins can observe a repository without polling. This release emits 28 process-local events.
+other plugins can observe a repository without polling. This release emits 29 process-local events.
 Events are **not** sent over the network and carry no telemetry.
 
 ```js
@@ -32,6 +32,7 @@ ctx.on('tower/merge', (payload) => {
 | `tower/status` | `tower_status` read the dashboard |
 | `tower/preflight` | `tower_preflight` evaluated the gate |
 | `tower/doctor` | `tower_doctor` completed its read-only checks |
+| `tower/recover` | `tower_recover` inspected or cleared a stale state lock |
 | `tower/test` | `tower_test` ran discovery |
 | `tower/batch` | `tower_batch` created, inspected or closed a batch |
 | `tower/resource` | `tower_resource` acquired/released/inspected leases |

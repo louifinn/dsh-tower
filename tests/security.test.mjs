@@ -194,6 +194,34 @@ test('security: adopt needs two observations before retiring an absent worker', 
   }
 })
 
+test('security: tower_recover only clears a provably dead state lock', async () => {
+  const { root, repo } = makeRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const dead = { token: 'dead-token', pid: 999999, at: Date.now() }
+    fs.writeFileSync(tower.paths.lock, JSON.stringify(dead))
+    const status = await call(tools, 'tower_recover', { repoRoot: repo, action: 'status' })
+    assert.equal(status.stateLock.pid, 999999)
+    assert.equal(status.stateLock.alive, false)
+    await assert.rejects(
+      () => call(tools, 'tower_recover', { repoRoot: repo, action: 'clear-stale-lock' }),
+      /confirm/i,
+    )
+    const cleared = await call(tools, 'tower_recover', {
+      repoRoot: repo,
+      action: 'clear-stale-lock',
+      confirm: 'CLEAR_STALE_LOCK',
+    })
+    assert.equal(cleared.cleared, true)
+    assert.equal(fs.existsSync(tower.paths.lock), false)
+    assert.equal(fs.existsSync(cleared.backup), true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('security: lease status never returns tokens', async () => {
   const { root, repo } = makeRepo()
   const { tools } = makeCtx()

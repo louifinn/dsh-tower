@@ -68,7 +68,7 @@ function validateAgainstSchema(value, schema, where = '$') {
 test('tool surface: every tool declares a structured object output schema', () => {
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
-  assert.equal(tools.size, 26)
+  assert.equal(tools.size, 27)
   for (const definition of tools.values()) {
     assert.equal(definition.output.schema.type, 'object', definition.name)
     assert.equal(typeof definition.output.render, 'function', definition.name)
