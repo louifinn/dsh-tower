@@ -785,6 +785,17 @@ test('denied rows render the Tower mode disabled treatment and keep ordinary res
   assert.equal(resume.props['data-tower-denied-view'], 'denied')
   assert.match(textOf(resume), /goals cannot be resumed while Tower mode is active/)
 
+  // A permitted update_goal action is not rendered as a mode denial.
+  const pause = render(react, updateGoal.component, {
+    toolName: 'update_goal',
+    phase: 'result',
+    callId: 'call-2b',
+    block: { kind: 'tool/result', call: { name: 'update_goal' }, content: [{ type: 'text', text: 'Goal paused.' }] },
+    t,
+  })
+  assert.equal(pause.props['data-tower-denied-view'], 'generic')
+  assert.doesNotMatch(textOf(pause), /deny\.label/)
+
   // Non-denial result while the dynamic view is active: defensive generic row.
   const ordinary = render(react, todo.component, {
     toolName: 'todo_write',
