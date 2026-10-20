@@ -35,6 +35,9 @@
   不再静默伪装为关闭；新增未知调用者对 `tower_mission` / `tower_test` / finding 工具的身份拒绝。
 - **`tower_recover`**：新增恢复诊断/显式 stale state-lock 清理工具；只移动 PID 已死的锁到备份，
   需要 `confirm:"CLEAR_STALE_LOCK"`，绝不重置 state/worktree。
+- **#30 工具层显式错误码**：tools 层的校验/前置条件不再依赖文本 regex，改为直接抛出带稳定 code 的
+  `TowerToolError`（invalid-argument / reviewer-prerequisite / spawn-unavailable / preset-missing /
+  not-authorized 等）。
 - **文档与实现不一致**：`gates.requireTests` 文档原写“reviewed tip”，实现校验当前 mission 分支
   tip；已同步英文/中文配置、测试与 blocker 参考。
 
