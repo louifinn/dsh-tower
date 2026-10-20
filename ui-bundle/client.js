@@ -176,6 +176,7 @@ window.__ModuleLoader__.load({
       'dock.mode.unknownLabel': 'mode unknown',
       'dock.mode.unknownTooltip': 'The loaded history has Tower activity but no mode event. Run /tower or tower_mode to confirm the current stance.',
       'dock.mode.tooltip': 'Tower mode is on for this session. Run /tower off in the composer to leave Tower mode.',
+      'dock.mode.lastKnown': 'last known from this browser session; run /tower or tower_mode to confirm',
       'dock.mode.repo': 'repo {repo}',
       'dock.mode.lockHeld': 'workspace lock held',
       'dock.mode.lockFree': 'workspace lock free',
@@ -271,6 +272,7 @@ window.__ModuleLoader__.load({
       'dock.mode.unknownLabel': '模式未知',
       'dock.mode.unknownTooltip': '已加载的历史中有 Tower 活动，但没有模式事件。执行 /tower 或 tower_mode 以确认当前状态。',
       'dock.mode.tooltip': '此会话已开启 Tower 模式。在输入框中执行 /tower off 可退出。',
+      'dock.mode.lastKnown': '来自此浏览器会话的最后已知状态；请执行 /tower 或 tower_mode 确认',
       'dock.mode.repo': '仓库 {repo}',
       'dock.mode.lockHeld': '工作区锁已持有',
       'dock.mode.lockFree': '工作区锁空闲',
@@ -1595,8 +1597,44 @@ window.__ModuleLoader__.load({
         return ''
       }
     }
+    function modeStorageKey(sessionId) {
+      return 'dsh-tower-ui:mode:' + String(sessionId)
+    }
+    function readStoredMode(sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return null
+      try {
+        const raw = globalThis.localStorage && globalThis.localStorage.getItem(modeStorageKey(sessionId))
+        if (!raw) return null
+        const parsed = JSON.parse(raw)
+        if (!isPlainObject(parsed) || typeof parsed.at !== 'number') return null
+        if (Date.now() - parsed.at > 7 * 24 * 60 * 60 * 1000) return null
+        return parsed
+      } catch {
+        return null
+      }
+    }
+    function writeStoredMode(sessionId, mode) {
+      if (typeof sessionId !== 'string' || sessionId === '') return
+      try {
+        if (!globalThis.localStorage) return
+        if (mode.known === true && (mode.on === true || mode.on === false)) {
+          globalThis.localStorage.setItem(modeStorageKey(sessionId), JSON.stringify({
+            on: mode.on,
+            denied: mode.denied ?? null,
+            repo: mode.repo ?? null,
+            lock: mode.lock ?? null,
+            lastBy: mode.lastBy ?? null,
+            lastReason: mode.lastReason ?? null,
+            at: Date.now(),
+          }))
+        }
+      } catch {
+        // storage is best effort; the history-derived model remains the source
+      }
+    }
     function modeTooltip(t, mode) {
       const parts = [translate(t, 'dock.mode.tooltip')]
+      if (mode.source === 'stored') parts.push(translate(t, 'dock.mode.lastKnown'))
       if (typeof mode.repo === 'string' && mode.repo !== '') parts.push(translate(t, 'dock.mode.repo', { repo: mode.repo }))
       if (isPlainObject(mode.lock)) {
         parts.push(translate(t, mode.lock.held === true ? 'dock.mode.lockHeld' : 'dock.mode.lockFree'))
@@ -1657,7 +1695,12 @@ window.__ModuleLoader__.load({
           model = null
         }
       }
-      const mode = isPlainObject(model) && isPlainObject(model.mode) ? model.mode : { known: false, on: null }
+      const modeFromHistory = isPlainObject(model) && isPlainObject(model.mode) ? model.mode : { known: false, on: null }
+      const stored = modeFromHistory.known !== true ? readStoredMode(props.sessionId) : null
+      const mode = stored
+        ? Object.assign({}, modeFromHistory, stored, { known: true, source: 'stored' })
+        : modeFromHistory
+      writeStoredMode(props.sessionId, modeFromHistory)
       const writerState = React.useState(function () {
         return nextDockWriter()
       })
@@ -1665,12 +1708,15 @@ window.__ModuleLoader__.load({
       const modeKey = JSON.stringify(mode)
       React.useEffect(
         function () {
-          publishMode(writer, mode)
+          // Publish only the history-derived stance. A stored last-known value
+          // is display-only: it must not shadow native toolviews when the Host
+          // stance is actually unknown.
+          publishMode(writer, modeFromHistory)
           return function () {
             clearMode(writer)
           }
         },
-        [modeKey],
+        [JSON.stringify(modeFromHistory)],
       )
       if (mode.known === true && mode.on === true) return renderModeChip(t, mode)
       if (isPlainObject(model) && model.uncertain === true) return renderModeUnknown(t)

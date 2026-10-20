@@ -32,7 +32,8 @@
   spawn 失败、配置嵌套未知键、doctor 坏配置、teardown 分支删除失败、batch receipt 文件校验、
   mode/control/reload 事件、Git 超时配置、不可变 SHA merge、测试 receipt 体积上限等。
 - **模式状态未知时显式提示**：UI 在无法从已加载历史证明模式时显示 `mode unknown` chip，
-  不再静默伪装为关闭；新增未知调用者对 `tower_mission` / `tower_test` / finding 工具的身份拒绝。
+  不再静默伪装为关闭；同一 session 还会持久化最近已知模式（7 天过期，仅展示，不单独驱动 denied
+  行）；新增未知调用者对 `tower_mission` / `tower_test` / finding 工具的身份拒绝。
 - **`tower_recover`**：新增恢复诊断/显式 stale state-lock 清理工具；只移动 PID 已死的锁到备份，
   需要 `confirm:"CLEAR_STALE_LOCK"`，绝不重置 state/worktree。
 - **#30 工具层显式错误码**：tools 层的校验/前置条件不再依赖文本 regex，改为直接抛出带稳定 code 的

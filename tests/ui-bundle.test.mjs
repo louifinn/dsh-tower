@@ -522,6 +522,36 @@ test('composer dock keeps the static hint without tower results and marks unknow
   assert.match(textOf(running), /dock\.running/)
 })
 
+test('dock persists last-known mode per session when the history window loses it', () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, value),
+    removeItem: (key) => store.delete(key),
+  }
+  try {
+    const first = components()
+    const on = render(first.react, first.dock, {
+      t,
+      sessionId: 'session-persist',
+      useChat: chatUse(chatSnapshot([commandNode('on')])),
+    })
+    assert.equal(on.props['data-tower-mode'], 'on')
+
+    const second = components()
+    const restored = render(second.react, second.dock, {
+      t,
+      sessionId: 'session-persist',
+      useChat: chatUse(chatSnapshot([])),
+    })
+    assert.equal(restored.props['data-tower-ui'], 'dock-mode')
+    assert.equal(restored.props['data-tower-mode'], 'on')
+    assert.match(restored.props.title, /dock\.mode\.lastKnown/)
+  } finally {
+    delete globalThis.localStorage
+  }
+})
+
 test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss is owned by ctx.effect', () => {
   const { react, overlay, noticeSource, effects, toolviews } = components()
   const useTowerNotice = (selector) => selector(noticeSource.getSnapshot())

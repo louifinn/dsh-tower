@@ -28,7 +28,7 @@ Tower mode is a Host-side session stance and there is no Client RPC for it. The 
 - `tower_mode` results (`mode: "on" | "off" | "unknown"`, `deniedWhileActive`, `workspaceLock`, `lastChange`);
 - `tower_control` results (`action: enter|exit`, `mode`, `changedBy`, `reason`).
 
-The last recognized event wins. A page refresh re-derives the same stance from the same loaded history (not from ephemeral UI state), and the dock updates when `/tower`, `tower_control`, or `tower_mode` results appear.
+The last recognized event wins. A page refresh re-derives the same stance from the loaded history; when that history window no longer contains a mode event, the dock falls back to a browser-local last-known value for the same session and labels it as such. An old value expires after seven days and never drives the denied-tool shadowing by itself.
 
 While the mode is on the dock shows a `Tower · on` chip with `role="status"` / `aria-live="polite"`, and its tooltip carries the actionable hint plus, when known, the repository basename, workspace-lock state (`held`/`free`), and who changed the mode last. The chip is **deliberately non-interactive**: the only existing standard affordance is `inputActions.setDraft` + `inputActions.submit`, which submits the composer draft and would clobber what the user is typing. The tooltip tells the user to run `/tower off`; the bundle itself does not toggle the mode (the model's supported path is the Host `tower_control` tool when `allowAgentControl` is enabled).
 
