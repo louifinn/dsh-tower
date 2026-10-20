@@ -94,6 +94,9 @@ test('security: unknown agents cannot use tower-only tools', async () => {
       ['tower_merge', { repoRoot: repo, missionId }],
       ['tower_teardown', { repoRoot: repo }],
       ['tower_plan', { repoRoot: repo, missions: [{ title: 'Forged', scope: ['x/**'] }] }],
+      ['tower_mission', { repoRoot: repo, id: missionId, note: 'forged' }],
+      ['tower_test', { repoRoot: repo, missionId }],
+      ['tower_finding', { repoRoot: repo, type: 'bug', title: 'forged', summary: 'x', details: 'x', suggested_fix: 'x' }],
     ]) {
       await assert.rejects(() => call(tools, name, args, forged), /not-authorized/i)
     }

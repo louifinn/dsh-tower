@@ -173,6 +173,8 @@ window.__ModuleLoader__.load({
       'dock.doctor': 'doctor {status}',
       'dock.generic': 'done',
       'dock.mode.onLabel': 'on',
+      'dock.mode.unknownLabel': 'mode unknown',
+      'dock.mode.unknownTooltip': 'The loaded history has Tower activity but no mode event. Run /tower or tower_mode to confirm the current stance.',
       'dock.mode.tooltip': 'Tower mode is on for this session. Run /tower off in the composer to leave Tower mode.',
       'dock.mode.repo': 'repo {repo}',
       'dock.mode.lockHeld': 'workspace lock held',
@@ -266,6 +268,8 @@ window.__ModuleLoader__.load({
       'dock.doctor': '体检 {status}',
       'dock.generic': '已完成',
       'dock.mode.onLabel': '已开启',
+      'dock.mode.unknownLabel': '模式未知',
+      'dock.mode.unknownTooltip': '已加载的历史中有 Tower 活动，但没有模式事件。执行 /tower 或 tower_mode 以确认当前状态。',
       'dock.mode.tooltip': '此会话已开启 Tower 模式。在输入框中执行 /tower off 可退出。',
       'dock.mode.repo': '仓库 {repo}',
       'dock.mode.lockHeld': '工作区锁已持有',
@@ -1579,7 +1583,14 @@ window.__ModuleLoader__.load({
                 : dockResultModel(signal.name, parsePayload(signal.block))
           }
         }
-        return JSON.stringify({ mode, summary })
+        return JSON.stringify({
+          mode,
+          summary,
+          // A Tower tool result with no recognized mode event means the loaded
+          // history window cannot prove the stance. Surface that explicitly
+          // instead of pretending the session is off.
+          uncertain: mode.known !== true && summary !== null && summary.running !== true,
+        })
       } catch (error) {
         return ''
       }
@@ -1611,6 +1622,23 @@ window.__ModuleLoader__.load({
         h('span', { style: ST.modeChipLabel }, translate(t, 'card.title')),
         h('span', { style: ST.dim }, '·'),
         h('span', { style: ST.modeChipOn }, translate(t, 'dock.mode.onLabel')),
+      )
+    }
+    function renderModeUnknown(t) {
+      return h(
+        'div',
+        {
+          'data-tower-ui': 'dock-mode',
+          'data-tower-mode': 'unknown',
+          role: 'status',
+          'aria-live': 'polite',
+          title: translate(t, 'dock.mode.unknownTooltip'),
+          style: ST.modeChip,
+        },
+        h('span', { 'aria-hidden': true, style: dotStyle('idle') }),
+        h('span', { style: ST.modeChipLabel }, translate(t, 'card.title')),
+        h('span', { style: ST.dim }, '·'),
+        h('span', { style: ST.modeChipOn }, translate(t, 'dock.mode.unknownLabel')),
       )
     }
     function TowerDock(props) {
@@ -1645,6 +1673,7 @@ window.__ModuleLoader__.load({
         [modeKey],
       )
       if (mode.known === true && mode.on === true) return renderModeChip(t, mode)
+      if (isPlainObject(model) && model.uncertain === true) return renderModeUnknown(t)
       const summary = isPlainObject(model) ? model.summary : null
       if (!isPlainObject(summary)) return renderDockHint(t)
       const text = summary.running === true

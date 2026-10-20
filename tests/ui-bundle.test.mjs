@@ -480,7 +480,7 @@ test('toolview stays defensive for errors, plain text, and partial/absent blocks
   }
 })
 
-test('composer dock keeps the static hint without tower results and summarises the latest one', () => {
+test('composer dock keeps the static hint without tower results and marks unknown history explicitly', () => {
   const { react, dock } = components()
 
   const noHook = render(react, dock, { t })
@@ -513,8 +513,9 @@ test('composer dock keeps the static hint without tower results and summarises t
       },
     })
   const summary = render(react, dock, { t, useChat: useChatStatus })
-  assert.equal(findNode(summary, (node) => node.props['data-tower-ui'] === 'dock') !== null, true)
-  assert.match(textOf(summary), /dock\.statusCounts/)
+  assert.equal(summary.props['data-tower-ui'], 'dock-mode')
+  assert.equal(summary.props['data-tower-mode'], 'unknown')
+  assert.match(textOf(summary), /dock\.mode\.unknownLabel/)
 
   const useChatRunning = (selector) => selector({ legacy: { nodes: [], runningCalls: [{ name: 'tower_spawn' }] } })
   const running = render(react, dock, { t, useChat: useChatRunning })
@@ -603,6 +604,18 @@ test('dock shows a persistent Tower-mode chip derived from durable command histo
   const again = render(refreshed.react, refreshed.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
   assert.equal(again.props['data-tower-ui'], 'dock-mode')
   assert.equal(again.props['data-tower-mode'], 'on')
+})
+
+test('dock surfaces mode unknown when history has Tower activity but no mode event', () => {
+  const bundle = components()
+  const dock = render(bundle.react, bundle.dock, {
+    t,
+    useChat: chatUse(chatSnapshot([toolResultNode('tower_status', { ok: true, repoRoot: 'C:/repo' })])),
+  })
+  assert.equal(dock.props['data-tower-ui'], 'dock-mode')
+  assert.equal(dock.props['data-tower-mode'], 'unknown')
+  assert.match(textOf(dock), /dock\.mode\.unknownLabel/)
+  assert.match(dock.props.title, /dock\.mode\.unknownTooltip/)
 })
 
 test('dock mode inference follows /tower commands, tower_mode, and tower_control results', () => {
