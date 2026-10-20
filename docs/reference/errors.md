@@ -1,7 +1,12 @@
 # Tool error codes
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
-[blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix:
+[blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
+release defines 31 tool error codes.
+
+Every `TowerToolError` also carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
+(structured context or `null`) for programmatic callers; the message prefix remains the stable contract
+for text-only clients.
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -18,6 +23,7 @@ message without a more specific match is reported as `tool-internal`.
 | `mission-not-found` | No mission with that id exists. | a stale or mistyped `M9` |
 | `finding-not-found` | No finding with that id exists. | `tower_findings({id:"F99"})` |
 | `invalid-transition` | The requested state transition is not allowed. | a blocked→merged attempt; a finding transition not in the graph; a reviewer mutating findings; completing a mission with open tasks, blockers, no commits, or unread inbox messages. |
+| `worktree-dirty` | The mission worktree has uncommitted changes and cannot complete. | staged, modified, or untracked files left behind before `tower_complete` |
 | `state-locked` | Another Tower writer holds the state lock. | concurrent mutation after the lock timeout |
 | `state-corrupt` | The Tower state file is unreadable or invalid. | hand-edited `state.json` |
 | `config-invalid` | Tower configuration is invalid. | malformed repo `config.json`, a value that violates the schema |

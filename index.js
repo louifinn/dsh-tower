@@ -32,6 +32,11 @@ export const Config = ConfigSchema
 
 let MODE = new Map()
 let denyTools = new Set(DEFAULT_DENY_TOOLS)
+
+function modeOn(key) {
+  const entry = key ? MODE.get(key) : undefined
+  return Boolean(entry && entry.on === true)
+}
 const READ_ONLY_TOOL_NAMES = new Set([
   'tower_status',
   'tower_roster',
@@ -188,12 +193,15 @@ function enterMode(ctx, key, agent, by, reason) {
 async function exitMode(key, by, reason) {
   const previous = MODE.get(key)
   if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null }
-  MODE.delete(key)
+  const wasOn = previous.on === true
+  // Keep a timestamped off tombstone so a concurrent save from another
+  // session cannot resurrect this mode entry.
+  MODE.set(key, { on: false, at: Date.now() })
   persistModes()
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
   }
-  return { wasOn: true, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
+  return { wasOn, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
 }
 
 function forwardInstruction(agent, message, attachments) {
@@ -257,7 +265,7 @@ export function apply(ctx, rawConfig) {
       const key = agentKey(exec?.agent)
       if (!key) return
       const entry = MODE.get(key)
-      if (!entry) return
+      if (!entry || entry.on !== true) return
       const repo = await resolveRepo(repoRoot)
       const existing = entry.lock
       if (existing && existing.commonDir !== repo.commonDir) {
@@ -305,7 +313,7 @@ export function apply(ctx, rawConfig) {
     },
     basePreference(exec) {
       const key = agentKey(exec?.agent)
-      return key ? MODE.get(key)?.baseBranch ?? null : null
+      return key && modeOn(key) ? MODE.get(key)?.baseBranch ?? null : null
     },
   }
 
@@ -325,7 +333,7 @@ export function apply(ctx, rawConfig) {
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
       const key = agentKey(execution.agent)
-      if (!key || !MODE.has(key)) return undefined
+      if (!key || !modeOn(key)) return undefined
       if (denyTools.has(execution.name)) {
         return `tower mode: ${execution.name} is disabled while Tower mode is active; use the Tower tools or /tower off`
       }
@@ -346,7 +354,7 @@ export function apply(ctx, rawConfig) {
     typeof ctx.on === 'function'
       ? ctx.on('agent/pre-step', (payload, next) => {
           const key = agentKey(payload?.agent)
-          if (key && MODE.has(key)) {
+          if (key && modeOn(key)) {
             // Once Tower is active, Tower wins regardless of entry policy: clear
             // any plan state so the two policies cannot coexist.
             const state = planModeState(ctx, payload.agent)
@@ -360,7 +368,7 @@ export function apply(ctx, rawConfig) {
   ctx.systemPrompt.section({
     name: 'tower:mode',
     order: 15000,
-    text: (context) => (context && MODE.has(agentKey(context.agent)) ? reminder : ''),
+    text: (context) => (context && modeOn(agentKey(context.agent)) ? reminder : ''),
   })
 
   // Workspace-lock heartbeat; only sessions holding a lock do I/O.
@@ -475,7 +483,7 @@ export function apply(ctx, rawConfig) {
           return {
             ok: true,
             action: args.action,
-            mode: MODE.has(key) ? 'on' : 'off',
+            mode: modeOn(key) ? 'on' : 'off',
             changed: args.action === 'enter' ? !outcome.wasOn : outcome.wasOn,
             changedBy: 'agent',
             reason,
@@ -498,7 +506,7 @@ export function apply(ctx, rawConfig) {
         const baseMatch = String(rawInput ?? '').trim().match(/^base\s+(\S+)\s*$/i)
         if (baseMatch) {
           const entry = MODE.get(key)
-          if (!entry) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
+          if (!entry || entry.on !== true) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
           entry.baseBranch = baseMatch[1]
           persistModes()
           return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }

@@ -198,6 +198,7 @@ test('missionContext feeds the briefing with the real review and finding history
       findings: 'none',
       decision: 'looks correct',
       checks: ['diff', 'tests'],
+      actor: { name: 'tower', role: 'tower' },
       breakGlassReason: 'briefing fixture has no independent reviewer',
     })
 

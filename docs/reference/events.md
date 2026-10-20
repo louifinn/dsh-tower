@@ -1,8 +1,8 @@
 # Tower events
 
 Tower emits process-local Cordis events after successful tool calls (mutations and read-only tools), so
-other plugins can observe a repository without polling. Events are **not** sent over the network and carry
-no telemetry.
+other plugins can observe a repository without polling. This release emits 28 process-local events.
+Events are **not** sent over the network and carry no telemetry.
 
 ```js
 ctx.on('tower/merge', (payload) => {
@@ -37,9 +37,11 @@ ctx.on('tower/merge', (payload) => {
 | `tower/resource` | `tower_resource` acquired/released/inspected leases |
 | `tower/import_legacy` | `tower_import_legacy` stored a legacy snapshot |
 | `tower/legacy_map` | `tower_legacy_map` mapped or listed legacy ids |
+| `tower/mode` | `tower_mode` read/changed the session stance (`value.mode`, `allowAgentControl`, `deniedWhileActive`) |
+| `tower/control` | `tower_control` entered/left the mode (`value.mode`, actor/reason in `value`) |
+| `tower/reload` | `tower_reload` returned a reload schedule/result |
 
-`tower_mode`, `tower_control` and `tower_reload` do not emit Tower events. Payloads are JSON:
-`{tool, repoRoot, value}`. Listener exceptions never affect the tool result.
+Payloads are JSON: `{tool, repoRoot, value}`. Listener exceptions never affect the tool result.
 
 For a durable audit trail use `<git-common-dir>/dsh-tower/activity.jsonl` and `MISSIONS.md` instead;
 events are process-local and are not replayed.

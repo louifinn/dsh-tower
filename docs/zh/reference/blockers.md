@@ -3,7 +3,7 @@
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 32 个稳定 blocker/failure code。
 
 ## 门禁 blocker（26 个）
 

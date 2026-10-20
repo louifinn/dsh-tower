@@ -113,6 +113,7 @@ test('2.1 plan: references and review exemption fields round-trip and validate',
 
 test('2.1 discovery: tower_test records a receipt, completion adds the tests check, batch closes', async () => {
   const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { tests: { admission: 'complete' } })
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {
@@ -172,6 +173,7 @@ test('2.1 discovery: tower_test records a receipt, completion adds the tests che
 
 test('2.1 discovery: a failing command blocks completion with tests-failed', async () => {
   const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { tests: { admission: 'complete' } })
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {

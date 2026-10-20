@@ -95,6 +95,7 @@ async function mergedMission(tower, repo, title) {
     merge: 'merge',
     findings: 'none',
     decision: 'fixture review',
+    actor: { name: 'tower', role: 'tower' },
     breakGlassReason: 'state-machine fixture has no independent reviewer',
   })
   const merged = await tower.merge({ missionId: id, activity: {} })

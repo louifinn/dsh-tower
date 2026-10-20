@@ -23,8 +23,6 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
   file findings, and submit a review.
 - **Scope gate.** A mission may only change files matched by its declared scope globs; out-of-scope
   changes block the merge.
-- **Worktree isolation.** Workers operate in a dedicated worktree and branch; the main checkout is only
-  touched by merge/teardown.
 - **Mode control is explicit and configurable.** `/tower` is always available. With
   `mode.allowAgentControl:true` (the default), the model may also enter/leave with `tower_control` and
   a mandatory reason; every change records actor/reason. Set it to `false` for human-only mode control.
@@ -32,10 +30,11 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **No automatic goal resume.** Entering pauses the active goal; leaving does not resume it.
 - **Advisory workspace lock.** `mode.workspaceLock` prevents two Tower sessions from accidentally driving
   one repository; it is a same-user coordination lock, not authentication between users.
-- **Test discovery is repository code.** `tower_test`/`tower_complete` execute `package.json`
-  `tower.testDiscovery` commands in the mission worktree with the DSH process's OS permissions. Set
-  `tests.allowPackageDiscovery:false` for untrusted repositories; output/time budgets fail closed but are
-  not a sandbox.
+- **Test discovery is repository code.** `tower_test`/`tower_complete` can execute `package.json`
+  `tower.testDiscovery` commands in the mission worktree with the DSH process's OS permissions.
+  `tests.admission` defaults to `off`, so this happens only on an explicit `tower_test`; set
+  `tests.allowPackageDiscovery:false` for untrusted repositories. Output/time budgets fail closed but
+  are not a sandbox.
 - **Review exemption is opt-in.** `reviewPolicy:"none"` requires `gates.allowReviewExemption:true` and a
   non-empty reason. It is off by default because a model-driven tower could otherwise self-exempt; the
   exemption and its reason are recorded in state/events and never granted to workers.
@@ -47,6 +46,11 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 
 ## Not enforced by the plugin (deployment concerns)
 
+- **Worktree isolation is a protocol convention, not an OS sandbox.** Workers are assigned a dedicated
+  worktree and branch and told to stay there, but the `tower-worker` preset still includes `pwsh`,
+  `write`, and `edit`; those tools can write absolute paths or run Git in the main checkout. The scope
+  gate checks the committed branch diff, not filesystem access. For hard isolation use a container,
+  separate OS user, or a restricted host tool policy.
 - **Sandboxing.** Host plugins run outside the filesystem sandbox; the reviewer's shell ability is
   removed at the tool-surface level, but the underlying process still has whatever OS permissions DSH
   has. Deployments that need hard isolation must restrict the process/user themselves.

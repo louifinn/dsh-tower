@@ -213,7 +213,7 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
       decision: 'detail review',
       checks: ['diff'],
       breakGlassReason: 'status fixture has no independent reviewer',
-    }, { agent: { id: 'agent-not-in-roster' } })
+    })
 
     const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.missionId, 'M1')

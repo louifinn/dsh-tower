@@ -78,6 +78,10 @@ dsh plugin --profile <profile> add <absolute path to this repository>
 
 The Host plugin is loaded when the DSH process starts, so **restart DSH after installing or updating**. Remove it with `remove_bundle` and the package name `dsh-tower`.
 
+The optional Web UI ships inside the npm package at `ui-bundle/`: for an npm install the target is
+`<profile>/node_modules/dsh-tower/ui-bundle`, or `ui-bundle/` in a source checkout. Install it with
+`plugin_manager({action:"install_bundle", target:"<that directory>"})`, restart DSH, then refresh the page.
+
 ## Quick start
 
 ```text

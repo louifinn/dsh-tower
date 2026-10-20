@@ -51,7 +51,8 @@
     "LICENSE",
     "CONTRIBUTING.md",
     "SECURITY.md",
-    "docs/"
+    "docs/",
+    "ui-bundle/"
   ],
   "dsh": {
     "bundle": {

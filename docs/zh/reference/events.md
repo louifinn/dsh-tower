@@ -3,7 +3,7 @@
 [English](../../reference/events.md) | **简体中文**
 
 Tower 在工具成功调用（变更与只读）后发出进程内 Cordis 事件，其他插件因此可以观察仓库，而不必轮询。
-事件**不会**通过网络发送，也不包含遥测。
+本版本发出 28 个进程内事件。事件**不会**通过网络发送，也不包含遥测。
 
 ```js
 ctx.on('tower/merge', (payload) => {
@@ -38,9 +38,11 @@ ctx.on('tower/merge', (payload) => {
 | `tower/resource` | `tower_resource` 获取/释放/查看租约之后 |
 | `tower/import_legacy` | `tower_import_legacy` 保存旧版快照之后 |
 | `tower/legacy_map` | `tower_legacy_map` 映射或列出旧 id 之后 |
+| `tower/mode` | `tower_mode` 读取/变更会话模式之后（`value.mode`、`allowAgentControl`、`deniedWhileActive`） |
+| `tower/control` | `tower_control` 进入/退出模式之后（`value.mode`，操作者/理由在 `value` 中） |
+| `tower/reload` | `tower_reload` 返回重载调度/结果之后 |
 
-`tower_mode`、`tower_control` 与 `tower_reload` 不发出 Tower 事件。payload 是 JSON：
-`{tool, repoRoot, value}`。监听器抛错不会影响工具结果。
+payload 是 JSON：`{tool, repoRoot, value}`。监听器抛错不会影响工具结果。
 
 需要可持久审计的调用链时，请使用 `<git-common-dir>/dsh-tower/activity.jsonl` 与 `MISSIONS.md`；
 事件是进程内的，不会重放。

@@ -1,7 +1,8 @@
 # Blockers and failure codes
 
 `tower_preflight` returns `{ok:false, blockers:[{code, detail}]}`. `tower_merge` and `tower_rebase`
-return the same shape for operation failures. Codes are stable; the detail is human-facing.
+return the same shape for operation failures. Codes are stable; the detail is human-facing. The
+tables below define 32 stable blocker/failure codes.
 
 ## Gate blockers (26)
 

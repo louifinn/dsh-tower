@@ -163,7 +163,7 @@ function settle() {
 
 async function initAndPlan(repo, missions) {
   const tower = await Tower.open(repo)
-  const initialized = await tower.init({})
+  const initialized = await tower.init({ towerAgentId: 'tower-agent' })
   assert.equal(initialized.created, true)
   const planned = await tower.plan({ missions })
   assert.equal(planned.missions[0].id, 'M1')
@@ -278,7 +278,7 @@ test('reviewer spawn: rejected before completion, tower-reviewer afterwards', as
   const harness = makeHarness()
   try {
     const tower = await Tower.open(repo)
-    await tower.init({})
+    await tower.init({ towerAgentId: 'tower-agent' })
     await tower.plan({
       missions: [{ title: 'Reviewer case', scope: ['src/**'], tasks: ['write the file'] }],
     })

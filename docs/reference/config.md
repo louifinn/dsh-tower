@@ -58,6 +58,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per branch. |
 | `merge.timeoutMs` | `900000` (15 min) | Default `tower_merge` timeout, including hooks. A per-call `timeoutMs` wins. |
 | `merge.maxBufferBytes` | `67108864` (64 MB) | Merge output buffer. |
+| `git.timeoutMs` | `15000` | Default timeout for Git commands other than merge; merge uses `merge.timeoutMs`. |
 | `worktrees.root` | `''` | Default worktree parent; empty derives `<checkout parent>/.dsh-tower-worktrees/<hash>`. |
 | `spawn.workerPreset` | `tower-worker` | Preset used for `role=worker`. |
 | `spawn.reviewerPreset` | `tower-reviewer` | Preset used for `role=reviewer`. |
@@ -72,7 +73,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `send.maxPerMinute` | `120` | Per-repository `tower_send` rate limit (0 disables); exceeding it returns `rate-limited`. |
 | `send.interruptDefault` | `false` (bundled patch: `true`) | Default for `tower_send.interrupt` (interrupt the running turn before delivering). |
 | `tests.enabled` | `true` | Run declared test discovery when the worktree `package.json` configures it. |
-| `tests.admission` | `complete` | `spawn` runs discovery before starting a worker, `complete` at `tower_complete`, `off` only on explicit `tower_test`. |
+| `tests.admission` | `off` | `spawn` runs discovery before starting a worker, `complete` at `tower_complete`, `off` only on explicit `tower_test` (default; repository code is not executed automatically). |
 | `tests.timeoutMs` | `60000` | Per discovery command timeout. |
 | `tests.maxBytes` | `16777216` (16 MiB) | Captured stdout cap per command. |
 | `tests.autoChecks` | `true` | Attach an automatic `tests` check to the completion report. |

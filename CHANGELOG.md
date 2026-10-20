@@ -21,6 +21,16 @@
 
 ### 修复
 
+- **安全审计 2026-10-21（#13）**：授权解析改为 fail-closed（未登记/无法解析的调用者不再被视为
+  tower）；`tower_merge` 只合并 gate 校验过的 SHA 并在 gate→merge 间重新校验 base/tip；
+  已落地对账要求分支 tip 真正包含在 base；reviewer 身份与 spawn tip 缺失均拒绝；完成时拒绝 dirty
+  worktree；spawn 先预留 roster 再启动并在失败时回收；provision/teardown 与状态写入增加回滚/归属
+  校验；state/tower 锁改为可安全回收死 PID 并避免删除活跃锁；Git 子进程剥离 `GIT_*` 重定向，
+  测试发现使用最小环境；lease status 不再回显 token；仓库级配置只能收紧、不能放宽 `mode.*`；
+  恢复 skill 删除破坏性 rm 指引。
+- **GitHub Issues #14–#42 的回归项**：stale roster 可恢复；dirty completion、adopt 重复观测、
+  spawn 失败、配置嵌套未知键、doctor 坏配置、teardown 分支删除失败、batch receipt 文件校验、
+  mode/control/reload 事件、Git 超时配置、不可变 SHA merge、测试 receipt 体积上限等。
 - **文档与实现不一致**：`gates.requireTests` 文档原写“reviewed tip”，实现校验当前 mission 分支
   tip；已同步英文/中文配置、测试与 blocker 参考。
 

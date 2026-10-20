@@ -24,8 +24,9 @@ untouched — call `tower_merge` to record it.
 
 ## `state.lock` reports another writer
 
-Wait, then retry. Never delete the lock while a writer may be active; if the process is gone,
-remove `<git-common-dir>/dsh-tower/state.lock` deliberately and retry.
+Wait and retry; a live writer must never be interrupted. If the holder is provably dead, use a
+supported recovery path (or ask the human to run one) that verifies the PID is gone and takes a
+backup first. **Do not delete `state.lock` or the state directory from this playbook.**
 
 ## Worktree missing or dirty
 
@@ -35,6 +36,7 @@ explicit teardown `force` decision.
 
 ## Reset a repository's Tower state
 
-Only when no mission is in flight and you accept losing mission history: stop all agents, remove
-`<git-common-dir>/dsh-tower/`, then `tower_init` again. Worktrees and branches must be cleaned
-manually.
+**Do not delete `<git-common-dir>/dsh-tower/` from this playbook.** That directory contains mission,
+review, roster, finding and activity history; deleting it can lose unrecoverable work. Stop and ask
+the human to inspect `tower_doctor`, take a backup, and decide on a controlled repair. Worktrees and
+branches must be cleaned only after that decision.

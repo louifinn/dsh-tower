@@ -81,21 +81,29 @@ test('repo config: overrides profile values and keeps unset profile values', asy
   }
 })
 
-test('repo config: legacy section/allowAgentControl names are accepted', async () => {
+test('repo config: mode.* keys cannot weaken the session mode guard', async () => {
   const { root, repo } = makeRepo()
   try {
     configureRuntime({})
-    writeRepoConfig(repo, { section: 'repo-specific tower text', allowAgentControl: true })
+    writeRepoConfig(repo, { section: 'repo-specific tower text', allowAgentControl: false, mode: { denyTools: ['noop'], workspaceLock: false } })
     const tower = await Tower.open(repo)
-    assert.equal(tower.config.section, 'repo-specific tower text')
-    assert.equal(tower.config.mode.promptSection, 'repo-specific tower text')
-    assert.equal(tower.config.mode.allowAgentControl, true)
+    assert.equal(tower.config.section, '')
+    assert.equal(tower.config.mode.promptSection, undefined)
+    assert.equal(tower.config.mode.allowAgentControl, false)
+    assert.ok(tower.config.mode.denyTools.includes('create_goal'))
+    assert.notDeepEqual(tower.config.mode.denyTools, ['noop'])
 
-    // Canonical keys win over the legacy aliases when both are present.
-    writeRepoConfig(repo, { section: 'legacy text', mode: { promptSection: 'canonical text' } })
+    writeRepoConfig(repo, { mode: { promptSection: 'repo text', allowAgentControl: false } })
     const both = await Tower.open(repo)
-    assert.equal(both.config.section, 'canonical text')
-    assert.equal(both.config.mode.promptSection, 'canonical text')
+    assert.equal(both.config.section, '')
+    assert.equal(both.config.mode.allowAgentControl, false)
+
+    // A repo can tighten but cannot enable a profile-disabled control.
+    configureRuntime({ mode: { allowAgentControl: false } })
+    writeRepoConfig(repo, { mode: { allowAgentControl: true } })
+    const cannotEnable = await Tower.open(repo)
+    assert.equal(cannotEnable.config.mode.allowAgentControl, false)
+    configureRuntime({})
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -127,6 +135,12 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
 
     writeRepoConfig(repo, { allowAgentToggle: true })
     await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*unknown key/)
+
+    writeRepoConfig(repo, { review: { requireReview: true, require_review: true } })
+    await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*review\.require_review/)
+
+    writeRepoConfig(repo, { spawn: { workerModel: { model: 'x', typo: 1 } } })
+    await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*spawn\.workerModel.*typo/)
 
     writeRepoConfig(repo, { merge: { timeoutMs: 5 } })
     await assert.rejects(() => Tower.open(repo), /\[tower:config-invalid\]/)

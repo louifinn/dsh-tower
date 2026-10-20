@@ -78,6 +78,10 @@ dsh plugin --profile <profile> add <本仓库的绝对路径>
 
 Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**。卸载使用 `remove_bundle`，包名 `dsh-tower`。
 
+可选的 Web UI 随 npm 包一起发布在 `ui-bundle/`：npm 安装后目标为
+`<profile>/node_modules/dsh-tower/ui-bundle`，源码安装时为目标仓库的 `ui-bundle/` 目录。用
+`plugin_manager({action:"install_bundle", target:"<该目录>"})` 安装并重启 DSH，然后刷新页面。
+
 ## 快速开始
 
 ```text

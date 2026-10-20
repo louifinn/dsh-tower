@@ -92,6 +92,7 @@ test('tower protocol: init → plan → complete → review → merge → teardo
       merge: 'merge',
       findings: 'none',
       decision: 'single in-scope file',
+      actor: { name: 'tower', role: 'tower' },
       breakGlassReason: 'protocol e2e has no independent reviewer',
     })
     assert.equal(review.missionStatus, 'completed')
@@ -196,6 +197,7 @@ async function reviewedMission(prefix) {
     merge: 'merge',
     findings: 'none',
     decision: 'single in-scope file',
+    actor: { name: 'tower', role: 'tower' },
     breakGlassReason: 'protocol e2e has no independent reviewer',
   })
   return { root, repo, tower, wt, branch: provisioned.worktree.branch }

@@ -19,7 +19,6 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 - **只读 reviewer preset。** `tower-reviewer` preset 从工具面移除 `write`、`edit`、`pwsh`、
   `tower_mission` 与 `tower_complete`；reviewer 只能读、看 diff、发消息、记录 finding 和提交审查。
 - **Scope 门禁。** mission 只能修改其声明 scope glob 匹配的文件；越界改动会阻止合并。
-- **Worktree 隔离。** worker 在独立 worktree 与分支上工作；主检出只会被 merge/teardown 触及。
 - **模式控制显式且可配置。** `/tower` 始终可用。`mode.allowAgentControl:true`（默认）时，模型也可以
   带必填理由用 `tower_control` 进出；每次变更记录操作者与理由。设为 `false` 则仅人类可控制模式。
   重点是变更可归因，而不是固定由某一方拥有。
@@ -29,12 +28,19 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 
 ## 不由插件强制执行的约束（部署关注点）
 
+- **Worktree 隔离是协议约定，不是 OS 沙箱。** worker 会被分配独立 worktree/分支并被要求留在其中，但
+  `tower-worker` preset 仍包含 `pwsh`、`write`、`edit`；这些工具可写绝对路径或在主检出执行 Git。
+  scope 门禁检查的是提交后的分支 diff，不是文件系统访问。硬隔离需要容器、独立 OS 用户或受限的 host
+  工具策略。
 - **沙箱。** Host 插件运行在文件系统沙箱之外；reviewer 的 shell 能力是在工具面层面移除的，但底层
   进程仍拥有 DSH 的 OS 权限。需要硬隔离的部署必须自行限制进程/用户。
 - **reviewer 信任。** 审查是 reviewer agent/模型给出的背书；插件能把它绑定到提交，但无法证明
   reviewer 真的推理正确。高价值分支建议使用独立模型/角色。
 - **仓库钩子。** `git merge` 会运行目标仓库的钩子（`pre-merge-commit` 等）。Tower 无法让这些钩子
   变安全；在不受信任的仓库上运行 Tower 前请先审查钩子。
+- **测试发现是仓库代码。** `tests.admission` 默认 `off`，只有显式 `tower_test` 才会执行仓库
+  `package.json` 的 `tower.testDiscovery` 命令；该命令以 DSH 的 OS 权限运行，不是沙箱。不可信仓库应
+  设 `tests.allowPackageDiscovery:false`。
 - **HMR 重载。** 开启 `dev.hotReload` 时，`/tower reload`/`tower_reload` 会让 DSH 从磁盘重新导入
   插件。只为你信任的检出配置 HMR 监视 root；重载会执行这些文件当前的代码。
 - **提示注入。** reviewer 会读取不受信任的分支内容（diff/评论）。只读 preset 限制了影响面，但模型侧
