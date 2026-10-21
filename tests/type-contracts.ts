@@ -209,3 +209,13 @@ const _invalidFinding: Finding = { id: 'F1', title: 'x', type: 'feature' }
 
 // @ts-expect-error MergeVerdict is the three runtime verdicts
 const _invalidVerdict: Review = { missionId: 'M1', branch: 'main', round: 1, status: 'clean', mergeVerdict: 'approve', reviewedCommit: 'abc', at: 0 }
+
+// #50: the `tower` Cordis service is typed for consumers.
+declare const towerCtx: import('@deepseek-ai/cordis').Context
+const towerService = towerCtx.tower
+if (towerService) {
+  const hasSession: boolean = towerService.has('session')
+  const entries: IterableIterator<[string, unknown]> = towerService.entries()
+  void hasSession
+  void entries
+}

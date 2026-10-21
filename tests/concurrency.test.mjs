@@ -343,3 +343,32 @@ test('withGitLock serializes concurrent git mutations', async () => {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('Tower accepts injected adapters instead of importing the defaults', async () => {
+  const { Tower } = await import('../lib/tower.js')
+  const { defaultDeps } = await import('../lib/adapters/default.js')
+  let gitCalls = 0
+  let readCalls = 0
+  const deps = {
+    ...defaultDeps,
+    vcs: {
+      ...defaultDeps.vcs,
+      git: async () => {
+        gitCalls += 1
+        return 'injected\n'
+      },
+    },
+    store: {
+      ...defaultDeps.store,
+      readJson: async () => {
+        readCalls += 1
+        throw new Error('injected store used')
+      },
+    },
+  }
+  const tower = new Tower({ root: process.cwd(), commonDir: path.join(process.cwd(), '.git') }, {}, deps)
+  assert.equal(await tower.git(process.cwd(), ['status']), 'injected\n')
+  await assert.rejects(() => tower.load(), /injected store used/)
+  assert.equal(gitCalls, 1)
+  assert.equal(readCalls, 1)
+})

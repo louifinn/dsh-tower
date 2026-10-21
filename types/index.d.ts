@@ -303,3 +303,21 @@ export interface ToolDefinition {
   parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] }
   execute(args: Record<string, unknown>, exec: { agent?: { id?: string } }): Promise<unknown>
 }
+
+/** Owned Tower mode state exposed as the `tower` Cordis service. */
+export interface ModeStateService {
+  has(key: string): boolean
+  get(key: string): unknown
+  set(key: string, value: unknown): this
+  delete(key: string): boolean
+  values(): IterableIterator<unknown>
+  entries(): IterableIterator<[string, unknown]>
+  replace(entries?: Iterable<[string, unknown]>): void
+  clear(): void
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    tower?: ModeStateService
+  }
+}

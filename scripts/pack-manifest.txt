@@ -44,6 +44,7 @@ docs/zh/reference/testing.md
 docs/zh/reference/tools.md
 icon.svg
 index.js
+lib/adapters/default.js
 lib/adapters/store-fs.js
 lib/adapters/vcs-git.js
 lib/batch.js
@@ -131,6 +132,7 @@ skills.js
 skills/tower-recovery.md
 skills/tower-review.md
 skills/tower-worker-protocol.md
+types/cordis.d.ts
 types/index.d.ts
 ui-bundle/README.md
 ui-bundle/client.js
