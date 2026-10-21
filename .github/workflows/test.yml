@@ -27,6 +27,8 @@ jobs:
         run: npm run docs:check:generated
       - name: Generated tools reference
         run: npm run docs:check:generated:tools
+      - name: Generated config reference
+        run: npm run docs:check:generated:config
       - name: Pack manifest
         run: npm run pack:check
       - name: Architecture fitness

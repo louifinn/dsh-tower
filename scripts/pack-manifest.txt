@@ -17,6 +17,7 @@ docs/guide/scenarios-and-philosophy.md
 docs/operations/runbook.md
 docs/operations/security.md
 docs/reference/blockers.md
+docs/reference/config.generated.md
 docs/reference/config.md
 docs/reference/doctor.md
 docs/reference/errors.generated.md
@@ -70,6 +71,7 @@ scripts/architecture.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
 scripts/enable-dev-hmr.mjs
+scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
 scripts/generate-tools-reference.mjs
 scripts/pack-manifest.txt

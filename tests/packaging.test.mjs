@@ -68,3 +68,12 @@ test('generated tools reference matches the registered surface', async () => {
   })
   assert.match(output, /tools in sync/)
 })
+
+test('generated config reference matches the schema defaults', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const output = execFileSync(process.execPath, ['scripts/generate-config-reference.mjs', '--check'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.match(output, /keys in sync/)
+})
