@@ -39,3 +39,30 @@ test('pure merge gate returns review/worker/test blockers from snapshots', async
   assert.deepEqual(blockers, ['tip-moved', 'worker-busy', 'tests-missing'])
   assert.deepEqual(mergeGateBlockers({ mission, roster: [], config: { review: { requireReview: false } } }), [])
 })
+
+test('pure scope and planning helpers are testable without a repository', async () => {
+  const { fileInScope, normalizeScope, scopesOverlap } = await import('../lib/domain/scope.js')
+  const { addAutoDeps, assertAcyclic, nextMissionNumber } = await import('../lib/domain/planning.js')
+  assert.equal(fileInScope(['src/**'], 'src/a/b.js'), true)
+  assert.equal(fileInScope(['src/*.js'], 'src/a/b.js'), false)
+  assert.deepEqual(normalizeScope(['./src//']), ['src'])
+  assert.equal(scopesOverlap(['src/a/**'], ['src/a/b/**']), true)
+  assert.equal(nextMissionNumber([{ id: 'M2' }, { id: 'M7' }]), 8)
+  const missions = [
+    { id: 'M1', kind: 'build', status: 'active', scope: ['src/a/**'], deps: [] },
+    { id: 'M2', kind: 'build', status: 'planned', scope: ['src/a/b/**'], deps: [] },
+  ]
+  addAutoDeps([missions[1]], [missions[0]])
+  assert.deepEqual(missions[1].deps, ['M1'])
+  assert.doesNotThrow(() => assertAcyclic(missions))
+})
+
+test('pure mission summaries expose counts and full detail', async () => {
+  const { missionSummary, fullMission } = await import('../lib/domain/summary.js')
+  const mission = {
+    id: 'M1', title: 'T', kind: 'build', status: 'active', scope: ['x/**'], deps: [],
+    tasks: [{ text: 'a', status: 'done' }, { text: 'b', status: 'open' }, { text: 'c', status: 'dropped' }],
+  }
+  assert.deepEqual(missionSummary(mission).tasks, { total: 3, done: 1, open: 1, dropped: 1 })
+  assert.equal(fullMission(mission).tasks.length, 3)
+})
