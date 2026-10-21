@@ -69,6 +69,8 @@
     "test:coverage": "node --test --experimental-test-coverage tests/*.test.mjs",
     "dev:hmr": "node scripts/enable-dev-hmr.mjs",
     "docs:check": "node scripts/check-docs.mjs",
+    "docs:generate:errors": "node scripts/generate-error-reference.mjs",
+    "docs:check:generated": "node scripts/generate-error-reference.mjs --check",
     "pack:check": "node scripts/check-pack.mjs",
     "architecture:check": "node scripts/architecture.mjs",
     "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check"

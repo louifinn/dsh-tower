@@ -19,6 +19,7 @@ docs/operations/security.md
 docs/reference/blockers.md
 docs/reference/config.md
 docs/reference/doctor.md
+docs/reference/errors.generated.md
 docs/reference/errors.md
 docs/reference/events.md
 docs/reference/operations.md
@@ -68,6 +69,7 @@ scripts/architecture.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
 scripts/enable-dev-hmr.mjs
+scripts/generate-error-reference.mjs
 scripts/pack-manifest.txt
 skills.js
 skills/tower-recovery.md

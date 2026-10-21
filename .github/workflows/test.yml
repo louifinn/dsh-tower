@@ -23,6 +23,8 @@ jobs:
         run: npm test
       - name: Documentation consistency
         run: npm run docs:check
+      - name: Generated error reference
+        run: npm run docs:check:generated
       - name: Pack manifest
         run: npm run pack:check
       - name: Architecture fitness
