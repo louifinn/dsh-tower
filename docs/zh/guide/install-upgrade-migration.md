@@ -31,6 +31,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.0.3 → 2.0.4**：不需要迁移 state/config。本版本是安全加固与完整性修复（授权、merge SHA 绑定、
+  dirty worktree 完成拒绝、stale lock 恢复、限制 test/git 进程环境、`tower_recover`、UI 0.2.2）。
+  升级后请按威胁模型重新检查 `review.requireReview`、`tests.admission` 与 worker 工具权限。
 - **2.0.1 → 2.0.3**：不需要迁移状态。2.0.3 起独立审查**默认可选**（`review.requireReview:false`）；
   若要保留旧的审查门禁行为，请显式设为 `true`。2.0.1 为 `tower_batch` 增加 `abandon`、允许 merged
   成员 close、让 doctor 跳过已 teardown 的 worktree，并修复终态 mission spawn/preflight 边界。

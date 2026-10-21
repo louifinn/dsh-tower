@@ -234,10 +234,10 @@ test('client.js is a plain-JS __ModuleLoader__ module and syntax-checks', () => 
   assert.equal(typeof plugin.apply, 'function')
 })
 
-test('bundle manifest is private 0.2.1 and exports the client artifact', () => {
+test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'))
   assert.equal(pkg.name, 'dsh-tower-ui')
-  assert.equal(pkg.version, '0.2.1')
+  assert.equal(pkg.version, '0.2.2')
   assert.equal(pkg.private, true)
   assert.equal(pkg.exports['./client'], './client.js')
   assert.ok(pkg.files.includes('client.js'))
@@ -353,7 +353,7 @@ test('diagnostics record every registration and no guarded failure', () => {
   const diagnostics = window.__TOWER_UI_DIAG__
   assert.ok(diagnostics && typeof diagnostics === 'object')
   assert.equal(diagnostics.plugin, 'dsh-tower-ui')
-  assert.equal(diagnostics.version, '0.2.1')
+  assert.equal(diagnostics.version, '0.2.2')
   assert.equal(diagnostics.applied, true)
   assert.equal(diagnostics.errors.length, 0, JSON.stringify(diagnostics.errors))
   assert.deepEqual(diagnostics.toolviews.slice().sort(), TOOL_NAMES)

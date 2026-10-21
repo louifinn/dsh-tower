@@ -17,7 +17,7 @@ Please do **not** publish exploit details in a public issue. Open a minimal issu
 
 ## Supported versions
 
-Security fixes target the latest released `2.x` line (currently `2.0.3`). Older pre-release snapshots
+Security fixes target the latest released `2.x` line (currently `2.0.4`). Older pre-release snapshots
 are not maintained. Private reports are acknowledged in the minimal public issue and handled through
 the maintainer's private channel; do not attach exploit details, tokens, or production logs to a
 public issue.

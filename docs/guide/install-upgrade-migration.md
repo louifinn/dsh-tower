@@ -29,6 +29,10 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.0.3 → 2.0.4**: no state/config migration. This is a security-hardening and integrity release
+  (authorization, merge SHA binding, dirty-worktree completion, stale-lock recovery, limited test/git
+  process environment, `tower_recover`, UI 0.2.2). Review `review.requireReview`, `tests.admission` and
+  worker tool permissions against your threat model after upgrading.
 - **2.0.1 → 2.0.3**: no state migration. Independent review became **optional by default** in 2.0.3
   (`review.requireReview:false`); set it to `true` to keep the old review-gated merges. 2.0.1 added
   `tower_batch` `abandon`, accepted merged members in batch close, made doctor skip torn-down worktrees,

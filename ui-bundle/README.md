@@ -2,7 +2,7 @@
 
 An **optional** Web Client bundle for the Host `dsh-tower` plugin. It never touches Tower state directly: everything it renders is derived from the conversation the user is already looking at, or from the tool results already in that conversation. There is no Host → Client remote channel, no `host.call`, no DOM manipulation, no iframe, and no import of Harness Client packages (the only module it requires is `react` from the browser module table).
 
-Version: **0.2.1** (private, not published). The Host plugin version is unchanged.
+Version: **0.2.2** (private, not published). The Host plugin version is unchanged.
 
 This revision fixes GitHub **#11** (persistent, history-derived Tower-mode indicator in the composer dock) and **#12** (mode-aware `Tower mode · disabled` rows for guard-denied tools), see below.
 

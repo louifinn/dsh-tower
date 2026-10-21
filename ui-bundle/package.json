@@ -1,6 +1,6 @@
 {
   "name": "dsh-tower-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Opt-in Tower Web Client surfaces: tool cards, a persistent Tower-mode chip, mode-aware denied-tool rows, composer dock summary, and a transient overlay status strip.",

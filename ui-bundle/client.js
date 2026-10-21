@@ -1,4 +1,4 @@
-// dsh-tower-ui 0.2.1 — optional Web Client surfaces for the Tower plugin.
+// dsh-tower-ui 0.2.2 — optional Web Client surfaces for the Tower plugin.
 //
 // Registrations, all plain React (no iframe, no DOM writes, no Host RPC, no
 // Harness Client package imports):
@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const NS = 'tower-ui'
-    const VERSION = '0.2.1'
+    const VERSION = '0.2.2'
     const DIAG_KEY = '__TOWER_UI_DIAG__'
     const NOTICE_MS = 4500
     const MAX_TEXT = 150
