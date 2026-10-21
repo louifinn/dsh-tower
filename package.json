@@ -41,6 +41,7 @@
     "skills.js",
     "skills/",
     "lib/*.js",
+    "lib/domain/*.js",
     "cordis.patch.yml",
     "scripts/",
     "locale/*.json",

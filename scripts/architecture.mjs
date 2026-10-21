@@ -34,8 +34,8 @@ function evaluator(root) {
     const text = fs.readFileSync(path.join(root, file), 'utf8')
     const lines = text.split('\n')
     const imports = [...text.matchAll(/from\s+'([^']+)'|require\('([^']+)'\)/g)].map((match) => match[1] ?? match[2])
-    if (file.startsWith('domain/') && imports.some((spec) => /^(node:fs|node:fs\/promises|node:child_process|\.\.\/adapters|adapters\/)/.test(spec))) {
-      record('domain-pure', file, 'domain imports I/O or adapters', 'warn')
+    if ((file.startsWith('domain/') || file.startsWith('lib/domain/')) && imports.some((spec) => /^(node:fs|node:fs\/promises|node:child_process|\.\.\/adapters|adapters\/)/.test(spec))) {
+      record('domain-pure', file, 'domain imports I/O or adapters', 'error')
     }
     if (file.startsWith('lib/') && imports.includes('node:child_process') && !CHILD_PROCESS_ALLOWED.has(file)) {
       record('child-process-surface', file, 'only adapters/** may spawn processes', 'warn')
