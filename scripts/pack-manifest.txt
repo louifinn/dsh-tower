@@ -67,6 +67,8 @@ lib/tools/doctor.js
 lib/tools/import-legacy.js
 lib/tools/init.js
 lib/tools/legacy-map.js
+lib/tools/mission.js
+lib/tools/plan.js
 lib/tools/recover.js
 lib/tools/reload.js
 lib/tools/resource.js
