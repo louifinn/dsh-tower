@@ -24,6 +24,9 @@
   回收协议串行化 git 操作，为把 git 移出 state lock 做准备。
 - **#51 merge/rebase/teardown**：三者改为 prepare/act/commit；长 git 操作在 `git.lock` 下进行，
   state lock 只做 revision 复核与写回；rebase 增加可对账的 `rebaseIntent`。
+- **#51 init/provision/merge reconcile**：init/provision 同样锁外 prepare + `git.lock` act +
+  短 state lock 复核；merge 的 intent/landed 对账改为锁外 git 观察 + revision CAS，任何
+  state lock 内不再启动 git。
 - **#51 init/provision**：`tower_init` 与 worktree provision 同样改为锁外 prepare + `git.lock`
   下 act + 短 state lock 复核；provision 失败/并发变更时回滚 worktree 与 branch。
 - **#45 use-case 类型**：`lib/git.js`、`lib/tower/gate/read/batch` 纳入 checkJs；补齐

@@ -94,8 +94,10 @@ lib/tower.js
 lib/tower/batch.js
 lib/tower/findings.js
 lib/tower/gate.js
+lib/tower/init.js
 lib/tower/merge.js
 lib/tower/messages.js
+lib/tower/provision.js
 lib/tower/read.js
 lib/tower/rebase.js
 lib/tower/review.js
