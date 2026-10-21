@@ -1,6 +1,28 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "Mission planning, isolated worktrees, and review-gated merges for multi-agent work."
+    "description": "Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges."
+  },
+  "components": {
+    "tower-bundle": {
+      "title": "Tower",
+      "summary": "Mission planning, isolated worktrees, worker/reviewer agents, and merge gates.",
+      "disables": "Turns off the whole Tower bundle; no orphan preset or skill is left behind."
+    },
+    "tower-skills": {
+      "title": "Tower skills",
+      "summary": "Playbooks for worker/reviewer agents and recovery after a blocked merge.",
+      "disables": "Internal section; toggled with the Tower bundle."
+    },
+    "preset-tower-worker": {
+      "title": "Tower worker",
+      "summary": "Writes code, runs verification, and commits only the files assigned to its mission.",
+      "disables": "Internal section; a missing preset is rejected before planning/mode entry."
+    },
+    "preset-tower-reviewer": {
+      "title": "Tower reviewer",
+      "summary": "Read-only checks for scope and acceptance, returning a clean verdict or findings.",
+      "disables": "Internal section; a missing preset is rejected before planning/mode entry when review is required."
+    }
   }
 }

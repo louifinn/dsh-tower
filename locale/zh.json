@@ -2,5 +2,27 @@
   "meta": {
     "title": "Tower",
     "description": "多代理任务规划、隔离工作树与审查门禁合并。"
+  },
+  "components": {
+    "tower-bundle": {
+      "title": "Tower 控制塔",
+      "summary": "任务规划、隔离工作树、执行/审查代理与合并门禁。",
+      "disables": "关闭后整个 Tower 一起停用；不会留下孤立的代理预设或技能。"
+    },
+    "tower-skills": {
+      "title": "Tower 技能包",
+      "summary": "执行与审查代理的操作手册，以及失败后的恢复指南。",
+      "disables": "内部 section；随 Tower 整体启停。"
+    },
+    "preset-tower-worker": {
+      "title": "Tower 执行代理",
+      "summary": "在独立分支里写代码、跑验证并提交，只改分给它的文件。",
+      "disables": "内部 section；缺失时会在规划/进入模式前被拒绝。"
+    },
+    "preset-tower-reviewer": {
+      "title": "Tower 审查代理",
+      "summary": "只读检查改动是否越界、是否达标，给出通过或问题清单。",
+      "disables": "内部 section；缺失且强制审查时会在规划/进入模式前被拒绝。"
+    }
   }
 }

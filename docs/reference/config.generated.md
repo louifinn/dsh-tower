@@ -52,7 +52,13 @@
 | `gates.allowReviewExemption` | `false` | Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers. |
 | `docs.board` | `true` | Write a human-readable MISSIONS.md after mission changes. |
 | `docs.boardLocation` | `"common"` | common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md. |
-| `tools.exposeOperational` | `true` | Register batch/resource/import/legacy/recover/test/doctor tools; false shrinks the fixed tool-schema context budget. |
+| `tools.exposeOperational` | `true` | Master switch for batch/resource/import/legacy/recover/test/doctor tools. |
+| `tools.exposeBatch` | `true` | Register tower_batch. |
+| `tools.exposeImport` | `true` | Register tower_import_legacy/tower_legacy_map. |
+| `tools.exposeLeases` | `true` | Register tower_resource advisory leases. |
+| `tools.exposeTests` | `true` | Register tower_test; gates.requireTests requires it. |
+| `tools.exposeRecovery` | `true` | Register tower_recover (stale state-lock escape). |
+| `tools.exposeDoctor` | `true` | Register tower_doctor (read-only health contract). |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.hotReload` | `true` | Register tower_reload and /tower reload when the DSH HMR service is available. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload, so the tool result is delivered first. |

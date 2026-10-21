@@ -407,3 +407,26 @@ test('mode entry refuses when a required preset is missing (#64)', async () => {
   await assert.rejects(() => callCommand(commands, makeAgent('agent-preset-missing'), ''), /preset-missing/)
   assert.equal(ctx.tower.get('agent-preset-missing'), undefined)
 })
+
+test('individual operational flags gate one capability without hiding core tools', () => {
+  const { ctx, tools } = makeCtx()
+  apply(ctx, { tools: { exposeBatch: false, exposeTests: false } })
+  assert.ok(tools.has('tower_status'))
+  assert.ok(tools.has('tower_spawn'))
+  assert.equal(tools.has('tower_batch'), false)
+  assert.equal(tools.has('tower_test'), false)
+  assert.ok(tools.has('tower_recover'))
+  assert.ok(tools.has('tower_doctor'))
+})
+
+test('requireTests with tests/tool disabled is rejected at config resolution', async () => {
+  const { resolveTowerConfig } = await import('../lib/config.js')
+  assert.throws(
+    () => resolveTowerConfig({ gates: { requireTests: true }, tools: { exposeTests: false } }),
+    /requireTests.*test discovery is disabled/,
+  )
+  assert.throws(
+    () => resolveTowerConfig({ gates: { requireTests: true }, tests: { enabled: false } }),
+    /requireTests/,
+  )
+})

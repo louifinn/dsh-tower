@@ -11,6 +11,10 @@
   skills 与 worker/reviewer preset 成为内部 section；子行不再可独立启停，避免 host 关闭后的 orphan。
 - **#64 preset 前置校验**：模式进入与 `tower_plan` 前解析 worker/reviewer preset；缺失时以稳定
   `preset-missing` 拒绝并点名 `preset-tower-worker` / `preset-tower-reviewer`，不再先规划后死锁。
+- **#65 可选能力开关**：`tools.exposeBatch/exposeImport/exposeLeases/exposeTests/exposeRecovery/exposeDoctor`
+  可独立关闭；`gates.requireTests:true` 与 tests/tools 关闭的组合在配置解析时直接拒绝。
+- **#67 组件文案**：host locale 增加 `components.{tower-bundle,tower-skills,preset-*}` 的
+  title/summary/disables 中英文案；预设仍为内部 section，不再作为独立开关暴露。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。
 - **#61 共存冲突**：README 增加 “Known conflicts”，doctor 增加 `loader-conflicts` 检查。
