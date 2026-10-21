@@ -102,3 +102,11 @@ test('every TowerToolError literal uses a catalog code', async () => {
     }
   }
 })
+
+test('structured TowerToolError derives retryable from the catalog', async () => {
+  const { TowerToolError } = await import('../lib/errors.js')
+  assert.equal(new TowerToolError('state-locked', 'x').retryable, true)
+  assert.equal(new TowerToolError('stale-base', 'x').retryable, true)
+  assert.equal(new TowerToolError('invalid-argument', 'x').retryable, false)
+  assert.equal(new TowerToolError('invalid-argument', 'x', { retryable: true }).retryable, true)
+})
