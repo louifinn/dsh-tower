@@ -65,3 +65,17 @@ test('classifyError: every thrown value becomes a [tower:<code>] message', () =>
   // Re-classification keeps the original object (and therefore the code).
   assert.equal(classifyError(wrapped), wrapped)
 })
+
+test('spawn backoff: three retryable failures trigger cooldown and success restores budget', async () => {
+  const { __testSpawnBackoff: backoff } = await import('../lib/tools.js')
+  const key = 'C:/tmp/backoff-test'
+  backoff.spawnBackoffState(key, 4)
+  for (let i = 0; i < 3; i += 1) backoff.recordSpawnThrottle(key, 4)
+  const view = backoff.spawnBackoffView(key, 4, 1)
+  assert.ok(view.blockedUntil > Date.now(), 'cooldown must be in the future')
+  assert.equal(view.budget, 3)
+  backoff.recordSpawnSuccess(key, 4)
+  const after = backoff.spawnBackoffView(key, 4, 0)
+  assert.equal(after.blockedUntil, 0)
+  assert.equal(after.budget, 4)
+})
