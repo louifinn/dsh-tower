@@ -77,3 +77,12 @@ test('generated config reference matches the schema defaults', async () => {
   })
   assert.match(output, /keys in sync/)
 })
+
+test('declaration contracts typecheck with tsc --noEmit', async () => {
+  const { execFileSync } = await import('node:child_process')
+  execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '--noEmit'], {
+    cwd: root,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  })
+})

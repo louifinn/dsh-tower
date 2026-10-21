@@ -33,3 +33,5 @@ jobs:
         run: npm run pack:check
       - name: Architecture fitness
         run: npm run architecture:check
+      - name: Type declarations
+        run: npm run types:check

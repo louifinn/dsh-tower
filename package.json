@@ -77,9 +77,13 @@
     "docs:check:generated:config": "node scripts/generate-config-reference.mjs --check",
     "pack:check": "node scripts/check-pack.mjs",
     "architecture:check": "node scripts/architecture.mjs",
-    "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check"
+    "types:check": "tsc --noEmit",
+    "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check && npm run types:check"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
   }
 }
