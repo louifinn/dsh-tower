@@ -58,6 +58,7 @@ lib/leases.js
 lib/legacy.js
 lib/modeState.js
 lib/modeStore.js
+lib/schemas.js
 lib/store.js
 lib/tests.js
 lib/tools.js
