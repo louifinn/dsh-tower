@@ -16,7 +16,9 @@
 - **#67 组件文案**：host locale 增加 `components.{tower-bundle,tower-skills,preset-*}` 的
   title/summary/disables 中英文案；预设仍为内部 section，不再作为独立开关暴露。
 - **#52 继续拆分 tools**：review/preflight/merge-rebase-teardown 拆为 per-tool 模块；
-  `lib/tools.js` 降至约 850 行，仅剩 spawn 与共享 helpers。
+  `lib/tools.js` 降至约 503 行。
+- **#51 two-phase 试点**：`tower_complete` 改为锁外 prepare + 锁内 revision 复核；新增
+  `lock-holds.jsonl` 遥测与 doctor p50/p95 检查（>1s warn）。
 - **#54 mode 锁等待**：`mode.lockTimeoutMs`（默认 5000ms）统一 modes.lock 的有界等待与死锁回收语义。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。
