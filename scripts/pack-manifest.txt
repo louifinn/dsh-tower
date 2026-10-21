@@ -45,6 +45,7 @@ docs/zh/reference/tools.md
 icon.svg
 index.js
 lib/batch.js
+lib/briefing.js
 lib/compatibility.js
 lib/config.js
 lib/doctor.js
