@@ -60,3 +60,25 @@ test('domain vocabulary is the single source for tool schema enums', async () =>
   assert.ok(FINDING_STATUSES.every((status) => typeof status === 'string'))
   assert.ok(Tower)
 })
+
+test('node fs and child_process are confined to the adapters', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const offenders = []
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.endsWith('.js')) {
+        const text = fs.readFileSync(full, 'utf8')
+        const rel = path.relative(root, full).split(path.sep).join('/')
+        if (/from 'node:fs'|from 'node:fs\/promises'/.test(text) && rel !== 'lib/adapters/store-fs.js') offenders.push(`${rel}:fs`)
+        if (/from 'node:child_process'/.test(text) && rel !== 'lib/adapters/vcs-git.js') offenders.push(`${rel}:child_process`)
+      }
+    }
+  }
+  walk(path.join(root, 'lib'))
+  assert.deepEqual(offenders, [])
+})
