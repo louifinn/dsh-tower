@@ -48,3 +48,24 @@ test('complete rejects a state revision change prepared outside the lock', async
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
+
+test('complete commits when the prepared revision is still current', async () => {
+  const { root, repo } = seed()
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-agent' })
+    await tower.plan({ missions: [{ title: 'Two phase ok', scope: ['x/**'] }] })
+    const state = await tower.load()
+    tower.checkCompletion = async () => ({
+      state: { revision: state.revision },
+      mission: { id: 'M1' },
+      worker: { name: 'worker-m1' },
+      commits: 1,
+    })
+    const result = await tower.complete({ missionId: 'M1', agentId: 'worker-m1', report: 'done', checks: [] })
+    assert.equal(result.mission.status, 'completed')
+    assert.equal((await tower.load()).missions[0].status, 'completed')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})
