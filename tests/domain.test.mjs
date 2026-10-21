@@ -81,3 +81,10 @@ test('pure board renderer and state validator are repository-independent', async
   assert.equal(validateState(state, 'state.json'), state)
   assert.throws(() => validateState({ ...state, schemaVersion: 99 }, 'state.json'), /schemaVersion/)
 })
+
+test('rebase waiver is a pure predicate', async () => {
+  const { rebaseWaived } = await import('../lib/domain/gate.js')
+  assert.equal(rebaseWaived({}, { at: 1, reviewedCommit: 'x' }), false)
+  assert.equal(rebaseWaived({ rebase: { at: 5, oldTip: 'old' } }, { at: 3, reviewedCommit: 'old' }), true)
+  assert.equal(rebaseWaived({ rebase: { at: 5, oldTip: 'old' } }, { at: 6, reviewedCommit: 'old' }), false)
+})
