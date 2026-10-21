@@ -66,6 +66,7 @@ lib/tools/batch.js
 lib/tools/complete.js
 lib/tools/diff-adopt.js
 lib/tools/doctor.js
+lib/tools/findings.js
 lib/tools/import-legacy.js
 lib/tools/init.js
 lib/tools/legacy-map.js
