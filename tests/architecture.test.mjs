@@ -7,14 +7,14 @@ import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES, MISSION_STATUSES }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-test('architecture fitness functions report the baseline as warnings', () => {
+test('architecture fitness functions report a clean baseline', () => {
   const output = execFileSync(process.execPath, ['scripts/architecture.mjs', '--json'], {
     cwd: root,
     encoding: 'utf8',
   })
   const result = JSON.parse(output)
   assert.equal(result.ok, true)
-  assert.ok(Array.isArray(result.violations))
+  assert.deepEqual(result.violations, [])
 })
 
 test('every architecture rule can fail on a seeded fixture', async () => {
@@ -46,6 +46,9 @@ test('every architecture rule can fail on a seeded fixture', async () => {
       'ambient-state',
     ]) {
       assert.ok(rules.has(rule), `${rule} must be able to fail`)
+    }
+    for (const violation of result.violations) {
+      assert.equal(violation.level, 'error', `${violation.rule} must be blocking`)
     }
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true })

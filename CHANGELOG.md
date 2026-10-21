@@ -40,6 +40,9 @@
   新增架构回归锁定该不变量。
 - **#50 依赖注入**：新增 `lib/adapters/default.js` 组合根；`Tower` 构造器接受
   `deps.store/vcs/clock/ids`，类内不再直接调用 git/store 模块；回归证明注入 adapter 生效。
+- **#56 前置工作**：架构 fitness 规则按实际 `lib/adapters` 边界修正并全部升级为 error
+  （domain-pure / child-process / fs / ambient-state / aggregate-size / tools-thin / tools-vocabulary），
+  baseline 零违规；`docs/architecture/overview.md` 更新为实际分层、state/modes 契约和剩余差距。
 - **#45 路线 A：TypeBox 单一 schema 源**：经调研 Schemastery 的 `toJSON()` 只序列化自身结构、不输出 JSON Schema，因此选用 TypeBox。29 个工具输入 schema 改为 `Type.Object(...)`；`define` 泛型从 schema 推导 `execute(args)` 类型；`tsc` 覆盖全部 tool 模块并加入 required/enum 负向 fixture。运行时注册前 JSON 化，wire schema 与迁移前逐项一致。
 - **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
   Store/Vcs 契约；新增完整 scripted lifecycle 与 10 项 adapter contract 测试。
