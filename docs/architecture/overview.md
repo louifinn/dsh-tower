@@ -19,6 +19,8 @@ Host plugin (index.js)
        ├─ app/review.js, findings.js, batch.js, messages.js, roster.js
        ├─ app/plan.js, mission.js, checkCompletion.js, spawn.js, recording.js
        └─ app/gate.js, read.js, board.js, missionContext.js, enrichedMissions.js
+ ports (explicit contracts):
+       ports/store.js vcs.js clock.js ids.js
  adapters (the only I/O):
        adapters/store-fs.js   the only module importing node:fs
        adapters/vcs-git.js    the only module importing node:child_process

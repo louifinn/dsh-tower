@@ -8,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const ROOTS = ['lib', 'app', 'domain', 'tools', 'adapters']
+const ROOTS = ['lib', 'app', 'domain', 'tools', 'adapters', 'ports']
 const CHILD_PROCESS_ALLOWED = new Set(['adapters/vcs-git.js'])
 const FS_ALLOWED = new Set(['adapters/store-fs.js'])
 // Composition roots own the only intentional process-wide mutable state.

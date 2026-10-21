@@ -59,7 +59,8 @@
     "CONTRIBUTING.md",
     "SECURITY.md",
     "docs/",
-    "ui-bundle/"
+    "ui-bundle/",
+    "ports/*.js"
   ],
   "dsh": {
     "bundle": {
