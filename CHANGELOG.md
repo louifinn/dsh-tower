@@ -15,6 +15,8 @@
   可独立关闭；`gates.requireTests:true` 与 tests/tools 关闭的组合在配置解析时直接拒绝。
 - **#67 组件文案**：host locale 增加 `components.{tower-bundle,tower-skills,preset-*}` 的
   title/summary/disables 中英文案；预设仍为内部 section，不再作为独立开关暴露。
+- **#52 继续拆分 tools**：review/preflight/merge-rebase-teardown 拆为 per-tool 模块；
+  `lib/tools.js` 降至约 850 行，仅剩 spawn 与共享 helpers。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。
 - **#61 共存冲突**：README 增加 “Known conflicts”，doctor 增加 `loader-conflicts` 检查。

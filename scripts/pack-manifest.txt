@@ -64,6 +64,7 @@ lib/store.js
 lib/tests.js
 lib/tools.js
 lib/tools/batch.js
+lib/tools/combat.js
 lib/tools/complete.js
 lib/tools/diff-adopt.js
 lib/tools/doctor.js
@@ -73,9 +74,11 @@ lib/tools/init.js
 lib/tools/legacy-map.js
 lib/tools/mission.js
 lib/tools/plan.js
+lib/tools/preflight.js
 lib/tools/recover.js
 lib/tools/reload.js
 lib/tools/resource.js
+lib/tools/review.js
 lib/tools/roster.js
 lib/tools/send-inbox.js
 lib/tools/status.js
