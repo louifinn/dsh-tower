@@ -159,3 +159,15 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('runtimeConfig does not cache the first resolved config across configureRuntime calls', async () => {
+  const { configureRuntime, runtimeConfig } = await import('../lib/config.js')
+  try {
+    configureRuntime({ git: { timeoutMs: 1111 } })
+    assert.equal(runtimeConfig().git.timeoutMs, 1111)
+    configureRuntime({ git: { timeoutMs: 2222 } })
+    assert.equal(runtimeConfig().git.timeoutMs, 2222)
+  } finally {
+    configureRuntime({})
+  }
+})
