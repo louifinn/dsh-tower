@@ -245,3 +245,24 @@ test('findings tool: file, list, read and transition through the tool surface', 
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('tower_plan refuses before creating missions when a preset is missing (#64)', async () => {
+  const { root, repo } = makeRepo('dsh-tower-plan-preset-')
+  const exec = { agent: { id: 'agent-plan-preset' } }
+  const { ctx, tools } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  registerTowerTools(ctx)
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    await assert.rejects(
+      () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'blocked', scope: ['x/**'] }] }, exec),
+      (error) => {
+        assert.equal(error.code, 'preset-missing')
+        return true
+      },
+    )
+    const state = await new Tower({ root: repo, commonDir: path.join(repo, '.git'), branch: 'main' }).load().catch(() => null)
+    assert.equal(state?.missions?.length ?? 0, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})
