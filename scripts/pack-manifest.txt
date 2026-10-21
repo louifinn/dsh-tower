@@ -73,6 +73,7 @@ skills.js
 skills/tower-recovery.md
 skills/tower-review.md
 skills/tower-worker-protocol.md
+types/index.d.ts
 ui-bundle/README.md
 ui-bundle/client.js
 ui-bundle/cordis.patch.yml

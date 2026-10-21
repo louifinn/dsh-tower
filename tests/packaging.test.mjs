@@ -19,6 +19,7 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
     'locale/zh.json',
     'ui-bundle/index.js',
     'COMPATIBILITY.md',
+    'types/index.d.ts',
   ]) {
     assert.ok(manifest.includes(required), `${required} must be in the published snapshot`)
   }

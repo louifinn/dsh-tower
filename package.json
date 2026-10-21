@@ -19,6 +19,7 @@
     "url": "git+https://github.com/louifinn/dsh-tower.git"
   },
   "homepage": "https://github.com/louifinn/dsh-tower#readme",
+  "types": "types/index.d.ts",
   "bugs": {
     "url": "https://github.com/louifinn/dsh-tower/issues"
   },
@@ -42,6 +43,7 @@
     "skills/",
     "lib/*.js",
     "lib/domain/*.js",
+    "types/",
     "cordis.patch.yml",
     "scripts/",
     "locale/*.json",
