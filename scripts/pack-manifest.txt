@@ -44,6 +44,8 @@ docs/zh/reference/testing.md
 docs/zh/reference/tools.md
 icon.svg
 index.js
+lib/adapters/store-fs.js
+lib/adapters/vcs-git.js
 lib/batch.js
 lib/briefing.js
 lib/compatibility.js

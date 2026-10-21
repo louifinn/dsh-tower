@@ -45,6 +45,7 @@
     "lib/domain/*.js",
     "lib/tools/*.js",
     "lib/tower/*.js",
+    "lib/adapters/*.js",
     "types/",
     "cordis.patch.yml",
     "scripts/",

@@ -35,6 +35,8 @@
 - **#52 Tower 拆分**：`lib/tower.js` 从约 2.9k 行降到 **535** 行；plan/mission/checkCompletion/
   missionContext/enrichedMissions/board/spawn/recording 拆为 `lib/tower/*.js` use-case 模块，
   `Tower` 方法仅作委托，行为、错误码与锁顺序不变。
+- **#50 I/O 边界**：`node:fs` 仅保留在 `lib/adapters/store-fs.js`，`node:child_process` 仅保留在
+  `lib/adapters/vcs-git.js`；其余 lib 模块经 adapter 导入，`package.json files` 补齐 adapters。
 - **#45 use-case 类型**：`lib/git.js` 与全部 `lib/tower/*.js` 纳入 checkJs；补齐
   `worktreeOwnership` 的 error code/optional head/common dir 类型，`types:check` 覆盖所有
   use-case 模块。
