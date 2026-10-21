@@ -52,6 +52,7 @@ lib/git.js
 lib/hmr.js
 lib/leases.js
 lib/legacy.js
+lib/modeState.js
 lib/modeStore.js
 lib/store.js
 lib/tests.js
