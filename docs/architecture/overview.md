@@ -20,6 +20,16 @@ Host plugin (index.js)
        ├─ lib/workspaceLock.js  optional one-Tower-session-per-repository advisory lock
        ├─ lib/hmr.js          optional DSH HMR bridge (tower_reload / /tower reload)
        └─ lib/modeStore.js    per-agent Tower mode persistence
+ pure domain modules (no fs/git):
+       lib/domain/mission.js    statuses, transitions, pause causes
+       lib/domain/gate.js       completion and merge-gate snapshot decisions
+       lib/domain/scope.js      glob/scope validation and overlap
+       lib/domain/summary.js    mission/finding summaries
+       lib/domain/planning.js   mission numbering, dependency DAG, auto-deps
+ tools layer:
+       lib/tools.js             registration + shared helpers (503 lines)
+       lib/tools/*.js           one module per tool (doctor/recover/test/batch/spawn/...)
+       lib/schemas.js           parameter/output schemas
 Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
  └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding (read-only)
