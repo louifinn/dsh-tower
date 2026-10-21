@@ -17,7 +17,8 @@
   title/summary/disables 中英文案；预设仍为内部 section，不再作为独立开关暴露。
 - **#52 继续拆分 tools**：review/preflight/merge-rebase-teardown 拆为 per-tool 模块；
   `lib/tools.js` 降至约 503 行。
-- **#51 two-phase 试点**：`tower_complete` 改为锁外 prepare + 锁内 revision 复核；新增
+- **#51 two-phase 试点**：`tower_complete` 改为锁外 prepare + 锁内 revision 复核；`submitReview`
+  同样拆为锁外准备（actor/worktree/tip/round）与锁内 revision 复核；新增
   `lock-holds.jsonl` 遥测与 doctor p50/p95 检查（>1s warn）。
 - **#51 git 互斥基础**：新增 `withGitLock` / `git.lock`，用与 state lock 相同的 token/PID-dead
   回收协议串行化 git 操作，为把 git 移出 state lock 做准备。
