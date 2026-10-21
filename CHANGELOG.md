@@ -38,9 +38,8 @@
 - **#50 I/O 边界**：`node:fs` 仅保留在 `lib/adapters/store-fs.js`，`node:child_process` 仅保留在
   `lib/adapters/vcs-git.js`；其余 lib 模块经 adapter 导入，`package.json files` 补齐 adapters；
   新增架构回归锁定该不变量。
-- **#45 use-case 类型**：`lib/git.js` 与全部 `lib/tower/*.js` 纳入 checkJs；补齐
-  `worktreeOwnership` 的 error code/optional head/common dir 类型，`types:check` 覆盖所有
-  use-case 模块。
+- **#45 use-case 类型**：`lib/tower.js` 与全部 `lib/tower/*.js` 纳入 checkJs；`Tower.config`
+  使用 `TowerConfig`，补齐 init/gates/repo branch 类型；`worktreeOwnership` 类型修复。
 - **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
   Store/Vcs 契约；新增完整 scripted lifecycle 与 10 项 adapter contract 测试。
 - **#45 domain 类型**：`lib/domain/*.js` 纳入 checkJs，新增 `tests/type-contracts.ts` 正/负类型

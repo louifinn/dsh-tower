@@ -234,6 +234,7 @@ export interface TowerState {
 
 export interface TowerConfig {
   review?: { requireReview?: boolean; maxRoundsPerReviewer?: number }
+  init?: { autoExclude?: boolean }
   mode?: { allowAgentControl?: boolean; workspaceLock?: boolean; requireHumanAckOnFirstEntry?: boolean }
   gates?: { requireChecks?: boolean; requireTests?: boolean; allowReviewExemption?: boolean }
   tools?: { exposeOperational?: boolean }
