@@ -66,3 +66,18 @@ test('pure mission summaries expose counts and full detail', async () => {
   assert.deepEqual(missionSummary(mission).tasks, { total: 3, done: 1, open: 1, dropped: 1 })
   assert.equal(fullMission(mission).tasks.length, 3)
 })
+
+test('pure board renderer and state validator are repository-independent', async () => {
+  const { boardMarkdown } = await import('../lib/domain/report.js')
+  const { validateState } = await import('../lib/domain/state.js')
+  const state = {
+    schemaVersion: 1, revision: 2, repoRoot: '/repo', base: 'main', updatedAt: 1,
+    missions: [{ id: 'M1', title: 'T', kind: 'build', status: 'active', scope: ['x/**'], deps: [], tasks: [], blockers: [] }],
+    roster: [], messages: [], findings: [], reviews: [],
+  }
+  const board = boardMarkdown(state)
+  assert.match(board, /Tower missions/)
+  assert.match(board, /\| M1 \| active \|/)
+  assert.equal(validateState(state, 'state.json'), state)
+  assert.throws(() => validateState({ ...state, schemaVersion: 99 }, 'state.json'), /schemaVersion/)
+})
