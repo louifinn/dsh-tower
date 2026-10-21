@@ -10,6 +10,7 @@
 | `mission-not-found` | No mission with that id exists. |
 | `finding-not-found` | No finding with that id exists. |
 | `invalid-transition` | The requested state transition is not allowed. |
+| `stale-base` | The repository state changed while the operation was being prepared; retry. |
 | `state-locked` | Another Tower writer holds the state lock. |
 | `state-corrupt` | The Tower state file is unreadable or invalid. |
 | `config-invalid` | Tower configuration is invalid. |
