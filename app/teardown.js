@@ -8,22 +8,19 @@
 // decision never removes a worktree that changed hands.
 import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { ROSTER_INACTIVE } from '../domain/roster.js'
 import { TowerToolError } from '../domain/errors.js'
-
-const STALE = 'tower state changed while teardown was being prepared; retry'
-
-function liveAgent(state, missionId, activity) {
-  return (state.roster ?? []).some(
-    (entry) => entry.missionId === missionId && !ROSTER_INACTIVE.has(entry.state) && activity[entry.agentId] === 'running',
-  )
-}
-
-function setDecision(decision, value) {
-  const missionId = decision.missionId
-  for (const key of Object.keys(decision)) delete decision[key]
-  Object.assign(decision, { missionId, ...value })
-}
+import { hasLiveAgent } from '../domain/integration/liveness.js'
+import {
+  ownershipUnverifiedDecision,
+  replaceDecision as setDecision,
+  revalidateTeardownCandidate,
+  STALE_TEARDOWN as STALE,
+  teardownActivityText,
+  teardownDirtyDecision,
+  teardownPrecheck,
+  teardownRemoveDecision,
+  teardownRemovedDecision,
+} from '../domain/integration/teardown.js'
 
 /**
  * Phase 1 (#51): decide every keep/remove outcome without holding the state
@@ -39,27 +36,19 @@ async function prepareTeardown(tower, input) {
   const candidates = []
 
   for (const mission of state.missions) {
-    if (!mission.worktree || mission.worktreeRemovedAt) continue
-    if (exclude.has(mission.id)) {
-      decisions.push({ missionId: mission.id, action: 'keep', reason: 'excluded' })
-      continue
-    }
-    if (liveAgent(state, mission.id, activity)) {
-      decisions.push({ missionId: mission.id, action: 'keep', reason: 'live agent' })
-      continue
-    }
-    if (!['merged', 'abandoned'].includes(mission.status)) {
-      decisions.push({ missionId: mission.id, action: 'keep', reason: `mission is ${mission.status}` })
+    const precheck = teardownPrecheck(mission, {
+      excluded: exclude.has(mission.id),
+      hasLiveAgent: hasLiveAgent(state, mission.id, activity),
+    })
+    if ('skip' in precheck) continue
+    if ('decision' in precheck) {
+      decisions.push(precheck.decision)
       continue
     }
     try {
       await tower.assertWorktree(mission.worktree)
     } catch (error) {
-      decisions.push({
-        missionId: mission.id,
-        action: 'keep',
-        reason: `worktree ownership/registration unverified: ${String(error?.message ?? error).slice(0, 240)}`,
-      })
+      decisions.push(ownershipUnverifiedDecision(mission.id, error))
       continue
     }
     let dirty = true
@@ -68,15 +57,16 @@ async function prepareTeardown(tower, input) {
     } catch {
       dirty = true
     }
-    if (dirty && input.force !== true) {
-      decisions.push({ missionId: mission.id, action: 'keep', reason: 'uncommitted changes' })
+    const dirtyKeep = teardownDirtyDecision(dirty, input.force)
+    if (dirtyKeep) {
+      decisions.push({ missionId: mission.id, ...dirtyKeep })
       continue
     }
     if (dryRun) {
-      decisions.push({ missionId: mission.id, action: 'remove', reason: 'eligible', forced: dirty })
+      decisions.push({ missionId: mission.id, ...teardownRemoveDecision(dirty) })
       continue
     }
-    const decision = { missionId: mission.id, action: 'remove', reason: 'eligible', forced: dirty }
+    const decision = { missionId: mission.id, ...teardownRemoveDecision(dirty) }
     decisions.push(decision)
     candidates.push({ missionId: mission.id, worktree: mission.worktree, decision })
   }
@@ -92,12 +82,7 @@ async function claimRemoval(tower, candidate, expectedRevision, input) {
     if (state.revision !== expectedRevision) {
       throw new TowerToolError('stale-base', `${STALE}. No worktree was removed.`)
     }
-    const mission = state.missions.find((entry) => entry.id === candidate.missionId)
-    if (!mission || !mission.worktree || mission.worktreeRemovedAt) return { ok: false, reason: 'worktree is already gone' }
-    if (mission.worktree.path !== candidate.worktree.path) return { ok: false, reason: 'worktree path changed during teardown' }
-    if (!['merged', 'abandoned'].includes(mission.status)) return { ok: false, reason: `mission is ${mission.status}` }
-    if (liveAgent(state, mission.id, activity)) return { ok: false, reason: 'live agent' }
-    return { ok: true }
+    return revalidateTeardownCandidate(state, candidate, activity)
   })
 }
 
@@ -129,30 +114,31 @@ export async function teardown(tower, input) {
       if (fresh.revision !== expectedRevision) {
         return { phase: 'stale', detail: `state revision changed from ${expectedRevision} to ${fresh.revision} before the removal` }
       }
-      const mission = fresh.missions.find((entry) => entry.id === candidate.missionId)
-      if (!mission || !mission.worktree || mission.worktreeRemovedAt) return { phase: 'skip', reason: 'worktree is already gone' }
-      if (mission.worktree.path !== candidate.worktree.path) return { phase: 'skip', reason: 'worktree path changed during teardown' }
-      if (!['merged', 'abandoned'].includes(mission.status)) return { phase: 'skip', reason: `mission is ${mission.status}` }
-      if (liveAgent(fresh, mission.id, input.activity ?? {})) return { phase: 'skip', reason: 'live agent' }
+      const current = revalidateTeardownCandidate(fresh, candidate, input.activity ?? {})
+      if (!current.ok) return { phase: 'skip', reason: current.reason }
+      const mission = current.mission
+      const worktree = mission.worktree
+      if (!worktree) return { phase: 'skip', reason: 'worktree is already gone' }
       let dirty = true
       try {
-        dirty = !(await tower.isClean(mission.worktree.path))
+        dirty = !(await tower.isClean(worktree.path))
       } catch {
         dirty = true
       }
-      if (dirty && input.force !== true) return { phase: 'skip', reason: 'uncommitted changes' }
+      const dirtyKeep = teardownDirtyDecision(dirty, input.force)
+      if (dirtyKeep) return { phase: 'skip', reason: dirtyKeep.reason }
       try {
-        await tower.git(tower.root, ['worktree', 'remove', ...(dirty ? ['--force'] : []), mission.worktree.path])
+        await tower.git(tower.root, ['worktree', 'remove', ...(dirty ? ['--force'] : []), worktree.path])
       } catch (error) {
         return { phase: 'remove-failed', reason: `remove failed: ${String(error?.message ?? error)}` }
       }
       let branchDeleteError = null
       try {
-        await tower.git(tower.root, ['branch', '-d', mission.worktree.branch])
+        await tower.git(tower.root, ['branch', '-d', worktree.branch])
       } catch (error) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
-      return { phase: 'removed', branch: mission.worktree.branch, branchDeleteError }
+      return { phase: 'removed', branch: worktree.branch, branchDeleteError }
     })
 
     if (outcome.phase === 'stale') {
@@ -185,17 +171,13 @@ export async function teardown(tower, input) {
         at: now,
         type: 'teardown',
         missionId: mission.id,
-        text: `${outcome.branch}${outcome.branchDeleteError ? ' (branch retained)' : ''}`,
+        text: teardownActivityText(outcome.branch, outcome.branchDeleteError),
       })
       return { revision: state.revision }
     })
     expectedRevision = commit.revision
     removed.push(candidate.missionId)
-    setDecision(candidate.decision, {
-      action: 'removed',
-      branch: outcome.branch,
-      ...(outcome.branchDeleteError ? { branchRetained: true, branchDeleteError: outcome.branchDeleteError } : {}),
-    })
+    setDecision(candidate.decision, teardownRemovedDecision(outcome))
   }
 
   return { ok: true, dryRun: false, removed, decisions: prepared.decisions }

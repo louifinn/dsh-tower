@@ -9,13 +9,32 @@
 import crypto from 'node:crypto'
 import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { ROSTER_INACTIVE } from '../domain/roster.js'
 import { TowerToolError } from '../domain/errors.js'
+import { liveAgentFor } from '../domain/integration/liveness.js'
+import {
+  alreadyMergedRebaseResult,
+  alreadyUpToDateResult,
+  ambiguousRebaseIntentMessage,
+  buildRebaseIntent,
+  classifyRebaseIntent,
+  clearedRebaseIntentActivityText,
+  dirtyWorktreeResult,
+  malformedRebaseIntent,
+  rebaseActivityText,
+  rebaseConflictNote,
+  rebaseConflictResult,
+  rebaseReconcileActivityText,
+  rebaseReconcileNote,
+  rebaseSuccessNote,
+  rebaseSuccessResult,
+  rebaseTipsMoved,
+  rebaseTipsMovedDetail,
+  STALE_ACT,
+  STALE_PREPARE,
+  workerBusyResult,
+} from '../domain/integration/rebase.js'
 
 const RECONCILE_ATTEMPTS = 5
-const STALE_PREPARE = 'tower state changed while the rebase was being prepared; retry'
-const STALE_ACT =
-  'tower state changed while the rebase was running; the rebase intent is retained so the next tower_rebase can reconcile it; retry'
 
 function fail(message, code = 'invalid-transition') {
   throw new TowerToolError(code, message)
@@ -29,16 +48,6 @@ function findMission(state, missionId) {
   return state.missions.find((entry) => entry.id === missionId)
 }
 
-function short(tip) {
-  return String(tip ?? '').slice(0, 7)
-}
-
-function liveAgent(state, missionId, activity) {
-  return (state.roster ?? []).find(
-    (entry) => entry.missionId === missionId && !ROSTER_INACTIVE.has(entry.state) && activity[entry.agentId] === 'running',
-  )
-}
-
 /**
  * Phase 1 (#51): every read needed to decide the rebase — roster liveness,
  * worktree ownership, cleanliness, and both tips — happens without any lock.
@@ -50,13 +59,13 @@ async function prepareRebase(tower, input) {
   if (!mission) fail(`unknown mission "${input.missionId}"`)
   if (!mission.worktree) fail(`mission ${mission.id} has no worktree to rebase`)
   const activity = input.activity ?? {}
-  const busy = liveAgent(state, mission.id, activity)
+  const busy = liveAgentFor(state, mission.id, activity)
   if (busy) {
-    return { early: { ok: false, blockers: [{ code: 'worker-busy', detail: `agent ${busy.name} is running; rebase refused` }] } }
+    return { early: workerBusyResult(busy) }
   }
   await tower.assertWorktree(mission.worktree)
   if (!(await tower.isClean(mission.worktree.path))) {
-    return { early: { ok: false, blockers: [{ code: 'worktree-dirty', detail: `${mission.worktree.path} has uncommitted changes` }] } }
+    return { early: dirtyWorktreeResult(mission.worktree.path) }
   }
   const oldTip = await tower.revParse(mission.worktree.path, 'HEAD')
   const baseTip = await tower.revParse(tower.root, state.base)
@@ -64,20 +73,10 @@ async function prepareRebase(tower, input) {
     // The branch is already contained in the base (manual merge, crashed
     // merge, earlier fast-forward). Rewriting the branch tip to the base
     // would destroy the reviewed tip and the ability to record the merge.
-    return {
-      early: {
-        ok: true,
-        alreadyMerged: true,
-        skipped: true,
-        oldTip,
-        newTip: oldTip,
-        baseTip,
-        note: `${oldTip.slice(0, 7)} is already contained in ${state.base} ${baseTip.slice(0, 7)}; branch left untouched — call tower_merge to record the landed merge`,
-      },
-    }
+    return { early: alreadyMergedRebaseResult({ oldTip, baseTip, base: state.base }) }
   }
   if (await tower.isAncestor(tower.root, baseTip, oldTip)) {
-    return { early: { ok: true, alreadyUpToDate: true, oldTip, newTip: oldTip, baseTip } }
+    return { early: alreadyUpToDateResult({ oldTip, baseTip }) }
   }
   // Count the commits a successful rebase will replay. The count is recorded
   // with the intent so reconciliation can prove a crashed rebase finished
@@ -104,32 +103,33 @@ async function prepareRebase(tower, input) {
 /** Inspect a durable intent with lock-free git reads. Never mutates. */
 async function inspectRebaseIntent(tower, state, intent) {
   const mission = findMission(state, intent.missionId)
-  if (!mission || !mission.worktree || typeof mission.worktree.path !== 'string') {
-    return { action: 'clear', reason: 'the mission has no worktree' }
+  const worktreePath =
+    mission && mission.worktree && typeof mission.worktree.path === 'string' ? mission.worktree.path : null
+  if (!worktreePath) {
+    return classifyRebaseIntent({ intent, mission, tipReadable: false, baseIsAncestor: false })
   }
   let tip
   try {
-    tip = await tower.revParse(mission.worktree.path, 'HEAD')
+    tip = await tower.revParse(worktreePath, 'HEAD')
   } catch {
-    return { action: 'clear', reason: 'the worktree is not readable' }
+    return classifyRebaseIntent({ intent, mission, tipReadable: false, baseIsAncestor: false })
   }
   if (tip === intent.oldTip) {
-    return { action: 'clear', reason: 'the branch tip is unchanged (the rebase never ran)' }
+    return classifyRebaseIntent({ intent, mission, tip, tipReadable: true, baseIsAncestor: true })
   }
   if (!(await tower.isAncestor(tower.root, intent.baseTip, tip))) {
-    return { action: 'ambiguous', tip }
+    return classifyRebaseIntent({ intent, mission, tip, tipReadable: true, baseIsAncestor: false })
   }
+  let actualCommits = null
   if (intent.commits !== null && intent.commits !== undefined) {
-    let count = null
     try {
-      const raw = await tower.git(mission.worktree.path, ['rev-list', '--count', `${intent.baseTip}..${tip}`])
-      count = Number.parseInt(String(raw).trim(), 10)
+      const raw = await tower.git(worktreePath, ['rev-list', '--count', `${intent.baseTip}..${tip}`])
+      actualCommits = Number.parseInt(String(raw).trim(), 10)
     } catch {
-      count = null
+      actualCommits = null
     }
-    if (count !== Number(intent.commits)) return { action: 'ambiguous', tip }
   }
-  return { action: 'record', tip }
+  return classifyRebaseIntent({ intent, mission, tip, tipReadable: true, baseIsAncestor: true, actualCommits })
 }
 
 /**
@@ -143,14 +143,12 @@ async function reconcileRebaseIntent(tower) {
     const snapshot = await tower.load()
     const intent = snapshot.rebaseIntent
     if (!intent) return
-    if (typeof intent !== 'object' || typeof intent.missionId !== 'string' || typeof intent.token !== 'string') {
+    if (malformedRebaseIntent(intent)) {
       throw stale('a rebase intent in tower state is malformed; inspect it and retry')
     }
     const inspection = await inspectRebaseIntent(tower, snapshot, intent)
     if (inspection.action === 'ambiguous') {
-      throw stale(
-        `a rebase intent for ${intent.missionId} from ${new Date(Number(intent.startedAt) || 0).toISOString()} is pending and cannot be reconciled automatically (tip ${short(inspection.tip)} does not match the prepared snapshot); finish or abort the rebase in that worktree, then retry`,
-      )
+      throw stale(ambiguousRebaseIntentMessage(intent, inspection.tip))
     }
     const applied = await withLock(tower.paths, async () => {
       const state = await tower.load()
@@ -163,11 +161,10 @@ async function reconcileRebaseIntent(tower) {
       state.revision += 1
       state.updatedAt = now
       if (inspection.action === 'record' && mission) {
-        mission.rebase = { at: now, oldTip: intent.oldTip, newTip: inspection.tip, baseTip: intent.baseTip }
+        const tip = /** @type {string} */ (inspection.tip)
+        mission.rebase = { at: now, oldTip: intent.oldTip, newTip: tip, baseTip: intent.baseTip }
         if (mission.status === 'blocked') mission.status = 'active'
-        mission.notes.push(
-          `reconciled interrupted rebase ${short(intent.oldTip)} -> ${short(inspection.tip)} onto ${short(intent.baseTip)}; the clean rebase waiver is preserved`,
-        )
+        mission.notes.push(rebaseReconcileNote({ oldTip: intent.oldTip, newTip: tip, baseTip: intent.baseTip }))
         mission.updatedAt = now
       }
       validateState(state, tower.paths.state)
@@ -178,8 +175,12 @@ async function reconcileRebaseIntent(tower) {
         missionId: intent.missionId,
         text:
           inspection.action === 'record'
-            ? `reconciled ${short(intent.oldTip)} -> ${short(inspection.tip)} onto ${short(intent.baseTip)}`
-            : `cleared a stale rebase intent (${inspection.reason})`,
+            ? rebaseReconcileActivityText({
+                oldTip: intent.oldTip,
+                newTip: /** @type {string} */ (inspection.tip),
+                baseTip: intent.baseTip,
+              })
+            : clearedRebaseIntentActivityText(inspection.reason),
       })
       return true
     })
@@ -192,6 +193,7 @@ export async function rebase(tower, input) {
   await reconcileRebaseIntent(tower)
   const prepared = await prepareRebase(tower, input)
   if (prepared.early) return prepared.early
+  const worktree = /** @type {{ path: string, branch: string }} */ (prepared.worktree)
 
   // Record the intent before touching Git: a crash between the rebase and the
   // commit leaves a durable marker instead of an unexplained moved branch.
@@ -203,15 +205,15 @@ export async function rebase(tower, input) {
     const mission = findMission(state, prepared.missionId)
     if (!mission) throw new TowerToolError('mission-not-found', `unknown mission "${prepared.missionId}"`)
     if (!mission.worktree) fail(`mission ${mission.id} has no worktree to rebase`)
-    state.rebaseIntent = {
+    state.rebaseIntent = buildRebaseIntent({
       token,
       missionId: mission.id,
       base: prepared.base,
       oldTip: prepared.oldTip,
       baseTip: prepared.baseTip,
-      commits: prepared.commits,
+      commits: prepared.commits ?? null,
       startedAt,
-    }
+    })
     state.revision += 1
     state.updatedAt = startedAt
     await writeJsonAtomic(tower.paths.state, state)
@@ -221,21 +223,26 @@ export async function rebase(tower, input) {
   // Phase 2 (#51): the long git work runs under the git lock and never under
   // the state lock. Re-verify the snapshot right before rewriting the branch.
   const outcome = await withGitLock(tower.paths, async () => {
-    const currentTip = await tower.revParse(prepared.worktree.path, 'HEAD')
+    const currentTip = await tower.revParse(worktree.path, 'HEAD')
     const currentBase = await tower.revParse(tower.root, prepared.base)
-    if (currentTip !== prepared.oldTip || currentBase !== prepared.baseTip) {
+    if (rebaseTipsMoved({ oldTip: prepared.oldTip, baseTip: prepared.baseTip, currentTip, currentBase })) {
       return {
         phase: 'stale',
-        detail: `tips moved after preparation (${short(prepared.oldTip)}/${short(prepared.baseTip)} -> ${short(currentTip)}/${short(currentBase)}), so nothing was rebased`,
+        detail: rebaseTipsMovedDetail({
+          oldTip: prepared.oldTip,
+          baseTip: prepared.baseTip,
+          currentTip,
+          currentBase,
+        }),
       }
     }
     try {
-      await tower.git(prepared.worktree.path, ['rebase', prepared.baseTip])
+      await tower.git(worktree.path, ['rebase', prepared.baseTip])
     } catch (error) {
-      await tower.git(prepared.worktree.path, ['rebase', '--abort']).catch(() => {})
+      await tower.git(worktree.path, ['rebase', '--abort']).catch(() => {})
       return { phase: 'conflict', detail: String(error?.message ?? error) }
     }
-    const newTip = await tower.revParse(prepared.worktree.path, 'HEAD')
+    const newTip = await tower.revParse(worktree.path, 'HEAD')
     return { phase: 'done', newTip }
   })
 
@@ -262,14 +269,14 @@ export async function rebase(tower, input) {
     if (outcome.phase === 'conflict') {
       delete state.rebaseIntent
       mission.status = 'blocked'
-      mission.blockers.push(`rebase conflict onto ${prepared.base} @ ${prepared.baseTip.slice(0, 12)}`)
+      mission.blockers.push(rebaseConflictNote(prepared.base, prepared.baseTip))
       mission.updatedAt = now
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await writeJsonAtomic(tower.paths.state, state)
       await appendJsonl(tower.paths.activity, { at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
-      return { ok: false, blockers: [{ code: 'rebase-conflict', detail: outcome.detail }] }
+      return rebaseConflictResult(outcome.detail)
     }
 
     const { newTip } = outcome
@@ -277,7 +284,7 @@ export async function rebase(tower, input) {
     mission.rebase = { at: now, oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip }
     if (mission.status === 'blocked') mission.status = 'active'
     mission.notes.push(
-      `rebased ${short(prepared.oldTip)} -> ${short(newTip)} onto ${short(prepared.baseTip)}; conflict-free rebase waives re-review`,
+      rebaseSuccessNote({ oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip }),
     )
     mission.updatedAt = now
     state.revision += 1
@@ -288,8 +295,8 @@ export async function rebase(tower, input) {
       at: now,
       type: 'rebase',
       missionId: mission.id,
-      text: `${short(prepared.oldTip)} -> ${short(newTip)} onto ${short(prepared.baseTip)}`,
+      text: rebaseActivityText({ oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip }),
     })
-    return { ok: true, oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip, reviewWaived: true }
+    return rebaseSuccessResult({ oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip })
   })
 }

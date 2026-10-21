@@ -11,18 +11,20 @@ import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl,
 import { validateState } from '../domain/state.js'
 import { canonicalPath } from '../lib/worktreeOwnership.js'
 import { TowerToolError } from '../domain/errors.js'
+import {
+  baseCommitChoice,
+  createdWorktreeResult,
+  existingWorktreeResult,
+  hasMissionId,
+  provisionActivityText,
+  worktreeBranch,
+  worktreePath,
+  worktreeRecord,
+  worktreeRoot,
+} from '../domain/integration/provision.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
-}
-
-function slugify(title) {
-  const slug = String(title)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 24)
-  return slug || 'mission'
 }
 
 /** Phase 1 of `Tower.provision` (#51). An existing worktree returns here. */
@@ -32,26 +34,31 @@ async function prepareProvision(tower, input) {
   if (!mission) fail(`unknown mission "${input.missionId}"`, 'mission-not-found')
   if (mission.worktree) {
     await tower.assertWorktree(mission.worktree)
-    return { early: { mission, worktree: mission.worktree, created: false } }
+    return { early: existingWorktreeResult(mission, mission.worktree) }
   }
-  const baseCommit = input.baseCommit
-    ? String(input.baseCommit)
-    : input.includeDirtyBase === false
-      ? await tower.revParse(tower.root, state.base)
-      : state.snapshotCommit && (await tower.tryGit(tower.root, ['cat-file', '-e', `${state.snapshotCommit}^{commit}`])) !== null
-        ? state.snapshotCommit
-        : await tower.revParse(tower.root, state.base)
-  const branch = `tower/${mission.id.toLowerCase()}-${slugify(mission.title)}`
-  const configuredRoot = tower.config.worktrees.root
-  const root = input.worktreeRoot
-    ? path.resolve(input.worktreeRoot)
-    : configuredRoot
-      ? path.resolve(configuredRoot)
-      : path.join(path.dirname(tower.root), '.dsh-tower-worktrees', shortHash(tower.commonDir))
+  const needsSnapshot = !input.baseCommit && input.includeDirtyBase !== false
+  const snapshotCommitValid =
+    needsSnapshot && state.snapshotCommit
+      ? (await tower.tryGit(tower.root, ['cat-file', '-e', `${state.snapshotCommit}^{commit}`])) !== null
+      : false
+  const choice = baseCommitChoice({
+    baseCommit: input.baseCommit,
+    includeDirtyBase: input.includeDirtyBase,
+    snapshotCommit: state.snapshotCommit,
+    snapshotCommitValid,
+  })
+  const baseCommit = 'commit' in choice ? choice.commit : await tower.revParse(tower.root, state.base)
+  const branch = worktreeBranch(mission)
+  const root = worktreeRoot({
+    worktreeRoot: input.worktreeRoot,
+    configuredRoot: tower.config.worktrees.root,
+    repoRoot: tower.root,
+    commonDirHash: shortHash(tower.commonDir),
+  })
   if (!path.isAbsolute(root)) fail('worktreeRoot must be an absolute path')
   tower.assertOutside(root)
   await ensureDir(root)
-  const wtPath = path.join(root, mission.id)
+  const wtPath = worktreePath(root, mission.id)
   if (await exists(wtPath)) fail(`worktree path already exists: ${wtPath}`)
   if ((await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])) !== null) {
     fail(`branch already exists: ${branch}`)
@@ -83,13 +90,13 @@ async function actProvision(tower, prepared) {
     }
     await tower.git(tower.root, ['worktree', 'add', '-b', prepared.branch, prepared.wtPath, prepared.baseCommit])
     await tower.ensureExcluded(prepared.wtPath)
-    const worktree = {
+    const worktree = worktreeRecord({
       path: prepared.wtPath,
       branch: prepared.branch,
       baseCommit: prepared.baseCommit,
       createdAt: Date.now(),
       realPath: await canonicalPath(prepared.wtPath),
-    }
+    })
     return { phase: 'created', worktree }
   })
 }
@@ -120,7 +127,7 @@ async function commitProvision(tower, prepared, acted) {
       at: now,
       type: 'worktree',
       missionId: prepared.missionId,
-      text: `${prepared.branch} at ${prepared.wtPath}`,
+      text: provisionActivityText(prepared.branch, prepared.wtPath),
     }).catch(() => {})
     return { phase: 'committed', mission, worktree: acted.worktree }
   })
@@ -137,14 +144,14 @@ async function rollbackProvision(tower, prepared) {
 /** #51 two-phase provision: prepare/act/commit with rollback on rejection. */
 export async function provision(tower, input = {}) {
   const missionId = input.missionId
-  if (typeof missionId !== 'string' || missionId.trim().length === 0) {
+  if (!hasMissionId(missionId)) {
     fail('tower_spawn requires missionId in this version')
   }
   const prepared = await prepareProvision(tower, input)
   if (prepared.early) return prepared.early
 
   const acted = await actProvision(tower, prepared)
-  if (acted.phase === 'existing') return { mission: acted.mission, worktree: acted.worktree, created: false }
+  if (acted.phase === 'existing') return existingWorktreeResult(acted.mission, acted.worktree)
   if (acted.phase === 'missing') fail(`unknown mission "${prepared.missionId}"`, 'mission-not-found')
   if (acted.phase === 'stale') {
     throw new TowerToolError(
@@ -174,7 +181,7 @@ export async function provision(tower, input = {}) {
     // one created here is orphaned, so remove it and report the recorded one.
     await rollbackProvision(tower, prepared)
     await tower.assertWorktree(committed.worktree)
-    return { mission: committed.mission, worktree: committed.worktree, created: false }
+    return existingWorktreeResult(committed.mission, committed.worktree)
   }
   if (committed.phase === 'persist-error') {
     // Preserve the single-phase rollback: a failed state write must not leave
@@ -182,5 +189,5 @@ export async function provision(tower, input = {}) {
     await rollbackProvision(tower, prepared)
     throw committed.error
   }
-  return { mission: committed.mission, worktree: committed.worktree, created: true }
+  return createdWorktreeResult(committed.mission, committed.worktree)
 }

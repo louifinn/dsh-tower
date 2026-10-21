@@ -1,0 +1,179 @@
+// Pure review submission policy: actor resolution, verdict validation, round
+// accounting, and the resulting mission/record projections.
+//
+// app/review.js owns loading state, the worktree/tip Git reads, the lock, and
+// persistence. Everything here is deterministic and repository-free.
+// @ts-check
+import { TowerToolError } from '../errors.js'
+import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
+
+/** @typedef {import('../../types/index.js').Mission} Mission */
+/** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
+/** @typedef {import('../../types/index.js').Review} Review */
+
+export const MAX_REVIEW_ROUNDS = 5
+
+/**
+ * @param {string} message
+ * @param {string} [code]
+ * @returns {never}
+ */
+function fail(message, code = 'invalid-argument') {
+  throw new TowerToolError(code, message)
+}
+
+/**
+ * A mission with a worktree is the only reviewable subject; the caller checks
+ * that its status is `completed`.
+ * @param {Mission} mission
+ * @returns {void}
+ */
+export function assertReviewableMission(mission) {
+  if (!mission.worktree) fail(`mission ${mission.id} has no worktree to review`)
+}
+
+/**
+ * Resolve who is submitting the review. An unregistered caller fails closed;
+ * only an assigned reviewer or the tower (break-glass) may review.
+ * @param {{ mission: Mission, caller: RosterEntry | undefined, actorRole: string | undefined, agentId: string | undefined, breakGlassReason: unknown }} params
+ * @returns {{ reviewerName: string, reviewerRole: string }}
+ */
+export function resolveReviewActor({ mission, caller, actorRole, agentId, breakGlassReason }) {
+  if (actorRole === 'tower') {
+    if (typeof breakGlassReason !== 'string' || breakGlassReason.trim().length === 0) {
+      fail('a tower-submitted review is break-glass and requires a non-empty breakGlassReason', 'not-authorized')
+    }
+    return { reviewerName: 'tower', reviewerRole: 'tower' }
+  }
+  if (caller) {
+    if (caller.role !== 'reviewer') {
+      fail(`agent ${caller.name} is a ${caller.role}; only an assigned reviewer or the tower (break-glass) may review`)
+    }
+    if (caller.missionId !== mission.id) {
+      fail(`reviewer ${caller.name} was not assigned to mission ${mission.id}`)
+    }
+    if (mission.owner && caller.name === mission.owner) fail('the reviewer must differ from the worker', 'not-authorized')
+    return { reviewerName: caller.name, reviewerRole: 'reviewer' }
+  }
+  // Fail closed: an unknown caller is not the tower, and a missing roster row
+  // is not evidence of tower identity.
+  fail(`agent ${agentId ?? '(unknown)'} is not a registered reviewer or the tower`)
+}
+
+/**
+ * Validate the verdict payload fields that are independent of Git.
+ * @param {any} input
+ * @returns {{ status: string, merge: string, findings: string, decision: string, checks: string[] }}
+ */
+export function normalizeReviewVerdict(input) {
+  if (!REVIEW_STATUS_RE.test(String(input.status ?? ''))) {
+    fail('status must be "clean", "p1-Nitems", or "p2-Nitems"')
+  }
+  if (!MERGE_VERDICTS.includes(input.merge)) {
+    fail(`merge verdict must be one of ${MERGE_VERDICTS.join('|')}`)
+  }
+  const findings = String(input.findings ?? '').trim()
+  if (!findings) fail('findings text is required; write "none" for a clean verdict')
+  if (input.status === 'clean' && findings.toLowerCase() !== 'none') {
+    fail('a clean verdict requires findings text "none"')
+  }
+  if (input.status !== 'clean' && findings.toLowerCase() === 'none') {
+    fail('a non-clean verdict must describe its findings')
+  }
+  const decision = String(input.decision ?? '').trim()
+  if (!decision) fail('decision (the reasoning behind the verdict) is required')
+  /** @type {string[]} */
+  let checks = []
+  if (input.checks !== undefined) {
+    if (!Array.isArray(input.checks)) fail('checks must be an array of strings')
+    checks = input.checks.map((entry) => String(entry))
+  }
+  return { status: input.status, merge: input.merge, findings, decision, checks }
+}
+
+/**
+ * A reviewer may only review the tip it was spawned on.
+ * @param {RosterEntry | undefined} caller
+ * @param {string} tip
+ * @returns {void}
+ */
+export function assertReviewerSpawnTip(caller, tip) {
+  if (caller && caller.role === 'reviewer' && !String(caller.spawnTip ?? '').trim()) {
+    fail(`reviewer ${caller.name} has no recorded spawn tip; re-spawn the reviewer before reviewing`)
+  }
+  if (caller && caller.role === 'reviewer' && caller.spawnTip !== tip) {
+    fail(
+      `reviewer ${caller.name} modified the mission branch after it was spawned (${String(caller.spawnTip).slice(0, 7)} -> ${tip.slice(0, 7)}); reviewers must be read-only — spawn a fresh reviewer`,
+    )
+  }
+}
+
+/**
+ * Compute the review round and enforce the per-reviewer cap.
+ * @param {{ reviews: Review[] | undefined, branch: string, reviewerName: string, maxRoundsPerReviewer: unknown }} params
+ * @returns {{ reviewerRounds: number, round: number }}
+ */
+export function reviewRound({ reviews, branch, reviewerName, maxRoundsPerReviewer }) {
+  const prior = (reviews ?? []).filter((review) => review.branch === branch)
+  const reviewerRounds = prior.filter((review) => review.reviewer === reviewerName).length
+  const maxReviewRounds = Number(maxRoundsPerReviewer) || MAX_REVIEW_ROUNDS
+  if (reviewerRounds >= maxReviewRounds) {
+    fail(
+      `reviewer ${reviewerName} reached the ${maxReviewRounds}-round cap for ${branch}; continue with a different reviewer`,
+    )
+  }
+  const round = prior.length === 0 ? 1 : Math.max(...prior.map((review) => review.round)) + 1
+  return { reviewerRounds, round }
+}
+
+/**
+ * A non-clean verdict returns the mission to active and records the note; a
+ * clean verdict leaves the status untouched.
+ * @param {{ status: string, merge: string, round: number, reviewerName: string }} params
+ * @returns {{ returnToActive: boolean, note: string }}
+ */
+export function reviewOutcome({ status, merge, round, reviewerName }) {
+  if (status !== 'clean') {
+    return {
+      returnToActive: true,
+      note: `review round ${round} by ${reviewerName}: ${status} (${merge}) — returned to active`,
+    }
+  }
+  return { returnToActive: false, note: `review round ${round} by ${reviewerName}: clean (${merge})` }
+}
+
+/**
+ * Project the persisted review record.
+ * @param {{ seq: number, missionId: string, branch: string, tip: string, verdict: { status: string, merge: string, findings: string, checks: string[], decision: string }, reviewerName: string, reviewerRole: string, round: number, now: number, breakGlassReason?: string }} params
+ * @returns {Review}
+ */
+export function reviewRecord({
+  seq,
+  missionId,
+  branch,
+  tip,
+  verdict,
+  reviewerName,
+  reviewerRole,
+  round,
+  now,
+  breakGlassReason,
+}) {
+  return {
+    id: `R${seq}`,
+    seq,
+    missionId,
+    branch,
+    reviewedCommit: tip,
+    status: verdict.status,
+    mergeVerdict: /** @type {import('../../types/index.js').MergeVerdict} */ (verdict.merge),
+    findings: verdict.findings,
+    checks: verdict.checks,
+    decision: verdict.decision,
+    reviewer: reviewerName,
+    reviewerRole,
+    round,
+    at: now,
+    ...(reviewerRole === 'tower' ? { breakGlassReason } : {}),
+  }
+}

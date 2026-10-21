@@ -24,7 +24,6 @@
     "tests/type-contracts.ts",
     "app/*.js",
     "tools/plan.js",
-    "tools/schema.js",
     "tools/*.js",
     "adapters/*.js",
     "tests/tool-schema-types.ts"

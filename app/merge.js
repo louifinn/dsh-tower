@@ -19,27 +19,29 @@
 import path from 'node:path'
 import { withLock, withGitLock, writeJsonAtomic, appendJsonl, exists } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-
-function missionMissing(missionId) {
-  return { ok: false, blockers: [{ code: 'mission-missing', detail: `unknown mission "${missionId}"` }] }
-}
-
-function staleBaseResult(missionId, detail) {
-  return { ok: false, missionId, blockers: [{ code: 'stale-base', detail }] }
-}
-
-function intentMatches(current, intent) {
-  return Boolean(
-    current &&
-      current.missionId === intent.missionId &&
-      current.baseTip === intent.baseTip &&
-      current.branchTip === intent.branchTip,
-  )
-}
-
-function isExpectedShape(parents, baseTip, branchTip) {
-  return Array.isArray(parents) && parents.length === 2 && parents[0] === baseTip && parents[1] === branchTip
-}
+import {
+  alreadyMergedResult,
+  buildMergeIntent,
+  classifyCommitOutcome,
+  gateTipDrift,
+  intentMatches,
+  isExpectedMergeShape,
+  landedMergeCandidate,
+  landedMergeEvidence,
+  landedMergeNote,
+  landedMergeResult,
+  mergeBlockedResult,
+  mergeConflictNote,
+  mergeFailureKind,
+  mergeHookFailureNote,
+  mergeIntentEvidence,
+  mergeIntentReconcileNote,
+  mergeShapeDetail,
+  mergeSuccessNote,
+  missionMissingResult,
+  pendingMergeIntentResult,
+  staleBaseResult,
+} from '../domain/integration/merge.js'
 
 // A revision CAS that loses a race is retried this many times before the merge
 // reports the same retryable stale-base the previous revision policy produced.
@@ -81,12 +83,12 @@ async function observeMergeIntent(tower, state, mission) {
   } catch {
     return null
   }
-  if (await exists(path.join(tower.commonDir, 'MERGE_HEAD'))) return null
-  if (head === intent.baseTip) return { landed: null }
+  const mergeInProgress = await exists(path.join(tower.commonDir, 'MERGE_HEAD'))
+  if (mergeInProgress) return null
+  if (head === intent.baseTip) return mergeIntentEvidence({ head, baseTip: intent.baseTip, mergeInProgress, landed: null })
   const tips = new Set([intent.branchTip, intent.baseTip].filter(Boolean))
   const landed = await findLandedMerge(tower, head, tips)
-  if (!landed) return null
-  return { landed }
+  return mergeIntentEvidence({ head, baseTip: intent.baseTip, mergeInProgress, landed })
 }
 
 /**
@@ -100,7 +102,7 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
-    if (!mission) return { result: missionMissing(missionId) }
+    if (!mission) return { result: missionMissingResult(missionId) }
     if (!state.mergeIntent || state.mergeIntent.missionId !== mission.id) return { state }
     const now = Date.now()
     delete state.mergeIntent
@@ -111,9 +113,7 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
       at: now,
       type: 'merge',
       missionId: mission.id,
-      text: evidence.landed
-        ? `reconciled merge intent; found landed commit ${String(evidence.landed.commit).slice(0, 7)}`
-        : 'cleared a merge intent that created no commit',
+      text: mergeIntentReconcileNote(evidence),
     })
     return { state }
   })
@@ -127,19 +127,9 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
  * needed by the locked write half.
  */
 async function observeLandedMerge(tower, state, mission) {
-  if (!['completed', 'blocked'].includes(mission.status)) return null
-  if (!mission.worktree) return null
-  const branch = mission.worktree.branch
-  const reviews = (state.reviews ?? []).filter((review) => review.branch === branch)
-  const exempt =
-    tower.config.review?.requireReview === false ||
-    (mission.reviewPolicy === 'none' &&
-      tower.config.gates.allowReviewExemption === true &&
-      String(mission.reviewExemptionReason ?? '').trim().length > 0)
-  if (reviews.length === 0 && !exempt) return null
-  const latest = reviews.length > 0 ? reviews.reduce((left, right) => (left.round >= right.round ? left : right)) : null
-  if (latest && !exempt && (latest.status !== 'clean' || latest.mergeVerdict !== 'merge')) return null
-  if (!latest && !exempt) return null
+  const candidate = landedMergeCandidate(mission, state.reviews, tower.config)
+  if (!candidate) return null
+  const { latest } = candidate
   let baseTip
   let branchTip
   try {
@@ -152,23 +142,33 @@ async function observeLandedMerge(tower, state, mission) {
   const branchLanded = await tower.isAncestor(tower.root, branchTip, baseTip)
   const reviewedLanded = reviewedTip ? await tower.isAncestor(tower.root, reviewedTip, baseTip) : false
   if (!branchLanded) {
-    if (!reviewedLanded) return null
-    return {
-      reviewStale: {
-        ok: false,
-        missionId: mission.id,
-        blockers: [
-          {
-            code: 'review-stale',
-            detail: `reviewed commit ${reviewedTip.slice(0, 7)} is contained in ${state.base}, but branch tip ${branchTip.slice(0, 7)} is not; the branch was partially landed or moved — re-review or repair manually`,
-          },
-        ],
-      },
-    }
+    const evidence = landedMergeEvidence({
+      missionId: mission.id,
+      base: state.base,
+      baseTip,
+      branchTip,
+      reviewedTip,
+      branchLanded,
+      reviewedLanded,
+      found: null,
+      latest,
+    })
+    return 'reviewStale' in evidence ? { reviewStale: evidence.reviewStale } : null
   }
   const tips = new Set([branchTip, reviewedTip].filter(Boolean))
   const found = await findLandedMerge(tower, baseTip, tips)
-  return { baseTip, branchTip, reviewedTip, found, mergedCommit: found ? found.commit : branchTip, latest }
+  const evidence = landedMergeEvidence({
+    missionId: mission.id,
+    base: state.base,
+    baseTip,
+    branchTip,
+    reviewedTip,
+    branchLanded,
+    reviewedLanded,
+    found,
+    latest,
+  })
+  return 'measured' in evidence ? evidence.measured : null
 }
 
 /** Locked write half of `reconcileLandedMerge`, guarded by the revision CAS. */
@@ -177,7 +177,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
-    if (!mission) return { result: missionMissing(missionId) }
+    if (!mission) return { result: missionMissingResult(missionId) }
     const now = Date.now()
     if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent
     mission.status = 'merged'
@@ -185,9 +185,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     mission.mergedCommit = observed.mergedCommit
     mission.blockers = []
     mission.notes.push(
-      observed.found
-        ? `reconciled already-landed merge ${observed.mergedCommit.slice(0, 7)} with parents [${observed.found.parents.map((parent) => parent.slice(0, 7)).join(', ')}]`
-        : `reconciled already-landed merge: ${observed.mergedCommit.slice(0, 7)} is contained in ${state.base} (no merge commit found)`,
+      landedMergeNote({ found: observed.found, mergedCommit: observed.mergedCommit, base: state.base }),
     )
     mission.updatedAt = now
     state.revision += 1
@@ -200,26 +198,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
       missionId: mission.id,
       text: `reconciled already-landed ${observed.mergedCommit.slice(0, 7)} on ${state.base}`,
     })
-    return {
-      result: {
-        ok: true,
-        reconciled: true,
-        alreadyLanded: true,
-        mergedCommit: observed.mergedCommit,
-        baseTip: observed.baseTip,
-        branchTip: observed.branchTip,
-        parents: observed.found ? observed.found.parents : null,
-        review: observed.latest
-          ? {
-              round: observed.latest.round,
-              status: observed.latest.status,
-              mergeVerdict: observed.latest.mergeVerdict,
-              reviewer: observed.latest.reviewer,
-              reviewedCommit: observed.reviewedTip,
-            }
-          : null,
-      },
-    }
+    return { result: landedMergeResult(observed) }
   })
 }
 
@@ -253,7 +232,7 @@ async function prepareFromState(tower, input, deps) {
   const { mergeTimeoutMs, MERGE_MAX_BUFFER } = deps
   let state = await tower.load()
   let mission = state.missions.find((entry) => entry.id === input.missionId)
-  if (!mission) return { result: missionMissing(input.missionId) }
+  if (!mission) return { result: missionMissingResult(input.missionId) }
 
   // Reconcile a stale merge intent: Git runs here, outside every state lock.
   if (state.mergeIntent && state.mergeIntent.missionId === mission.id) {
@@ -264,19 +243,12 @@ async function prepareFromState(tower, input, deps) {
       if (applied.result) return applied
       state = applied.state
       mission = state.missions.find((entry) => entry.id === input.missionId)
-      if (!mission) return { result: missionMissing(input.missionId) }
+      if (!mission) return { result: missionMissingResult(input.missionId) }
     }
   }
 
   if (mission.status === 'merged') {
-    return {
-      result: {
-        ok: true,
-        alreadyMerged: true,
-        mergedCommit: mission.mergedCommit ?? null,
-        baseTip: await tower.revParse(tower.root, state.base),
-      },
-    }
+    return { result: alreadyMergedResult(mission, await tower.revParse(tower.root, state.base)) }
   }
 
   // Reconcile a merge that already landed in Git: observe unlocked, write CAS.
@@ -296,28 +268,14 @@ async function prepareFromState(tower, input, deps) {
   // command below uses the captured branch SHA, never the mutable branch name.
   const baseTip = await tower.revParse(tower.root, 'HEAD')
   const branchTip = await tower.revParse(worktree.path, 'HEAD')
-  if (gate.baseTip && gate.baseTip !== baseTip) {
-    return {
-      result: staleBaseResult(
-        mission.id,
-        `base moved after gate (${gate.baseTip.slice(0, 7)} -> ${baseTip.slice(0, 7)}); re-run preflight`,
-      ),
-    }
-  }
-  if (gate.branchTip && gate.branchTip !== branchTip) {
-    return {
-      result: {
-        ok: false,
-        missionId: mission.id,
-        blockers: [
-          {
-            code: 'tip-moved',
-            detail: `branch moved after gate (${gate.branchTip.slice(0, 7)} -> ${branchTip.slice(0, 7)}); re-run preflight`,
-          },
-        ],
-      },
-    }
-  }
+  const drift = gateTipDrift({
+    missionId: mission.id,
+    gateBaseTip: gate.baseTip,
+    gateBranchTip: gate.branchTip,
+    baseTip,
+    branchTip,
+  })
+  if (drift) return { result: drift }
 
   return {
     stateRevision: state.revision,
@@ -352,42 +310,24 @@ async function recordMergeIntent(tower, plan) {
       }
     }
     const mission = state.missions.find((entry) => entry.id === plan.missionId)
-    if (!mission) return { result: missionMissing(plan.missionId) }
+    if (!mission) return { result: missionMissingResult(plan.missionId) }
     if (mission.status === 'merged') {
-      return {
-        result: {
-          ok: true,
-          alreadyMerged: true,
-          mergedCommit: mission.mergedCommit ?? null,
-          baseTip: plan.baseTip,
-        },
-      }
+      return { result: alreadyMergedResult(mission, plan.baseTip) }
     }
     // Only one merge may be in flight: two prepared merges would otherwise
     // capture the same base tip and the second would build a merge on a moved
     // base. Leave the recorded intent alone for the next reconcile.
     if (state.mergeIntent) {
-      return {
-        result: {
-          ok: false,
-          missionId: plan.missionId,
-          blockers: [
-            {
-              code: 'merge-intent-pending',
-              detail: `a merge intent for ${state.mergeIntent.missionId} is recorded; run tower_merge to reconcile it before starting another merge`,
-            },
-          ],
-        },
-      }
+      return { result: pendingMergeIntentResult(plan.missionId, state.mergeIntent) }
     }
     const now = Date.now()
-    state.mergeIntent = {
+    state.mergeIntent = buildMergeIntent({
       missionId: mission.id,
       baseTip: plan.baseTip,
       branchTip: plan.branchTip,
       gateTip: plan.gateTip,
       startedAt: now,
-    }
+    })
     state.revision += 1
     state.updatedAt = now
     await writeJsonAtomic(tower.paths.state, state)
@@ -416,7 +356,7 @@ async function runMergeGit(tower, plan, intent, deps) {
 
   const newTip = await tower.revParse(tower.root, 'HEAD')
   const parents = await commitParents(tower.root, newTip)
-  const expectedShape = isExpectedShape(parents, intent.baseTip, intent.branchTip)
+  const expectedShape = isExpectedMergeShape(parents, intent.baseTip, intent.branchTip)
   const warnings = []
 
   if (failure && expectedShape) {
@@ -473,7 +413,7 @@ async function runMergeGit(tower, plan, intent, deps) {
       }
     }
     return {
-      kind: conflict ? 'merge-conflict' : 'merge-hook-failed',
+      kind: mergeFailureKind(conflict),
       detail: describeGitFailure(failure).slice(0, 2000),
       cleanup,
       warnings,
@@ -492,7 +432,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
   return withLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === plan.missionId)
-    if (!mission) return missionMissing(plan.missionId)
+    if (!mission) return missionMissingResult(plan.missionId)
     // State revision policy: another writer changed the state while Git was
     // running. Do not overwrite their update and do not guess: keep the merge
     // intent (the pending marker) so the next tower_merge/preflight reconciles
@@ -507,9 +447,12 @@ async function commitMerge(tower, plan, recorded, outcome) {
     // The parents were read from HEAD immediately after the merge while the git
     // mutex was still held. Re-verify them here: recording a "merged" mission is
     // only safe when HEAD is [intent.baseTip, intent.branchTip].
-    const expectedShape =
-      outcome.kind === 'merged' && isExpectedShape(outcome.parents, recorded.intent.baseTip, recorded.intent.branchTip)
-    const kind = outcome.kind === 'merged' && !expectedShape ? 'merge-shape' : outcome.kind
+    const kind = classifyCommitOutcome(
+      outcome.kind,
+      outcome.parents,
+      recorded.intent.baseTip,
+      recorded.intent.branchTip,
+    )
 
     if (kind === 'merged') {
       const now = Date.now()
@@ -518,9 +461,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
       mission.mergedAt = now
       mission.mergedCommit = outcome.newTip
       mission.updatedAt = now
-      mission.notes.push(
-        `merged ${recorded.intent.branchTip.slice(0, 7)} into ${state.base} as ${outcome.newTip.slice(0, 7)}`,
-      )
+      mission.notes.push(mergeSuccessNote(recorded.intent.branchTip, state.base, outcome.newTip))
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
@@ -545,7 +486,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
       // Keep the intent and the observed tip. A shape mismatch means Tower
       // cannot prove what landed; deleting the intent here would make the
       // moved base unreconcilable and could discard a real commit.
-      const detail = `unexpected merge parents [${outcome.parents.join(', ')}], expected [${recorded.intent.baseTip}, ${recorded.intent.branchTip}]`
+      const detail = mergeShapeDetail(outcome.parents, recorded.intent.baseTip, recorded.intent.branchTip)
       if (intentActive) {
         state.mergeIntent.problem = { code: 'merge-shape', newTip: outcome.newTip, parents: outcome.parents, at: Date.now() }
         state.revision += 1
@@ -574,11 +515,9 @@ async function commitMerge(tower, plan, recorded, outcome) {
     if (intentActive) delete state.mergeIntent
     if (conflict) {
       mission.status = 'blocked'
-      mission.blockers.push(`merge conflict: ${outcome.detail.slice(0, 240)}`)
+      mission.blockers.push(mergeConflictNote(outcome.detail))
     } else {
-      mission.notes.push(
-        `merge command failed before creating a commit (${outcome.detail.slice(0, 240)}); mission left ${mission.status} for retry`,
-      )
+      mission.notes.push(mergeHookFailureNote(outcome.detail, mission.status))
     }
     mission.updatedAt = now
     state.revision += 1
@@ -590,19 +529,14 @@ async function commitMerge(tower, plan, recorded, outcome) {
       missionId: mission.id,
       text: `${conflict ? 'conflict' : 'failed-before-commit'} (${outcome.cleanup})`,
     })
-    return {
-      ok: false,
+    return mergeBlockedResult({
       missionId: mission.id,
-      blockers: [
-        {
-          code: conflict ? 'merge-conflict' : 'merge-hook-failed',
-          detail: outcome.detail,
-          ...(outcome.timeout === true ? { timeout: true } : {}),
-          cleanup: outcome.cleanup,
-        },
-      ],
-      ...(outcome.warnings.length > 0 ? { warnings: outcome.warnings } : {}),
-    }
+      code: conflict ? 'merge-conflict' : 'merge-hook-failed',
+      detail: outcome.detail,
+      timeout: outcome.timeout === true,
+      cleanup: outcome.cleanup,
+      warnings: outcome.warnings,
+    })
   })
 }
 

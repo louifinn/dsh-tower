@@ -3,7 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { acquireLease, releaseLease, inspectLeases } from '../lib/leases.js'
-import { Type, enumOf } from './schema.js'
+import { ResourceInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -15,15 +15,7 @@ export function registerResourceTool(ctx, deps) {
     name: 'tower_resource',
     description:
       'Advisory resource leases per repository (coordination only; no OS CPU/memory hard cap). acquire/release require a token and are tower-only; status is read-only. Expired leases are never taken over silently.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      action: enumOf(['acquire', 'release', 'status'], { description: 'Lease operation.' }),
-      name: Type.Optional(Type.String({ description: 'Lease name, e.g. plugin-load or heavy-ci.' })),
-      holder: Type.Optional(Type.String({ description: 'Holder label (defaults to the caller).' })),
-      token: Type.Optional(Type.String({ description: 'Release token; generated on acquire when omitted.' })),
-      ttlMs: Type.Optional(Type.Integer({ minimum: 1000, description: 'Lease lifetime (default leases.ttlMs).' })),
-      force: Type.Optional(Type.Boolean({ description: 'Explicitly release an expired lease (token still required).' })),
-    }, { additionalProperties: false }),
+    parameters: ResourceInput,
     output: output(SCHEMAS.resource),
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)

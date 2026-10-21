@@ -3,7 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { validateLegacyMap } from '../lib/legacy.js'
-import { Type, enumOf } from './schema.js'
+import { LegacyMapInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -15,13 +15,7 @@ export function registerLegacyMapTool(ctx, deps) {
     name: 'tower_legacy_map',
     description:
       'Audit-only mapping between a legacy snapshot id and a current mission. map records sourceHash/oldId/newMissionId; status lists mappings. Mapping never adopts or resumes a legacy mission.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      action: enumOf(['map', 'status'], { description: 'Mapping operation.' }),
-      sourceHash: Type.Optional(Type.String({ description: 'Legacy snapshot sha256 (map).' })),
-      oldId: Type.Optional(Type.String({ description: 'Legacy mission id (map).' })),
-      newMissionId: Type.Optional(Type.String({ description: 'Current mission id; optional audit pointer.' })),
-    }, { additionalProperties: false }),
+    parameters: LegacyMapInput,
     output: output(SCHEMAS.legacyMap),
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)

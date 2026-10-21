@@ -1,42 +1,20 @@
-// tower_diff and tower_adopt.
+// tower_adopt: reconcile the roster with the subagent catalog.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type } from './schema.js'
+import { AdoptInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
  * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
  */
-export function registerDiffAdoptTools(ctx, deps) {
+export function registerAdoptTool(ctx, deps) {
   const { define, actorFor, requireTowerActor } = deps
-  define(ctx, {
-    name: 'tower_diff',
-    description:
-      'Read-only view of a mission branch for review: merge base, changed files, commits, and a capped patch against the recorded base. Safe for reviewers; it never modifies the repository.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path to the main checkout root.' }),
-      missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-      id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
-      maxBytes: Type.Optional(Type.Integer({ minimum: 1024, description: 'Patch cap in bytes (default 65536).' })),
-    }, { additionalProperties: false }),
-    aliases: {"missionId":["id"]},
-    requiresMissionId: true,
-    output: output(SCHEMAS.diff),
-    async execute(args) {
-      const tower = await Tower.open(args.repoRoot)
-      return tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes })
-    },
-  })
-
   define(ctx, {
     name: 'tower_adopt',
     description:
       'Reconcile the roster with the durable subagent catalog after a restart or new session. Agents that are provably gone are marked retired (records are kept) or missing (retireMissing:false, so the tower can inspect/take over); agents whose parent catalog cannot be read stay unknown and are never changed. Only the tower may adopt.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      retireMissing: Type.Optional(Type.Boolean({ description: 'Retire provably gone agents (default true); false marks them missing instead.' })),
-    }, { additionalProperties: false }),
+    parameters: AdoptInput,
     aliases: { retire_missing: ['retireMissing'] },
     output: output(SCHEMAS.adopt),
     async execute(args, exec) {

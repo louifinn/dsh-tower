@@ -16,10 +16,10 @@ const AMBIENT_ALLOWED = new Set(['lib/config.js', 'lib/git.js', 'tools/index.js'
 // The registration aggregator wires tool modules together; the thinness rule
 // applies to the individual modules under tools/.
 const TOOLS_REGISTRATION = new Set(['tools/index.js'])
-// P1 moved these files without splitting them: the aggregator and tower_spawn
-// are above the 200-line tool ceiling. P2a moved the output-schema catalog to
-// domain/contracts/outputs.js, where the tool size ceiling does not apply.
-const TOOLS_SIZE_ALLOWED = new Set(['tools/index.js', 'tools/spawn.js'])
+// The registration aggregator is the only tools/ module above the 200-line
+// per-tool ceiling: it wires the individual modules together. P3c split
+// tower_spawn, so every tool module now enforces the ceiling.
+const TOOLS_SIZE_ALLOWED = new Set(['tools/index.js'])
 const LITERAL_PATTERN = /enum:\s*\[\s*'(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix)'/
 
 function walk(root, relative = '') {

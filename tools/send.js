@@ -1,8 +1,8 @@
-// tower_send and tower_inbox.
+// tower_send: durable inbox message delivery.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type } from './schema.js'
+import { SendInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -10,29 +10,15 @@ import { Type } from './schema.js'
  *   define: import('../types/index.js').DefineTool,
  *   actorFor: any,
  *   checkSendRate: any,
- *   interruptRosterAgent: any,
  * }} deps
  */
-export function registerSendInboxTools(ctx, deps) {
-  const { define, actorFor, checkSendRate, interruptRosterAgent } = deps
+export function registerSendTool(ctx, deps) {
+  const { define, actorFor, checkSendRate } = deps
   define(ctx, {
     name: 'tower_send',
     description:
       'Send a durable inbox message to a tower participant: a roster agent name, "tower", or "all" (broadcast). The message is persisted first; when the recipient is a currently running roster agent the tower also steers it into that child\'s current turn. Returns delivery results.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      to: Type.String({ description: 'Recipient: a roster agent name, "tower", or "all".' }),
-      subject: Type.String({ description: 'One-line subject.' }),
-      body: Type.String({ description: 'Full message body (markdown).' }),
-      scope: Type.Optional(Type.String({ description: 'Optional scope tag, e.g. the mission id.' })),
-      interrupt: Type.Optional(
-        Type.Boolean({
-          description: 'Interrupt the recipient\'s current turn before delivering (Kimi-style "message interrupts the running turn"); default false = queue at the next step boundary.',
-        }),
-      ),
-      consentRef: Type.Optional(Type.String({ description: 'Optional audit reference recording who consented to this instruction.' })),
-      consent_ref: Type.Optional(Type.String({ description: 'Alias for consentRef.' })),
-    }, { additionalProperties: false }),
+    parameters: SendInput,
     aliases: { consentRef: ['consent_ref'] },
     output: output(SCHEMAS.send),
     async execute(args, exec) {
@@ -147,27 +133,6 @@ export function registerSendInboxTools(ctx, deps) {
         message: { id: message.id, from, to: message.to, subject: message.subject },
         deliveries: results,
       }
-    },
-  })
-
-  define(ctx, {
-    name: 'tower_inbox',
-    description:
-      'Read your tower inbox: messages addressed to you plus broadcasts, newest first. Only returned messages are acknowledged; the result reports unreadRemaining, so keep reading until it reaches 0. Set include_read for history. Unread messages block tower_complete.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      limit: Type.Optional(Type.Number({ description: 'Max messages to return (default 20), newest first.' })),
-      include_read: Type.Optional(Type.Boolean({ description: 'Include previously acknowledged messages for history lookup.' })),
-      includeRead: Type.Optional(Type.Boolean({ description: 'Alias for include_read.' })),
-    }, { additionalProperties: false }),
-    aliases: {"include_read":["includeRead"]},
-    output: output(SCHEMAS.inbox),
-    async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
-      const view = await tower.rosterView()
-      const self = view.roster.find((entry) => entry.agentId === String(exec.agent.id))
-      const reader = self ? self.name : 'tower'
-      return tower.inbox({ reader, limit: args.limit, includeRead: args.include_read === true })
     },
   })
 }

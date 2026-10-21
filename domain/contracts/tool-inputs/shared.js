@@ -1,4 +1,4 @@
-// Shared TypeBox helpers for tool input schemas (#45).
+// Shared TypeBox helpers for tool input schemas (#45, #56 P3c).
 import { Type } from '@sinclair/typebox'
 
 /**
@@ -11,6 +11,15 @@ import { Type } from '@sinclair/typebox'
  */
 export function enumOf(values, options = {}) {
   return Type.Unsafe(/** @type {any} */ ({ type: 'string', enum: [...values], ...options }))
+}
+
+/**
+ * Untyped JSON object entries (checks, receiptHashes) must keep their exact
+ * `{ type: 'object' }` shape; Type.Object({}) would add a `properties: {}` key.
+ * @param {string} [description]
+ */
+export function untypedObject(description) {
+  return Type.Unsafe(/** @type {any} */ (description === undefined ? { type: 'object' } : { type: 'object', description }))
 }
 
 export { Type }

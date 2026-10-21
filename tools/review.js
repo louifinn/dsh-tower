@@ -2,7 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type, enumOf } from './schema.js'
+import { ReviewInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -14,17 +14,7 @@ export function registerReviewTool(ctx, deps) {
     name: 'tower_review',
     description:
       'Submit an independent review verdict for a completed mission, bound to the current branch tip. status is "clean", "p1-Nitems", or "p2-Nitems"; merge is "merge", "fix-then-merge", or "hold" (only clean + merge is later approval). Non-clean returns the mission to active. Reviewers are capped at 5 rounds per branch; a tower-submitted review is break-glass and requires breakGlassReason.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-      id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
-      status: Type.String({ description: 'Verdict: "clean", or "p1-Nitems" / "p2-Nitems" with the number of findings at that priority.' }),
-      merge: enumOf(['merge', 'fix-then-merge', 'hold'], { description: 'Merge recommendation for the tower.' }),
-      findings: Type.String({ description: 'Full findings text (markdown); write "none" when clean.' }),
-      checks: Type.Optional(Type.Array(Type.String(), { description: 'Checklist items you verified.' })),
-      decision: Type.String({ description: 'The reasoning behind your verdict.' }),
-      breakGlassReason: Type.Optional(Type.String({ description: 'Tower-only exceptional self-review: why no independent reviewer was used.' })),
-    }, { additionalProperties: false }),
+    parameters: ReviewInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
     board: true,

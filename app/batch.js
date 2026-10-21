@@ -2,7 +2,15 @@
 import { TowerToolError } from '../domain/errors.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
+import { validateCreate as validateBatchCreate, validateClose as validateBatchClose } from '../domain/batch.js'
+import {
+  nextBatchId,
+  createBatchRecord,
+  closeBatchRecord,
+  abandonBatchCheck,
+  applyBatchAbandon,
+  batchStatusPayload,
+} from '../domain/collab/batch.js'
 
 function fail(message, code = 'batch-invalid') {
   throw new TowerToolError(code, message)
@@ -13,17 +21,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       const state = await tower.load()
       const normalized = validateBatchCreate(state, input)
       if (!Array.isArray(state.batches)) state.batches = []
-      const max = state.batches.reduce((value, batch) => {
-        const match = /^B(\d+)$/.exec(String(batch.id ?? ''))
-        return match ? Math.max(value, Number(match[1])) : value
-      }, 0)
-      const batch = {
-        id: `B${max + 1}`,
-        status: 'open',
-        ...normalized,
-        createdBy: actor,
-        createdAt: Date.now(),
-      }
+      const batch = createBatchRecord(nextBatchId(state.batches), normalized, actor, Date.now())
       state.batches.push(batch)
       state.revision += 1
       state.updatedAt = batch.createdAt
@@ -46,15 +44,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       const result = validateBatchClose(state, batch, { ...options, state })
       const blockers = Array.isArray(result.blockers) ? result.blockers : []
       if (blockers.length > 0) return { ok: false, batch, blockers, checks: result.checks ?? [] }
-      batch.status = 'closed'
-      batch.closedAt = Date.now()
-      batch.closedBy = actor
-      batch.close = {
-        checks: options.checks ?? [],
-        treeTip: options.treeTip ?? null,
-        receiptHashes: options.receiptHashes ?? {},
-        at: batch.closedAt,
-      }
+      closeBatchRecord(batch, options, actor, Date.now())
       state.revision += 1
       state.updatedAt = batch.closedAt
       validateState(state, tower.paths.state)
@@ -70,12 +60,10 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       const state = await tower.load()
       const batch = (state.batches ?? []).find((entry) => entry.id === batchId)
       if (!batch) fail(`unknown batch "${batchId}"`)
-      if (batch.status === 'closed') fail(`batch ${batchId} is already closed`)
-      if (batch.status === 'abandoned') return { ok: true, batch, alreadyAbandoned: true }
-      batch.status = 'abandoned'
-      batch.abandonedAt = Date.now()
-      batch.abandonedBy = actor
-      batch.abandonReason = typeof reason === 'string' && reason.trim() ? reason.trim() : null
+      const { alreadyAbandoned } = abandonBatchCheck(batch, batchId)
+      if (alreadyAbandoned) return { ok: true, batch, alreadyAbandoned: true }
+      const now = Date.now()
+      applyBatchAbandon({ batch, actor, reason, now })
       state.revision += 1
       state.updatedAt = batch.abandonedAt
       validateState(state, tower.paths.state)
@@ -87,14 +75,5 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
 
   export async function batchStatus(tower, batchId) {
     const state = await tower.load()
-    const batch = batchId
-      ? (state.batches ?? []).find((entry) => entry.id === batchId)
-      : null
-    if (batchId && !batch) fail(`unknown batch "${batchId}"`)
-    return {
-      batches: (state.batches ?? []).map((entry) => summarizeBatch(state, entry)),
-      ...(batch ? { batch: summarizeBatch(state, batch) } : {}),
-    }
+    return batchStatusPayload(state, batchId)
   }
-
-  /** Track repeated absence observations before declaring a roster row gone. */

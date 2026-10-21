@@ -4,7 +4,7 @@ import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
 import { runDoctor } from '../lib/doctor.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { Type } from './schema.js'
+import { DoctorInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -15,9 +15,7 @@ export function registerDoctorTool(ctx, define) {
     name: 'tower_doctor',
     description:
       'Read-only environment and repository health check: git, state schema, config, presets/subagents/HMR, workspace lock, roster staleness, worktree ownership, test discovery, leases. Returns checks with pass/warn/fail and an environment contract. Never writes state.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-    }, { additionalProperties: false }),
+    parameters: DoctorInput,
     output: output(SCHEMAS.doctor),
     async execute(args, exec) {
       let tower

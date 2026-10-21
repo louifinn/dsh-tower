@@ -2,7 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { importLegacySnapshot } from '../lib/legacy.js'
-import { Type } from './schema.js'
+import { ImportLegacyInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -14,10 +14,7 @@ export function registerImportLegacyTool(ctx, deps) {
     name: 'tower_import_legacy',
     description:
       'Read-only import of a Tower Codex (schemaVersion 1) or DSH legacy state file. Stores the full payload under <common>/dsh-tower/legacy/<sha256>.json and records only a summary in state.legacySnapshots; never activates, adopts, or resumes paused missions.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      sourcePath: Type.String({ description: 'Absolute path to the legacy JSON state file.' }),
-    }, { additionalProperties: false }),
+    parameters: ImportLegacyInput,
     board: true,
     output: output(SCHEMAS.importLegacy),
     async execute(args, exec) {

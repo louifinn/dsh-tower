@@ -4,7 +4,7 @@ import { readStateLock } from '../lib/store.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { fsp } from '../adapters/store-fs.js'
-import { Type, enumOf } from './schema.js'
+import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -16,11 +16,7 @@ export function registerRecoverTool(ctx, deps) {
     name: 'tower_recover',
     description:
       'Read-only recovery diagnostics and an explicit stale-state-lock repair. status reports the state lock owner; clear-stale-lock requires confirm:"CLEAR_STALE_LOCK" and only moves a lock whose PID is provably dead to a backup file. It never resets Tower state or worktrees.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      action: enumOf(['status', 'clear-stale-lock'], { description: 'Recovery action.' }),
-      confirm: Type.Optional(Type.String({ description: 'Required literal CLEAR_STALE_LOCK for clear-stale-lock.' })),
-    }, { additionalProperties: false }),
+    parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)

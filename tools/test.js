@@ -2,7 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type } from './schema.js'
+import { TestInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -19,11 +19,7 @@ export function registerTestTool(ctx, deps) {
     name: 'tower_test',
     description:
       'Run the mission worktree\'s declared tower.testDiscovery (package.json) and record the receipt. Returns ok:false with diagnostics when discovery fails; does not change mission status. Use tower_complete for automatic admission checks.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      missionId: Type.String({ description: 'Mission id, e.g. M1 (alias: id).' }),
-      id: Type.Optional(Type.String({ description: 'Alias for missionId.' })),
-    }, { additionalProperties: false }),
+    parameters: TestInput,
     aliases: { missionId: ['id'] },
     requiresMissionId: true,
     output: output(SCHEMAS.test),

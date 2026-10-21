@@ -4,7 +4,7 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
-import { Type } from './schema.js'
+import { InitInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -16,13 +16,7 @@ export function registerInitTool(ctx, deps) {
     name: 'tower_init',
     description:
       'Initialize Tower mission state for a repository (absolute repoRoot). Creates <git-common-dir>/dsh-tower/state.json and an activity log; idempotent on an existing workspace. Options: autoGitInit (git init + empty initial commit when the directory is not a repository), snapshotDirty (snapshot uncommitted work into a dangling commit used as the mission baseline), reanchor (change base when every mission is merged/abandoned). Only the tower may initialize.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      base: Type.Optional(Type.String({ description: 'Optional local base branch (defaults to the checked-out branch).' })),
-      autoGitInit: Type.Optional(Type.Boolean({ description: 'Run git init (and an empty initial commit) when repoRoot is not a repository yet.' })),
-      snapshotDirty: Type.Optional(Type.Boolean({ description: 'Snapshot uncommitted tracked changes into a dangling commit used as the mission baseline (untracked files are not included).' })),
-      reanchor: Type.Optional(Type.Boolean({ description: 'Update the recorded base when no mission is active.' })),
-    }, { additionalProperties: false }),
+    parameters: InitInput,
     aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'] },
     board: true,
     output: output(SCHEMAS.init),

@@ -2,15 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type, enumOf } from './schema.js'
-
-/**
- * Untyped JSON object entries (checks, receiptHashes) must keep their exact
- * `{ type: 'object' }` shape; Type.Object({}) would add a `properties: {}` key.
- * @param {string} [description]
- */
-const untypedObject = (description) =>
-  Type.Unsafe(description === undefined ? { type: 'object' } : { type: 'object', description })
+import { BatchInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -22,19 +14,7 @@ export function registerBatchTool(ctx, deps) {
     name: 'tower_batch',
     description:
       'Manage finite evidence batches: create freezes missionIds/requiredChecks/receiptPaths, status summarizes members, close verifies every required check and receipt hash, abandon retires a stale open batch. Membership and exclusions are immutable after create; close/abandon never remove missions.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      action: enumOf(['create', 'status', 'close', 'abandon'], { description: 'Batch operation.' }),
-      missionIds: Type.Optional(Type.Array(Type.String(), { description: 'Exact mission ids in this batch (create).' })),
-      exclusions: Type.Optional(Type.Array(Type.String(), { description: 'Paused legacy mission ids excluded from the batch.' })),
-      requiredChecks: Type.Optional(Type.Array(Type.String(), { description: 'Check names every build member must record (default ["check"]).' })),
-      receiptPaths: Type.Optional(Type.Array(Type.String(), { description: 'Exact relative receipt files checked at close.' })),
-      batchId: Type.Optional(Type.String({ description: 'Batch id (status/close/abandon).' })),
-      reason: Type.Optional(Type.String({ description: 'Reason recorded when abandoning a batch.' })),
-      checks: Type.Optional(Type.Array(untypedObject(), { description: 'Close-time extra check evidence.' })),
-      treeTip: Type.Optional(Type.String({ description: 'Expected reviewed/tested commit for close evidence.' })),
-      receiptHashes: Type.Optional(untypedObject('Relative receipt path -> sha256 observed by the caller.')),
-    }, { additionalProperties: false }),
+    parameters: BatchInput,
     board: true,
     output: output(SCHEMAS.batch),
     async execute(args, exec) {

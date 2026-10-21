@@ -1,6 +1,7 @@
 // Pure completion gate checks (#49). No repository I/O.
 // @ts-check
 import { isTerminal } from './mission.js'
+import { isReviewExempt, reviewExemptionInvalid } from './integration/review.js'
 
 /** @typedef {import('../types/index.js').Blocker} Blocker */
 /** @typedef {import('../types/index.js').MergeGateOptions} MergeGateOptions */
@@ -69,12 +70,8 @@ export function mergeGateBlockers({
   }
   const inactive = new Set(inactiveStates)
   const requireReview = config.review?.requireReview !== false
-  const exempt =
-    !requireReview ||
-    (mission.reviewPolicy === 'none' &&
-      config.gates?.allowReviewExemption === true &&
-      String(mission.reviewExemptionReason ?? '').trim().length > 0)
-  if (requireReview && mission.reviewPolicy === 'none' && config.gates?.allowReviewExemption !== true) {
+  const exempt = isReviewExempt(mission, config)
+  if (reviewExemptionInvalid(mission, config)) {
     push('review-exemption-invalid', `mission ${mission.id} requests no review but gates.allowReviewExemption is disabled`)
   }
   if (requireReview && !exempt && !review) {

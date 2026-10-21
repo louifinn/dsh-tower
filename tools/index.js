@@ -2,11 +2,6 @@
 import {
   Tower,
   ROSTER_INACTIVE_STATES,
-  MISSION_STATUSES,
-  FINDING_TYPES,
-  FINDING_SEVERITIES,
-  FINDING_STATUSES,
-  ROLES,
 } from '../app/tower.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { git, resolveRepo, hasAnyCommit } from '../lib/git.js'
@@ -25,14 +20,20 @@ import { registerPlanTool } from './plan.js'
 import { registerMissionTool } from './mission.js'
 import { registerStatusTool } from './status.js'
 import { registerRosterTool } from './roster.js'
-import { registerDiffAdoptTools } from './diff-adopt.js'
-import { registerSendInboxTools } from './send-inbox.js'
+import { registerInterruptTool } from './interrupt.js'
+import { registerDiffTool } from './diff.js'
+import { registerAdoptTool } from './adopt.js'
+import { registerSendTool } from './send.js'
+import { registerInboxTool } from './inbox.js'
 import { registerReviewTool } from './review.js'
 import { registerPreflightTool } from './preflight.js'
-import { registerCombatTools } from './combat.js'
+import { registerMergeTool } from './merge.js'
+import { registerRebaseTool } from './rebase.js'
+import { registerTeardownTool } from './teardown.js'
 import { registerSpawnTool } from './spawn.js'
 import { registerCompleteTool } from './complete.js'
-import { registerFindingTools } from './findings.js'
+import { registerFindingTool } from './finding.js'
+import { registerFindingsTool } from './findings.js'
 import { S, SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
 export { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
@@ -44,8 +45,6 @@ import { runDoctor } from '../lib/doctor.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import crypto from 'node:crypto'
-
-const ROLE_ENUM = ROLES
 
 function normalizeToolArgs(args, aliases = {}) {
   const out = { ...(args ?? {}) }
@@ -486,19 +485,31 @@ export function registerTowerTools(ctx, options = {}) {
 
   registerRosterTool(ctx, { define, workspaceHook, observeActivity, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffAdoptTools(ctx, { define, actorFor, requireTowerActor })
+  registerInterruptTool(ctx, { define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerSendInboxTools(ctx, { define, actorFor, checkSendRate, interruptRosterAgent })
+  registerDiffTool(ctx, { define, actorFor, requireTowerActor })
+
+  registerAdoptTool(ctx, { define, actorFor, requireTowerActor })
+
+  registerSendTool(ctx, { define, actorFor, checkSendRate })
+
+  registerInboxTool(ctx, { define })
 
   registerCompleteTool(ctx, { define, runMissionDiscovery })
 
-  registerFindingTools(ctx, { define, actorFor, requireKnownActor })
+  registerFindingTool(ctx, { define, actorFor, requireKnownActor })
+
+  registerFindingsTool(ctx, { define, actorFor, requireKnownActor })
 
   registerReviewTool(ctx, { define, actorFor })
 
   registerPreflightTool(ctx, { define, observeActivity })
 
-  registerCombatTools(ctx, { define, actorFor, requireTowerActor, observeActivity })
+  registerMergeTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
+
+  registerRebaseTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
+
+  registerTeardownTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
 
   registerDoctorTool(ctx, define)
 

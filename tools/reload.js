@@ -4,7 +4,7 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { runtimeConfig } from '../lib/config.js'
 import { createHmrBridge } from '../lib/hmr.js'
-import { Type } from './schema.js'
+import { ReloadInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -28,9 +28,7 @@ export function registerReloadTool(ctx, deps) {
       name: 'tower_reload',
       description:
         'Dev-only: ask DSH HMR to reconcile this profile and reload the Tower Host plugin from disk. The reload is scheduled a few milliseconds after this call returns (so the result reaches the model first). Use after editing the plugin source in a linked profile; plugin_manager install/update already triggers reconciliation by itself. Registered while dev.hotReload is on; fails with reload-unavailable when the HMR service is absent.',
-      parameters: Type.Object({
-        repoRoot: Type.Optional(Type.String({ description: 'Optional repository root; when present the caller must be the tower.' })),
-      }, { additionalProperties: false, required: [] }),
+      parameters: ReloadInput,
       output: output(SCHEMAS.reload),
       async execute(args, exec) {
         if (typeof args.repoRoot === 'string') {

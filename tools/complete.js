@@ -2,7 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { Type } from './schema.js'
+import { CompleteInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -14,23 +14,7 @@ export function registerCompleteTool(ctx, deps) {
     name: 'tower_complete',
     description:
       'Worker-only: report mission completion. Enforced by the store: every task done or dropped, no blockers, the current owner, the mission branch has at least one commit since its spawn base, and no unread inbox messages. checks records verifiable evidence (name/command/exitCode/evidence); gates.requireChecks can require at least one before merge. Stores the full report; completion means ready for preflight and optional review, not merged.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-      id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
-      report: Type.String({ description: 'Full completion report for the tower and the next review round.' }),
-      checks: Type.Optional(
-        Type.Array(
-          Type.Object({
-            name: Type.String({ description: 'What was checked.' }),
-            command: Type.Optional(Type.String({ description: 'Command or method used.' })),
-            exitCode: Type.Optional(Type.Integer({ description: 'Observed exit code.' })),
-            evidence: Type.Optional(Type.String({ description: 'Short evidence line/log reference.' })),
-          }, { additionalProperties: false }),
-          { description: 'Optional evidence ledger entries: {name, command?, exitCode?, evidence?}.' },
-        ),
-      ),
-    }, { additionalProperties: false }),
+    parameters: CompleteInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
     board: true,

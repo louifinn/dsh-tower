@@ -2,7 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { classifyError } from '../domain/errors.js'
-import { Type } from './schema.js'
+import { PreflightInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -14,11 +14,7 @@ export function registerPreflightTool(ctx, deps) {
     name: 'tower_preflight',
     description:
       'Read-only merge gate for one mission: returns ok plus stable blocker codes (branch-missing, deps-unmerged, read-only-survey, stale-base, out-of-scope, base-dirty, branch-owned-by-closed-missions, and mission/worker guards). Review blockers (no-review, review-hold, not-clean, review-not-approved, tip-moved, review-mission-mismatch) apply only when review.requireReview is on. Never changes anything.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-      id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
-    }, { additionalProperties: false }),
+    parameters: PreflightInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
     output: output(SCHEMAS.preflight),

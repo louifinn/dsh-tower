@@ -8,11 +8,26 @@
 //             state revision captured by prepare.
 import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { SCHEMA_VERSION, TERMINAL_STATUSES } from '../domain/mission.js'
 import { TowerToolError } from '../domain/errors.js'
-
-const TERMINAL = TERMINAL_STATUSES
-const SNAPSHOT_REF_PREFIX = 'refs/tower/snapshot/'
+import {
+  SNAPSHOT_REF_PREFIX,
+  claimCaller,
+  createdInitResult,
+  existingInitResult,
+  existingInitWriteResult,
+  explicitBase,
+  fallbackBase,
+  initActivityText,
+  initialState,
+  invalidBaseMessage,
+  ownedByOther,
+  ownerClaimActivityText,
+  reanchorActivityText,
+  reanchorBlockedMessage,
+  shouldReanchor,
+  shouldSnapshot,
+  snapshotRefFor,
+} from '../domain/integration/init.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
@@ -24,54 +39,37 @@ async function prepareInit(tower, input) {
   const committed = ((await tower.tryGit(tower.root, ['rev-list', '-n', '1', '--all'])) ?? '').trim().length > 0
 
   const resolveBase = async () => {
-    let base = typeof input.base === 'string' && input.base.trim() ? input.base.trim() : null
-    if (base) {
-      if (/^refs\//.test(base) || base.startsWith('origin/')) {
-        fail(`base must be a local branch name, not ${base}`)
+    const explicit = explicitBase(input.base)
+    if (explicit) {
+      const message = invalidBaseMessage(explicit)
+      if (message) fail(message)
+      if (committed && (await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${explicit}`])) === null) {
+        fail(`base branch "${explicit}" does not exist locally`)
       }
-      if (committed && (await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${base}`])) === null) {
-        fail(`base branch "${base}" does not exist locally`)
-      }
-      return base
+      return explicit
     }
-    base = tower.branch
-    if (!base && !committed) base = 'main'
-    if (!base) fail('repository is in detached HEAD; pass an explicit local base branch')
-    return base
+    const fallback = fallbackBase({ branch: tower.branch, committed })
+    if ('error' in fallback) fail(fallback.error)
+    return /** @type {{ base: string }} */ (fallback).base
   }
 
   if (await exists(tower.paths.state)) {
     const state = await tower.load()
     const owner = state.towerAgentId ? String(state.towerAgentId) : null
     const caller = input.towerAgentId ? String(input.towerAgentId) : null
-    if (owner && caller && owner !== caller) {
+    if (ownedByOther(owner, caller)) {
       fail(`tower state is owned by another agent; ${caller} is not the tower`, 'not-authorized')
     }
     let reanchorBase = null
     if (input.reanchor === true) {
-      const active = state.missions.filter((mission) => !TERMINAL.has(mission.status))
-      if (active.length > 0) {
-        fail(`cannot reanchor base while ${active.length} mission(s) are not merged or abandoned`, 'invalid-transition')
-      }
+      const refusal = reanchorBlockedMessage(state.missions)
+      if (refusal) fail(refusal, 'invalid-transition')
       reanchorBase = await resolveBase()
     }
-    const claim = !owner && Boolean(caller)
-    const reanchor = input.reanchor === true && reanchorBase !== state.base
+    const claim = claimCaller(owner, caller) !== null
+    const reanchor = shouldReanchor({ reanchor: input.reanchor, reanchorBase, currentBase: state.base })
     if (!claim && !reanchor) {
-      return {
-        early: {
-          created: false,
-          repoRoot: state.repoRoot,
-          commonDir: state.commonDir,
-          statePath: tower.paths.state,
-          base: state.base,
-          revision: state.revision,
-          missions: state.missions.length,
-          reanchored: false,
-          dirty,
-          snapshotCommit: state.snapshotCommit ?? null,
-        },
-      }
+      return { early: existingInitResult({ state, statePath: tower.paths.state, dirty }) }
     }
     return { stateRevision: state.revision, claim, reanchor, base: reanchorBase, dirty }
   }
@@ -79,7 +77,7 @@ async function prepareInit(tower, input) {
   return {
     create: true,
     base: await resolveBase(),
-    snapshot: input.snapshotDirty === true && dirty,
+    snapshot: shouldSnapshot({ snapshotDirty: input.snapshotDirty, dirty }),
     dirty,
   }
 }
@@ -99,7 +97,7 @@ async function actInitCreate(tower, prepared) {
     }
     // A dangling commit can be pruned by git gc; keep a ref so the mission
     // baseline stays reachable for the life of the state.
-    const snapshotRef = `${SNAPSHOT_REF_PREFIX}${snapshotCommit}`
+    const snapshotRef = snapshotRefFor(snapshotCommit)
     await tower.git(tower.root, ['update-ref', snapshotRef, snapshotCommit])
     return { snapshotCommit, snapshotRef }
   })
@@ -148,39 +146,32 @@ async function commitInitCreate(tower, prepared, acted, input) {
       throw new TowerToolError('stale-base', 'tower state appeared while init was being prepared; retry')
     }
     const now = Date.now()
-    const state = {
-      schemaVersion: SCHEMA_VERSION,
+    const state = initialState({
       repoRoot: tower.root,
       commonDir: tower.commonDir,
       base: prepared.base,
-      revision: 0,
-      createdAt: now,
-      updatedAt: now,
-      dirtyBase: prepared.dirty,
-      ...(input.towerAgentId ? { towerAgentId: String(input.towerAgentId) } : {}),
-      ...(acted.snapshotCommit ? { snapshotCommit: acted.snapshotCommit, snapshotRef: acted.snapshotRef } : {}),
-      missions: [],
-    }
+      dirty: prepared.dirty,
+      towerAgentId: input.towerAgentId ? String(input.towerAgentId) : null,
+      snapshotCommit: acted.snapshotCommit,
+      snapshotRef: acted.snapshotRef,
+      now,
+    })
     validateState(state, tower.paths.state)
     await writeJsonAtomic(tower.paths.state, state)
     await appendJsonl(tower.paths.activity, {
       at: now,
       type: 'init',
-      text: `base ${prepared.base}${acted.snapshotCommit ? ` snapshot ${acted.snapshotCommit.slice(0, 12)}` : ''}${prepared.dirty ? ' (dirty base)' : ''}`,
+      text: initActivityText({ base: prepared.base, snapshotCommit: acted.snapshotCommit, dirty: prepared.dirty }),
     })
-    return {
-      created: true,
+    return createdInitResult({
       repoRoot: tower.root,
       commonDir: tower.commonDir,
       statePath: tower.paths.state,
       base: prepared.base,
-      revision: 0,
-      missions: 0,
-      reanchored: false,
       dirty: prepared.dirty,
       snapshotCommit: acted.snapshotCommit,
       snapshotRef: acted.snapshotRef,
-    }
+    })
   })
 }
 
@@ -197,16 +188,21 @@ async function commitInitExisting(tower, prepared, input) {
     const now = Date.now()
     const owner = state.towerAgentId ? String(state.towerAgentId) : null
     const caller = input.towerAgentId ? String(input.towerAgentId) : null
-    if (owner && caller && owner !== caller) {
+    if (ownedByOther(owner, caller)) {
       fail(`tower state is owned by another agent; ${caller} is not the tower`, 'not-authorized')
     }
-    if (!owner && caller) {
-      state.towerAgentId = caller
+    const claimant = claimCaller(owner, caller)
+    if (claimant) {
+      state.towerAgentId = claimant
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, { at: now, type: 'init', text: `tower owner claimed by ${caller}` })
+      await appendJsonl(tower.paths.activity, {
+        at: now,
+        type: 'init',
+        text: ownerClaimActivityText(claimant),
+      })
     }
     let reanchored = false
     if (prepared.reanchor && state.base !== prepared.base) {
@@ -219,20 +215,9 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, { at: now, type: 'init', text: `base reanchored to ${prepared.base}` })
+      await appendJsonl(tower.paths.activity, { at: now, type: 'init', text: reanchorActivityText(prepared.base) })
     }
-    return {
-      created: false,
-      repoRoot: state.repoRoot,
-      commonDir: state.commonDir,
-      statePath: tower.paths.state,
-      base: state.base,
-      revision: state.revision,
-      missions: state.missions.length,
-      reanchored,
-      dirty: prepared.dirty,
-      snapshotCommit: state.snapshotCommit ?? null,
-    }
+    return existingInitWriteResult({ state, statePath: tower.paths.state, dirty: prepared.dirty, reanchored })
   })
 }
 

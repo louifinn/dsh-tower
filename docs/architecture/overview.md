@@ -33,6 +33,7 @@ Host plugin (index.js)
        domain/batch.js      batch admission create/close/summary validation
        domain/config/schema.js  Schemastery config schema, defaults, validation
        domain/contracts/outputs.js  tool output-schema catalog
+       domain/contracts/tool-inputs/  per-area TypeBox input schemas + ToolInputs map
        domain/mission.js    statuses, transitions, pause causes
        domain/gate.js       completion and merge-gate snapshot decisions
        domain/scope.js      glob/scope validation and overlap
@@ -43,8 +44,7 @@ Host plugin (index.js)
        domain/roster.js     roster predicates
  tools layer:
        tools/index.js           registration + shared helpers
-       tools/*.js               one module per tool, TypeBox input schema + handler
-       tools/schema.js          TypeBox helpers (enumOf preserves JSON Schema enum)
+       tools/*.js               one module per tool, handler + imported input schema
  Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
  └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding (read-only)
@@ -118,8 +118,8 @@ dead-PID reclamation, and bounded lock waits. `state.json` is the mission persis
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
   `tools/index.js` is the registration aggregator and is exempt from the thinness rule.
 - Aggregate files have size ceilings; top-level mutable state is limited to explicit composition
-  roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines, with the
-  aggregator and `tools/spawn.js` allowed at the aggregate ceiling until they are split.
+  roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines; only the
+  `tools/index.js` registration aggregator is exempt.
 
 A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
 
@@ -127,13 +127,12 @@ A fixture test seeds one violation per rule, so a rule that cannot fail is itsel
 
 The child issues are closed, but the epic's remaining definition-of-done items are tracked here:
 
-- Pure domain share is currently about **17%** (roughly 2,125 of 12,600 source lines), below the 35%
-  target. P2a moved the already-pure modules (`batch`, `errors`, the config schema, output schemas)
-  into `domain/`; reaching 35% still requires moving transition/gate/validation logic out of the
-  use-case modules, not just moving files.
+- Pure domain share is now **36.5%** (5,544 / 15,206 source lines), above the 35% target; the
+  domain contracts, mission/collab policies, integration decisions, and read projections are pure.
 - `state.json` and `modes.json` now share `lib/persistence.js` atomic/lock/dead-PID primitives;
   `lib/store.js` and `lib/modeStore.js` are thin path/merge layers over that contract.
-- The `tools/**` fitness rules now target the top-level layer. `tools/spawn.js` (374 lines) is still
-  above the 200-line per-tool target; splitting it remains follow-up work.
+- P3c split `tools/spawn.js` into the handler plus `lib/spawn-prechecks.js` and
+  `lib/spawn-support.js`; every module under `tools/` except the registration aggregator is now
+  under the 200-line ceiling.
 
 

@@ -2,7 +2,7 @@
 import { Tower, ROSTER_INACTIVE_STATES } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { classifyError } from '../domain/errors.js'
-import { Type, enumOf } from './schema.js'
+import { StatusInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
@@ -19,14 +19,7 @@ export function registerStatusTool(ctx, deps) {
     name: 'tower_status',
     description:
       'Read the Tower dashboard for a repository: state path, base branch, revision, mission status counts, paged mission summaries (scope/deps/tasks/worktree/owner), roster size, findings, config path and the activity tail. Pass missionId for one full mission (tasks, notes, reviews, findings, completion report); offset/limit page the mission list (default 20, max 100); includeGate adds preflight gate digests for the page; format:"markdown" returns the human-readable mission board. Read-only.',
-    parameters: Type.Object({
-      repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-      missionId: Type.Optional(Type.String({ description: 'Return full detail for one mission instead of the dashboard list.' })),
-      offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Mission list offset (default 0).' })),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Mission list page size (default 20).' })),
-      includeGate: Type.Optional(Type.Boolean({ description: 'Compute tower_preflight-style gate digests for missions on this page.' })),
-      format: Type.Optional(enumOf(['json', 'markdown'], { description: 'markdown returns the MISSIONS.md board text.' })),
-    }, { additionalProperties: false }),
+    parameters: StatusInput,
     aliases: { mission_id: ['missionId'], include_gate: ['includeGate'] },
     output: output(SCHEMAS.status),
     async execute(args, exec) {
