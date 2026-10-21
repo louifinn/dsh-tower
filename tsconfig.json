@@ -2,6 +2,7 @@
   "compilerOptions": {
     "strict": true,
     "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
     "noEmit": true,
     "skipLibCheck": true,
     "allowJs": true,
@@ -11,5 +12,5 @@
     "moduleResolution": "NodeNext",
     "types": ["node"]
   },
-  "include": ["types/**/*.d.ts", "lib/errors.js"]
+  "include": ["types/**/*.d.ts", "lib/errors.js", "lib/config.js", "lib/store.js"]
 }
