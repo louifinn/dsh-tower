@@ -183,6 +183,7 @@ function enterMode(ctx, key, agent, by, reason) {
     lock: previous?.lock ?? null,
     baseBranch: previous?.baseBranch ?? null,
     planModeCleared: plan.cleared,
+    humanAckAt: by === 'user' ? previous?.humanAckAt ?? now : previous?.humanAckAt ?? null,
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
@@ -196,7 +197,7 @@ async function exitMode(key, by, reason) {
   const wasOn = previous.on === true
   // Keep a timestamped off tombstone so a concurrent save from another
   // session cannot resurrect this mode entry.
-  MODE.set(key, { on: false, at: Date.now() })
+  MODE.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null })
   persistModes()
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
@@ -314,6 +315,25 @@ export function apply(ctx, rawConfig) {
     basePreference(exec) {
       const key = agentKey(exec?.agent)
       return key && modeOn(key) ? MODE.get(key)?.baseBranch ?? null : null
+    },
+    modeInfo(exec) {
+      const key = agentKey(exec?.agent)
+      if (!key) return null
+      const entry = MODE.get(key)
+      const history = [...MODE.values()]
+        .map((value) => value?.lastChange)
+        .filter((change) => change && typeof change.at === 'number')
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 10)
+      return {
+        mode: modeOn(key) ? 'on' : entry ? 'off' : 'unknown',
+        allowAgentControl: runtimeConfig().mode.allowAgentControl === true,
+        lastChange: entry?.lastChange ?? null,
+        history,
+        workspaceLock: entry?.lock
+          ? { enabled: runtimeConfig().mode.workspaceLock === true, commonDir: entry.lock.commonDir }
+          : null,
+      }
     },
   }
 
@@ -478,7 +498,12 @@ export function apply(ctx, rawConfig) {
           const reason = args.reason.trim()
           const outcome =
             args.action === 'enter'
-              ? enterMode(ctx, key, exec.agent, 'agent', reason)
+              ? (() => {
+                  if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !MODE.get(key)?.humanAckAt) {
+                    throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
+                  }
+                  return enterMode(ctx, key, exec.agent, 'agent', reason)
+                })()
               : await exitMode(key, 'agent', reason)
           return {
             ok: true,
@@ -499,11 +524,18 @@ export function apply(ctx, rawConfig) {
     commandCtx.commands.register({
       name: 'tower',
       description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
-      input: { hint: '[on|off|reload|base <branch>] [message]', attachments: true },
+      input: { hint: '[on|off|reload|ack|base <branch>] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
-        const baseMatch = String(rawInput ?? '').trim().match(/^base\s+(\S+)\s*$/i)
+        const raw = String(rawInput ?? '').trim()
+        if (/^ack$/i.test(raw)) {
+          const previous = MODE.get(key) ?? { on: false }
+          MODE.set(key, { ...previous, on: previous.on === true, humanAckAt: Date.now(), at: Date.now() })
+          persistModes()
+          return { kind: 'success', text: 'Human acknowledgement recorded; the model may now make the first Tower-mode entry in this session.' }
+        }
+        const baseMatch = raw.match(/^base\s+(\S+)\s*$/i)
         if (baseMatch) {
           const entry = MODE.get(key)
           if (!entry || entry.on !== true) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }

@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 31 tool error codes.
+release defines 32 tool error codes.
 
 Every `TowerToolError` also carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers; the message prefix remains the stable contract
@@ -32,6 +32,7 @@ message without a more specific match is reported as `tool-internal`.
 | `git-timeout` | A git command timed out or exceeded its output buffer. | slow pre-merge hook, huge diff |
 | `spawn-unavailable` | The subagents service is unavailable. | a Host without `subagents` |
 | `provider-missing` | No subagent provider is registered. | an empty provider list |
+| `provider-cooldown` | spawn is in a short cooldown after repeated retryable provider failures. | wait for `blockedUntil`, then retry |
 | `preset-missing` | The configured agent preset is not registered. | missing `tower-worker`/`tower-reviewer` preset rows, DSH not restarted |
 | `reviewer-prerequisite` | The reviewer spawn prerequisite is not met. | reviewer spawned before the mission is `completed`, or before a worktree exists |
 | `not-authorized` | The calling agent role may not perform this action. | a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings |

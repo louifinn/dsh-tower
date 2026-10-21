@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 31 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 32 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -29,6 +29,7 @@
 | `git-timeout` | git 命令超时或输出超出缓冲区。 | 慢 pre-merge 钩子、超大 diff |
 | `spawn-unavailable` | subagents 服务不可用。 | 没有 `subagents` 的 Host |
 | `provider-missing` | 没有注册的 subagent provider。 | provider 列表为空 |
+| `provider-cooldown` | 连续可重试的 provider 失败后，spawn 进入短暂冷却。 | 等待 `blockedUntil` 后重试 |
 | `preset-missing` | 配置的 agent preset 未注册。 | 缺少 `tower-worker`/`tower-reviewer` preset 行、DSH 未重启 |
 | `reviewer-prerequisite` | reviewer spawn 的前置条件未满足。 | mission 尚未 `completed` 或还没有 worktree 就 spawn reviewer |
 | `not-authorized` | 调用方 agent 角色无权执行该操作。 | worker 调用仅限控制塔的工具，或修改 mission 状态/scope；reviewer 修改 finding |

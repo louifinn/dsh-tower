@@ -52,7 +52,7 @@ Tower mode refuses Team/Workflow/Ralph/ordinary subagent tools and clears plan m
 
 ## Requirements
 
-- DeepSeek Harness `0.2.1-rc.2` (or a compatible newer build)
+- DeepSeek Harness `0.2.1-rc.2` (see [COMPATIBILITY.md](COMPATIBILITY.md) for the verified host builds)
 - Node.js 22 or newer
 - Git (worktrees are created locally; no network access is required)
 
@@ -82,6 +82,13 @@ The Host plugin is loaded when the DSH process starts, so **restart DSH after in
 The optional Web UI ships inside the npm package at `ui-bundle/`: for an npm install the target is
 `<profile>/node_modules/dsh-tower/ui-bundle`, or `ui-bundle/` in a source checkout. Install it with
 `plugin_manager({action:"install_bundle", target:"<that directory>"})`, restart DSH, then refresh the page.
+
+### Known conflicts
+
+Do not install `dsh-plugins-tower` (third-party) alongside this package. Its loader row also uses
+`name: dsh-tower`, so it resolves to this package: this package may load twice or the other package
+never runs. `tower_doctor` reports this as `loader-conflicts`; uninstall the conflicting package and
+restart DSH.
 
 ## Quick start
 
@@ -113,6 +120,7 @@ A small change usually takes one worker mission; add one reviewer round when ind
 | `/tower on <instruction>` | Enter/stay **and** forward `<instruction>` as the next user message |
 | `/tower off` | Leave Tower mode |
 | `/tower off <instruction>` | Leave **and** forward `<instruction>` |
+| `/tower ack` | Record human acknowledgement for `mode.requireHumanAckOnFirstEntry` |
 | `/tower <instruction>` | Ensure on, then forward `<instruction>` |
 
 Image and file attachments are forwarded together with the instruction as one complete `UserMessage`.

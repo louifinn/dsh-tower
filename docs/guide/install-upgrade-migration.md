@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- DSH `0.2.1-rc.2` or newer
+- DSH `0.2.1-rc.2`; see [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
 - Node.js 22+
 - Git (local worktrees; no network access is required)
 

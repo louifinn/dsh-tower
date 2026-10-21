@@ -1,0 +1,32 @@
+# Compatibility
+
+Tower records the DeepSeek Harness host build each release was actually verified against. This file
+is shipped in the npm package; doctor reads it locally and never contacts a registry.
+
+| dsh version | commit | verified on | what was run |
+|---|---|---|---|
+| 0.2.1-rc.2 | 6ee19de | 2026-10-21 | `npm test` (229), `npm run docs:check`, offline `ui-bundle` tests |
+| 0.2.1-rc.2 | 5b0accd | 2026-10-18 | `npm test` (219), `npm run docs:check` |
+
+## How to read this
+
+- **verified**: exact host version match; the row names the date and what ran.
+- **untested-newer**: newer than every row. Normally safe to try; include the host version and the
+  latest row in a bug report.
+- **untested-older**: older than every row; upgrade the host or expect missing APIs.
+- **unknown**: the host did not expose a parseable version.
+
+`tower_doctor` reports this as a warning only: a newer host is the normal case and must not block
+Tower work. This is provenance, not a feature-detection mechanism.
+
+## Release process
+
+Add a row in the release PR, before tagging, after running the offline suite and docs check on the
+host build being shipped. Do not claim a live run that was not performed.
+
+## Pack provenance
+
+Releases are currently published locally with npm 2FA. `publishConfig.provenance` is intentionally
+not enabled because provenance requires a CI OIDC publisher; enabling it locally would fail the
+release. The reviewed `scripts/pack-manifest.txt` and CI `pack:check` guard the published file list.
+Move publishing to GitHub Actions before enabling provenance.

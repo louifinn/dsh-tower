@@ -253,3 +253,29 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
     cleanup(root)
   }
 })
+
+test('reconcileObservedInactive releases a slot as soon as the catalog reports inactive', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    writeRepoConfig(repo, { spawn: { maxLiveWorkers: 1 } })
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    await tools.get('tower_plan').execute(
+      { repoRoot: repo, missions: [{ title: 'One', scope: ['one/**'] }, { title: 'Two', scope: ['two/**'] }] },
+      exec,
+    )
+    const tower = await Tower.open(repo)
+    await tower.recordSpawn({
+      missionId: 'M1', name: 'worker-m1', role: 'worker', agentId: 'agent-inactive-1',
+      parentSessionId: 'session-inactive', cwd: null, branch: null,
+    })
+    const result = await tower.reconcileObservedInactive({ 'agent-inactive-1': 'inactive' })
+    assert.deepEqual(result.released, ['worker-m1'])
+    const state = await tower.load()
+    assert.equal(state.roster.find((entry) => entry.name === 'worker-m1').state, 'inactive')
+    const spawned = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M2', role: 'worker' }, exec)
+    assert.equal(spawned.name, 'worker-m2')
+  } finally {
+    cleanup(root)
+  }
+})

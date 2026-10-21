@@ -26,6 +26,24 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 - **建议性 workspace 锁。** `mode.workspaceLock` 防止两个 Tower 会话意外驱动同一个仓库；它是同用户
   之间的协调锁，不是用户间的认证机制。
 
+## 模型主动进入模式的威胁模型
+
+`mode.allowAgentControl:true` 意味着仓库文件、issue 文本或抓取页面中的提示注入可以让模型“进入
+Tower 模式并修复它”。Tower **不认证**这句话背后的人类意图。它提供的是：
+
+- 进入会记录操作者、动作、理由与时间；`tower_status.mode.history` 直接展示最近的模式切换，
+  不必手工 grep 活动日志；
+- 模型不能绕过 preflight 门禁、review policy、scope、测试与 clean-base 检查；自己写 plan 也不会
+  自动获得合并权；
+- worker 的工具面受限并被要求留在 worktree，但主检出保护来自 scope/merge 检查与 preset，
+  **不是** OS 沙箱；
+- `mode.workspaceLock` 防止第二个 Tower 会话驱动同一仓库。
+
+它**不**防御：完全通过所有门禁但被恶意指令操纵的模型；仓库自己声明的 hooks/测试命令；或无视
+指令、通过 shell 访问 worktree 之外文件的 worker。更高保证的团队应设
+`mode.allowAgentControl:false`、保持 `review.requireReview:true`、在运行 Tower 前审查仓库，并用
+OS 级隔离运行 host。
+
 ## 不由插件强制执行的约束（部署关注点）
 
 - **Worktree 隔离是协议约定，不是 OS 沙箱。** worker 会被分配独立 worktree/分支并被要求留在其中，但

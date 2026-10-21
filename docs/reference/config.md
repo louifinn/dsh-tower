@@ -41,11 +41,13 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `allowAgentControl` | `true` (alias of `mode.allowAgentControl`) | Legacy alias: register `tower_control` so the model may toggle the mode. |
 | `init.autoGitInit` | `false` (bundled patch: `true`) | `tower_init` may run `git init` + an empty initial commit when `repoRoot` is an absolute, existing directory that is not a repository. |
 | `init.snapshotDirty` | `false` | `tower_init` may snapshot uncommitted **tracked** changes into a dangling commit used as the mission baseline (untracked files are not included; the commit is kept alive under `refs/tower/snapshot/*`). |
+| `init.autoExclude` | `true` | Append in-repo artifacts (`MISSIONS.md`, in-repo worktree roots) to `.git/info/exclude`; never touches `.gitignore`. |
 | `mode.promptSection` | `''` | Replacement prompt text (takes precedence over `section` when both set). |
 | `mode.sectionAppend` | `''` | Extra text appended after the reminder (team conventions). |
 | `mode.allowAgentControl` | `true` | Register `tower_control`; the model may enter/leave with a reason. Set `false` for human-only mode control. |
 | `mode.autoPauseGoal` | `true` | Pause an active goal on entry; the goal is never auto-resumed on exit. |
 | `mode.requireResumeAuthorization` | `false` | Resuming a mission paused with `pauseCause:user` requires an `authorization` reference. |
+| `mode.requireHumanAckOnFirstEntry` | `false` | Require a human `/tower ack` before the model may make the first Tower-mode entry in a session. |
 | `mode.workspaceLock` | `false` (bundled patch: `true`) | Allow only one Tower session per repository (`tower.lock`); others get `workspace-busy`. |
 | `mode.workspaceLockScope` | `all` | `all` locks every repo tool; `mutations` skips the workspace lock for read-only tools. |
 | `mode.planModePolicy` | `clear` | Tower entry clears an active plan mode (or `refuse` until the plan is exited); a pre-step also clears a plan activated later. |

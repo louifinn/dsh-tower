@@ -44,6 +44,26 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Legacy import is read-only.** Imported snapshots live under the canonical state directory and are never
   activated, adopted, or resumed; an operator must explicitly re-plan/migrate work.
 
+## Model-initiated mode entry (threat model)
+
+`mode.allowAgentControl:true` means a prompt injection in a repository file, issue text, or fetched
+page can ask the model to “enter tower mode and fix this”. Tower does **not** authenticate the human
+intent behind that entry. What it does provide:
+
+- the entry is recorded with actor, action, reason, and timestamp; `tower_status.mode.history`
+  surfaces the recent transitions without grepping the activity log;
+- the model cannot merge without the preflight gate, review policy, scope checks, tests, and
+  clean-base checks; writing the plan does not bypass them;
+- workers are tool-restricted and instructed to stay in their worktree, but the main-checkout
+  protection is enforced by scope/merge checks and the preset, **not** by an OS sandbox;
+- `mode.workspaceLock` prevents a second Tower session from driving the same repository.
+
+It does **not** defend against: a model that legitimately passes every gate while acting on malicious
+instructions; repository hooks or test commands the repository itself declares; or filesystem/shell
+access outside the worktree by a worker that ignores its instructions. For a higher-assurance team,
+set `mode.allowAgentControl:false`, keep `review.requireReview:true`, review the repository before
+Tower work, and run the host under OS-level isolation.
+
 ## Not enforced by the plugin (deployment concerns)
 
 - **Worktree isolation is a protocol convention, not an OS sandbox.** Workers are assigned a dedicated

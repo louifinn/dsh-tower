@@ -23,3 +23,5 @@ jobs:
         run: npm test
       - name: Documentation consistency
         run: npm run docs:check
+      - name: Pack manifest
+        run: npm run pack:check

@@ -52,7 +52,7 @@ Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan m
 
 ## 环境要求
 
-- DeepSeek Harness `0.2.1-rc.2`（或兼容的新版本）
+- DeepSeek Harness `0.2.1-rc.2`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
 - Node.js 22+
 - Git（worktree 在本地创建，不需要联网）
 
@@ -82,6 +82,12 @@ Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**�
 可选的 Web UI 随 npm 包一起发布在 `ui-bundle/`：npm 安装后目标为
 `<profile>/node_modules/dsh-tower/ui-bundle`，源码安装时为目标仓库的 `ui-bundle/` 目录。用
 `plugin_manager({action:"install_bundle", target:"<该目录>"})` 安装并重启 DSH，然后刷新页面。
+
+### 已知冲突
+
+不要同时安装 `dsh-plugins-tower`（第三方包）。它的 loader row 也使用 `name: dsh-tower`，会解析到
+本包，导致本包被加载两次或对方代码不生效。`tower_doctor` 的 `loader-conflicts` 检查会报告该情况；
+卸载冲突包并重启 DSH。
 
 ## 快速开始
 
@@ -113,6 +119,7 @@ tower_teardown  repoRoot=D:\work\repo
 | `/tower on <指令>` | 开启/保持，并把 `<指令>` 作为下一条用户消息转发 |
 | `/tower off` | 退出 Tower 模式 |
 | `/tower off <指令>` | 退出并转发 `<指令>` |
+| `/tower ack` | 记录人类确认，供 `mode.requireHumanAckOnFirstEntry` 使用 |
 | `/tower <指令>` | 确保开启，然后转发 `<指令>` |
 
 图片与文件附件会随指令一起作为一条完整的 `UserMessage` 转发。

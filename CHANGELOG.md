@@ -7,6 +7,18 @@
 ### 变更
 
 - **README 徽章**：中英文 README 增加 “Listed on dsh-plugin.org” 徽章，链接到插件市场条目。
+- **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
+  untested-newer / untested-older / unknown，仅警告）。
+- **#61 共存冲突**：README 增加 “Known conflicts”，doctor 增加 `loader-conflicts` 检查。
+- **#58 仓库产物排除**：`docs.boardLocation:"repo"` 与仓库内 `worktrees.root` 自动写入
+  `.git/info/exclude`（幂等，绝不改 `.gitignore`）；新增 `init.autoExclude`。
+- **#44 模式进入审计**：`tower_status` 增加 `mode.lastChange`/`mode.history`；新增
+  `mode.requireHumanAckOnFirstEntry` 与 `/tower ack`；安全文档补充模型主动进入的威胁模型。
+- **#43 默认值提醒**：doctor 的 `default-reversals` 检查提示仍依赖旧默认值的 profile。
+- **#60 提供商冷却**：spawn 在连续可重试失败后进入进程内冷却并收缩预算；
+  `tower_status.spawn` 暴露 `{inflight, budget, blockedUntil}`。
+- **#48 发布文件守卫**：新增 `scripts/pack-manifest.txt`、`npm run pack:check` 与 CI 步骤。
+- **#63**：doctor 不再把正常 live worker 视为 warn。
 
 ## 2.0.4（2026-10-21）
 

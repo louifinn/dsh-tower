@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-- DSH `0.2.1-rc.2` 或更新版本
+- DSH `0.2.1-rc.2`；每个版本实际验证过的 host 构建见 [COMPATIBILITY.md](../../../COMPATIBILITY.md)
 - Node.js 22+
 - Git（本地 worktree；不需要网络访问）
 

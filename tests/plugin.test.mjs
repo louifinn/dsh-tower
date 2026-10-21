@@ -91,7 +91,7 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   assert.ok(plain.tools.has('tower_mode'))
   assert.ok(plain.tools.has('tower_control'), 'agent control is on by default')
   const command = plain.commands.get('tower')
-  assert.equal(command.input.hint, '[on|off|reload|base <branch>] [message]')
+  assert.equal(command.input.hint, '[on|off|reload|ack|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const disabled = makeCtx()
@@ -313,6 +313,21 @@ test('tower_control is gated by config and requires a reason', async () => {
   // The read-only reporter must never fail when the mode is unknown.
   const anonymous = await tools.get('tower_mode').execute({}, { agent: undefined })
   assert.equal(anonymous.mode, 'unknown')
+})
+
+test('mode.requireHumanAckOnFirstEntry blocks model entry until /tower ack', async () => {
+  const { ctx, tools, commands } = makeCtx()
+  apply(ctx, { mode: { allowAgentControl: true, requireHumanAckOnFirstEntry: true } })
+  const agent = makeAgent('agent-ack')
+  const control = tools.get('tower_control')
+  await assert.rejects(
+    () => control.execute({ action: 'enter', reason: 'model wants in' }, { agent }),
+    /human acknowledgement/,
+  )
+  const ack = await callCommand(commands, agent, 'ack')
+  assert.equal(ack.kind, 'success')
+  const entered = await control.execute({ action: 'enter', reason: 'after human ack' }, { agent })
+  assert.equal(entered.mode, 'on')
 })
 
 test('mode tool outputs satisfy their declared schemas, including null fields', async () => {

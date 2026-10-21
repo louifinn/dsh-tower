@@ -40,11 +40,13 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `allowAgentControl` | `true`（`mode.allowAgentControl` 的别名） | 兼容别名：注册 `tower_control`，允许模型切换模式。 |
 | `init.autoGitInit` | `false`（随包 patch：`true`） | 当 `repoRoot` 是绝对、已存在但不是仓库的目录时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
 | `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪**改动快照为游离提交作为 mission 基线（不含未跟踪文件；该提交通过 `refs/tower/snapshot/*` 保持存活）。 |
+| `init.autoExclude` | `true` | 把仓库内产物（`MISSIONS.md`、仓库内 worktree root）追加到 `.git/info/exclude`；绝不修改 `.gitignore`。 |
 | `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
 | `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
 | `mode.allowAgentControl` | `true` | 注册 `tower_control`；模型可带理由进入/退出。设为 `false` 则仅人类可控制模式。 |
 | `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
 | `mode.requireResumeAuthorization` | `false` | 恢复因 `pauseCause:user` 暂停的 mission 时，必须提供 `authorization` 引用。 |
+| `mode.requireHumanAckOnFirstEntry` | `false` | 要求人类先执行 `/tower ack`，模型才能在当前会话首次进入 Tower 模式。 |
 | `mode.workspaceLock` | `false`（随包 patch：`true`） | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |
 | `mode.workspaceLockScope` | `all` | `all` 锁定所有仓库工具；`mutations` 对只读工具跳过 workspace 锁。 |
 | `mode.planModePolicy` | `clear` | 进入 Tower 模式会清除活跃的 plan mode（或 `refuse` 直到退出计划）；前置步骤也会清除稍后激活的计划。 |
