@@ -279,3 +279,18 @@ test('reconcileObservedInactive releases a slot as soon as the catalog reports i
     cleanup(root)
   }
 })
+
+test('Tower instances keep independent git timeouts without mutating the process default', async () => {
+  const { root, repo } = seedRepo()
+  const { configuredGitTimeout } = await import('../lib/git.js')
+  try {
+    git(repo, ['init'])
+    const first = new Tower({ root: repo, commonDir: path.join(repo, '.git'), branch: 'main' }, { git: { timeoutMs: 1000 } })
+    const second = new Tower({ root: repo, commonDir: path.join(repo, '.git'), branch: 'main' }, { git: { timeoutMs: 3000 } })
+    assert.equal(first.config.git.timeoutMs, 1000)
+    assert.equal(second.config.git.timeoutMs, 3000)
+    assert.equal(configuredGitTimeout(), 15000)
+  } finally {
+    cleanup(root)
+  }
+})
