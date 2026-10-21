@@ -232,7 +232,7 @@ export interface TowerState {
   deliverySeq?: number
 }
 
-export type TowerConfig = import('@deepseek-ai/schemastery').TypeS<typeof import('../lib/config.js').Config>
+export type TowerConfig = import('@deepseek-ai/schemastery').TypeS<typeof import('../domain/config/schema.js').Config>
 
 /** Counts rendered by mission summaries and the board. */
 export interface TaskCounts {

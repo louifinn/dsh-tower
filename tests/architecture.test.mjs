@@ -92,7 +92,7 @@ test('every tool module types define from the schema contract', async () => {
   const { fileURLToPath } = await import('node:url')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const dir = path.join(root, 'tools')
-  const support = new Set(['index.js', 'schema.js', 'output-schemas.js'])
+  const support = new Set(['index.js', 'schema.js'])
   const offenders = []
   for (const entry of fs.readdirSync(dir)) {
     if (!entry.endsWith('.js') || support.has(entry)) continue

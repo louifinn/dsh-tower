@@ -9,7 +9,7 @@
 import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { ROSTER_INACTIVE } from '../domain/roster.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 const STALE = 'tower state changed while teardown was being prepared; retry'
 

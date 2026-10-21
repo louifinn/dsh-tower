@@ -1,7 +1,7 @@
 // tower_legacy_map: audit-only legacy snapshot mapping.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { validateLegacyMap } from '../lib/legacy.js'
 import { Type, enumOf } from './schema.js'
 

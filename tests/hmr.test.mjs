@@ -19,7 +19,7 @@ import {
   DEFAULT_REQUIRED_IDS,
   createHmrBridge,
 } from '../lib/hmr.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import {
   MARKER,
   findBlock,

@@ -1,10 +1,10 @@
-// Offline tests for the 2.1 batch admission module (lib/batch.js).
+// Offline tests for the 2.1 batch admission module (domain/batch.js).
 // Pure functions: no filesystem, git, network, or DSH runtime.
 // Run with: node --test tests/batch.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { validateCreate, validateClose, summarize, BatchError } from '../lib/batch.js'
+import { validateCreate, validateClose, summarize, BatchError } from '../domain/batch.js'
 
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)

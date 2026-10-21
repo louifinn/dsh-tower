@@ -1,5 +1,5 @@
 // Read-only dashboard/detail use cases.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { MISSION_STATUSES, FINDING_STATUSES } from '../domain/mission.js'
 import { taskCounts, fullMission, findingSummary } from '../domain/summary.js'
 import { readActivityTail } from '../lib/store.js'

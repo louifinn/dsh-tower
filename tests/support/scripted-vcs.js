@@ -21,7 +21,7 @@ function normalizePath(value) {
   return slashed.length > 1 ? slashed.replace(/\/+$/, '') : slashed
 }
 
-/** Shaped like lib/errors.js GitError so classifyError can still classify it. */
+/** Shaped like domain/errors.js GitError so classifyError can still classify it. */
 export class ScriptedGitError extends Error {
   constructor(args, detail) {
     super(`git ${args.join(' ')} failed: ${detail}`)

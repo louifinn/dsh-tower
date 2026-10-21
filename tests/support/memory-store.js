@@ -14,7 +14,7 @@
 //
 // Virtual paths use the "tower-mem://" scheme and are never handed to the host
 // filesystem. `store.inspect` is test-only and is NOT part of the port.
-import { TowerToolError } from '../../lib/errors.js'
+import { TowerToolError } from '../../domain/errors.js'
 
 export const MEMORY_SCHEME = 'tower-mem://'
 

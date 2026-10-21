@@ -2,7 +2,7 @@
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import { defaultDeps } from '../adapters/default.js'
-import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../lib/batch.js'
+import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 import { assertOwnership } from '../lib/worktreeOwnership.js'
 
 import { runtimeConfig, resolveRepoConfig } from '../lib/config.js'
@@ -13,7 +13,7 @@ export { fileInScope, scopesOverlap, validateTitle, normalizeScope } from '../do
 export { missionSummary } from '../domain/summary.js'
 
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { plan } from './plan.js'
 import { updateMission } from './mission.js'
 import { checkCompletion, complete } from './checkCompletion.js'

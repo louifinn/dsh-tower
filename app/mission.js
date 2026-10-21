@@ -1,5 +1,5 @@
 // Mission lifecycle update use case.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { MISSION_STATUSES, TERMINAL_STATUSES, canTransition, pauseCauseError } from '../domain/mission.js'
 import { scopesOverlap, normalizeScope } from '../domain/scope.js'
 import { validateState } from '../domain/state.js'

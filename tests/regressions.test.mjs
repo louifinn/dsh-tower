@@ -147,7 +147,7 @@ test('regression: repo config send.interruptDefault and init.snapshotDirty are h
 })
 
 test('regression: actionable refusals carry explicit stable codes', async () => {
-  const { classifyError, TowerToolError } = await import('../lib/errors.js')
+  const { classifyError, TowerToolError } = await import('../domain/errors.js')
   const cases = [
     ['cannot reanchor base while 2 mission(s) are not merged or abandoned', 'invalid-transition'],
     ['snapshotDirty was requested but no snapshot commit could be created', 'invalid-argument'],

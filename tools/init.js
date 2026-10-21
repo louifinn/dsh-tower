@@ -1,7 +1,7 @@
 // tower_init: repository initialization.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
 import { Type } from './schema.js'

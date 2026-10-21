@@ -1,5 +1,5 @@
 // State recording use cases for test receipts and imported legacy snapshots.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { validateState } from '../domain/state.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 

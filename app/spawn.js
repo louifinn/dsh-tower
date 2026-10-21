@@ -1,5 +1,5 @@
 // Spawn reservation/outcome and roster recording use cases.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { ROSTER_INACTIVE, workerEntries, countLiveWorkers } from '../domain/roster.js'
 import { validateState } from '../domain/state.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'

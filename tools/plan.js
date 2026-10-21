@@ -1,6 +1,6 @@
 // tower_plan: create missions.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { assertPresetsAvailable } from '../lib/presets.js'
 import { Type, enumOf } from './schema.js'
 

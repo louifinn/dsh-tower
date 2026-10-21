@@ -1,7 +1,7 @@
 // tower_send and tower_inbox.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { Type } from './schema.js'
 
 /**

@@ -1,5 +1,5 @@
 // Findings use cases.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'

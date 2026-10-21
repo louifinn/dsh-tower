@@ -96,7 +96,7 @@ const eventNames = [
 const documentedEvents = read('docs/reference/events.md')
 const missingEvents = eventNames.filter((name) => !documentedEvents.includes(`\`tower/${name}\``))
 
-const errorsSource = read('lib/errors.js')
+const errorsSource = read('domain/errors.js')
 const documentedErrors = read('docs/reference/errors.md')
 const errorCodes = [...new Set([...errorsSource.matchAll(/^ {2}'([a-z][a-z-]+)':/gm)].map((match) => match[1]))].sort()
 const missingErrors = errorCodes.filter((code) => !documentedErrors.includes(`\`${code}\``))

@@ -1,7 +1,7 @@
 // tower_mission: mission lifecycle updates.
 import { Tower, MISSION_STATUSES } from '../app/tower.js'
-import { TowerToolError } from '../lib/errors.js'
-import { SCHEMAS, output } from './output-schemas.js'
+import { TowerToolError } from '../domain/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { Type, enumOf } from './schema.js'
 
 /**

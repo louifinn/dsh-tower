@@ -1,6 +1,6 @@
 // Pure state-file validation.
 // @ts-check
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from './errors.js'
 import { MISSION_STATUSES, FINDING_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, REVIEW_STATUS_RE } from './mission.js'
 
 /** @typedef {import('../types/index.js').TowerState} TowerState */

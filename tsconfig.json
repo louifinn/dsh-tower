@@ -20,7 +20,7 @@
     "lib/config.js",
     "lib/store.js",
     "lib/git.js",
-    "domain/*.js",
+    "domain/**/*.js",
     "tests/type-contracts.ts",
     "app/*.js",
     "tools/plan.js",

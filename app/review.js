@@ -2,7 +2,7 @@
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { REVIEW_STATUS_RE, MERGE_VERDICTS } from '../domain/mission.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 const MAX_REVIEW_ROUNDS = 5
 function fail(message, code = 'invalid-argument') {

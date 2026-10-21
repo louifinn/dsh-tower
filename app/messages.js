@@ -1,7 +1,7 @@
 // Inbox/message use cases.
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 function fail(message) {
   throw new TowerToolError('invalid-argument', message)

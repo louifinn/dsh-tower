@@ -1,7 +1,7 @@
 // tower_merge/rebase/teardown: integration operations.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { classifyError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { classifyError } from '../domain/errors.js'
 import { Type } from './schema.js'
 
 /**

@@ -10,7 +10,7 @@ import path from 'node:path'
 import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl, shortHash } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { canonicalPath } from '../lib/worktreeOwnership.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)

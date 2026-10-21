@@ -1,4 +1,4 @@
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from './errors.js'
 // Pure scope helpers shared by planning and gates.
 // @ts-check
 const GLOB_META = /[*?[{]/

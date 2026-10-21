@@ -1,6 +1,6 @@
 // tower_import_legacy: read-only legacy snapshot import.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { importLegacySnapshot } from '../lib/legacy.js'
 import { Type } from './schema.js'
 

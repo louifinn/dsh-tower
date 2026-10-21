@@ -1,7 +1,7 @@
 // tower_spawn: provision and start a worker/reviewer.
 import { Tower, ROSTER_INACTIVE_STATES, ROLES as ROLE_ENUM } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError, classifyError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError, classifyError } from '../domain/errors.js'
 import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
 import { inspectLeases } from '../lib/leases.js'
 import { Type, enumOf } from './schema.js'

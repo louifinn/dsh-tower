@@ -9,7 +9,7 @@
 import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { SCHEMA_VERSION, TERMINAL_STATUSES } from '../domain/mission.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 const TERMINAL = TERMINAL_STATUSES
 const SNAPSHOT_REF_PREFIX = 'refs/tower/snapshot/'

@@ -3,11 +3,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { classifyError } from '../lib/errors.js'
+import { classifyError } from '../domain/errors.js'
 import { GitError } from '../lib/git.js'
 
 test('classifyError: structured TowerToolError is passed through', async () => {
-  const { TowerToolError } = await import('../lib/errors.js')
+  const { TowerToolError } = await import('../domain/errors.js')
   for (const code of ['state-corrupt', 'invalid-transition', 'not-authorized', 'invalid-argument']) {
     const error = new TowerToolError(code, 'x')
     assert.equal(classifyError(error), error)
@@ -16,7 +16,7 @@ test('classifyError: structured TowerToolError is passed through', async () => {
 })
 
 test('classifyError: external objects carrying a known code are promoted', async () => {
-  const { TowerToolError } = await import('../lib/errors.js')
+  const { TowerToolError } = await import('../domain/errors.js')
   const external = Object.assign(new Error('old style'), { code: 'state-locked', retryable: true })
   const classified = classifyError(external)
   assert.equal(classified.code, 'state-locked')
@@ -53,7 +53,7 @@ test('spawn backoff: three retryable failures trigger cooldown and success resto
 })
 
 test('error codes expose a frozen structural catalog', async () => {
-  const { ERROR_CODE_VALUES, isErrorCode } = await import('../lib/errors.js')
+  const { ERROR_CODE_VALUES, isErrorCode } = await import('../domain/errors.js')
   assert.equal(Object.isFrozen(ERROR_CODE_VALUES), true)
   assert.ok(ERROR_CODE_VALUES.includes('tool-internal'))
   assert.equal(isErrorCode('tool-internal'), true)
@@ -64,7 +64,7 @@ test('every TowerToolError literal uses a catalog code', async () => {
   const fs = await import('node:fs')
   const path = await import('node:path')
   const { fileURLToPath } = await import('node:url')
-  const { isErrorCode } = await import('../lib/errors.js')
+  const { isErrorCode } = await import('../domain/errors.js')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const files = ['index.js', ...fs.readdirSync(path.join(root, 'lib')).filter((name) => name.endsWith('.js')).map((name) => `lib/${name}`)]
   for (const file of files) {
@@ -76,7 +76,7 @@ test('every TowerToolError literal uses a catalog code', async () => {
 })
 
 test('structured TowerToolError derives retryable from the catalog', async () => {
-  const { TowerToolError } = await import('../lib/errors.js')
+  const { TowerToolError } = await import('../domain/errors.js')
   assert.equal(new TowerToolError('state-locked', 'x').retryable, true)
   assert.equal(new TowerToolError('stale-base', 'x').retryable, true)
   assert.equal(new TowerToolError('invalid-argument', 'x').retryable, false)
@@ -99,7 +99,7 @@ test('classifyError has no prose rule table', async () => {
   const path = await import('node:path')
   const { fileURLToPath } = await import('node:url')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const source = fs.readFileSync(path.join(root, 'lib/errors.js'), 'utf8')
+  const source = fs.readFileSync(path.join(root, 'domain/errors.js'), 'utf8')
   assert.doesNotMatch(source, /const RULES/)
   assert.doesNotMatch(source, /for \(const \[code, pattern\] of RULES\)/)
 })

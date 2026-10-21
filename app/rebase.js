@@ -10,7 +10,7 @@ import crypto from 'node:crypto'
 import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { ROSTER_INACTIVE } from '../domain/roster.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 
 const RECONCILE_ATTEMPTS = 5
 const STALE_PREPARE = 'tower state changed while the rebase was being prepared; retry'

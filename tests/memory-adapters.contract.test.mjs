@@ -17,7 +17,7 @@ import fs from 'node:fs'
 import * as realStore from '../lib/store.js'
 import * as realGit from '../lib/git.js'
 import { Tower } from '../app/tower.js'
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
 
@@ -279,7 +279,7 @@ test('the doubles have no filesystem or process dependency', () => {
   )
 
   // Only the neutral error type is imported: no store/git adapter, no node: modules.
-  const expectedImports = new Map([['memory-store.js', ['../../lib/errors.js']], ['scripted-vcs.js', []]])
+  const expectedImports = new Map([['memory-store.js', ['../../domain/errors.js']], ['scripted-vcs.js', []]])
   for (const [name, source] of sources) {
     const specifiers = [...source.matchAll(/from\s+'([^']+)'/g)].map((match) => match[1])
     assert.deepEqual(specifiers, expectedImports.get(name), `${name} must not import infrastructure`)

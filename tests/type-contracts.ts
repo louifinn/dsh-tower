@@ -133,7 +133,7 @@ export type GitListWorktreesContract = Expect<
 >
 
 // --- app/ use cases ---------------------------------------------------
-// gate.js/read.js import lib/git.js and batch.js imports lib/batch.js; those
+// gate.js/read.js import lib/git.js and batch.js imports domain/batch.js; those
 // dependencies are inside the checkJs program too, so importing the use cases
 // here also machine-checks the adapter surface above and batch validation.
 type UseCaseBatch = typeof import('../app/batch.js')

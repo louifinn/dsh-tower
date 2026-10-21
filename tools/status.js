@@ -1,7 +1,7 @@
 // tower_status: dashboard and mission detail.
 import { Tower, ROSTER_INACTIVE_STATES } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { classifyError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { classifyError } from '../domain/errors.js'
 import { Type, enumOf } from './schema.js'
 
 /**

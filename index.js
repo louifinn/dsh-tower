@@ -16,7 +16,7 @@ import { registerTowerTools } from './tools/index.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
 import { ModeState } from './lib/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
-import { TowerToolError } from './lib/errors.js'
+import { TowerToolError } from './domain/errors.js'
 import { resolveRepo } from './lib/git.js'
 import {
   acquireWorkspaceLock,

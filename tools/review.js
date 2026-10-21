@@ -1,7 +1,7 @@
 // tower_review: independent review verdict.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { Type, enumOf } from './schema.js'
 
 /**

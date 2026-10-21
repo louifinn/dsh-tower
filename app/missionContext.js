@@ -1,5 +1,5 @@
 // Mission context projection use case (reviews, findings, dependencies).
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { fullMission, findingSummary } from '../domain/summary.js'
 
 function fail(message, code = 'invalid-argument') {

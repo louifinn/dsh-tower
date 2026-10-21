@@ -1,8 +1,8 @@
 // tower_recover: explicit stale state-lock diagnostics/repair.
 import { Tower } from '../app/tower.js'
 import { readStateLock } from '../lib/store.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { TowerToolError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { fsp } from '../adapters/store-fs.js'
 import { Type, enumOf } from './schema.js'
 

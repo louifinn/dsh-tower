@@ -43,6 +43,8 @@
     "skills/",
     "lib/*.js",
     "domain/*.js",
+    "domain/config/",
+    "domain/contracts/",
     "app/*.js",
     "tools/*.js",
     "adapters/*.js",

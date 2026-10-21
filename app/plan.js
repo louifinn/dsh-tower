@@ -1,5 +1,5 @@
 // Mission planning use case.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { validateTitle, normalizeScope } from '../domain/scope.js'
 import { nextMissionNumber, addAutoDeps, assertAcyclic } from '../domain/planning.js'
 import { validateState } from '../domain/state.js'

@@ -1,7 +1,7 @@
 // tower_preflight: read-only merge gate digest.
 import { Tower } from '../app/tower.js'
-import { SCHEMAS, output } from './output-schemas.js'
-import { classifyError } from '../lib/errors.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { classifyError } from '../domain/errors.js'
 import { Type } from './schema.js'
 
 /**

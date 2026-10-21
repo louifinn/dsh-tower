@@ -1,6 +1,6 @@
 // Pure mission planning helpers.
 // @ts-check
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from './errors.js'
 import { scopesOverlap } from './scope.js'
 import { isTerminal } from './mission.js'
 

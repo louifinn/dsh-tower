@@ -1,5 +1,5 @@
 // Worker completion preparation and commit use cases.
-import { TowerToolError } from '../lib/errors.js'
+import { TowerToolError } from '../domain/errors.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { countCommits, isClean } from '../lib/git.js'

@@ -3,7 +3,7 @@ import { Tower } from '../app/tower.js'
 import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
 import { runDoctor } from '../lib/doctor.js'
-import { SCHEMAS, output } from './output-schemas.js'
+import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { Type } from './schema.js'
 
 /**
