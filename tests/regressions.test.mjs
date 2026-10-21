@@ -146,8 +146,8 @@ test('regression: repo config send.interruptDefault and init.snapshotDirty are h
   }
 })
 
-test('regression: actionable refusals classify into stable codes, not tool-internal', async () => {
-  const { classifyError } = await import('../lib/errors.js')
+test('regression: actionable refusals carry explicit stable codes', async () => {
+  const { classifyError, TowerToolError } = await import('../lib/errors.js')
   const cases = [
     ['cannot reanchor base while 2 mission(s) are not merged or abandoned', 'invalid-transition'],
     ['snapshotDirty was requested but no snapshot commit could be created', 'invalid-argument'],
@@ -162,7 +162,8 @@ test('regression: actionable refusals classify into stable codes, not tool-inter
     ['mission M1 is merged; a blocker cannot reopen a terminal mission', 'invalid-transition'],
   ]
   for (const [message, code] of cases) {
-    assert.equal(classifyError(new Error(message)).code, code, message)
+    const error = new TowerToolError(code, message)
+    assert.equal(classifyError(error), error)
   }
 })
 

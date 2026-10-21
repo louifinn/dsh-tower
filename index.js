@@ -500,7 +500,7 @@ export function apply(ctx, rawConfig) {
           const key = agentKey(exec.agent)
           if (!key) return { ok: false, error: 'tower_control requires a live calling agent' }
           if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
-            throw new Error('tower_control requires a non-empty reason')
+            throw new TowerToolError('invalid-argument', 'tower_control requires a non-empty reason')
           }
           const reason = args.reason.trim()
           if (args.action === 'enter' && !modeOn(key)) {

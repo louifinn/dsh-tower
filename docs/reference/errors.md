@@ -13,7 +13,7 @@ for text-only clients.
 ```
 
 Callers can match the prefix instead of the prose. Codes are reserved for the conditions below; a
-message without a more specific match is reported as `tool-internal`.
+plain `Error` without a structured code is reported as `tool-internal`.
 
 | Code | Meaning | Typical trigger |
 |---|---|---|
