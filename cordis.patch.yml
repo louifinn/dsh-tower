@@ -1,55 +1,63 @@
+# dsh-tower is an all-or-nothing bundle. The single group row is the only
+# user-visible component: disabling it disables every internal section (host,
+# skills, worker/reviewer presets) together, so no orphan preset or skill can
+# point at missing tower_* tools. See docs/architecture/overview.md.
 - insert:
-    - id: tower
-      name: 'dsh-tower'
+    - id: tower-bundle
+      name: cordis:group
+      group: true
       config:
-        mode:
-          allowAgentControl: true
-          workspaceLock: true
-          workspaceLockScope: all
-          planModePolicy: clear
-        init:
-          autoGitInit: true
-        send:
-          interruptDefault: true
-        spawn:
-          staleMs: 15000
-    - id: tower-skills
-      name: 'dsh-tower/skills'
-    - id: preset-tower-worker
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: tower-worker
-        name: Tower Worker
-        description: Executes one Tower mission inside its assigned git worktree.
-        order: 60
-        plugins:
-          - id: tower-worker-policy
-            name: 'dsh-tower/worker'
-          - id: tower-worker-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-          - id: tower-worker-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: tower-worker-pwsh
-            name: '@deepseek-ai/dsh-tool-pwsh'
-    - id: preset-tower-reviewer
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: tower-reviewer
-        name: Tower Reviewer
-        description: Read-only independent reviewer for a completed Tower mission.
-        order: 61
-        plugins:
-          - id: tower-reviewer-policy
-            name: 'dsh-tower/reviewer'
-          - id: tower-reviewer-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              write: false
-              edit: false
-              readImage: false
-          - id: tower-reviewer-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
+        - id: tower
+          name: 'dsh-tower'
+          config:
+            mode:
+              allowAgentControl: true
+              workspaceLock: true
+              workspaceLockScope: all
+              planModePolicy: clear
+            init:
+              autoGitInit: true
+            send:
+              interruptDefault: true
+            spawn:
+              staleMs: 15000
+        - id: tower-skills
+          name: 'dsh-tower/skills'
+        - id: preset-tower-worker
+          name: '@deepseek-ai/dsh-agent-preset'
+          config:
+            id: tower-worker
+            name: Tower Worker
+            description: Executes one Tower mission inside its assigned git worktree.
+            order: 60
+            plugins:
+              - id: tower-worker-policy
+                name: 'dsh-tower/worker'
+              - id: tower-worker-fs
+                name: '@deepseek-ai/dsh-tool-fs'
+              - id: tower-worker-fs-search
+                name: '@deepseek-ai/dsh-tool-fs-search'
+                config:
+                  sampleOverCapGlobResults: false
+              - id: tower-worker-pwsh
+                name: '@deepseek-ai/dsh-tool-pwsh'
+        - id: preset-tower-reviewer
+          name: '@deepseek-ai/dsh-agent-preset'
+          config:
+            id: tower-reviewer
+            name: Tower Reviewer
+            description: Read-only independent reviewer for a completed Tower mission.
+            order: 61
+            plugins:
+              - id: tower-reviewer-policy
+                name: 'dsh-tower/reviewer'
+              - id: tower-reviewer-fs
+                name: '@deepseek-ai/dsh-tool-fs'
+                config:
+                  write: false
+                  edit: false
+                  readImage: false
+              - id: tower-reviewer-fs-search
+                name: '@deepseek-ai/dsh-tool-fs-search'
+                config:
+                  sampleOverCapGlobResults: false

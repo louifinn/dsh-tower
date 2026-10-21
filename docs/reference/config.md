@@ -89,7 +89,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.hotReload` | `true` | Register `tower_reload`; `/tower reload` is disabled when off. It returns `reload-unavailable` when the profile has no HMR service. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. |
-| `dev.reloadRequiredIds` | four Tower loader ids | Entry ids passed to `reconcileProfile` as required. |
+| `dev.reloadRequiredIds` | five Tower loader ids | Entry ids passed to `reconcileProfile` as required. |
 
 ## Example
 

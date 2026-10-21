@@ -2,6 +2,11 @@
 
 ## Components
 
+The bundle is all-or-nothing: `cordis.patch.yml` inserts one `tower-bundle` `cordis:group` row whose
+internal sections are the Host plugin, the skills provider, and the worker/reviewer presets. The
+group is the only user-facing component; disabling it disables every section together, so no preset
+or skill can remain mounted while the `tower_*` tools are gone.
+
 ```
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)

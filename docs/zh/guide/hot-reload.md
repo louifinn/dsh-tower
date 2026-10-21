@@ -97,7 +97,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 |---|---|
 | `dev.hotReload` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用（默认 `true`）。无 HMR 服务时工具仍注册，以便返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | 计划中的对账运行前的延迟，单位毫秒（默认 `50`），让工具/命令结果先送达模型，再替换插件。 |
-| `dev.reloadRequiredIds` | profile 必须保持活跃的 Loader 条目 id（默认 `tower`、`tower-skills`、`preset-tower-worker`、`preset-tower-reviewer`）。即使某个 required 条目早已处于非活跃状态，也会被报告为重载失败。 |
+| `dev.reloadRequiredIds` | profile 必须保持活跃的 Loader 条目 id（默认 `tower-bundle`、`tower`、`tower-skills`、`preset-tower-worker`、`preset-tower-reviewer`）。即使某个 required 条目早已处于非活跃状态，也会被报告为重载失败。 |
 
 重载是**调度而非等待**：`/tower reload` 与 `tower_reload` 立即返回 `scheduled`、`delayMs`、
 `requiredIds`（以及存在待处理错误时的 `lastError`），随后 HMR 在延迟后对账 profile。这是有意为之——

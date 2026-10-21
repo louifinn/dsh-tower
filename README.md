@@ -124,6 +124,13 @@ tower_teardown  repoRoot=D:\work\repo
 
 图片与文件附件会随指令一起作为一条完整的 `UserMessage` 转发。
 
+## 组件模型
+
+本 bundle 采用 **all-or-nothing**：`cordis.patch.yml` 只插入一个 `tower-bundle`
+`cordis:group` 行，Host 插件、skills、worker/reviewer preset 都是它的内部 section。插件页只应把
+这个 group 当作一个组件；关闭它时四个 section 一起关闭，不会留下指向已消失 `tower_*` 工具的
+orphan preset/skill。不要再把子行单独启停。
+
 ## 配置
 
 ```yaml
@@ -187,7 +194,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 
 | 路径 | 内容 |
 |---|---|
-| `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（插入 Host 插件和 `tower-worker` preset） |
+| `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（单个 `tower-bundle` group，内含 Host、skills 与两个 preset） |
 | `index.js`、`lib/`、`worker.js` | Host 入口、协议实现、worker preset 策略 |
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |

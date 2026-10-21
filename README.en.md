@@ -125,6 +125,14 @@ A small change usually takes one worker mission; add one reviewer round when ind
 
 Image and file attachments are forwarded together with the instruction as one complete `UserMessage`.
 
+## Component model
+
+This bundle is **all-or-nothing**: `cordis.patch.yml` inserts one `tower-bundle`
+`cordis:group` row, and the Host plugin, skills, and worker/reviewer presets are internal sections
+of it. The plugin page should treat that group as one component; disabling it disables all sections
+together, so no orphan preset or skill points at missing `tower_*` tools. Do not enable/disable the
+child rows independently.
+
 ## Configuration
 
 ```yaml
@@ -188,7 +196,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 
 | Path | Contents |
 |---|---|
-| `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (inserts the Host plugin and the `tower-worker` preset) |
+| `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (one `tower-bundle` group containing the Host, skills, and both presets) |
 | `index.js`, `lib/`, `worker.js`, `reviewer.js` | Host entry, protocol/config implementation, worker and reviewer preset policies |
 | `skills.js`, `skills/` | bundled agent skills (worker protocol, review checklist, recovery playbook) |
 | `docs/` | guides, reference, architecture, operations, FAQ and examples |

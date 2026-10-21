@@ -56,4 +56,4 @@
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.hotReload` | `true` | Register tower_reload and /tower reload when the DSH HMR service is available. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload, so the tool result is delivered first. |
-| `dev.reloadRequiredIds` | `["tower","tower-skills","preset-tower-worker","preset-tower-reviewer"]` | Loader entry ids passed to reconcileProfile as required. |
+| `dev.reloadRequiredIds` | `["tower-bundle","tower","tower-skills","preset-tower-worker","preset-tower-reviewer"]` | Loader entry ids passed to reconcileProfile as required. |

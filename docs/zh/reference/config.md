@@ -88,7 +88,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |
 | `dev.hotReload` | `true` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用。无 HMR 服务时调用返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |
-| `dev.reloadRequiredIds` | 四个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |
+| `dev.reloadRequiredIds` | 五个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |
 
 ## 示例
 

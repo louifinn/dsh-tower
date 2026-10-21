@@ -101,7 +101,7 @@ The bridge behind the tool follows the `dev` config group:
 |---|---|
 | `dev.hotReload` | Register `tower_reload`; `/tower reload` is disabled when off (default `true`). Without the HMR service the tool is still registered so it can return `reload-unavailable`. |
 | `dev.reloadDelayMs` | Delay before the scheduled reconciliation runs, in milliseconds (default `50`), so the tool/command result reaches the model before the plugin is replaced. |
-| `dev.reloadRequiredIds` | Loader entry ids the profile must keep active (default `tower`, `tower-skills`, `preset-tower-worker`, `preset-tower-reviewer`). An inactive required entry is reported as a reload failure even if it was already inactive. |
+| `dev.reloadRequiredIds` | Loader entry ids the profile must keep active (default `tower-bundle`, `tower`, `tower-skills`, `preset-tower-worker`, `preset-tower-reviewer`). An inactive required entry is reported as a reload failure even if it was already inactive. |
 
 A reload is **scheduled, not awaited**: `/tower reload` and `tower_reload` return immediately with
 `scheduled`, `delayMs`, `requiredIds` (and the current `lastError` when one is pending), then HMR
