@@ -171,3 +171,20 @@ test('runtimeConfig does not cache the first resolved config across configureRun
     configureRuntime({})
   }
 })
+
+test('two Tower instances in one process keep independent repository config', async () => {
+  const first = makeRepo()
+  const second = makeRepo()
+  try {
+    writeRepoConfig(first.repo, { spawn: { workerPreset: 'first-worker' } })
+    writeRepoConfig(second.repo, { spawn: { workerPreset: 'second-worker' } })
+    const a = await Tower.open(first.repo)
+    const b = await Tower.open(second.repo)
+    assert.equal(a.config.spawn.workerPreset, 'first-worker')
+    assert.equal(b.config.spawn.workerPreset, 'second-worker')
+    assert.notEqual(a.config.configPath, b.config.configPath)
+  } finally {
+    fs.rmSync(first.root, { recursive: true, force: true })
+    fs.rmSync(second.root, { recursive: true, force: true })
+  }
+})
