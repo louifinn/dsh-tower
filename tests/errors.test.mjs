@@ -79,3 +79,11 @@ test('spawn backoff: three retryable failures trigger cooldown and success resto
   assert.equal(after.blockedUntil, 0)
   assert.equal(after.budget, 4)
 })
+
+test('error codes expose a frozen structural catalog', async () => {
+  const { ERROR_CODE_VALUES, isErrorCode } = await import('../lib/errors.js')
+  assert.equal(Object.isFrozen(ERROR_CODE_VALUES), true)
+  assert.ok(ERROR_CODE_VALUES.includes('tool-internal'))
+  assert.equal(isErrorCode('tool-internal'), true)
+  assert.equal(isErrorCode('made-up'), false)
+})
