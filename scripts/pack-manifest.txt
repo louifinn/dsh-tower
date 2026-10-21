@@ -51,6 +51,7 @@ lib/config.js
 lib/doctor.js
 lib/domain/gate.js
 lib/domain/mission.js
+lib/domain/planning.js
 lib/domain/scope.js
 lib/domain/summary.js
 lib/errors.js
