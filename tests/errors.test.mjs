@@ -87,3 +87,18 @@ test('error codes expose a frozen structural catalog', async () => {
   assert.equal(isErrorCode('tool-internal'), true)
   assert.equal(isErrorCode('made-up'), false)
 })
+
+test('every TowerToolError literal uses a catalog code', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const { isErrorCode } = await import('../lib/errors.js')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const files = ['index.js', ...fs.readdirSync(path.join(root, 'lib')).filter((name) => name.endsWith('.js')).map((name) => `lib/${name}`)]
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(root, file), 'utf8')
+    for (const match of text.matchAll(/new TowerToolError\('([^']+)'/g)) {
+      assert.equal(isErrorCode(match[1]), true, `${file}: ${match[1]}`)
+    }
+  }
+})
