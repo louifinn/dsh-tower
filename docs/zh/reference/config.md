@@ -84,6 +84,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `gates.allowReviewExemption` | `false` | 在 `review.requireReview:true` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；全局审查关闭时无影响。 |
 | `docs.board` | `true` | 变更后写入 `MISSIONS.md`。 |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。 |
+| `tools.exposeOperational` | `true` | 注册 batch/resource/import/legacy/recover/test/doctor 工具；`false` 可缩小固定工具 schema 上下文。 |
 | `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |
 | `dev.hotReload` | `true` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用。无 HMR 服务时调用返回 `reload-unavailable`。 |
 | `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |

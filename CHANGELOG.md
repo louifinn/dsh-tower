@@ -18,6 +18,8 @@
 - **#60 提供商冷却**：spawn 在连续可重试失败后进入进程内冷却并收缩预算；
   `tower_status.spawn` 暴露 `{inflight, budget, blockedUntil}`。
 - **#48 发布文件守卫**：新增 `scripts/pack-manifest.txt`、`npm run pack:check` 与 CI 步骤。
+- **#62 工具面预算**：`tools.exposeOperational:false` 可跳过 batch/resource/import/legacy/recover/test/doctor 工具。
+- **#47 live 守卫**：`tests/live` 需要显式 `DSH_LIVE=1` 与隔离的 `DSH_HOME`，不再可能误跑真实 profile。
 - **#63**：doctor 不再把正常 live worker 视为 warn。
 
 ## 2.0.4（2026-10-21）

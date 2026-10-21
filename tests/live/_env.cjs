@@ -7,7 +7,14 @@
 const os = require('node:os')
 const path = require('node:path')
 
-const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+if (process.env.DSH_LIVE !== '1') {
+  throw new Error('Live suite is opt-in: set DSH_LIVE=1 and an isolated DSH_HOME before running tests/live scripts.')
+}
+if (!process.env.DSH_HOME) {
+  throw new Error('Refusing non-isolated live run: DSH_HOME must be set explicitly to a disposable profile/home.')
+}
+
+const DSH_HOME = process.env.DSH_HOME
 
 function sessionRoot() {
   if (process.env.DSH_SESSION_ROOT) return process.env.DSH_SESSION_ROOT

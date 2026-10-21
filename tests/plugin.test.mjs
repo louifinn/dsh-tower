@@ -315,6 +315,16 @@ test('tower_control is gated by config and requires a reason', async () => {
   assert.equal(anonymous.mode, 'unknown')
 })
 
+test('tools.exposeOperational:false removes the operational schema surface', () => {
+  const plain = makeCtx()
+  apply(plain.ctx, { tools: { exposeOperational: false } })
+  assert.ok(plain.tools.has('tower_status'))
+  assert.ok(plain.tools.has('tower_spawn'))
+  for (const name of ['tower_batch', 'tower_resource', 'tower_import_legacy', 'tower_legacy_map', 'tower_recover', 'tower_test', 'tower_doctor']) {
+    assert.equal(plain.tools.has(name), false, name)
+  }
+})
+
 test('mode.requireHumanAckOnFirstEntry blocks model entry until /tower ack', async () => {
   const { ctx, tools, commands } = makeCtx()
   apply(ctx, { mode: { allowAgentControl: true, requireHumanAckOnFirstEntry: true } })

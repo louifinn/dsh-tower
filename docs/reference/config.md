@@ -85,6 +85,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
 | `docs.board` | `true` | Write `MISSIONS.md` after mutations. |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. |
+| `tools.exposeOperational` | `true` | Register batch/resource/import/legacy/recover/test/doctor tools; `false` shrinks the fixed tool-schema context. |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.hotReload` | `true` | Register `tower_reload`; `/tower reload` is disabled when off. It returns `reload-unavailable` when the profile has no HMR service. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. |
