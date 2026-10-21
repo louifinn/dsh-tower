@@ -22,6 +22,13 @@
   `lock-holds.jsonl` 遥测与 doctor p50/p95 检查（>1s warn）。
 - **#51 git 互斥基础**：新增 `withGitLock` / `git.lock`，用与 state lock 相同的 token/PID-dead
   回收协议串行化 git 操作，为把 git 移出 state lock 做准备。
+- **#51 merge/rebase/teardown**：三者改为 prepare/act/commit；长 git 操作在 `git.lock` 下进行，
+  state lock 只做 revision 复核与写回；rebase 增加可对账的 `rebaseIntent`。
+- **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
+  Store/Vcs 契约；新增完整 scripted lifecycle 与 10 项 adapter contract 测试。
+- **#45 domain 类型**：`lib/domain/*.js` 纳入 checkJs，新增 `tests/type-contracts.ts` 正/负类型
+  fixture；types 契约与 domain 签名对齐。
+- **packaging**：`package.json files` 补齐 `lib/tower/*.js`，避免发布包遗漏 use-case 模块。
 - **#45 错误结构化继续**：纯 domain、review/findings/read/batch/rebase、`lib/tower.js` 与 infra
   （store/config/git/tests）均改为抛出带 code 的 `TowerToolError`；`classifyError` 的 26 条
   prose `RULES` 表已删除，纯文本错误统一落到 `tool-internal`。
