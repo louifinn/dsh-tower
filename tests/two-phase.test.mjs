@@ -69,3 +69,26 @@ test('complete commits when the prepared revision is still current', async () =>
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
+
+test('recordSpawn captures the spawn tip outside the state lock', async () => {
+  const { root, repo } = seed()
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-agent' })
+    await tower.plan({ missions: [{ title: 'Spawn prepare', scope: ['x/**'] }] })
+    let sawLock = null
+    tower.tryGit = async () => {
+      const fsmod = await import('node:fs')
+      sawLock = fsmod.existsSync(tower.paths.lock)
+      return 'abc123\n'
+    }
+    const entry = await tower.recordSpawn({
+      missionId: 'M1', name: 'worker-m1', role: 'worker', agentId: 'agent-1',
+      parentSessionId: 'parent-1', cwd: repo, branch: 'b',
+    })
+    assert.equal(sawLock, false)
+    assert.equal(entry.spawnTip, 'abc123')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})
