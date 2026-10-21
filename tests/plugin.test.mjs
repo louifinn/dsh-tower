@@ -301,6 +301,7 @@ test('tower_control is gated by config and requires a reason', async () => {
   assert.equal(entered.changed, true)
   assert.equal(entered.mode, 'on')
   assert.equal(entered.changedBy, 'agent')
+  assert.equal((await tools.get('tower_mode').execute({}, { agent })).lastDisclosure, 'full')
 
   const again = await control.execute({ action: 'enter', reason: 'still meant' }, { agent })
   assert.equal(again.changed, false)

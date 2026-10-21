@@ -184,6 +184,7 @@ function enterMode(ctx, key, agent, by, reason) {
     baseBranch: previous?.baseBranch ?? null,
     planModeCleared: plan.cleared,
     humanAckAt: by === 'user' ? previous?.humanAckAt ?? now : previous?.humanAckAt ?? null,
+    lastDisclosure: previous?.lastDisclosure ?? 'full',
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
@@ -197,7 +198,7 @@ async function exitMode(key, by, reason) {
   const wasOn = previous.on === true
   // Keep a timestamped off tombstone so a concurrent save from another
   // session cannot resurrect this mode entry.
-  MODE.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null })
+  MODE.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
   persistModes()
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
@@ -437,6 +438,7 @@ export function apply(ctx, rawConfig) {
           agentId: key,
           allowAgentControl,
           lastChange: entry?.lastChange ?? null,
+          lastDisclosure: entry?.lastDisclosure ?? null,
           pausedGoal: entry?.pausedGoal ?? null,
           deniedWhileActive: [...denyTools],
           persistedAt: storePath(config.mode.storePath || undefined),
