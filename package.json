@@ -71,6 +71,8 @@
     "docs:check": "node scripts/check-docs.mjs",
     "docs:generate:errors": "node scripts/generate-error-reference.mjs",
     "docs:check:generated": "node scripts/generate-error-reference.mjs --check",
+    "docs:generate:tools": "node scripts/generate-tools-reference.mjs",
+    "docs:check:generated:tools": "node scripts/generate-tools-reference.mjs --check",
     "pack:check": "node scripts/check-pack.mjs",
     "architecture:check": "node scripts/architecture.mjs",
     "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check"

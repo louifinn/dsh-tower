@@ -59,3 +59,12 @@ test('generated error reference matches the source catalog', async () => {
   })
   assert.match(output, /codes in sync/)
 })
+
+test('generated tools reference matches the registered surface', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const output = execFileSync(process.execPath, ['scripts/generate-tools-reference.mjs', '--check'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.match(output, /tools in sync/)
+})

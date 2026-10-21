@@ -24,6 +24,7 @@ docs/reference/errors.md
 docs/reference/events.md
 docs/reference/operations.md
 docs/reference/testing.md
+docs/reference/tools.generated.md
 docs/reference/tools.md
 docs/zh/README.md
 docs/zh/faq.md
@@ -70,6 +71,7 @@ scripts/check-docs.mjs
 scripts/check-pack.mjs
 scripts/enable-dev-hmr.mjs
 scripts/generate-error-reference.mjs
+scripts/generate-tools-reference.mjs
 scripts/pack-manifest.txt
 skills.js
 skills/tower-recovery.md

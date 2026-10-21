@@ -25,6 +25,8 @@ jobs:
         run: npm run docs:check
       - name: Generated error reference
         run: npm run docs:check:generated
+      - name: Generated tools reference
+        run: npm run docs:check:generated:tools
       - name: Pack manifest
         run: npm run pack:check
       - name: Architecture fitness
