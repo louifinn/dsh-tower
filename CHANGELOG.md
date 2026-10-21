@@ -32,6 +32,9 @@
 - **#68 owner 恢复提示**：`towerAgentId` 缺失时写工具现在返回可操作错误
   “run tower_init to re-claim”，`tower_status` 暴露 `towerAgentId/ownerMissing`，doctor 增加
   `tower-owner` 检查；`tower_init` 重新绑定后恢复写权限。
+- **#52 Tower 拆分**：`lib/tower.js` 从约 2.9k 行降到 **535** 行；plan/mission/checkCompletion/
+  missionContext/enrichedMissions/board/spawn/recording 拆为 `lib/tower/*.js` use-case 模块，
+  `Tower` 方法仅作委托，行为、错误码与锁顺序不变。
 - **#45 use-case 类型**：`lib/git.js`、`lib/tower/gate/read/batch` 纳入 checkJs；补齐
   `tryGit/currentBranch/listWorktrees` nullability 与 use-case 契约 fixture。
 - **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
