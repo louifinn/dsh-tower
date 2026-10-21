@@ -1,10 +1,14 @@
 // tower_plan / tower_mission / tower_status / tower_complete / tower_review /
 // tower_preflight input contracts. Pure TypeBox only; no I/O.
-import { MERGE_VERDICTS, MISSION_STATUSES, PAUSE_CAUSES } from '../../mission.js'
+import {
+  MERGE_VERDICTS,
+  MISSION_KINDS,
+  MISSION_STATUSES,
+  PAUSE_CAUSES,
+  REVIEW_POLICIES,
+  STATUS_FORMATS,
+} from '../../vocabulary.js'
 import { Type, enumOf } from './shared.js'
-
-const MISSION_KINDS = ['build', 'survey']
-const REVIEW_POLICIES = ['required-clean', 'none']
 
 export const PlanInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
@@ -50,7 +54,7 @@ export const StatusInput = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Mission list offset (default 0).' })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Mission list page size (default 20).' })),
   includeGate: Type.Optional(Type.Boolean({ description: 'Compute tower_preflight-style gate digests for missions on this page.' })),
-  format: Type.Optional(enumOf(['json', 'markdown'], { description: 'markdown returns the MISSIONS.md board text.' })),
+  format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'markdown returns the MISSIONS.md board text.' })),
 }, { additionalProperties: false })
 
 export const CompleteInput = Type.Object({

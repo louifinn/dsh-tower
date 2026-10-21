@@ -5,6 +5,7 @@ import { TowerToolError } from '../domain/errors.js'
 import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
 import { InitInput } from '../domain/contracts/tool-inputs/index.js'
+import { isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -51,7 +52,7 @@ export function registerInitTool(ctx, deps) {
         // Legacy state predating owner binding: an explicit tower_init may
         // claim ownership once. Other tools remain fail-closed until then.
         const actor = await actorFor(tower, exec)
-        if (actor.role !== 'tower' && actor.role !== 'unknown') {
+        if (!isTowerRole(actor.role) && !isUnknownRole(actor.role)) {
           requireTowerActor(actor, 'claim Tower ownership')
         }
       }

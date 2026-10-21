@@ -12,7 +12,7 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerTowerTools } from './tools/index.js'
+import { registerTowerTools } from './lib/tool-registry.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
 import { ModeState } from './lib/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'

@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { CompleteInput } from '../domain/contracts/tool-inputs/index.js'
+import { isCompleteAdmission } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -31,7 +32,7 @@ export function registerCompleteTool(ctx, deps) {
       const context = await tower.missionContext(args.missionId)
       const checks = [...(Array.isArray(args.checks) ? args.checks : [])]
       const testsConfig = /** @type {any} */ (tower.config.tests ?? {})
-      if (testsConfig.enabled !== false && testsConfig.admission === 'complete') {
+      if (testsConfig.enabled !== false && isCompleteAdmission(testsConfig.admission)) {
         const discovery = await runMissionDiscovery(tower, { id: args.missionId, worktree: context.mission.worktree })
         if (discovery.configured && discovery.receipt.ok !== true) {
           throw new TowerToolError('tests-failed', `test discovery failed for ${args.missionId}: ${discovery.receipt.error}`)

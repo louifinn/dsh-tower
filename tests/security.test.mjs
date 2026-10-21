@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { registerTowerTools } from '../tools/index.js'
+import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
 import { testProcessEnv } from '../lib/tests.js'
 import { gitEnv } from '../lib/git.js'

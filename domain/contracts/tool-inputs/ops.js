@@ -1,6 +1,12 @@
 // tower_init / tower_doctor / tower_recover / tower_test / tower_batch /
 // tower_resource / tower_import_legacy / tower_legacy_map / tower_reload input
 // contracts. Pure TypeBox only; no I/O.
+import {
+  BATCH_ACTIONS,
+  LEASE_ACTIONS,
+  LEGACY_MAP_ACTIONS,
+  RECOVERY_ACTIONS,
+} from '../../vocabulary.js'
 import { Type, enumOf, untypedObject } from './shared.js'
 
 export const InitInput = Type.Object({
@@ -17,7 +23,7 @@ export const DoctorInput = Type.Object({
 
 export const RecoverInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-  action: enumOf(['status', 'clear-stale-lock'], { description: 'Recovery action.' }),
+  action: enumOf(RECOVERY_ACTIONS, { description: 'Recovery action.' }),
   confirm: Type.Optional(Type.String({ description: 'Required literal CLEAR_STALE_LOCK for clear-stale-lock.' })),
 }, { additionalProperties: false })
 
@@ -29,7 +35,7 @@ export const TestInput = Type.Object({
 
 export const BatchInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-  action: enumOf(['create', 'status', 'close', 'abandon'], { description: 'Batch operation.' }),
+  action: enumOf(BATCH_ACTIONS, { description: 'Batch operation.' }),
   missionIds: Type.Optional(Type.Array(Type.String(), { description: 'Exact mission ids in this batch (create).' })),
   exclusions: Type.Optional(Type.Array(Type.String(), { description: 'Paused legacy mission ids excluded from the batch.' })),
   requiredChecks: Type.Optional(Type.Array(Type.String(), { description: 'Check names every build member must record (default ["check"]).' })),
@@ -43,7 +49,7 @@ export const BatchInput = Type.Object({
 
 export const ResourceInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-  action: enumOf(['acquire', 'release', 'status'], { description: 'Lease operation.' }),
+  action: enumOf(LEASE_ACTIONS, { description: 'Lease operation.' }),
   name: Type.Optional(Type.String({ description: 'Lease name, e.g. plugin-load or heavy-ci.' })),
   holder: Type.Optional(Type.String({ description: 'Holder label (defaults to the caller).' })),
   token: Type.Optional(Type.String({ description: 'Release token; generated on acquire when omitted.' })),
@@ -58,7 +64,7 @@ export const ImportLegacyInput = Type.Object({
 
 export const LegacyMapInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
-  action: enumOf(['map', 'status'], { description: 'Mapping operation.' }),
+  action: enumOf(LEGACY_MAP_ACTIONS, { description: 'Mapping operation.' }),
   sourceHash: Type.Optional(Type.String({ description: 'Legacy snapshot sha256 (map).' })),
   oldId: Type.Optional(Type.String({ description: 'Legacy mission id (map).' })),
   newMissionId: Type.Optional(Type.String({ description: 'Current mission id; optional audit pointer.' })),

@@ -4,6 +4,7 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { acquireLease, releaseLease, inspectLeases } from '../lib/leases.js'
 import { ResourceInput } from '../domain/contracts/tool-inputs/index.js'
+import { LEASE_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -21,18 +22,18 @@ export function registerResourceTool(ctx, deps) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
       const redact = (leases) => leases.map(({ token, ...lease }) => lease)
-      if (args.action === 'status') {
+      if (args.action === LEASE_ACTION.status) {
         const info = await inspectLeases(tower.commonDir)
         const leases = redact(info.leases ?? [])
-        return { ok: true, action: 'status', ...info, leases }
+        return { ok: true, action: LEASE_ACTION.status, ...info, leases }
       }
-      requireTowerActor(actor, args.action === 'acquire' ? 'acquire a lease' : 'release a lease')
+      requireTowerActor(actor, args.action === LEASE_ACTION.acquire ? 'acquire a lease' : 'release a lease')
       if (typeof args.name !== 'string' || args.name.trim().length === 0) {
         throw new TowerToolError('invalid-argument', 'tower_resource requires name')
       }
       const name = args.name.trim()
       const ttlMs = Number(args.ttlMs ?? tower.config.leases?.ttlMs ?? 900000)
-      if (args.action === 'acquire') {
+      if (args.action === LEASE_ACTION.acquire) {
         const lease = await acquireLease(tower.commonDir, {
           name,
           holder: args.holder ?? actor.name,
@@ -40,14 +41,14 @@ export function registerResourceTool(ctx, deps) {
           pid: process.pid,
           ttlMs,
         })
-        return { ok: true, action: 'acquire', lease }
+        return { ok: true, action: LEASE_ACTION.acquire, lease }
       }
       const token = args.token
       if (typeof token !== 'string' || token.length === 0) {
         throw new TowerToolError('invalid-argument', 'tower_resource release requires token')
       }
       const released = await releaseLease(tower.commonDir, { name, token, force: args.force === true })
-      return { ok: true, action: 'release', released, leases: redact((await inspectLeases(tower.commonDir)).leases) }
+      return { ok: true, action: LEASE_ACTION.release, released, leases: redact((await inspectLeases(tower.commonDir)).leases) }
     },
   })
 }

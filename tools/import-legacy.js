@@ -1,3 +1,12 @@
+// tower_import_legacy — import a legacy snapshot read-only.
+// 
+// Input: ImportLegacyInput (sourcePath) from contracts.
+// Output: snapshot summary; state is never activated or adopted.
+// Authorization: tower only.
+// Side effects: writes a content-addressed legacy snapshot only.
+// Failure modes: invalid legacy payload, path inside tower state.
+// Pure legacy validation lives in domain and never runs fs.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_import_legacy: read-only legacy snapshot import.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

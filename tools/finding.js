@@ -2,6 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { FindingInput } from '../domain/contracts/tool-inputs/index.js'
+import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -32,7 +33,7 @@ export function registerFindingTool(ctx, deps) {
         details: args.details,
         suggested_fix: args.suggested_fix,
         missionId: args.missionId,
-        reportedBy: self ? self.name : 'tower',
+        reportedBy: self ? self.name : ROLE.tower,
       })
     },
   })

@@ -5,6 +5,7 @@ import { runtimeConfig } from '../lib/config.js'
 import { runDoctor } from '../lib/doctor.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { DoctorInput } from '../domain/contracts/tool-inputs/index.js'
+import { DOCTOR_STATUS } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -37,7 +38,7 @@ export function registerDoctorTool(ctx, define) {
         checks: [
           {
             id: 'config',
-            status: 'fail',
+            status: DOCTOR_STATUS.fail,
             detail: configError,
             fix: 'repair <git-common-dir>/dsh-tower/config.json and re-run tower_doctor',
           },

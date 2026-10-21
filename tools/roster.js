@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { RosterInput } from '../domain/contracts/tool-inputs/index.js'
+import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_GONE_STATES } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -28,8 +29,8 @@ export function registerRosterTool(ctx, deps) {
       for (const parent of parents) {
         try {
           const rows = await subagents.listDescendants(parent)
-          for (const row of rows) activity.set(String(row.id), row.activity ?? 'unknown')
-          parentStatus[parent] = 'ok'
+          for (const row of rows) activity.set(String(row.id), row.activity ?? ROSTER_ACTIVITY.unknown)
+          parentStatus[parent] = PARENT_STATUS_OK
         } catch (error) {
           parentStatus[parent] = `unavailable: ${String(error?.message ?? error)}`
         }
@@ -39,16 +40,16 @@ export function registerRosterTool(ctx, deps) {
       const now = Date.now()
       const roster = view.roster.map((entry) => {
         const observed = activity.get(entry.agentId)
-        const known = parentStatus[entry.parentSessionId] === 'ok'
+        const known = parentStatus[entry.parentSessionId] === PARENT_STATUS_OK
         const stale =
           staleMs > 0 &&
           observed === undefined &&
           known &&
-          !['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(entry.state) &&
+          !ROSTER_GONE_STATES.includes(entry.state) &&
           now - Number(entry.spawnedAt ?? 0) > staleMs
         return {
           ...entry,
-          activity: observed ?? (known ? 'missing' : 'unknown'),
+          activity: observed ?? (known ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),
           observed: observed !== undefined,
           stale,
         }

@@ -1,5 +1,5 @@
 // tower_finding / tower_findings input contracts. Pure TypeBox only; no I/O.
-import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES } from '../../mission.js'
+import { FINDING_FILTER_STATUSES, FINDING_SEVERITIES, FINDING_TYPES } from '../../vocabulary.js'
 import { Type, enumOf } from './shared.js'
 
 export const FindingInput = Type.Object({
@@ -18,7 +18,7 @@ export const FindingInput = Type.Object({
 export const FindingsInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   id: Type.Optional(Type.String({ description: 'Finding id, e.g. F1. When present the call reads or updates that finding.' })),
-  status: Type.Optional(enumOf([...FINDING_STATUSES, 'all'], { description: 'With id: target status. Without id: filter (default all).' })),
+  status: Type.Optional(enumOf(FINDING_FILTER_STATUSES, { description: 'With id: target status. Without id: filter (default all).' })),
   note: Type.Optional(Type.String({ description: 'Optional note recorded together with an update.' })),
   type: Type.Optional(enumOf(FINDING_TYPES, { description: 'Filter by finding type.' })),
   severity: Type.Optional(enumOf(FINDING_SEVERITIES, { description: 'Filter by severity.' })),

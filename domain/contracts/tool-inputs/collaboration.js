@@ -1,10 +1,7 @@
 // tower_spawn / tower_roster / tower_interrupt / tower_send / tower_inbox /
 // tower_adopt input contracts. Pure TypeBox only; no I/O.
+import { ROLES } from '../../vocabulary.js'
 import { Type, enumOf } from './shared.js'
-
-// Roles currently have no pure-domain export (app/tower.js owns `ROLES`); keep
-// the schema enum here rather than importing the app layer into domain.
-const ROLES = ['worker', 'reviewer']
 
 export const SpawnInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),

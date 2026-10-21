@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { TestInput } from '../domain/contracts/tool-inputs/index.js'
+import { isReviewerRole, isWorkerRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -29,8 +30,8 @@ export function registerTestTool(ctx, deps) {
       requireKnownActor(actor, 'tower_test')
       const context = await tower.missionContext(args.missionId)
       if (!context.mission.worktree) throw new TowerToolError('invalid-transition', `mission ${args.missionId} has no worktree`)
-      if (actor.role === 'reviewer') throw new TowerToolError('not-authorized', 'reviewers may not run test discovery')
-      if (actor.role === 'worker' && context.mission.owner && context.mission.owner !== actor.name) {
+      if (isReviewerRole(actor.role)) throw new TowerToolError('not-authorized', 'reviewers may not run test discovery')
+      if (isWorkerRole(actor.role) && context.mission.owner && context.mission.owner !== actor.name) {
         throw new TowerToolError('not-authorized', `worker ${actor.name} does not own mission ${args.missionId}`)
       }
       await tower.assertWorktree(context.mission.worktree)

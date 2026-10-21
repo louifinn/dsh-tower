@@ -1,7 +1,19 @@
+// Acknowledged messages are filtered from later unread counts.
+// Delivery results are persisted by the registry.
+// tower_inbox — read and acknowledge mission messages.
+// 
+// Input: InboxInput (name, limit) from domain contracts.
+// Output: unread messages plus acknowledgement metadata.
+// Authorization: the addressed roster agent or the tower.
+// Side effects: marks delivered messages as read and persists state.
+// Failure modes: unknown recipient, invalid limit.
+// The unread calculation is a pure domain/collab projection.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_inbox: read and acknowledge inbound messages.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { InboxInput } from '../domain/contracts/tool-inputs/index.js'
+import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -20,7 +32,7 @@ export function registerInboxTool(ctx, deps) {
       const tower = await Tower.open(args.repoRoot)
       const view = await tower.rosterView()
       const self = view.roster.find((entry) => entry.agentId === String(exec.agent.id))
-      const reader = self ? self.name : 'tower'
+      const reader = self ? self.name : ROLE.tower
       return tower.inbox({ reader, limit: args.limit, includeRead: args.include_read === true })
     },
   })

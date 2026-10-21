@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { BatchInput } from '../domain/contracts/tool-inputs/index.js'
+import { BATCH_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -20,7 +21,7 @@ export function registerBatchTool(ctx, deps) {
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
-      if (args.action === 'status') {
+      if (args.action === BATCH_ACTION.status) {
         const state = await tower.load()
         const batch = args.batchId
           ? (state.batches ?? []).find((entry) => entry.id === args.batchId)
@@ -28,31 +29,31 @@ export function registerBatchTool(ctx, deps) {
         if (args.batchId && !batch) throw new TowerToolError('invalid-argument', `unknown batch "${args.batchId}"`)
         return {
           ok: true,
-          action: 'status',
+          action: BATCH_ACTION.status,
           batches: (state.batches ?? []).map((entry) => summarizeBatch(state, entry)),
           ...(batch ? { batch: summarizeBatch(state, batch) } : {}),
           ...(args.batchId ? { summary: summarizeBatch(state, batch) } : {}),
         }
       }
-      requireTowerActor(actor, args.action === 'create' ? 'create a batch' : args.action === 'abandon' ? 'abandon a batch' : 'close a batch')
-      if (args.action === 'create') {
+      requireTowerActor(actor, args.action === BATCH_ACTION.create ? 'create a batch' : args.action === BATCH_ACTION.abandon ? 'abandon a batch' : 'close a batch')
+      if (args.action === BATCH_ACTION.create) {
         const batch = await tower.createBatch(args, actor.name)
-        return { ok: true, action: 'create', batch, batches: (await tower.batchStatus()).batches }
+        return { ok: true, action: BATCH_ACTION.create, batch, batches: (await tower.batchStatus()).batches }
       }
       if (typeof args.batchId !== 'string' || args.batchId.trim().length === 0) {
         throw new TowerToolError('invalid-argument', `tower_batch ${args.action} requires batchId`)
       }
       const batchId = args.batchId.trim()
-      if (args.action === 'abandon') {
+      if (args.action === BATCH_ACTION.abandon) {
         const result = await tower.abandonBatch(batchId, actor.name, /** @type {any} */ (args.reason))
-        return { ok: true, action: 'abandon', batch: result.batch, blockers: [] }
+        return { ok: true, action: BATCH_ACTION.abandon, batch: result.batch, blockers: [] }
       }
       const closeState = await tower.load()
       const closeBatch = (closeState.batches ?? []).find((entry) => entry.id === batchId)
       if (closeBatch) {
         const receiptProblems = await verifyBatchReceiptFiles(tower.root, closeBatch, args)
         if (receiptProblems.length > 0) {
-          return { ok: false, action: 'close', batch: closeBatch, blockers: receiptProblems, checks: [] }
+          return { ok: false, action: BATCH_ACTION.close, batch: closeBatch, blockers: receiptProblems, checks: [] }
         }
       }
       const result = await tower.closeBatch(batchId, {
@@ -62,7 +63,7 @@ export function registerBatchTool(ctx, deps) {
       }, actor.name)
       return {
         ok: result.ok,
-        action: 'close',
+        action: BATCH_ACTION.close,
         batch: result.batch,
         blockers: (result.blockers ?? []).map((blocker) => ({
           code: blocker.code ?? 'batch-invalid',

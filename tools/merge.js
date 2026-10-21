@@ -1,3 +1,13 @@
+// The merge command uses the exact reviewed commit, never a mutable branch name.
+// tower_merge — integrate a reviewed mission branch.
+// 
+// Input: MergeInput (missionId/id, timeoutMs) from domain contracts.
+// Output: merged commit, parents, review evidence, blockers.
+// Authorization: tower only; the gate is re-evaluated.
+// Side effects: git merge, state/activity writes, cleanup on failure.
+// Failure modes: merge-conflict, merge-hook-failed, merge-shape.
+// The pure intent/shape decisions live in domain/integration.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_merge: merge a mission branch into the recorded base.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

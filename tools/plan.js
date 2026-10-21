@@ -1,3 +1,14 @@
+// Mission ids are assigned monotonically by the domain planner.
+// tower_plan — create missions and assign M1.. ids.
+// 
+// Input: PlanInput from domain contracts (missions, scope, deps).
+// Output: created mission summaries and board state.
+// Authorization: tower only; presets are validated first.
+// Side effects: persists state and optional board file.
+// It never creates worktrees; spawn/provision do that later.
+// Failure modes: invalid scope, cyclic deps, preset missing.
+// Pure normalization and DAG policy live in domain/missions.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_plan: create missions.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

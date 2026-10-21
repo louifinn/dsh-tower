@@ -10,8 +10,10 @@ or skill can remain mounted while the `tower_*` tools are gone.
 ```
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
- ├─ tools/index.js  -> shared registration helpers + 27 registered repository tools
+ ├─ lib/tool-registry.js -> registration aggregator, actor guards, shared helpers
+ │                    (+ 27 registered repository tools)
  │                    (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
+ ├─ tools/index.js  -> thin public wiring (re-exports the registry + briefings)
  └─ app/tower.js   -> orchestration surface; delegates to use-case modules
        ├─ app/init.js, provision.js, merge.js, rebase.js, teardown.js
        ├─ app/review.js, findings.js, batch.js, messages.js, roster.js
@@ -34,6 +36,7 @@ Host plugin (index.js)
        domain/config/schema.js  Schemastery config schema, defaults, validation
        domain/contracts/outputs.js  tool output-schema catalog
        domain/contracts/tool-inputs/  per-area TypeBox input schemas + ToolInputs map
+       domain/vocabulary.js  canonical status/type/action enums + predicates
        domain/mission.js    statuses, transitions, pause causes
        domain/gate.js       completion and merge-gate snapshot decisions
        domain/scope.js      glob/scope validation and overlap
@@ -43,7 +46,8 @@ Host plugin (index.js)
        domain/report.js     board rendering
        domain/roster.js     roster predicates
  tools layer:
-       tools/index.js           registration + shared helpers
+       lib/tool-registry.js     registration aggregator + shared guards/helpers
+       tools/index.js           thin public wiring (re-exports only)
        tools/*.js               one module per tool, handler + imported input schema
  Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
@@ -116,23 +120,36 @@ dead-PID reclamation, and bounded lock waits. `state.json` is the mission persis
 - Only `adapters/vcs-git.js` may import `node:child_process`, and only
   `adapters/store-fs.js` may import `node:fs` (`child-process-surface`, `fs-surface`).
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
-  `tools/index.js` is the registration aggregator and is exempt from the thinness rule.
+  `tools/index.js` is the thin public wiring module and stays exempt from the thinness rule,
+  while registration/shared machinery lives in `lib/tool-registry.js`.
 - Aggregate files have size ceilings; top-level mutable state is limited to explicit composition
   roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines; only the
-  `tools/index.js` registration aggregator is exempt.
+  `tools/index.js` wiring module is exempt, and it is now far below the ceiling.
 
 A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
 
-## Known #56 gaps
+## #56 definition of done
 
-The child issues are closed, but the epic's remaining definition-of-done items are tracked here:
+All epic DoD items now have an executable gate:
 
-- Pure domain share is now **36.5%** (5,544 / 15,206 source lines), above the 35% target; the
-  domain contracts, mission/collab policies, integration decisions, and read projections are pure.
-- `state.json` and `modes.json` now share `lib/persistence.js` atomic/lock/dead-PID primitives;
-  `lib/store.js` and `lib/modeStore.js` are thin path/merge layers over that contract.
-- P3c split `tools/spawn.js` into the handler plus `lib/spawn-prechecks.js` and
-  `lib/spawn-support.js`; every module under `tools/` except the registration aggregator is now
-  under the 200-line ceiling.
+- Pure domain share: **37.9%** (5,993 / 15,820 source lines), enforced by
+  `npm run domain:check` (threshold 35%).
+- `domain/**` imports no fs, child_process, adapters, app, tools, or lib infrastructure;
+  `domain-pure` is a blocking architecture rule.
+- Only `adapters/vcs-git.js` imports `node:child_process`; only `adapters/store-fs.js`
+  imports `node:fs`; both are blocking rules with fixtures.
+- `lib`, `app`, and `domain` files stay <= 800 lines; every `tools/**` file stays
+  40-200 lines (one handler module per tool; `tools/index.js` is 40-line wiring).
+- No `withLock` scope starts a process; the two-phase tests instrument every git call.
+- `tools/**` has no status/type/enum literal; vocabulary is owned by
+  `domain/vocabulary.js`; the `tools-vocabulary` rule is blocking.
+- `validateState` has a four-line body over `domain/state/schema.js` and
+  `domain/state/semantics.js`.
+- `state.json` and `modes.json` share `lib/persistence.js` atomic write, token-owned
+  lock, dead-PID quarantine, and bounded-wait primitives.
+- The in-memory lifecycle and adapter contracts run a full mission lifecycle with no
+  disk and no git.
+- The seven fitness rules are errors, each with a seeded failing fixture.
+
 
 

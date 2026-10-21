@@ -39,7 +39,7 @@ test('classifyError: prose alone no longer classifies', () => {
 })
 
 test('spawn backoff: three retryable failures trigger cooldown and success restores budget', async () => {
-  const { __testSpawnBackoff: backoff } = await import('../tools/index.js')
+  const { __testSpawnBackoff: backoff } = await import('../lib/tool-registry.js')
   const key = 'C:/tmp/backoff-test'
   backoff.spawnBackoffState(key, 4)
   for (let i = 0; i < 3; i += 1) backoff.recordSpawnThrottle(key, 4)

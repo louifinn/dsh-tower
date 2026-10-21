@@ -1,8 +1,9 @@
 // tower_status: dashboard and mission detail.
-import { Tower, ROSTER_INACTIVE_STATES } from '../app/tower.js'
+import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { classifyError } from '../domain/errors.js'
 import { StatusInput } from '../domain/contracts/tool-inputs/index.js'
+import { ROSTER_INACTIVE_STATES, isMarkdownFormat, isReservedState, isWorkerRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -28,7 +29,7 @@ export function registerStatusTool(ctx, deps) {
       const mode = workspaceHook?.modeInfo?.(exec) ?? null
       const statusState = await tower.load()
       const inflight = (statusState.roster ?? []).filter(
-        (entry) => entry.role === 'worker' && !ROSTER_INACTIVE_STATES.includes(entry.state) && entry.state !== 'reserved',
+        (entry) => isWorkerRole(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state) && !isReservedState(entry.state),
       ).length
       const spawn = spawnBackoffView(tower.root, tower.config.spawn?.maxLiveWorkers, inflight)
       if (args.missionId) {
@@ -82,7 +83,7 @@ export function registerStatusTool(ctx, deps) {
         mode,
         spawn,
       }
-      if (args.format === 'markdown') {
+      if (isMarkdownFormat(args.format)) {
         const state = await tower.load()
         const output = /** @type {any} */ (result)
         output.markdown = tower.boardMarkdown(state)

@@ -2,6 +2,7 @@
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { FindingsInput } from '../domain/contracts/tool-inputs/index.js'
+import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -31,7 +32,7 @@ export function registerFindingsTool(ctx, deps) {
         missionId: args.missionId,
         open: args.open,
         limit: args.limit,
-        actor: { name: self ? self.name : 'tower', role: self ? self.role : 'tower' },
+        actor: { name: self ? self.name : ROLE.tower, role: self ? self.role : ROLE.tower },
       })
     },
   })

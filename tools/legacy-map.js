@@ -1,9 +1,19 @@
+// tower_legacy_map — map a legacy snapshot to a mission.
+// 
+// Input: LegacyMapInput (action, sourceHash, oldId) from contracts.
+// Output: mapping record or mapping status.
+// Authorization: tower only.
+// Side effects: appends audit mapping to state; no adoption.
+// Failure modes: unknown snapshot, duplicate mapping, invalid id.
+// Pure mapping validation lives in the domain legacy layer.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_legacy_map: audit-only legacy snapshot mapping.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { validateLegacyMap } from '../lib/legacy.js'
 import { LegacyMapInput } from '../domain/contracts/tool-inputs/index.js'
+import { LEGACY_MAP_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -21,7 +31,7 @@ export function registerLegacyMapTool(ctx, deps) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
       const state = await tower.load()
-      if (args.action === 'status') {
+      if (args.action === LEGACY_MAP_ACTION.status) {
         return { ok: true, maps: state.legacyMaps ?? [] }
       }
       requireTowerActor(actor, 'map a legacy mission')

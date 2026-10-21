@@ -35,3 +35,5 @@ jobs:
         run: npm run architecture:check
       - name: Type declarations
         run: npm run types:check
+      - name: Pure domain share
+        run: npm run domain:check

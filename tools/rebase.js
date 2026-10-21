@@ -1,3 +1,13 @@
+// A clean rebase may waive re-review by binding the old reviewed tip.
+// tower_rebase — rebase a mission branch onto the base.
+// 
+// Input: RebaseInput (missionId/id) from domain contracts.
+// Output: old/new tips, base tip, review-waiver decision.
+// Authorization: tower only; ownership and cleanliness are checked.
+// Side effects: git rebase, abort/cleanup, state/activity writes.
+// Failure modes: conflict, stale-base, tip-moved, dirty worktree.
+// Pure intent/waiver decisions live in domain/integration.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_rebase: rebase a mission branch inside its worktree.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

@@ -203,6 +203,13 @@ export interface RosterEntry {
   [key: string]: unknown
 }
 
+/**
+ * Public state contract. This stays hand-written rather than derived from
+ * `Static<typeof StateSchema>` because the validator schema is deliberately
+ * tolerant of legacy rows (`additionalProperties`, optional collections) and
+ * checks status vocabularies/worktree records semantically after the shape
+ * pass. `tests/type-contracts.ts` pins the schema/public-type overlap.
+ */
 export interface TowerState {
   schemaVersion: number
   revision: number
@@ -225,6 +232,7 @@ export interface TowerState {
   legacyMaps?: Array<Record<string, unknown>>
   deliveries?: Array<Record<string, unknown>>
   mergeIntent?: Record<string, unknown> | null
+  rebaseIntent?: Record<string, unknown> | null
   messageSeq?: number
   reviewSeq?: number
   findingSeq?: number

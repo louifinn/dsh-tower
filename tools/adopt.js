@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { AdoptInput } from '../domain/contracts/tool-inputs/index.js'
+import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_STATE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -31,8 +32,8 @@ export function registerAdoptTool(ctx, deps) {
       for (const parent of parents) {
         try {
           const rows = await subagents.listDescendants(parent)
-          for (const row of rows) activity.set(String(row.id), row.activity ?? 'unknown')
-          parentStatus[parent] = 'ok'
+          for (const row of rows) activity.set(String(row.id), row.activity ?? ROSTER_ACTIVITY.unknown)
+          parentStatus[parent] = PARENT_STATUS_OK
         } catch (error) {
           parentStatus[parent] = `unavailable: ${String(error?.message ?? error)}`
         }
@@ -42,8 +43,8 @@ export function registerAdoptTool(ctx, deps) {
       const presentIds = []
       const absentIds = []
       for (const entry of view.roster) {
-        if (entry.state === 'retired') continue
-        if (parentStatus[entry.parentSessionId] !== 'ok') continue
+        if (entry.state === ROSTER_STATE.retired) continue
+        if (parentStatus[entry.parentSessionId] !== PARENT_STATUS_OK) continue
         if (activity.has(entry.agentId)) {
           presentIds.push(entry.agentId)
         } else {
@@ -61,7 +62,7 @@ export function registerAdoptTool(ctx, deps) {
         missing,
         unconfirmed: absentIds.filter((agentId) => !retiredCandidates.includes(agentId)),
         skippedUnknownParents: Object.entries(parentStatus)
-          .filter(([, status]) => status !== 'ok')
+          .filter(([, status]) => status !== PARENT_STATUS_OK)
           .map(([parent]) => parent),
         roster: after.roster,
         parentStatus,

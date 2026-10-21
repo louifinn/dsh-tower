@@ -12,7 +12,7 @@ const ROOTS = ['lib', 'app', 'domain', 'tools', 'adapters']
 const CHILD_PROCESS_ALLOWED = new Set(['adapters/vcs-git.js'])
 const FS_ALLOWED = new Set(['adapters/store-fs.js'])
 // Composition roots own the only intentional process-wide mutable state.
-const AMBIENT_ALLOWED = new Set(['lib/config.js', 'lib/git.js', 'tools/index.js'])
+const AMBIENT_ALLOWED = new Set(['lib/config.js', 'lib/git.js'])
 // The registration aggregator wires tool modules together; the thinness rule
 // applies to the individual modules under tools/.
 const TOOLS_REGISTRATION = new Set(['tools/index.js'])
@@ -21,6 +21,7 @@ const TOOLS_REGISTRATION = new Set(['tools/index.js'])
 // tower_spawn, so every tool module now enforces the ceiling.
 const TOOLS_SIZE_ALLOWED = new Set(['tools/index.js'])
 const LITERAL_PATTERN = /enum:\s*\[\s*'(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix)'/
+const TOOL_LITERAL_PATTERN = /(?:===|!==|==|!=|\.includes\(|case\s+)'?(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix|create|abandon|close|status|merge|fix-then-merge|hold|acquire|release|map|user|failure|resource|dependency|json|markdown)'/
 
 function walk(root, relative = '') {
   const dir = path.join(root, relative)
@@ -52,15 +53,18 @@ function evaluator(root) {
     if (imports.some((spec) => spec === 'node:fs' || spec === 'node:fs/promises') && !FS_ALLOWED.has(file)) {
       record('fs-surface', file, 'only adapters/** may use fs', 'error')
     }
-    if (file.startsWith('tools/') && !TOOLS_REGISTRATION.has(file)) {
+    if (file.startsWith('tools/')) {
       if (imports.some((spec) => spec.startsWith('node:') && spec !== 'node:path')) {
         record('tools-thin', file, 'tools/** may import only node:path', 'error')
       }
-      if (LITERAL_PATTERN.test(text)) record('tools-vocabulary', file, 'status/type/role literal in tools/**', 'error')
-    }
-    const limit = file.startsWith('tools/') && !TOOLS_SIZE_ALLOWED.has(file) ? 200 : 800
-    if (file.split('/').length === 2 && lines.length > limit) {
-      record('aggregate-size', file, `${lines.length} lines exceeds ${limit}`, 'error')
+      if (LITERAL_PATTERN.test(text) || TOOL_LITERAL_PATTERN.test(text)) {
+        record('tools-vocabulary', file, 'status/type/role literal in tools/**', 'error')
+      }
+      if (lines.length < 40 || lines.length > 200) {
+        record('aggregate-size', file, `${lines.length} lines outside 40-200`, 'error')
+      }
+    } else if (lines.length > 800) {
+      record('aggregate-size', file, `${lines.length} lines exceeds 800`, 'error')
     }
     if (/^(?:export\s+)?let\s+/m.test(text) && !AMBIENT_ALLOWED.has(file) && (file.startsWith('lib/') || file.startsWith('app/') || file.startsWith('domain/'))) {
       record('ambient-state', file, 'top-level let outside an allow-list', 'error')

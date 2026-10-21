@@ -1,8 +1,9 @@
 // tower_spawn: provision and start a worker/reviewer.
-import { Tower, ROLES as ROLE_ENUM } from '../app/tower.js'
+import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
+import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OUTCOME, isCompletedStopReason, isReviewerRole, isSpawnAdmission, isWorkerRole } from '../domain/vocabulary.js'
 import {
   assertSpawnableMission,
   precheckSpawnServices,
@@ -45,12 +46,12 @@ export function registerSpawnTool(ctx, deps) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
-      const role = args.role ?? 'worker'
+      const role = args.role ?? DEFAULT_ROLE
       if (!ROLE_ENUM.includes(role)) throw new TowerToolError('invalid-argument', `role must be one of ${ROLE_ENUM.join('|')}`)
       // Repository config (if any) already overrides the profile config here.
       const config = tower.config
-      const preset = role === 'reviewer' ? config.spawn.reviewerPreset : config.spawn.workerPreset
-      const model = role === 'reviewer' ? config.spawn.reviewerModel : config.spawn.workerModel
+      const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : config.spawn.workerPreset
+      const model = isReviewerRole(role) ? config.spawn.reviewerModel : config.spawn.workerModel
       const context = await tower.missionContext(args.missionId)
       assertSpawnableMission({ role, context })
       const spawned = await enqueueSpawn(tower.root, async () => {
@@ -78,7 +79,7 @@ export function registerSpawnTool(ctx, deps) {
         const briefing = buildSpawnBriefing({ role, towerRoot: tower.root, context, worktree, instructions: args.instructions })
         const agentOptions = buildAgentOptions(model)
 
-        if (role === 'worker' && tower.config.tests?.admission === 'spawn') {
+        if (isWorkerRole(role) && isSpawnAdmission(tower.config.tests?.admission)) {
           const discovery = await runMissionDiscovery(tower, mission)
           if (discovery.configured && discovery.receipt.ok !== true) {
             throw new TowerToolError(
@@ -144,7 +145,7 @@ export function registerSpawnTool(ctx, deps) {
             .recordSpawnOutcome({
               missionId: mission.id,
               name,
-              state: 'failed',
+              state: SPAWN_OUTCOME.failed,
               detail: `spawn failed${agentId ? ` after activation ${agentId}` : ' before activation'}: ${String(error?.message ?? error).slice(0, 300)}`,
             })
             .catch(() => {})
@@ -176,10 +177,10 @@ export function registerSpawnTool(ctx, deps) {
       if (args.wait !== true) {
         activation.result
           .then((result) => {
-            const state = result?.stopReason === 'completed' ? 'inactive' : 'failed'
+            const state = isCompletedStopReason(result?.stopReason) ? SPAWN_OUTCOME.inactive : SPAWN_OUTCOME.failed
             return recordOutcome(state, result?.diagnostic ?? result?.stopReason ?? null)
           })
-          .catch((error) => recordOutcome('failed', String(error?.message ?? error)))
+          .catch((error) => recordOutcome(SPAWN_OUTCOME.failed, String(error?.message ?? error)))
         return report
       }
       return waitForSpawnResult({

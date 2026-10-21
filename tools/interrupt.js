@@ -1,3 +1,12 @@
+// tower_interrupt — stop one running roster agent.
+// 
+// Input: InterruptInput (name/agentId/id) from domain contracts.
+// Output: interrupted agent and updated roster observation.
+// Authorization: tower or the worker parent for its own child.
+// Side effects: interrupts the subagent and persists state.
+// Failure modes: unknown agent, not running, not authorized.
+// Roster state policy is pure and lives in domain/collab.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_interrupt: interrupt one running roster agent.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

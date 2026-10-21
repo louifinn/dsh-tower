@@ -14,6 +14,8 @@
 // changes the published `npm pack` file list, which scripts/pack-manifest.txt
 // would have to be reviewed for. This fixture stays dev-only.
 
+import type { Static } from '@sinclair/typebox'
+
 import type {
   Blocker,
   Finding,
@@ -34,6 +36,7 @@ import type {
 // Assert that the implementation type A is assignable to the contract type B.
 type Expect<T extends true> = T
 type Extends<A, B> = [A] extends [B] ? true : false
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
 
 type DomainGate = typeof import('../domain/gate.js')
 type DomainMission = typeof import('../domain/mission.js')
@@ -98,6 +101,23 @@ export type ScopeOverlapContract = Expect<Extends<DomainScope['scopesOverlap'], 
 export type ValidateStateContract = Expect<
   Extends<DomainState['validateState'], (state: unknown, statePath?: string) => TowerState>
 >
+
+// --- domain/state/schema.js ---------------------------------------------
+type DomainStateSchema = typeof import('../domain/state/schema.js').StateSchema
+type SchemaState = Static<DomainStateSchema>
+type SchemaMission = SchemaState['missions'][number]
+
+// A full `Equal<TowerState, Static<typeof StateSchema>>` is intentionally not
+// asserted. The validator schema is structurally tolerant: every object allows
+// additional legacy fields, `revision` is optional in the shape (semantics
+// enforces the counter), and mission title/kind, status/verdict vocabularies
+// and worktree field presence are semantic checks. TowerState instead describes
+// a normalized document. These fixtures pin the overlapping contract:
+//   * the schemaVersion literal refines (not widens) the public number;
+//   * every schema root key and mission key has a public counterpart.
+export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 1>>
+export type StateSchemaRootKeysContract = Expect<Extends<keyof SchemaState, keyof TowerState>>
+export type StateSchemaMissionKeysContract = Expect<Extends<keyof SchemaMission, keyof Mission>>
 
 // --- domain/summary.js --------------------------------------------------
 export type TaskCountsContract = Expect<Extends<DomainSummary['taskCounts'], (tasks: MissionTask[]) => TaskCounts>>

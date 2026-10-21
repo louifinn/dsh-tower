@@ -1,3 +1,12 @@
+// tower_teardown — remove eligible mission worktrees.
+// 
+// Input: TeardownInput (dryRun, force, exclude) from contracts.
+// Output: removed/kept decisions for every mission.
+// Authorization: tower only; live agents always keep their worktree.
+// Side effects: removes worktrees/branches, persists activity.
+// Failure modes: dirty without force, branch delete failure.
+// Pure eligibility decisions live in domain/integration.
+// See docs/reference/tools.generated.md for the public shape.
 // tower_teardown: remove eligible mission worktrees.
 import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'

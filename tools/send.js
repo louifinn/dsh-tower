@@ -3,6 +3,15 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { SendInput } from '../domain/contracts/tool-inputs/index.js'
+import {
+  ROLE,
+  ROSTER_ACTIVITY,
+  isBroadcast,
+  isRunningActivity,
+  isTowerRecipient,
+  isTowerRole,
+  isUnknownRole,
+} from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -26,24 +35,24 @@ export function registerSendTool(ctx, deps) {
       checkSendRate(tower.config, args.repoRoot)
       const actor = await actorFor(tower, exec)
       const view = await tower.rosterView()
-      const from = actor.role === 'tower' ? 'tower' : actor.name
-      if (actor.role === 'unknown') {
+      const from = isTowerRole(actor.role) ? ROLE.tower : actor.name
+      if (isUnknownRole(actor.role)) {
         throw new TowerToolError('not-authorized', 'tower_send requires a registered roster agent or the tower')
       }
-      if (args.to === 'all' && actor.role !== 'tower') {
+      if (isBroadcast(args.to) && !isTowerRole(actor.role)) {
         throw new TowerToolError('not-authorized', 'only the tower may broadcast to "all"')
       }
       const sendConfig = tower.config.send ?? {}
       const interrupt =
         args.interrupt === undefined ? sendConfig.interruptDefault === true : args.interrupt === true
-      if (interrupt && actor.role !== 'tower') {
+      if (interrupt && !isTowerRole(actor.role)) {
         throw new TowerToolError('not-authorized', 'only the tower may interrupt a recipient with tower_send')
       }
-      if (actor.role !== 'tower') {
+      if (!isTowerRole(actor.role)) {
         const self = view.roster.find((entry) => entry.agentId === actor.agentId)
         const target = view.roster.find((entry) => entry.name === args.to)
         const allowed =
-          args.to === 'tower' ||
+          isTowerRecipient(args.to) ||
           (self && target && target.agentId !== self.agentId && target.missionId === self.missionId)
         if (!allowed) {
           throw new TowerToolError('not-authorized', `${actor.name} may only message the tower or agents on the same mission`)
@@ -75,16 +84,16 @@ export function registerSendTool(ctx, deps) {
         for (const parent of parents) {
           try {
             const rows = await subagents.listDescendants(parent)
-            for (const row of rows) activity.set(String(row.id), row.activity ?? 'unknown')
+            for (const row of rows) activity.set(String(row.id), row.activity ?? ROSTER_ACTIVITY.unknown)
           } catch {
             // an unreadable parent catalog only means "do not wake it"
           }
         }
         const targets =
-          args.to === 'all' ? roster.map((entry) => entry.name) : [args.to]
+          isBroadcast(args.to) ? roster.map((entry) => entry.name) : [args.to]
         for (const targetName of targets) {
-          if (targetName === 'tower') {
-            results.push({ target: 'tower', pushed: false, reason: 'tower reads its inbox' })
+          if (isTowerRecipient(targetName)) {
+            results.push({ target: ROLE.tower, pushed: false, reason: 'tower reads its inbox' })
             continue
           }
           const entry = roster.find((candidate) => candidate.name === targetName)
@@ -92,7 +101,7 @@ export function registerSendTool(ctx, deps) {
             results.push({ target: targetName, pushed: false, reason: 'not in roster' })
             continue
           }
-          if (activity.get(entry.agentId) !== 'running') {
+          if (!isRunningActivity(activity.get(entry.agentId))) {
             results.push({ target: targetName, pushed: false, reason: 'not running; queued in inbox' })
             continue
           }

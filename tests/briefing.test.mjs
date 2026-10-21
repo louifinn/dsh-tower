@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { workerBriefing, reviewerBriefing } from '../tools/index.js'
+import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {

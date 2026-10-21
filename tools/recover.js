@@ -5,6 +5,7 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { fsp } from '../adapters/store-fs.js'
 import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
+import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -26,19 +27,19 @@ export function registerRecoverTool(ctx, deps) {
       const publicLock = lock.record
         ? { pid: lock.record.pid ?? null, startedAt: lock.record.startedAt ?? null, at: lock.record.at ?? null, alive: lock.alive }
         : null
-      if (args.action === 'status') {
-        return { ok: true, action: 'status', stateLock: publicLock, cleared: false }
+      if (args.action === RECOVERY_ACTION.status) {
+        return { ok: true, action: RECOVERY_ACTION.status, stateLock: publicLock, cleared: false }
       }
-      if (args.confirm !== 'CLEAR_STALE_LOCK') {
+      if (args.confirm !== RECOVERY_CONFIRM) {
         throw new TowerToolError('invalid-argument', 'clear-stale-lock requires confirm:"CLEAR_STALE_LOCK"')
       }
-      if (!lock.record) return { ok: true, action: 'clear-stale-lock', stateLock: null, cleared: false }
+      if (!lock.record) return { ok: true, action: RECOVERY_ACTION.clearStaleLock, stateLock: null, cleared: false }
       if (lock.alive !== false) {
-        throw new TowerToolError('state-locked', `state lock pid ${lock.record.pid ?? 'unknown'} is still alive; refusing to clear it`)
+        throw new TowerToolError('state-locked', `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive; refusing to clear it`)
       }
       const backup = `${tower.paths.lock}.recovered-${Date.now()}`
       await fsp.rename(tower.paths.lock, backup)
-      return { ok: true, action: 'clear-stale-lock', stateLock: publicLock, cleared: true, backup }
+      return { ok: true, action: RECOVERY_ACTION.clearStaleLock, stateLock: publicLock, cleared: true, backup }
     },
   })
 }

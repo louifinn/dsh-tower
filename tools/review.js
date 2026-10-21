@@ -3,6 +3,7 @@ import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { ReviewInput } from '../domain/contracts/tool-inputs/index.js'
+import { isReviewerRole, isTowerRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -22,10 +23,10 @@ export function registerReviewTool(ctx, deps) {
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
-      if (!['reviewer', 'tower'].includes(actor.role)) {
+      if (!isReviewerRole(actor.role) && !isTowerRole(actor.role)) {
         throw new TowerToolError('not-authorized', `only an assigned reviewer or the tower may review; ${actor.name} is ${actor.role}`)
       }
-      if (actor.role === 'tower' && (typeof args.breakGlassReason !== 'string' || args.breakGlassReason.trim().length === 0)) {
+      if (isTowerRole(actor.role) && (typeof args.breakGlassReason !== 'string' || args.breakGlassReason.trim().length === 0)) {
         throw new TowerToolError('not-authorized', 'a tower-submitted review is break-glass and requires a non-empty breakGlassReason')
       }
       return tower.submitReview({
