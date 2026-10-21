@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { registerTowerTools } from './lib/tools.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
+import { ModeState } from './lib/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
 import { TowerToolError } from './lib/errors.js'
 import { resolveRepo } from './lib/git.js'
@@ -30,11 +31,11 @@ export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
 export const Config = ConfigSchema
 
-let MODE = new Map()
+const modeState = new ModeState()
 let denyTools = new Set(DEFAULT_DENY_TOOLS)
 
 function modeOn(key) {
-  const entry = key ? MODE.get(key) : undefined
+  const entry = key ? modeState.get(key) : undefined
   return Boolean(entry && entry.on === true)
 }
 const READ_ONLY_TOOL_NAMES = new Set([
@@ -86,7 +87,7 @@ function configSection(config, allowAgentControl) {
 
 function persistModes() {
   const config = runtimeConfig()
-  saveModes(MODE, config.mode.storePath || undefined, config.mode.maxEntries)
+  saveModes(modeState, config.mode.storePath || undefined, config.mode.maxEntries)
 }
 
 /** Parse `/tower` arguments: bare and free text both mean "ensure on". */
@@ -156,7 +157,7 @@ function clearPlanModeForTower(ctx, agent) {
 }
 
 function enterMode(ctx, key, agent, by, reason) {
-  const previous = MODE.get(key)
+  const previous = modeState.get(key)
   const wasOn = Boolean(previous && previous.on)
   const plan = clearPlanModeForTower(ctx, agent)
   if (plan.refused) {
@@ -177,7 +178,7 @@ function enterMode(ctx, key, agent, by, reason) {
     }
   }
   const now = Date.now()
-  MODE.set(key, {
+  modeState.set(key, {
     on: true,
     pausedGoal,
     lock: previous?.lock ?? null,
@@ -193,12 +194,12 @@ function enterMode(ctx, key, agent, by, reason) {
 }
 
 async function exitMode(key, by, reason) {
-  const previous = MODE.get(key)
+  const previous = modeState.get(key)
   if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null }
   const wasOn = previous.on === true
   // Keep a timestamped off tombstone so a concurrent save from another
   // session cannot resurrect this mode entry.
-  MODE.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
+  modeState.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
   persistModes()
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
@@ -248,7 +249,7 @@ export function apply(ctx, rawConfig) {
   const config = configureRuntime(rawConfig)
   const allowAgentControl = config.mode.allowAgentControl === true
   const reminder = configSection(config, allowAgentControl)
-  MODE = loadModes(config.mode.storePath || undefined)
+  modeState.replace(loadModes(config.mode.storePath || undefined))
   denyTools = new Set(config.mode.denyTools)
   const hotReloadEnabled = config.dev?.hotReload !== false
   const hmrBridge = hotReloadEnabled
@@ -266,7 +267,7 @@ export function apply(ctx, rawConfig) {
       if (runtimeConfig().mode.workspaceLockScope === 'mutations' && READ_ONLY_TOOL_NAMES.has(toolName)) return
       const key = agentKey(exec?.agent)
       if (!key) return
-      const entry = MODE.get(key)
+      const entry = modeState.get(key)
       if (!entry || entry.on !== true) return
       const repo = await resolveRepo(repoRoot)
       const existing = entry.lock
@@ -315,13 +316,13 @@ export function apply(ctx, rawConfig) {
     },
     basePreference(exec) {
       const key = agentKey(exec?.agent)
-      return key && modeOn(key) ? MODE.get(key)?.baseBranch ?? null : null
+      return key && modeOn(key) ? modeState.get(key)?.baseBranch ?? null : null
     },
     modeInfo(exec) {
       const key = agentKey(exec?.agent)
       if (!key) return null
-      const entry = MODE.get(key)
-      const history = [...MODE.values()]
+      const entry = modeState.get(key)
+      const history = [...modeState.values()]
         .map((value) => value?.lastChange)
         .filter((change) => change && typeof change.at === 'number')
         .sort((a, b) => b.at - a.at)
@@ -344,7 +345,7 @@ export function apply(ctx, rawConfig) {
   // process still owns; a reloaded plugin restores the entries from modes.json.
   ctx.effect(() => () => {
     if (hmrBridge) hmrBridge.dispose?.()
-    for (const entry of MODE.values()) {
+    for (const entry of modeState.values()) {
       if (entry?.lock) {
         releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
       }
@@ -395,7 +396,7 @@ export function apply(ctx, rawConfig) {
   // Workspace-lock heartbeat; only sessions holding a lock do I/O.
   ctx.effect(() => {
     const timer = setInterval(() => {
-      for (const entry of MODE.values()) {
+      for (const entry of modeState.values()) {
         if (!entry?.lock) continue
         touchWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
       }
@@ -432,7 +433,7 @@ export function apply(ctx, rawConfig) {
       },
       async execute(_args, exec) {
         const key = agentKey(exec.agent)
-        const entry = key ? MODE.get(key) : undefined
+        const entry = key ? modeState.get(key) : undefined
         return {
           mode: entry && entry.on === true ? 'on' : key ? 'off' : 'unknown',
           agentId: key,
@@ -501,7 +502,7 @@ export function apply(ctx, rawConfig) {
           const outcome =
             args.action === 'enter'
               ? (() => {
-                  if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !MODE.get(key)?.humanAckAt) {
+                  if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !modeState.get(key)?.humanAckAt) {
                     throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
                   }
                   return enterMode(ctx, key, exec.agent, 'agent', reason)
@@ -532,14 +533,14 @@ export function apply(ctx, rawConfig) {
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
         const raw = String(rawInput ?? '').trim()
         if (/^ack$/i.test(raw)) {
-          const previous = MODE.get(key) ?? { on: false }
-          MODE.set(key, { ...previous, on: previous.on === true, humanAckAt: Date.now(), at: Date.now() })
+          const previous = modeState.get(key) ?? { on: false }
+          modeState.set(key, { ...previous, on: previous.on === true, humanAckAt: Date.now(), at: Date.now() })
           persistModes()
           return { kind: 'success', text: 'Human acknowledgement recorded; the model may now make the first Tower-mode entry in this session.' }
         }
         const baseMatch = raw.match(/^base\s+(\S+)\s*$/i)
         if (baseMatch) {
-          const entry = MODE.get(key)
+          const entry = modeState.get(key)
           if (!entry || entry.on !== true) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
           entry.baseBranch = baseMatch[1]
           persistModes()
