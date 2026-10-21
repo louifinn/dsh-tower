@@ -67,7 +67,8 @@
     "dev:hmr": "node scripts/enable-dev-hmr.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "pack:check": "node scripts/check-pack.mjs",
-    "check": "npm test && npm run docs:check && npm run pack:check"
+    "architecture:check": "node scripts/architecture.mjs",
+    "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5"

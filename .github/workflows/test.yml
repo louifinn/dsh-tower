@@ -25,3 +25,5 @@ jobs:
         run: npm run docs:check
       - name: Pack manifest
         run: npm run pack:check
+      - name: Architecture fitness
+        run: npm run architecture:check

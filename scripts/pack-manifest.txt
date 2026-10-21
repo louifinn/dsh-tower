@@ -61,6 +61,7 @@ locale/en.json
 locale/zh.json
 package.json
 reviewer.js
+scripts/architecture.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
 scripts/enable-dev-hmr.mjs
