@@ -316,3 +316,30 @@ test('withGitLock serializes git work without the state lock', async () => {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('withGitLock serializes concurrent git mutations', async () => {
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const { withGitLock, pathsFor } = await import('../lib/store.js')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-gitlock-serialize-'))
+  const commonDir = path.join(root, '.git')
+  try {
+    const paths = pathsFor(commonDir)
+    paths.dir = path.join(commonDir, 'dsh-tower')
+    paths.gitLock = path.join(paths.dir, 'git.lock')
+    fs.mkdirSync(paths.dir, { recursive: true })
+    let active = 0
+    let max = 0
+    const work = async () => {
+      active += 1
+      max = Math.max(max, active)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      active -= 1
+    }
+    await Promise.all([withGitLock(paths, work), withGitLock(paths, work)])
+    assert.equal(max, 1)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
