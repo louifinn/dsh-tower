@@ -10,7 +10,9 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "types/**/*.d.ts",
@@ -19,9 +21,7 @@
     "lib/store.js",
     "lib/git.js",
     "lib/domain/*.js",
-    "lib/tower/gate.js",
-    "lib/tower/read.js",
-    "lib/tower/batch.js",
-    "tests/type-contracts.ts"
+    "tests/type-contracts.ts",
+    "lib/tower/*.js"
   ]
 }

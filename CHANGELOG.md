@@ -35,8 +35,9 @@
 - **#52 Tower 拆分**：`lib/tower.js` 从约 2.9k 行降到 **535** 行；plan/mission/checkCompletion/
   missionContext/enrichedMissions/board/spawn/recording 拆为 `lib/tower/*.js` use-case 模块，
   `Tower` 方法仅作委托，行为、错误码与锁顺序不变。
-- **#45 use-case 类型**：`lib/git.js`、`lib/tower/gate/read/batch` 纳入 checkJs；补齐
-  `tryGit/currentBranch/listWorktrees` nullability 与 use-case 契约 fixture。
+- **#45 use-case 类型**：`lib/git.js` 与全部 `lib/tower/*.js` 纳入 checkJs；补齐
+  `worktreeOwnership` 的 error code/optional head/common dir 类型，`types:check` 覆盖所有
+  use-case 模块。
 - **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
   Store/Vcs 契约；新增完整 scripted lifecycle 与 10 项 adapter contract 测试。
 - **#45 domain 类型**：`lib/domain/*.js` 纳入 checkJs，新增 `tests/type-contracts.ts` 正/负类型
