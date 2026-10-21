@@ -65,6 +65,7 @@ lib/tools.js
 lib/tools/batch.js
 lib/tools/doctor.js
 lib/tools/import-legacy.js
+lib/tools/init.js
 lib/tools/legacy-map.js
 lib/tools/recover.js
 lib/tools/reload.js
