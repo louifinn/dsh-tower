@@ -313,3 +313,14 @@ test('regression: mode persistence keeps workspace lock tokens across a reload',
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('regression: mode store reclaims a lock whose PID is dead', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-modes-lock-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'modes.lock'), JSON.stringify({ pid: 999999, token: 'dead', at: 1 }))
+    assert.equal(saveModes(new Map([['s', { on: true, at: 1 }]]), dir), true)
+    assert.equal(fs.existsSync(path.join(dir, 'modes.lock')), false)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
