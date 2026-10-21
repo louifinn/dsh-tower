@@ -1,0 +1,50 @@
+// #51 pilot: complete prepares outside the lock and commits only on the same
+// state revision.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { Tower } from '../lib/tower.js'
+
+function git(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function seed() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-two-phase-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, ['init'])
+  git(repo, ['config', 'user.email', 'tower@test'])
+  git(repo, ['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'seed'])
+  return { root, repo }
+}
+
+test('complete rejects a state revision change prepared outside the lock', async () => {
+  const { root, repo } = seed()
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-agent' })
+    await tower.plan({ missions: [{ title: 'Two phase', scope: ['x/**'] }] })
+    tower.checkCompletion = async () => ({
+      state: { revision: 0 },
+      mission: { id: 'M1' },
+      worker: { name: 'worker-m1' },
+      commits: 1,
+    })
+    await assert.rejects(
+      () => tower.complete({ missionId: 'M1', agentId: 'worker-m1', report: 'done', checks: [] }),
+      (error) => {
+        assert.equal(error.code, 'stale-base')
+        return true
+      },
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})
