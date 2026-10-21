@@ -22,3 +22,20 @@ test('pure completion gate returns stable codes without repository I/O', () => {
   assert.deepEqual(codes, ['mission-not-completed', 'tasks-open', 'blockers-present', 'no-check-evidence'])
   assert.deepEqual(completionBlockers({ id: 'M2', status: 'completed', tasks: [], blockers: [] }, {}), [])
 })
+
+test('pure merge gate returns review/worker/test blockers from snapshots', async () => {
+  const { mergeGateBlockers } = await import('../lib/domain/gate.js')
+  const mission = { id: 'M1', reviewPolicy: 'required', status: 'completed' }
+  const blockers = mergeGateBlockers({
+    mission,
+    roster: [{ missionId: 'M1', name: 'w', agentId: 'a1', state: 'running' }],
+    branch: 'b',
+    branchTip: 'tip',
+    review: { missionId: 'M1', round: 1, status: 'clean', mergeVerdict: 'merge', reviewedCommit: 'old' },
+    config: { review: { requireReview: true }, gates: { requireTests: true } },
+    activity: { a1: 'running' },
+    inactiveStates: ['inactive'],
+  }).map((blocker) => blocker.code)
+  assert.deepEqual(blockers, ['tip-moved', 'worker-busy', 'tests-missing'])
+  assert.deepEqual(mergeGateBlockers({ mission, roster: [], config: { review: { requireReview: false } } }), [])
+})
