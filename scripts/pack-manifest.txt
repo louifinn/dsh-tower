@@ -63,6 +63,7 @@ lib/store.js
 lib/tests.js
 lib/tools.js
 lib/tools/doctor.js
+lib/tools/recover.js
 lib/tower.js
 lib/workspaceLock.js
 lib/worktreeOwnership.js
