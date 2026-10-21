@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES, MISSION_STATUSES } from '../lib/tower.js'
+import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES, MISSION_STATUSES } from '../app/tower.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -56,7 +56,7 @@ test('every architecture rule can fail on a seeded fixture', async () => {
 })
 
 test('domain vocabulary is the single source for tool schema enums', async () => {
-  const { Tower } = await import('../lib/tower.js')
+  const { Tower } = await import('../app/tower.js')
   assert.ok(MISSION_STATUSES.length > 0)
   assert.ok(FINDING_TYPES.length > 0)
   assert.ok(FINDING_SEVERITIES.length > 0)
@@ -77,12 +77,12 @@ test('node fs and child_process are confined to the adapters', async () => {
       else if (entry.name.endsWith('.js')) {
         const text = fs.readFileSync(full, 'utf8')
         const rel = path.relative(root, full).split(path.sep).join('/')
-        if (/from 'node:fs'|from 'node:fs\/promises'/.test(text) && rel !== 'lib/adapters/store-fs.js') offenders.push(`${rel}:fs`)
-        if (/from 'node:child_process'/.test(text) && rel !== 'lib/adapters/vcs-git.js') offenders.push(`${rel}:child_process`)
+        if (/from 'node:fs'|from 'node:fs\/promises'/.test(text) && rel !== 'adapters/store-fs.js') offenders.push(`${rel}:fs`)
+        if (/from 'node:child_process'/.test(text) && rel !== 'adapters/vcs-git.js') offenders.push(`${rel}:child_process`)
       }
     }
   }
-  walk(path.join(root, 'lib'))
+  for (const dir of ['lib', 'app', 'domain', 'tools', 'adapters']) walk(path.join(root, dir))
   assert.deepEqual(offenders, [])
 })
 
@@ -91,10 +91,11 @@ test('every tool module types define from the schema contract', async () => {
   const path = await import('node:path')
   const { fileURLToPath } = await import('node:url')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const dir = path.join(root, 'lib', 'tools')
+  const dir = path.join(root, 'tools')
+  const support = new Set(['index.js', 'schema.js', 'output-schemas.js'])
   const offenders = []
   for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith('.js')) continue
+    if (!entry.endsWith('.js') || support.has(entry)) continue
     const text = fs.readFileSync(path.join(dir, entry), 'utf8')
     if (!text.includes('DefineTool')) offenders.push(entry)
   }

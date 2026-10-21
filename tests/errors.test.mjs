@@ -39,7 +39,7 @@ test('classifyError: prose alone no longer classifies', () => {
 })
 
 test('spawn backoff: three retryable failures trigger cooldown and success restores budget', async () => {
-  const { __testSpawnBackoff: backoff } = await import('../lib/tools.js')
+  const { __testSpawnBackoff: backoff } = await import('../tools/index.js')
   const key = 'C:/tmp/backoff-test'
   backoff.spawnBackoffState(key, 4)
   for (let i = 0; i < 3; i += 1) backoff.recordSpawnThrottle(key, 4)
@@ -84,8 +84,8 @@ test('structured TowerToolError derives retryable from the catalog', async () =>
 })
 
 test('pure domain validation throws structured errors', async () => {
-  const { validateState } = await import('../lib/domain/state.js')
-  const { normalizeScope } = await import('../lib/domain/scope.js')
+  const { validateState } = await import('../domain/state.js')
+  const { normalizeScope } = await import('../domain/scope.js')
   let stateError
   try { validateState({ schemaVersion: 99 }, 'state.json') } catch (error) { stateError = error }
   assert.equal(stateError.code, 'state-corrupt')

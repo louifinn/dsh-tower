@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower, MISSION_STATUSES, validateState } from '../lib/tower.js'
+import { Tower, MISSION_STATUSES, validateState } from '../app/tower.js'
 
 // Independent copy of the documented table. Keep this explicit: the test must
 // fail if the implementation quietly grows an extra transition.

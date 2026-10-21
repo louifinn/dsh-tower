@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower, FINDING_STATUSES, FINDING_TRANSITIONS } from '../lib/tower.js'
+import { Tower, FINDING_STATUSES, FINDING_TRANSITIONS } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

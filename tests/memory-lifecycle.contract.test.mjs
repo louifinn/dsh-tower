@@ -12,10 +12,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { validateState } from '../lib/domain/state.js'
-import { completionBlockers, mergeGateBlockers } from '../lib/domain/gate.js'
-import { ROSTER_INACTIVE, ROSTER_INACTIVE_STATES } from '../lib/domain/roster.js'
-import { SCHEMA_VERSION } from '../lib/domain/mission.js'
+import { validateState } from '../domain/state.js'
+import { completionBlockers, mergeGateBlockers } from '../domain/gate.js'
+import { ROSTER_INACTIVE, ROSTER_INACTIVE_STATES } from '../domain/roster.js'
+import { SCHEMA_VERSION } from '../domain/mission.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
 

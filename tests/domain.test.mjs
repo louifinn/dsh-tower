@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MISSION_STATUSES, canTransition, isTerminal, pauseCauseError } from '../lib/domain/mission.js'
-import { completionBlockers } from '../lib/domain/gate.js'
+import { MISSION_STATUSES, canTransition, isTerminal, pauseCauseError } from '../domain/mission.js'
+import { completionBlockers } from '../domain/gate.js'
 
 test('pure mission domain owns transitions and terminal states', () => {
   assert.deepEqual(MISSION_STATUSES, ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned'])
@@ -24,7 +24,7 @@ test('pure completion gate returns stable codes without repository I/O', () => {
 })
 
 test('pure merge gate returns review/worker/test blockers from snapshots', async () => {
-  const { mergeGateBlockers } = await import('../lib/domain/gate.js')
+  const { mergeGateBlockers } = await import('../domain/gate.js')
   const mission = { id: 'M1', reviewPolicy: 'required', status: 'completed' }
   const blockers = mergeGateBlockers({
     mission,
@@ -41,8 +41,8 @@ test('pure merge gate returns review/worker/test blockers from snapshots', async
 })
 
 test('pure scope and planning helpers are testable without a repository', async () => {
-  const { fileInScope, normalizeScope, scopesOverlap } = await import('../lib/domain/scope.js')
-  const { addAutoDeps, assertAcyclic, nextMissionNumber } = await import('../lib/domain/planning.js')
+  const { fileInScope, normalizeScope, scopesOverlap } = await import('../domain/scope.js')
+  const { addAutoDeps, assertAcyclic, nextMissionNumber } = await import('../domain/planning.js')
   assert.equal(fileInScope(['src/**'], 'src/a/b.js'), true)
   assert.equal(fileInScope(['src/*.js'], 'src/a/b.js'), false)
   assert.deepEqual(normalizeScope(['./src//']), ['src'])
@@ -58,7 +58,7 @@ test('pure scope and planning helpers are testable without a repository', async 
 })
 
 test('pure mission summaries expose counts and full detail', async () => {
-  const { missionSummary, fullMission } = await import('../lib/domain/summary.js')
+  const { missionSummary, fullMission } = await import('../domain/summary.js')
   const mission = {
     id: 'M1', title: 'T', kind: 'build', status: 'active', scope: ['x/**'], deps: [],
     tasks: [{ text: 'a', status: 'done' }, { text: 'b', status: 'open' }, { text: 'c', status: 'dropped' }],
@@ -68,8 +68,8 @@ test('pure mission summaries expose counts and full detail', async () => {
 })
 
 test('pure board renderer and state validator are repository-independent', async () => {
-  const { boardMarkdown } = await import('../lib/domain/report.js')
-  const { validateState } = await import('../lib/domain/state.js')
+  const { boardMarkdown } = await import('../domain/report.js')
+  const { validateState } = await import('../domain/state.js')
   const state = {
     schemaVersion: 1, revision: 2, repoRoot: '/repo', base: 'main', updatedAt: 1,
     missions: [{ id: 'M1', title: 'T', kind: 'build', status: 'active', scope: ['x/**'], deps: [], tasks: [], blockers: [] }],
@@ -83,7 +83,7 @@ test('pure board renderer and state validator are repository-independent', async
 })
 
 test('rebase waiver is a pure predicate', async () => {
-  const { rebaseWaived } = await import('../lib/domain/gate.js')
+  const { rebaseWaived } = await import('../domain/gate.js')
   assert.equal(rebaseWaived({}, { at: 1, reviewedCommit: 'x' }), false)
   assert.equal(rebaseWaived({ rebase: { at: 5, oldTip: 'old' } }, { at: 3, reviewedCommit: 'old' }), true)
   assert.equal(rebaseWaived({ rebase: { at: 5, oldTip: 'old' } }, { at: 6, reviewedCommit: 'old' }), false)

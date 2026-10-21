@@ -11,8 +11,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { registerTowerTools } from '../lib/tools.js'
-import { Tower } from '../lib/tower.js'
+import { registerTowerTools } from '../tools/index.js'
+import { Tower } from '../app/tower.js'
 import { configureRuntime } from '../lib/config.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 

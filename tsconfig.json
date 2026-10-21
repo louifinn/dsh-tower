@@ -20,14 +20,16 @@
     "lib/config.js",
     "lib/store.js",
     "lib/git.js",
-    "lib/domain/*.js",
+    "domain/*.js",
     "tests/type-contracts.ts",
-    "lib/tower/*.js",
-    "lib/tower.js",
-    "lib/tools/plan.js",
-    "lib/toolSchema.js",
-    "lib/tools/*.js",
-    "lib/adapters/*.js",
+    "app/*.js",
+    "tools/plan.js",
+    "tools/schema.js",
+    "tools/*.js",
+    "adapters/*.js",
     "tests/tool-schema-types.ts"
+  ],
+  "exclude": [
+    "tools/index.js"
   ]
 }

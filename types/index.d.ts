@@ -2,7 +2,7 @@
 // the package remains zero-build and no .js is emitted.
 //
 // This is the single vocabulary shared by the published API and the pure
-// domain modules under lib/domain/, which are machine-checked against it by
+// domain modules under domain/, which are machine-checked against it by
 // `tsc --noEmit` (checkJs). Keep this file free of value imports so consumers
 // can load it without `allowJs`.
 

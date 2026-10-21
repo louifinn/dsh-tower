@@ -4,7 +4,7 @@
 // instead of importing lib/store.js and lib/git.js. These tests pin the two
 // properties that make that possible:
 //
-//   1. surface parity - the doubles expose what lib/tower.js actually calls;
+//   1. surface parity - the doubles expose what app/tower.js actually calls;
 //   2. storage semantics - serialization under withLock, atomic visibility for
 //      writeJsonAtomic, and complete lines for appendJsonl;
 //   3. purity - the doubles themselves never import fs or child_process.
@@ -16,7 +16,7 @@ import fs from 'node:fs'
 
 import * as realStore from '../lib/store.js'
 import * as realGit from '../lib/git.js'
-import { Tower } from '../lib/tower.js'
+import { Tower } from '../app/tower.js'
 import { TowerToolError } from '../lib/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
@@ -36,7 +36,7 @@ function seedState(value = { schemaVersion: 1, revision: 0, missions: [] }) {
   return { schemaVersion: 1, revision: 0, missions: [], ...value }
 }
 
-test('memory store exposes the state-store surface lib/tower.js imports', () => {
+test('memory store exposes the state-store surface app/tower.js imports', () => {
   const store = createMemoryStore()
   const paths = store.pathsFor(COMMON_DIR)
   const realPaths = realStore.pathsFor(COMMON_DIR)

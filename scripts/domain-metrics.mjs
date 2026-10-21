@@ -3,9 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const SOURCE_ROOTS = ['domain', 'app', 'tools', 'lib']
+const SOURCE_ROOTS = ['domain', 'app', 'tools', 'adapters', 'lib']
 const ENTRY_FILES = ['index.js', 'worker.js', 'reviewer.js', 'skills.js']
-const PURE_ROOTS = ['domain', 'lib/domain']
+const PURE_ROOTS = ['domain']
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out

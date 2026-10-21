@@ -10,18 +10,18 @@ or skill can remain mounted while the `tower_*` tools are gone.
 ```
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
- ├─ lib/tools.js  -> shared registration helpers + 27 registered repository tools
- │                   (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
- └─ lib/tower.js  -> orchestration surface; delegates to use-case modules
-       ├─ lib/tower/init.js, provision.js, merge.js, rebase.js, teardown.js
-       ├─ lib/tower/review.js, findings.js, batch.js, messages.js, roster.js
-       ├─ lib/tower/plan.js, mission.js, checkCompletion.js, spawn.js, recording.js
-       └─ lib/tower/gate.js, read.js, board.js, missionContext.js, enrichedMissions.js
+ ├─ tools/index.js  -> shared registration helpers + 27 registered repository tools
+ │                    (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
+ └─ app/tower.js   -> orchestration surface; delegates to use-case modules
+       ├─ app/init.js, provision.js, merge.js, rebase.js, teardown.js
+       ├─ app/review.js, findings.js, batch.js, messages.js, roster.js
+       ├─ app/plan.js, mission.js, checkCompletion.js, spawn.js, recording.js
+       └─ app/gate.js, read.js, board.js, missionContext.js, enrichedMissions.js
  adapters (the only I/O):
-       lib/adapters/store-fs.js   the only lib module importing node:fs
-       lib/adapters/vcs-git.js    the only lib module importing node:child_process
-       lib/adapters/default.js    composition root: store, vcs, clock, ids
- infrastructure:
+       adapters/store-fs.js   the only module importing node:fs
+       adapters/vcs-git.js    the only module importing node:child_process
+       adapters/default.js    composition root: store, vcs, clock, ids
+ infrastructure (lib/):
        lib/store.js           repo-scoped lock + atomic JSON + activity.jsonl
        lib/git.js             bounded git commands + timeout classification
        lib/config.js          Schemastery config + profile/repo layers
@@ -30,19 +30,19 @@ Host plugin (index.js)
        lib/hmr.js             optional DSH HMR bridge (tower_reload / /tower reload)
        lib/modeStore.js       per-agent Tower mode persistence
  pure domain modules (no fs/git):
-       lib/domain/mission.js    statuses, transitions, pause causes
-       lib/domain/gate.js       completion and merge-gate snapshot decisions
-       lib/domain/scope.js      glob/scope validation and overlap
-       lib/domain/summary.js    mission/finding summaries
-       lib/domain/planning.js   mission numbering, dependency DAG, auto-deps
-       lib/domain/state.js      load-time state validation
-       lib/domain/report.js     board rendering
-       lib/domain/roster.js     roster predicates
+       domain/mission.js    statuses, transitions, pause causes
+       domain/gate.js       completion and merge-gate snapshot decisions
+       domain/scope.js      glob/scope validation and overlap
+       domain/summary.js    mission/finding summaries
+       domain/planning.js   mission numbering, dependency DAG, auto-deps
+       domain/state.js      load-time state validation
+       domain/report.js     board rendering
+       domain/roster.js     roster predicates
  tools layer:
-       lib/tools.js             registration + shared helpers
-       lib/tools/*.js           one module per tool, TypeBox input schema + handler
-       lib/toolSchema.js        TypeBox helpers (enumOf preserves JSON Schema enum)
-       lib/schemas.js           output schemas
+       tools/index.js           registration + shared helpers
+       tools/*.js               one module per tool, TypeBox input schema + handler
+       tools/schema.js          TypeBox helpers (enumOf preserves JSON Schema enum)
+       tools/output-schemas.js  output schemas
  Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
  └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding (read-only)
@@ -111,11 +111,14 @@ dead-PID reclamation, and bounded lock waits. `state.json` is the mission persis
 `npm run architecture:check` (also in CI) enforces the rules as **errors**:
 
 - `domain/**` must not import I/O or adapters (`domain-pure`).
-- Only `lib/adapters/vcs-git.js` may import `node:child_process`, and only
-  `lib/adapters/store-fs.js` may import `node:fs` (`child-process-surface`, `fs-surface`).
-- `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`).
+- Only `adapters/vcs-git.js` may import `node:child_process`, and only
+  `adapters/store-fs.js` may import `node:fs` (`child-process-surface`, `fs-surface`).
+- `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
+  `tools/index.js` is the registration aggregator and is exempt from the thinness rule.
 - Aggregate files have size ceilings; top-level mutable state is limited to explicit composition
-  roots (`aggregate-size`, `ambient-state`).
+  roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines, with the
+  aggregator, the shared output-schema catalog and `tools/spawn.js` allowed at the aggregate ceiling
+  until they are split.
 
 A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
 
@@ -123,13 +126,13 @@ A fixture test seeds one violation per rule, so a rule that cannot fail is itsel
 
 The child issues are closed, but the epic's remaining definition-of-done items are tracked here:
 
-- Pure domain share is currently about **7%** (roughly 760 of 10,900 lib lines), below the 35%
+- Pure domain share is currently about **6%** (roughly 760 of 12,500 source lines), below the 35%
   target. Raising it requires moving transition/gate/validation logic out of the use-case modules,
   not just moving files.
 - `state.json` and `modes.json` share the same atomic/lock/dead-PID semantics but still have two
   implementations (`lib/store.js` and `lib/modeStore.js`). Unifying them behind one persistence
   contract remains a follow-up.
-- The fitness rules use the current `lib/tools/**` layout; the future thin `tools/**` layer is only
-  checked when that directory exists.
+- The `tools/**` fitness rules now target the top-level layer. `tools/spawn.js` (374 lines) is still
+  above the 200-line per-tool target; splitting it remains follow-up work.
 
 

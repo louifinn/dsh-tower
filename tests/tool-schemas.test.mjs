@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { registerTowerTools } from '../lib/tools.js'
+import { registerTowerTools } from '../tools/index.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {

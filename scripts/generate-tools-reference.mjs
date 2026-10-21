@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { registerTowerTools } from '../lib/tools.js'
+import { registerTowerTools } from '../tools/index.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const target = path.join(root, 'docs', 'reference', 'tools.generated.md')

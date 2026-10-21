@@ -2,7 +2,7 @@
 // Run with: node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scopesOverlap, normalizeScope, validateTitle, fileInScope } from '../lib/tower.js'
+import { scopesOverlap, normalizeScope, validateTitle, fileInScope } from '../app/tower.js'
 
 test('scopesOverlap: identical and nested prefixes overlap', () => {
   assert.equal(scopesOverlap(['src/a/**'], ['src/a/**']), true)

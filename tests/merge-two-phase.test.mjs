@@ -7,8 +7,8 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Tower } from '../lib/tower.js'
-import { validateState } from '../lib/domain/state.js'
+import { Tower } from '../app/tower.js'
+import { validateState } from '../domain/state.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

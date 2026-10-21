@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower } from '../lib/tower.js'
+import { Tower } from '../app/tower.js'
 import { configureRuntime, repoConfigPath } from '../lib/config.js'
 
 function git(cwd, args) {

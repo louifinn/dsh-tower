@@ -4,10 +4,10 @@
 // tests/packaging.test.mjs) proves that the published vocabulary in
 // types/index.d.ts still describes the implementation:
 //
-//   * every pure module under lib/domain/ (now inside the checkJs program)
+//   * every pure module under domain/ (now inside the checkJs program)
 //     keeps the exported signature the contract promises;
 //   * the git adapter under lib/git.js keeps its explicit nullability, and the
-//     tower use-case modules under lib/tower/ still export the expected async
+//     tower use-case modules under app/ still export the expected async
 //     use cases.
 //
 // It lives in tests/ instead of types/ on purpose: adding a file to types/
@@ -35,23 +35,23 @@ import type {
 type Expect<T extends true> = T
 type Extends<A, B> = [A] extends [B] ? true : false
 
-type DomainGate = typeof import('../lib/domain/gate.js')
-type DomainMission = typeof import('../lib/domain/mission.js')
-type DomainPlanning = typeof import('../lib/domain/planning.js')
-type DomainReport = typeof import('../lib/domain/report.js')
-type DomainRoster = typeof import('../lib/domain/roster.js')
-type DomainScope = typeof import('../lib/domain/scope.js')
-type DomainState = typeof import('../lib/domain/state.js')
-type DomainSummary = typeof import('../lib/domain/summary.js')
+type DomainGate = typeof import('../domain/gate.js')
+type DomainMission = typeof import('../domain/mission.js')
+type DomainPlanning = typeof import('../domain/planning.js')
+type DomainReport = typeof import('../domain/report.js')
+type DomainRoster = typeof import('../domain/roster.js')
+type DomainScope = typeof import('../domain/scope.js')
+type DomainState = typeof import('../domain/state.js')
+type DomainSummary = typeof import('../domain/summary.js')
 
-// --- lib/domain/gate.js -----------------------------------------------------
+// --- domain/gate.js -----------------------------------------------------
 export type GateCompletionContract = Expect<
   Extends<DomainGate['completionBlockers'], (mission: Mission, config?: TowerConfig) => Blocker[]>
 >
 export type GateMergeContract = Expect<Extends<DomainGate['mergeGateBlockers'], (options: MergeGateOptions) => Blocker[]>>
 export type GateRebaseWaiverContract = Expect<Extends<DomainGate['rebaseWaived'], (mission: Mission, review: Review) => boolean>>
 
-// --- lib/domain/mission.js --------------------------------------------------
+// --- domain/mission.js --------------------------------------------------
 export type MissionVocabularyContract = Expect<Extends<DomainMission['MISSION_STATUSES'], readonly MissionStatus[]>>
 export type MissionTerminalContract = Expect<Extends<DomainMission['isTerminal'], (status: string) => boolean>>
 export type MissionTransitionContract = Expect<Extends<DomainMission['canTransition'], (from: string, to: string) => boolean>>
@@ -59,7 +59,7 @@ export type MissionPauseCauseContract = Expect<
   Extends<DomainMission['pauseCauseError'], (value?: string | null) => string | null>
 >
 
-// --- lib/domain/planning.js -------------------------------------------------
+// --- domain/planning.js -------------------------------------------------
 export type PlanningNumberContract = Expect<Extends<DomainPlanning['nextMissionNumber'], (missions: Mission[]) => number>>
 export type PlanningDependencyContract = Expect<
   Extends<DomainPlanning['addDependency'], (mission: Mission, dep: string) => void>
@@ -72,10 +72,10 @@ export type PlanningAutoDepsContract = Expect<
   Extends<DomainPlanning['addAutoDeps'], (newMissions: Mission[], existingMissions: Mission[]) => void>
 >
 
-// --- lib/domain/report.js ---------------------------------------------------
+// --- domain/report.js ---------------------------------------------------
 export type BoardContract = Expect<Extends<DomainReport['boardMarkdown'], (state: TowerState) => string>>
 
-// --- lib/domain/roster.js ---------------------------------------------------
+// --- domain/roster.js ---------------------------------------------------
 export type RosterLiveWorkerContract = Expect<
   Extends<DomainRoster['liveWorkerEntry'], (state: TowerState, missionId: string) => RosterEntry | undefined>
 >
@@ -84,7 +84,7 @@ export type RosterWorkersContract = Expect<
 >
 export type RosterCountContract = Expect<Extends<DomainRoster['countLiveWorkers'], (state: TowerState) => number>>
 
-// --- lib/domain/scope.js ----------------------------------------------------
+// --- domain/scope.js ----------------------------------------------------
 export type ScopeFileContract = Expect<
   Extends<DomainScope['fileInScope'], (scope: string[] | null | undefined, file: string) => boolean>
 >
@@ -94,12 +94,12 @@ export type ScopeNormalizeContract = Expect<
 >
 export type ScopeOverlapContract = Expect<Extends<DomainScope['scopesOverlap'], (a: string[], b: string[]) => boolean>>
 
-// --- lib/domain/state.js ----------------------------------------------------
+// --- domain/state.js ----------------------------------------------------
 export type ValidateStateContract = Expect<
   Extends<DomainState['validateState'], (state: unknown, statePath?: string) => TowerState>
 >
 
-// --- lib/domain/summary.js --------------------------------------------------
+// --- domain/summary.js --------------------------------------------------
 export type TaskCountsContract = Expect<Extends<DomainSummary['taskCounts'], (tasks: MissionTask[]) => TaskCounts>>
 export type MissionSummaryContract = Expect<
   Extends<DomainSummary['missionSummary'], (mission: Mission) => MissionSummary>
@@ -132,17 +132,17 @@ export type GitListWorktreesContract = Expect<
   Extends<GitAdapter['listWorktrees'], (cwd: string) => Promise<Array<{ path: string; branch?: string; head?: string }>>>
 >
 
-// --- lib/tower/ use cases ---------------------------------------------------
+// --- app/ use cases ---------------------------------------------------
 // gate.js/read.js import lib/git.js and batch.js imports lib/batch.js; those
 // dependencies are inside the checkJs program too, so importing the use cases
 // here also machine-checks the adapter surface above and batch validation.
-type UseCaseBatch = typeof import('../lib/tower/batch.js')
-type UseCaseFindings = typeof import('../lib/tower/findings.js')
-type UseCaseGate = typeof import('../lib/tower/gate.js')
-type UseCaseMessages = typeof import('../lib/tower/messages.js')
-type UseCaseRead = typeof import('../lib/tower/read.js')
-type UseCaseReview = typeof import('../lib/tower/review.js')
-type UseCaseRoster = typeof import('../lib/tower/roster.js')
+type UseCaseBatch = typeof import('../app/batch.js')
+type UseCaseFindings = typeof import('../app/findings.js')
+type UseCaseGate = typeof import('../app/gate.js')
+type UseCaseMessages = typeof import('../app/messages.js')
+type UseCaseRead = typeof import('../app/read.js')
+type UseCaseReview = typeof import('../app/review.js')
+type UseCaseRoster = typeof import('../app/roster.js')
 
 export type GateUseCaseContract = Expect<Extends<UseCaseGate['evaluateGate'], PromiseFunction>>
 export type ReadUseCaseContract = Expect<

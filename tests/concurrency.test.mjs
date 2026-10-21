@@ -8,8 +8,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { registerTowerTools } from '../lib/tools.js'
-import { Tower, validateState } from '../lib/tower.js'
+import { registerTowerTools } from '../tools/index.js'
+import { Tower, validateState } from '../app/tower.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -345,8 +345,8 @@ test('withGitLock serializes concurrent git mutations', async () => {
 })
 
 test('Tower accepts injected adapters instead of importing the defaults', async () => {
-  const { Tower } = await import('../lib/tower.js')
-  const { defaultDeps } = await import('../lib/adapters/default.js')
+  const { Tower } = await import('../app/tower.js')
+  const { defaultDeps } = await import('../adapters/default.js')
   let gitCalls = 0
   let readCalls = 0
   const deps = {
