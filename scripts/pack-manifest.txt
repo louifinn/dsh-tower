@@ -63,6 +63,7 @@ lib/store.js
 lib/tests.js
 lib/tools.js
 lib/tools/batch.js
+lib/tools/complete.js
 lib/tools/diff-adopt.js
 lib/tools/doctor.js
 lib/tools/import-legacy.js
