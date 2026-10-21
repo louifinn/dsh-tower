@@ -9,6 +9,8 @@
 - **README 徽章**：中英文 README 增加 “Listed on dsh-plugin.org” 徽章，链接到插件市场条目。
 - **#66 all-or-nothing bundle**：`cordis.patch.yml` 改为单个 `tower-bundle` `cordis:group`，Host、
   skills 与 worker/reviewer preset 成为内部 section；子行不再可独立启停，避免 host 关闭后的 orphan。
+- **#64 preset 前置校验**：模式进入与 `tower_plan` 前解析 worker/reviewer preset；缺失时以稳定
+  `preset-missing` 拒绝并点名 `preset-tower-worker` / `preset-tower-reviewer`，不再先规划后死锁。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。
 - **#61 共存冲突**：README 增加 “Known conflicts”，doctor 增加 `loader-conflicts` 检查。

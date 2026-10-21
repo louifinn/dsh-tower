@@ -26,6 +26,7 @@ import {
   workspaceLockToken,
 } from './lib/workspaceLock.js'
 import { createHmrBridge } from './lib/hmr.js'
+import { assertPresetsAvailable } from './lib/presets.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
@@ -500,6 +501,9 @@ export function apply(ctx, rawConfig) {
             throw new Error('tower_control requires a non-empty reason')
           }
           const reason = args.reason.trim()
+          if (args.action === 'enter' && !modeOn(key)) {
+            await assertPresetsAvailable(ctx, config)
+          }
           const outcome =
             args.action === 'enter'
               ? (() => {
@@ -562,6 +566,7 @@ export function apply(ctx, rawConfig) {
           }
         }
         const { active, message } = parsed
+        if (active) await assertPresetsAvailable(ctx, config)
         const outcome = active
           ? enterMode(ctx, key, agent, 'user', message || null)
           : await exitMode(key, 'user', message || null)

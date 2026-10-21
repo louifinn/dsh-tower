@@ -101,3 +101,20 @@ test('config: defaults, legacy aliases and unknown-key rejection', () => {
 
   assert.throws(() => resolveTowerConfig({ allowAgentToggle: true }), /unknown key/i)
 })
+
+test('preset validation fails closed before work starts (#64)', async () => {
+  const { assertPresetsAvailable } = await import('../lib/presets.js')
+  const ctxWith = (ids) => ({ get: (name) => (name === 'agentPresets' ? { list: async () => ids.map((id) => ({ id })) } : undefined) })
+  await assert.rejects(
+    () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { requireReview: true } }),
+    (error) => {
+      assert.equal(error.code, 'preset-missing')
+      assert.match(error.message, /tower-reviewer/)
+      assert.match(error.message, /preset-tower-reviewer/)
+      return true
+    },
+  )
+  await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /preset-tower-worker/)
+  assert.deepEqual(await assertPresetsAvailable(ctxWith(['tower-worker', 'tower-reviewer']), {}), { checked: true, missing: [] })
+  assert.deepEqual(await assertPresetsAvailable({ get: () => undefined }, {}), { checked: false, missing: [] })
+})

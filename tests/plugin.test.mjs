@@ -38,7 +38,9 @@ function makeCtx(options = {}) {
       return () => {}
     },
     get(name) {
-      return name === 'goals' ? options.goals : undefined
+      if (name === 'goals') return options.goals
+      if (name === 'agentPresets') return options.agentPresets
+      return undefined
     },
     provide(name, value) {
       ctx[name] = value
@@ -397,4 +399,11 @@ test('mode state is provided as ctx.tower and is disposable', () => {
   assert.equal(ctx.tower.get('agent-x').on, true)
   for (const dispose of effects.slice().reverse()) dispose()
   assert.equal(ctx.tower, undefined)
+})
+
+test('mode entry refuses when a required preset is missing (#64)', async () => {
+  const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  apply(ctx, { review: { requireReview: true } })
+  await assert.rejects(() => callCommand(commands, makeAgent('agent-preset-missing'), ''), /preset-missing/)
+  assert.equal(ctx.tower.get('agent-preset-missing'), undefined)
 })

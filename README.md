@@ -131,6 +131,10 @@ tower_teardown  repoRoot=D:\work\repo
 这个 group 当作一个组件；关闭它时四个 section 一起关闭，不会留下指向已消失 `tower_*` 工具的
 orphan preset/skill。不要再把子行单独启停。
 
+进入 Tower 模式与 `tower_plan` 前会校验两个 preset 是否已注册；缺失时直接以 `preset-missing`
+拒绝（并在消息中点名 `preset-tower-worker` / `preset-tower-reviewer`），不会先完成规划/派发再在
+review/merge 阶段死锁。
+
 ## 配置
 
 ```yaml

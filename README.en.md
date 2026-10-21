@@ -133,6 +133,10 @@ of it. The plugin page should treat that group as one component; disabling it di
 together, so no orphan preset or skill points at missing `tower_*` tools. Do not enable/disable the
 child rows independently.
 
+Mode entry and `tower_plan` validate both presets before work starts. A missing preset is refused
+with `preset-missing` and names `preset-tower-worker` / `preset-tower-reviewer`, instead of planning
+or spawning first and dead-ending at review/merge.
+
 ## Configuration
 
 ```yaml
