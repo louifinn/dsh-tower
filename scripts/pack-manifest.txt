@@ -52,6 +52,7 @@ lib/doctor.js
 lib/domain/gate.js
 lib/domain/mission.js
 lib/domain/planning.js
+lib/domain/report.js
 lib/domain/scope.js
 lib/domain/state.js
 lib/domain/summary.js
