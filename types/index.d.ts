@@ -232,15 +232,7 @@ export interface TowerState {
   deliverySeq?: number
 }
 
-export interface TowerConfig {
-  review?: { requireReview?: boolean; maxRoundsPerReviewer?: number }
-  init?: { autoExclude?: boolean }
-  mode?: { allowAgentControl?: boolean; workspaceLock?: boolean; requireHumanAckOnFirstEntry?: boolean }
-  gates?: { requireChecks?: boolean; requireTests?: boolean; allowReviewExemption?: boolean }
-  tools?: { exposeOperational?: boolean }
-  git?: { timeoutMs?: number }
-  [section: string]: unknown
-}
+export type TowerConfig = import('@deepseek-ai/schemastery').TypeS<typeof import('../lib/config.js').Config>
 
 /** Counts rendered by mission summaries and the board. */
 export interface TaskCounts {
@@ -321,3 +313,19 @@ declare module '@deepseek-ai/cordis' {
     tower?: ModeStateService
   }
 }
+
+import type { Static, TSchema } from '@sinclair/typebox'
+
+export type DefineTool = <S extends TSchema>(
+  ctx: any,
+  definition: {
+    name: string
+    description: string
+    parameters: S
+    execute(args: Static<S>, exec: any): Promise<unknown>
+    aliases?: any
+    requiresMissionId?: any
+    board?: any
+    output?: any
+  },
+) => void

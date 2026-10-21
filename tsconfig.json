@@ -23,6 +23,11 @@
     "lib/domain/*.js",
     "tests/type-contracts.ts",
     "lib/tower/*.js",
-    "lib/tower.js"
+    "lib/tower.js",
+    "lib/tools/plan.js",
+    "lib/toolSchema.js",
+    "lib/tools/*.js",
+    "lib/adapters/*.js",
+    "tests/tool-schema-types.ts"
   ]
 }

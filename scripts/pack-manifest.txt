@@ -71,6 +71,7 @@ lib/presets.js
 lib/schemas.js
 lib/store.js
 lib/tests.js
+lib/toolSchema.js
 lib/tools.js
 lib/tools/batch.js
 lib/tools/combat.js

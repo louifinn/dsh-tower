@@ -82,3 +82,18 @@ test('node fs and child_process are confined to the adapters', async () => {
   walk(path.join(root, 'lib'))
   assert.deepEqual(offenders, [])
 })
+
+test('every tool module types define from the schema contract', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const dir = path.join(root, 'lib', 'tools')
+  const offenders = []
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith('.js')) continue
+    const text = fs.readFileSync(path.join(dir, entry), 'utf8')
+    if (!text.includes('DefineTool')) offenders.push(entry)
+  }
+  assert.deepEqual(offenders, [])
+})

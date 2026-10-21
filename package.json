@@ -84,7 +84,8 @@
     "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check && npm run types:check"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "~3.18.5"
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "@sinclair/typebox": "^0.34.41"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
