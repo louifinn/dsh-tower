@@ -74,6 +74,7 @@ lib/tools/recover.js
 lib/tools/reload.js
 lib/tools/resource.js
 lib/tools/roster.js
+lib/tools/send-inbox.js
 lib/tools/status.js
 lib/tools/test.js
 lib/tower.js
