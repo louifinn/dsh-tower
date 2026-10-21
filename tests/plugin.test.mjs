@@ -40,6 +40,14 @@ function makeCtx(options = {}) {
     get(name) {
       return name === 'goals' ? options.goals : undefined
     },
+    provide(name, value) {
+      ctx[name] = value
+      const dispose = () => {
+        delete ctx[name]
+      }
+      effects.push(dispose)
+      return dispose
+    },
     inject(_deps, callback) {
       callback(ctx)
     },
@@ -378,4 +386,15 @@ test('mode tool outputs satisfy their declared schemas, including null fields', 
   const noAgent = await controlTool.execute({ action: 'exit', reason: 'schema check' }, {})
   assertSchema(controlTool, noAgent)
   assert.equal(noAgent.ok, false)
+})
+
+test('mode state is provided as ctx.tower and is disposable', () => {
+  const { ctx, effects } = makeCtx()
+  apply(ctx, {})
+  assert.ok(ctx.tower)
+  assert.equal(typeof ctx.tower.get, 'function')
+  ctx.tower.set('agent-x', { on: true, at: 1 })
+  assert.equal(ctx.tower.get('agent-x').on, true)
+  for (const dispose of effects.slice().reverse()) dispose()
+  assert.equal(ctx.tower, undefined)
 })

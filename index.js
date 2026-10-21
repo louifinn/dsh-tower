@@ -250,6 +250,7 @@ export function apply(ctx, rawConfig) {
   const allowAgentControl = config.mode.allowAgentControl === true
   const reminder = configSection(config, allowAgentControl)
   modeState.replace(loadModes(config.mode.storePath || undefined))
+  if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
   denyTools = new Set(config.mode.denyTools)
   const hotReloadEnabled = config.dev?.hotReload !== false
   const hmrBridge = hotReloadEnabled
