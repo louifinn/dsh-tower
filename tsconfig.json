@@ -1,12 +1,15 @@
 {
   "compilerOptions": {
     "strict": true,
+    "noImplicitAny": false,
     "noEmit": true,
     "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true,
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": []
+    "types": ["node"]
   },
-  "include": ["types/**/*.d.ts"]
+  "include": ["types/**/*.d.ts", "lib/errors.js"]
 }
