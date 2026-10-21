@@ -366,9 +366,20 @@ test('Tower accepts injected adapters instead of importing the defaults', async 
       },
     },
   }
-  const tower = new Tower({ root: process.cwd(), commonDir: path.join(process.cwd(), '.git') }, {}, deps)
-  assert.equal(await tower.git(process.cwd(), ['status']), 'injected\n')
-  await assert.rejects(() => tower.load(), /injected store used/)
-  assert.equal(gitCalls, 1)
-  assert.equal(readCalls, 1)
+  const nodeFs = await import('node:fs')
+  const nodePath = await import('node:path')
+  const nodeOs = await import('node:os')
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'dsh-tower-di-'))
+  const commonDir = nodePath.join(root, '.git')
+  nodeFs.mkdirSync(nodePath.join(commonDir, 'dsh-tower'), { recursive: true })
+  nodeFs.writeFileSync(nodePath.join(commonDir, 'dsh-tower', 'state.json'), '{}')
+  try {
+    const tower = new Tower({ root, commonDir }, {}, deps)
+    assert.equal(await tower.git(root, ['status']), 'injected\n')
+    await assert.rejects(() => tower.load(), /injected store used/)
+    assert.equal(gitCalls, 1)
+    assert.equal(readCalls, 1)
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true })
+  }
 })
