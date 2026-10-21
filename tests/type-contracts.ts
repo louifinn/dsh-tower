@@ -6,9 +6,9 @@
 //
 //   * every pure module under lib/domain/ (now inside the checkJs program)
 //     keeps the exported signature the contract promises;
-//   * the new tower use-case modules under lib/tower/ that can be pulled into
-//     the program without dragging in out-of-scope type errors still export
-//     the expected async use cases.
+//   * the git adapter under lib/git.js keeps its explicit nullability, and the
+//     tower use-case modules under lib/tower/ still export the expected async
+//     use cases.
 //
 // It lives in tests/ instead of types/ on purpose: adding a file to types/
 // changes the published `npm pack` file list, which scripts/pack-manifest.txt
@@ -112,15 +112,51 @@ export type CountFindingsContract = Expect<
   Extends<DomainSummary['countFindings'], (findings: Finding[]) => Record<string, number>>
 >
 
-// --- lib/tower/ use cases that are safe to pull into the program ------------
+// --- lib/git.js -------------------------------------------------------------
+type GitAdapter = typeof import('../lib/git.js')
+
+export type GitTryContract = Expect<
+  Extends<
+    GitAdapter['tryGit'],
+    (cwd: string, args: string[], options?: { timeoutMs?: number; maxBuffer?: number }) => Promise<string | null>
+  >
+>
+export type GitCurrentBranchContract = Expect<Extends<GitAdapter['currentBranch'], (cwd: string) => Promise<string | null>>>
+export type GitResolveRepoContract = Expect<
+  Extends<
+    GitAdapter['resolveRepo'],
+    (repoRoot: string) => Promise<{ root: string; commonDir: string; branch: string | null }>
+  >
+>
+export type GitListWorktreesContract = Expect<
+  Extends<GitAdapter['listWorktrees'], (cwd: string) => Promise<Array<{ path: string; branch?: string; head?: string }>>>
+>
+
+// --- lib/tower/ use cases ---------------------------------------------------
 // gate.js/read.js import lib/git.js and batch.js imports lib/batch.js; those
-// modules still have type errors outside this issue's edit scope, so they are
-// deliberately not imported here yet.
+// dependencies are inside the checkJs program too, so importing the use cases
+// here also machine-checks the adapter surface above and batch validation.
+type UseCaseBatch = typeof import('../lib/tower/batch.js')
 type UseCaseFindings = typeof import('../lib/tower/findings.js')
+type UseCaseGate = typeof import('../lib/tower/gate.js')
 type UseCaseMessages = typeof import('../lib/tower/messages.js')
+type UseCaseRead = typeof import('../lib/tower/read.js')
 type UseCaseReview = typeof import('../lib/tower/review.js')
 type UseCaseRoster = typeof import('../lib/tower/roster.js')
 
+export type GateUseCaseContract = Expect<Extends<UseCaseGate['evaluateGate'], PromiseFunction>>
+export type ReadUseCaseContract = Expect<
+  Extends<
+    [UseCaseRead['missionDetail'], UseCaseRead['status'], UseCaseRead['diff']],
+    [PromiseFunction, PromiseFunction, PromiseFunction]
+  >
+>
+export type BatchUseCaseContract = Expect<
+  Extends<
+    [UseCaseBatch['createBatch'], UseCaseBatch['closeBatch'], UseCaseBatch['abandonBatch'], UseCaseBatch['batchStatus']],
+    [PromiseFunction, PromiseFunction, PromiseFunction, PromiseFunction]
+  >
+>
 export type FindingsUseCaseContract = Expect<
   Extends<
     [UseCaseFindings['addFinding'], UseCaseFindings['readFindings'], UseCaseFindings['findings']],

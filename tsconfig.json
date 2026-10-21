@@ -12,5 +12,16 @@
     "moduleResolution": "NodeNext",
     "types": ["node"]
   },
-  "include": ["types/**/*.d.ts", "lib/errors.js", "lib/config.js", "lib/store.js", "lib/domain/*.js", "tests/type-contracts.ts"]
+  "include": [
+    "types/**/*.d.ts",
+    "lib/errors.js",
+    "lib/config.js",
+    "lib/store.js",
+    "lib/git.js",
+    "lib/domain/*.js",
+    "lib/tower/gate.js",
+    "lib/tower/read.js",
+    "lib/tower/batch.js",
+    "tests/type-contracts.ts"
+  ]
 }
