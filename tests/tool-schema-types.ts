@@ -21,6 +21,8 @@ define(ctx, {
     void args.missing
     // @ts-expect-error value outside the schema enum
     const bad: 'a' | 'b' = 'c'
+    // @ts-expect-error key not declared by the schema (additionalProperties)
+    void args.extra
     return { repoRoot, mode, bad }
   },
 })
