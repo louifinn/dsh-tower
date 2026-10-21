@@ -9,7 +9,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
 const exists = (file) => fs.existsSync(path.join(root, file))
 
-const toolsSource = read('lib/tools.js') + read('index.js')
+const toolModuleSources = fs.existsSync(path.join(root, 'lib', 'tools'))
+  ? fs.readdirSync(path.join(root, 'lib', 'tools'))
+      .filter((name) => name.endsWith('.js'))
+      .map((name) => read(`lib/tools/${name}`))
+      .join('\n')
+  : ''
+const toolsSource = read('lib/tools.js') + toolModuleSources + read('index.js')
 const documentedTools = read('docs/reference/tools.md')
 const toolNames = [...new Set([...toolsSource.matchAll(/name: '(tower_[a-z_]+)'/g)].map((match) => match[1]))]
   .filter((name) => name !== 'tower-control')
