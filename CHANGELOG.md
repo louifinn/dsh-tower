@@ -19,6 +19,8 @@
   `lib/tools.js` 降至约 503 行。
 - **#51 two-phase 试点**：`tower_complete` 改为锁外 prepare + 锁内 revision 复核；新增
   `lock-holds.jsonl` 遥测与 doctor p50/p95 检查（>1s warn）。
+- **#51 git 互斥基础**：新增 `withGitLock` / `git.lock`，用与 state lock 相同的 token/PID-dead
+  回收协议串行化 git 操作，为把 git 移出 state lock 做准备。
 - **#54 mode 锁等待**：`mode.lockTimeoutMs`（默认 5000ms）统一 modes.lock 的有界等待与死锁回收语义。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。

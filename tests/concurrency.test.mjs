@@ -294,3 +294,25 @@ test('Tower instances keep independent git timeouts without mutating the process
     cleanup(root)
   }
 })
+
+test('withGitLock serializes git work without the state lock', async () => {
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const { withGitLock, pathsFor } = await import('../lib/store.js')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-gitlock-'))
+  const commonDir = path.join(root, '.git')
+  try {
+    const paths = pathsFor(commonDir)
+    paths.dir = path.join(commonDir, 'dsh-tower')
+    paths.gitLock = path.join(paths.dir, 'git.lock')
+    fs.mkdirSync(paths.dir, { recursive: true })
+    const value = await withGitLock(paths, async () => 42)
+    assert.equal(value, 42)
+    assert.equal(fs.existsSync(paths.gitLock), false)
+    fs.writeFileSync(paths.gitLock, JSON.stringify({ pid: 999999, token: 'dead', at: 1 }))
+    assert.equal(await withGitLock(paths, async () => 'ok'), 'ok')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
