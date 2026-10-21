@@ -266,3 +266,32 @@ test('tower_plan refuses before creating missions when a preset is missing (#64)
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
+
+test('missing towerAgentId gives an actionable error and tower_init re-claims', async () => {
+  const { root, repo } = makeRepo('dsh-tower-owner-missing-')
+  const exec = { agent: { id: 'tower-agent' } }
+  const restored = { agent: { id: 'restored-session' } }
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    await tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Owner missing', scope: ['x/**'] }] }, exec)
+    const tower = await Tower.open(repo)
+    const state = await tower.load()
+    delete state.towerAgentId
+    state.revision += 1
+    fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+    await assert.rejects(
+      () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['y/**'] }] }, restored),
+      /tower_init to re-claim/,
+    )
+    const status = await tools.get('tower_status').execute({ repoRoot: repo }, restored)
+    assert.equal(status.ownerMissing, true)
+    assert.equal(status.towerAgentId, null)
+    await tools.get('tower_init').execute({ repoRoot: repo }, restored)
+    const planned = await tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'After claim', scope: ['z/**'] }] }, restored)
+    assert.ok(planned.missions.length > 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})

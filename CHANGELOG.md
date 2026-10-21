@@ -29,6 +29,9 @@
   state lock 内不再启动 git。
 - **#51 init/provision**：`tower_init` 与 worktree provision 同样改为锁外 prepare + `git.lock`
   下 act + 短 state lock 复核；provision 失败/并发变更时回滚 worktree 与 branch。
+- **#68 owner 恢复提示**：`towerAgentId` 缺失时写工具现在返回可操作错误
+  “run tower_init to re-claim”，`tower_status` 暴露 `towerAgentId/ownerMissing`，doctor 增加
+  `tower-owner` 检查；`tower_init` 重新绑定后恢复写权限。
 - **#45 use-case 类型**：`lib/git.js`、`lib/tower/gate/read/batch` 纳入 checkJs；补齐
   `tryGit/currentBranch/listWorktrees` nullability 与 use-case 契约 fixture。
 - **#50 test doubles**：`tests/support/memory-store.js` 与 `scripted-vcs.js` 提供无磁盘/无 git 的
