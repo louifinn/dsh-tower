@@ -88,7 +88,9 @@ function configSection(config, allowAgentControl) {
 
 function persistModes() {
   const config = runtimeConfig()
-  saveModes(modeState, config.mode.storePath || undefined, config.mode.maxEntries)
+  saveModes(modeState, config.mode.storePath || undefined, config.mode.maxEntries, {
+    timeoutMs: config.mode.lockTimeoutMs,
+  })
 }
 
 /** Parse `/tower` arguments: bare and free text both mean "ensure on". */

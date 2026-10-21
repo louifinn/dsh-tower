@@ -23,6 +23,7 @@
 | `mode.denyTools` | `["create_goal","todo_write","team_task_create","team_task_update","team_task_reopen","team_task_list","spawn_teammate","wait_agent","workflow","ralph","subagent","subagent_fork"]` | Tools refused while Tower mode is active. |
 | `mode.storePath` | `` | Directory for modes.json; defaults to $DSH_HOME/tower-mode. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries. |
+| `mode.lockTimeoutMs` | `5000` | How long saveModes waits for the cross-process modes.lock before giving up. |
 | `review.requireReview` | `false` | Require an independent clean review before merge. Default false: review is optional; set true to enforce the review gate globally. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per mission branch. |
 | `merge.timeoutMs` | `900000` | Default tower_merge timeout, including pre-merge hooks. |

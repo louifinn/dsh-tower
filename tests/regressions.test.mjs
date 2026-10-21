@@ -324,3 +324,15 @@ test('regression: mode store reclaims a lock whose PID is dead', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('regression: mode store waits with a bounded timeout for a live lock', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-modes-live-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'modes.lock'), JSON.stringify({ pid: process.pid, token: 'live', at: Date.now() }))
+    const started = Date.now()
+    assert.equal(saveModes(new Map([['s', { on: true, at: 1 }]]), dir, 200, { timeoutMs: 30 }), false)
+    assert.ok(Date.now() - started >= 25)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
