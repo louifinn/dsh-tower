@@ -21,6 +21,9 @@
   `lock-holds.jsonl` 遥测与 doctor p50/p95 检查（>1s warn）。
 - **#51 git 互斥基础**：新增 `withGitLock` / `git.lock`，用与 state lock 相同的 token/PID-dead
   回收协议串行化 git 操作，为把 git 移出 state lock 做准备。
+- **#45 错误结构化继续**：纯 domain、review/findings/read/batch/rebase 与 `lib/tower.js` 的
+  `fail()` 均改为抛出带 code 的 `TowerToolError`；tower.js 默认 `invalid-argument`，关键
+  not-authorized/mission-not-found/state-corrupt 站点显式编码。
 - **#54 mode 锁等待**：`mode.lockTimeoutMs`（默认 5000ms）统一 modes.lock 的有界等待与死锁回收语义。
 - **#59 兼容性记录**：新增随包发布 `COMPATIBILITY.md`，doctor 增加 `host-version` 检查（verified /
   untested-newer / untested-older / unknown，仅警告）。
