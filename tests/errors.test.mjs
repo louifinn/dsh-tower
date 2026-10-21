@@ -110,3 +110,14 @@ test('structured TowerToolError derives retryable from the catalog', async () =>
   assert.equal(new TowerToolError('invalid-argument', 'x').retryable, false)
   assert.equal(new TowerToolError('invalid-argument', 'x', { retryable: true }).retryable, true)
 })
+
+test('pure domain validation throws structured errors', async () => {
+  const { validateState } = await import('../lib/domain/state.js')
+  const { normalizeScope } = await import('../lib/domain/scope.js')
+  let stateError
+  try { validateState({ schemaVersion: 99 }, 'state.json') } catch (error) { stateError = error }
+  assert.equal(stateError.code, 'state-corrupt')
+  let scopeError
+  try { normalizeScope(['../x']) } catch (error) { scopeError = error }
+  assert.equal(scopeError.code, 'invalid-argument')
+})
