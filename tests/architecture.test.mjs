@@ -7,14 +7,49 @@ import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES, MISSION_STATUSES }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-test('architecture fitness functions pass at the current ratchet', () => {
+test('architecture fitness functions report the baseline as warnings', () => {
   const output = execFileSync(process.execPath, ['scripts/architecture.mjs', '--json'], {
     cwd: root,
     encoding: 'utf8',
   })
   const result = JSON.parse(output)
   assert.equal(result.ok, true)
-  assert.deepEqual(result.problems, [])
+  assert.ok(Array.isArray(result.violations))
+})
+
+test('every architecture rule can fail on a seeded fixture', async () => {
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const { evaluator } = await import('../scripts/architecture.mjs')
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-arch-'))
+  try {
+    const write = (file, text) => {
+      fs.mkdirSync(path.dirname(path.join(fixture, file)), { recursive: true })
+      fs.writeFileSync(path.join(fixture, file), text)
+    }
+    write('domain/bad.js', "import fs from 'node:fs'\n")
+    write('lib/spawn.js', "import { spawn } from 'node:child_process'\n")
+    write('lib/io.js', "import fs from 'node:fs'\n")
+    write('lib/state.js', 'let ambient = 1\n')
+    write('lib/big.js', '// x\n'.repeat(801))
+    write('tools/bad.js', "import fs from 'node:fs'\nenum: ['planned']\n")
+    const result = evaluator(fixture)
+    const rules = new Set(result.violations.map((violation) => violation.rule))
+    for (const rule of [
+      'domain-pure',
+      'child-process-surface',
+      'fs-surface',
+      'tools-thin',
+      'tools-vocabulary',
+      'aggregate-size',
+      'ambient-state',
+    ]) {
+      assert.ok(rules.has(rule), `${rule} must be able to fail`)
+    }
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true })
+  }
 })
 
 test('domain vocabulary is the single source for tool schema enums', async () => {

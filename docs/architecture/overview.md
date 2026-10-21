@@ -69,3 +69,12 @@ After the command, regardless of exit status, it inspects `HEAD`:
 | `<git-common-dir>/dsh-tower/state.lock` | single-writer lock (stale locks are reported, never stolen) |
 | `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | mission worktree |
 | `$DSH_HOME/tower-mode/modes.json` | Tower mode per agent/session |
+
+## Layering rules
+
+`npm run architecture:check` (also in CI) implements the staged rules: `domain/**` must stay free of
+I/O and adapters; only allowed adapters may spawn or use fs; `tools/**` must stay thin and free of
+status/type literals; aggregate files have size ceilings; and top-level mutable state needs an
+explicit allow-list. Rules for not-yet-migrated areas are warnings so the refactor can proceed one
+step at a time; each flips to an error in the PR that makes it true. A fixture test seeds one
+violation per rule so a rule that cannot fail is itself a test failure.
