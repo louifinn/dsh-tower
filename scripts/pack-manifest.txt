@@ -45,6 +45,7 @@ lib/batch.js
 lib/compatibility.js
 lib/config.js
 lib/doctor.js
+lib/domain/gate.js
 lib/domain/mission.js
 lib/errors.js
 lib/git.js
