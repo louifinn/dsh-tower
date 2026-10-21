@@ -81,6 +81,7 @@ lib/tools/resource.js
 lib/tools/review.js
 lib/tools/roster.js
 lib/tools/send-inbox.js
+lib/tools/spawn.js
 lib/tools/status.js
 lib/tools/test.js
 lib/tower.js
