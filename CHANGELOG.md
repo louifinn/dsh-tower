@@ -4,9 +4,11 @@
 
 ## 未发布（Unreleased）
 
+## 2.1.0（2026-10-23）
+
 ### 新增
 
-- **#72 state 迁移**：`state.json` 的 `schemaVersion` 升到 2，并新增有序、纯函数式的迁移注册表
+- **#72 state 迁移**：`state.json` 的 `schemaVersion` 升到 3（v1→v2→v3 有序迁移链），并新增有序、纯函数式的迁移注册表
   （`domain/state/migrations.js`）。旧 state 在持有 state 锁的加载中自动迁移：先写
   `state.json.v<N>.bak` 备份，再原子替换、`revision` 只 +1、并向 activity 追加
   `state.migrated {from,to}`；只读工具只在内存中迁移，不改写文件。由更新插件写入的 state 现在
@@ -24,6 +26,10 @@
   unreadable,policy}` 与 `archive` 检查。`tower_preflight`/`tower_merge` 对已归档 mission 保持原行为，
   新 mission 的编号也会避开归档 id。
 
+- **#88 Unicode mission 标题**：`validateTitle` 改为接受可打印 Unicode（NFC 归一化、120 码点上限），
+  显式拒绝 bidi override（U+202A–202E、U+2066–2069）与零宽字符（U+200B–200D、U+FEFF），控制/格式/
+  代理码点单独报错；mission id 仍为 ASCII。CJK/西里尔/日韩/emoji 标题可完整往返 `tower_plan` →
+  state → `tower_status` → `MISSIONS.md` → briefing，board 表格保持对齐。
 ### 变更
 
 - **#89 completion report 上限**：`tower_complete.report` 新增 `gates.maxReportBytes`
@@ -41,6 +47,14 @@
   detail 会指出折叠大小写后本可匹配的 scope 条目。存储的 scope 文本保持原样。state schema 升到 3，
   v2 → v3 迁移回填 `caseInsensitive: null`。
 
+- **#86 平台矩阵 CI**：`test` job 改为显式 include 矩阵——ubuntu Node 22/24 与 Windows Node 22
+  （`test (22)`/`test (24)`/`test (22, windows)`），required context 名称不变；`win32Lower`/`isInside`、
+  `shellSpec`、`renameWithRetry`、`unlinkWithRetry`、worktree `compareKey` 均改为可注入 seam，并在任意
+  OS 上断言两条分支。Windows leg 已加入 `main` 的 required checks。
+
+- **#91 Windows 测试确定性**：新增 `tests/helpers/cleanup.mjs`（有界重试 + 隔离 rename + `os.tmpdir()`
+  守卫），37 个测试文件、106 处直接 `rmSync` 全部迁移；导入时把 Windows CI 的 8.3 短路径 TEMP
+  规范化，消除短/长路径比较失败；Windows 全量套件连续 5 次全绿。
 ## 2.1.0-beta.1（2026-10-22）
 
 **预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。
