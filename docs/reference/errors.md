@@ -53,6 +53,12 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `legacy-invalid` | The legacy snapshot or mapping is invalid. | unknown schema, source inside the Tower state dir, mapping rewrite |
 | `tool-internal` | An unexpected failure. | a bug; read the message and the activity log |
 
+A git-mutex timeout is a `state-locked` error that names the holder. Its `details` is
+`{ holderPid, holderPhase, heldMs, waitedMs }`, and the message renders the same facts as
+`held by pid 1234 (merge) for 92 s; waited 60 s`. `holderPhase` is the operation that holds the lock
+(`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_status` and `tower_doctor` expose the same
+holder as `gitLock: { held, pid, phase, heldMs }` while it is held.
+
 ## Why thrown?
 
 Returned `{ok:false}` shapes are reserved for expected policy outcomes that the tower decides on

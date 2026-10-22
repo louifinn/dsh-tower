@@ -23,6 +23,12 @@ It returns:
     "staleAfterMs": 3000,
     "stale": false
   },
+  "gitLock": {
+    "held": true,
+    "pid": 4242,
+    "phase": "merge",
+    "heldMs": 92000
+  },
   "stateSchema": {
     "currentVersion": 3,
     "supportedVersion": 3,
@@ -66,6 +72,12 @@ than thrown so doctor remains useful on a broken repository.
 heartbeating is reported as `stale: true` and is reclaimable by the next mutation (or by
 `tower_recover clear-stale-lock force:true`), while a fresh heartbeat is reported as held and is never
 stolen. This is what makes a recycled PID diagnosable without reading `state.lock` by hand.
+
+`gitLock` (and the `git-lock` check) reports the repo-scoped git mutex: `{held, pid, phase, heldMs}`
+while a merge/rebase/init/teardown/provision holds it, and `{held: false}` when free. A merge may hold
+it for the configured merge timeout (15 minutes by default), so a held lock is a `warn` rather than a
+failure; the holder's phase and age make a stalled tower diagnosable. `tower_status` returns the same
+`gitLock` object.
 
 `archive` reports the terminal-mission archive: active `missions`, `archivedMissions` and `stateBytes`,
 the archive directory's `archiveBytes`/`years`/`files`, every `unreadable` diagnostic, and the configured

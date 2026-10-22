@@ -22,6 +22,12 @@
     "staleAfterMs": 3000,
     "stale": false
   },
+  "gitLock": {
+    "held": true,
+    "pid": 4242,
+    "phase": "merge",
+    "heldMs": 92000
+  },
   "archive": {
     "missions": 3,
     "archivedMissions": 12,
@@ -49,6 +55,11 @@
 PID 存活并不等于写者存活：停止心跳的持有者会报告 `stale: true`，下一次 mutation 会回收它（或用
 `tower_recover clear-stale-lock force:true` 移到备份）；心跳新鲜则报告为持有中，绝不会被抢走。
 这样无需手工读取 `state.lock` 就能诊断 PID 被复用的情况。
+
+`gitLock`（以及 `git-lock` 检查）报告仓库级 git 互斥锁：被 merge/rebase/init/teardown/provision 持有时为
+`{held, pid, phase, heldMs}`，空闲时为 `{held: false}`。merge 可以合法持有到配置的 merge 超时（默认 15 分钟），
+因此“被持有”是 `warn` 而不是失败；持有者的阶段与时长让卡住的控制塔可被诊断。`tower_status` 返回同一个
+`gitLock` 对象。
 
 `archive` 报告终态任务归档：活跃 `missions`、`archivedMissions` 与 `stateBytes`，归档目录的
 `archiveBytes`/`years`/`files`，每条 `unreadable` 诊断，以及配置的 `policy`（`enabled`、`afterDays`、

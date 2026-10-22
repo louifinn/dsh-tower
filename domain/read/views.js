@@ -40,6 +40,7 @@ export function missionDetailView({ state, mission, activity }) {
  * @param {object[]} input.missions enriched mission views
  * @param {number | null} [input.archivedMissions] archived mission count, or null when unreadable
  * @param {object} [input.archive] archive index view/diagnostic
+ * @param {{ held: boolean, pid?: number | null, phase?: string | null, heldMs?: number | null }} [input.gitLock]
  * @returns {object}
  */
 export function statusView({
@@ -51,6 +52,7 @@ export function statusView({
   missions,
   archivedMissions = 0,
   archive = null,
+  gitLock = { held: false },
 }) {
   /** @type {Record<string, number>} */
   const counts = {}
@@ -100,6 +102,7 @@ export function statusView({
     })),
     missions,
     archivedMissions,
+    gitLock,
     ...(archive ? { archive } : {}),
     activity,
   }

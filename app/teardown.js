@@ -6,7 +6,7 @@
 // therefore bumps the state revision exactly once, and the revision is
 // revalidated immediately before the irreversible git mutation so a stale
 // decision never removes a worktree that changed hands.
-import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { hasLiveAgent } from '../domain/integration/liveness.js'
@@ -140,7 +140,7 @@ export async function teardown(tower, input) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
       return { phase: 'removed', branch: worktree.branch, branchDeleteError }
-    })
+    }, gitMutexOptions(tower, { phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
       throw new TowerToolError('stale-base', `${STALE}: ${outcome.detail}. No worktree was removed.`)

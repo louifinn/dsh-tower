@@ -79,6 +79,7 @@ const SCHEMAS = {
       recentFindings: S.arr(S.obj()),
       missions: S.arr(S.obj()),
       activity: S.arr(S.obj()),
+      gitLock: S.obj({ held: S.bool, pid: S.any, phase: S.any, heldMs: S.any }),
       mode: S.any,
       spawn: S.any,
       towerAgentId: S.any,
@@ -244,6 +245,7 @@ const SCHEMAS = {
       ok: S.bool,
       checks: S.arr(S.obj()),
       stateLock: S.any,
+      gitLock: S.any,
       stateSchema: S.obj({
         currentVersion: S.any,
         supportedVersion: S.int,
