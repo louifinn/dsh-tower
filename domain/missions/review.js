@@ -109,11 +109,67 @@ export function assertReviewerSpawnTip(caller, tip) {
 }
 
 /**
- * Compute the review round and enforce the per-reviewer cap.
- * @param {{ reviews: Review[] | undefined, branch: string, reviewerName: string, maxRoundsPerReviewer: unknown }} params
+ * The latest review of one branch. Higher rounds win; routes that share a round
+ * are ordered by submission sequence, so "latest" is the most recently recorded
+ * verdict (#108).
+ * @param {Review[]} reviews
+ * @returns {Review | null}
+ */
+function latestBranchReview(reviews) {
+  /** @type {Review | null} */
+  let latest = null
+  for (const review of reviews) {
+    if (!latest) {
+      latest = review
+      continue
+    }
+    const round = Number(review.round) || 0
+    const latestRound = Number(latest.round) || 0
+    if (round > latestRound) latest = review
+    else if (round === latestRound && (Number(review.seq) || 0) > (Number(latest.seq) || 0)) latest = review
+  }
+  return latest
+}
+
+/**
+ * Decide whether this submission starts a new review round or appends to the
+ * current one (#108). A completed mission always starts a new round. A mission
+ * that is `active` accepts a later route for the tip that its current round
+ * reviewed: the first non-clean verdict already returned it to `active`, and the
+ * remaining routes spawned against the same tip must still record their
+ * verdicts. A verdict for a tip that moved is rejected with an explanation.
+ * @param {{ mission: Mission, reviews: Review[] | undefined, branch: string, tip: string }} params
+ * @returns {{ appended: boolean, round: number | null }}
+ */
+export function reviewAdmission({ mission, reviews, branch, tip }) {
+  if (mission.status === 'completed') return { appended: false, round: null }
+  if (mission.status !== 'active') {
+    fail(`mission ${mission.id} is ${mission.status}; only a completed mission can be reviewed`)
+  }
+  const latest = latestBranchReview((reviews ?? []).filter((review) => review.branch === branch))
+  if (!latest) {
+    fail(`mission ${mission.id} is active and has no review round to append to; only a completed mission can be reviewed`)
+  }
+  if (latest.reviewedCommit !== tip) {
+    const cause =
+      latest.status === 'clean'
+        ? 'the reviewed tip moved'
+        : `review round ${latest.round} (${latest.status}) returned it to active and the reviewed tip moved`
+    fail(
+      `mission ${mission.id} is active: ${cause} (${String(latest.reviewedCommit).slice(0, 7)} -> ${tip.slice(0, 7)}); only review routes for the same reviewed tip can append to round ${latest.round} — return the mission to completed before starting a new round`,
+    )
+  }
+  return { appended: true, round: latest.round }
+}
+
+/**
+ * Compute the review round and enforce the per-reviewer cap. `round` joins the
+ * round `reviewAdmission` selected for an appended route; omitted, the
+ * submission opens the next round.
+ * @param {{ reviews: Review[] | undefined, branch: string, reviewerName: string, maxRoundsPerReviewer: unknown, round?: number | null }} params
  * @returns {{ reviewerRounds: number, round: number }}
  */
-export function reviewRound({ reviews, branch, reviewerName, maxRoundsPerReviewer }) {
+export function reviewRound({ reviews, branch, reviewerName, maxRoundsPerReviewer, round: sharedRound }) {
   const prior = (reviews ?? []).filter((review) => review.branch === branch)
   const reviewerRounds = prior.filter((review) => review.reviewer === reviewerName).length
   const maxReviewRounds = Number(maxRoundsPerReviewer) || MAX_REVIEW_ROUNDS
@@ -122,17 +178,28 @@ export function reviewRound({ reviews, branch, reviewerName, maxRoundsPerReviewe
       `reviewer ${reviewerName} reached the ${maxReviewRounds}-round cap for ${branch}; continue with a different reviewer`,
     )
   }
-  const round = prior.length === 0 ? 1 : Math.max(...prior.map((review) => review.round)) + 1
+  const round = Number.isInteger(sharedRound)
+    ? /** @type {number} */ (sharedRound)
+    : prior.length === 0
+      ? 1
+      : Math.max(...prior.map((review) => review.round)) + 1
   return { reviewerRounds, round }
 }
 
 /**
  * A non-clean verdict returns the mission to active and records the note; a
- * clean verdict leaves the status untouched.
- * @param {{ status: string, merge: string, round: number, reviewerName: string }} params
+ * clean verdict leaves the status untouched. An appended route records the
+ * verdict without flipping the status again (#108).
+ * @param {{ status: string, merge: string, round: number, reviewerName: string, appended?: boolean }} params
  * @returns {{ returnToActive: boolean, note: string }}
  */
-export function reviewOutcome({ status, merge, round, reviewerName }) {
+export function reviewOutcome({ status, merge, round, reviewerName, appended = false }) {
+  if (appended) {
+    return {
+      returnToActive: false,
+      note: `review round ${round} by ${reviewerName}: ${status} (${merge}) — appended to the same round; the mission stays active until it is re-completed`,
+    }
+  }
   if (status !== 'clean') {
     return {
       returnToActive: true,

@@ -8,6 +8,7 @@ import {
   resolveReviewActor,
   normalizeReviewVerdict,
   assertReviewerSpawnTip,
+  reviewAdmission,
   reviewRound,
   reviewOutcome,
   reviewRecord,
@@ -37,7 +38,7 @@ async function prepareReview(tower, input) {
     breakGlassReason: input.breakGlassReason,
   })
 
-  if (mission.status !== 'completed') {
+  if (!['completed', 'active'].includes(mission.status)) {
     fail(`mission ${mission.id} is ${mission.status}; only a completed mission can be reviewed`)
   }
   const verdict = normalizeReviewVerdict(input)
@@ -46,11 +47,15 @@ async function prepareReview(tower, input) {
   const tip = await tower.revParse(mission.worktree.path, 'HEAD')
   const branch = mission.worktree.branch
   assertReviewerSpawnTip(caller, tip)
+  // #108: a later route may append to the round that returned the mission to
+  // active, but only for the tip that round reviewed.
+  const admission = reviewAdmission({ mission, reviews: state.reviews, branch, tip })
   const { reviewerRounds, round } = reviewRound({
     reviews: state.reviews,
     branch,
     reviewerName,
     maxRoundsPerReviewer: tower.config.review.maxRoundsPerReviewer,
+    round: admission.round,
   })
 
   return {
@@ -67,6 +72,7 @@ async function prepareReview(tower, input) {
     reviewerRole,
     reviewerRounds,
     round,
+    appended: admission.appended,
     breakGlassReason: reviewerRole === 'tower' ? input.breakGlassReason.trim() : undefined,
   }
 }
@@ -114,6 +120,7 @@ export async function submitReview(tower, input) {
       merge: prepared.merge,
       round: prepared.round,
       reviewerName: prepared.reviewerName,
+      appended: prepared.appended,
     })
     if (outcome.returnToActive) mission.status = 'active'
     mission.notes.push(outcome.note)
@@ -135,6 +142,7 @@ export async function submitReview(tower, input) {
       branchTip: prepared.tip,
       missionStatus: mission.status,
       round: prepared.round,
+      appended: prepared.appended,
       reviewerRounds: prepared.reviewerRounds + 1,
     }
       })
