@@ -1,0 +1,34 @@
+{
+  "issues": [
+    {
+      "number": 51,
+      "title": "[P1] state lock writes",
+      "state": "CLOSED",
+      "labels": [{ "name": "P1" }],
+      "closedAt": "2026-10-22T10:00:00Z",
+      "body": "",
+      "comments": [
+        { "body": "Implemented on main: all mutating state-lock scopes now only load/validate/write state.", "createdAt": "2026-10-22T09:00:00Z" },
+        { "body": "verified-by: tests/unit.test.mjs\ncommit: f892bd0b77c08f4855fbe358cb007a4b77d840b9", "createdAt": "2026-10-22T10:00:00Z" }
+      ]
+    },
+    {
+      "number": 52,
+      "title": "[P0] still open, no evidence yet",
+      "state": "OPEN",
+      "labels": [{ "name": "P0" }],
+      "closedAt": null,
+      "body": "",
+      "comments": []
+    },
+    {
+      "number": 53,
+      "title": "[P2] closed without evidence, below the bar",
+      "state": "CLOSED",
+      "labels": [{ "name": "P2" }],
+      "closedAt": "2026-10-22T10:00:00Z",
+      "body": "",
+      "comments": []
+    }
+  ]
+}
