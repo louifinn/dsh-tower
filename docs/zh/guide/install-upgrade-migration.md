@@ -31,6 +31,11 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **state schema v1 → v2（未发布）**：`state.json` 会自动迁移。升级后的第一次**写入**会保留
+  `state.json.v1.bak` 备份、`revision` 只 +1，并向 `activity.jsonl` 追加 `state.migrated {from,to}`；
+  只读工具仍可读取 v1 文件且不改写它。`tower_doctor` 报告磁盘上的版本与待执行的迁移。由更新插件
+  写入的文件会以 `[tower:state-version-unsupported]` 拒绝，绝不会被重写或降级；迁移抛错会报
+  `[tower:state-migration-failed]`，原文件保持字节不变。
 - **2.0.4 → 2.1.0-beta.1**：不需要迁移 state/config。这是发布到 `next` dist-tag 的**预发布**，
   `latest` 仍指向 2.0.4——请用 `dsh plugin --profile web add dsh-tower@next`（或精确版本号）安装。
   运行时行为未变；本版本承载的是交付闸门（CI 中的 mount smoke、`npm run release:check`、证据约定
