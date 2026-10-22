@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
@@ -114,7 +115,7 @@ test('tower protocol: init → plan → complete → review → merge → teardo
     assert.equal(status.counts.merged, 1)
     assert.ok(status.reviews >= 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -148,7 +149,7 @@ test('tower plan: overlapping scopes auto-add a dependency and cycles are reject
       /unknown mission/,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -218,7 +219,7 @@ test('merge reconciles a merge commit that landed before the tool recorded it', 
     assert.equal(status.missions[0].status, 'merged')
     assert.equal(status.missions[0].mergedCommit, manualTip)
   } finally {
-    fs.rmSync(ctx.root, { recursive: true, force: true })
+    removeTemp(ctx.root)
   }
 })
 
@@ -245,7 +246,7 @@ test('rebase leaves an already-landed branch untouched and merge records it', as
     const status = await ctx.tower.status()
     assert.equal(status.missions[0].status, 'merged')
   } finally {
-    fs.rmSync(ctx.root, { recursive: true, force: true })
+    removeTemp(ctx.root)
   }
 })
 
@@ -273,7 +274,7 @@ test('merge hook failure aborts cleanly and leaves the mission retryable', async
     const status = await ctx.tower.status()
     assert.equal(status.missions[0].status, 'completed', 'mission must stay retryable')
   } finally {
-    fs.rmSync(ctx.root, { recursive: true, force: true })
+    removeTemp(ctx.root)
   }
 })
 
@@ -310,7 +311,7 @@ test('merge hook timeout is reported as merge-hook-failed and leaves a clean rep
   } finally {
     fs.writeFileSync(stopFile, 'stop\n')
     await new Promise((resolve) => setTimeout(resolve, 1500))
-    fs.rmSync(ctx.root, { recursive: true, force: true })
+    removeTemp(ctx.root)
   }
 })
 
@@ -333,6 +334,6 @@ test('mission transitions: blocked can be marked completed again', async () => {
     const completed = await tower.mission({ id: 'M1', status: 'completed' })
     assert.equal(completed.mission.status, 'completed')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })

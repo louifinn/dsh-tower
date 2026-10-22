@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../app/tower.js'
 import { configureRuntime, repoConfigPath } from '../lib/config.js'
@@ -52,7 +53,7 @@ test('repo config: path is exposed, missing file is not an error', async () => {
     assert.equal(status.config.spawn.reviewerPreset, 'tower-reviewer')
     assert.deepEqual(status.findingsByStatus, { open: 0, triaged: 0, fixed: 0, wontfix: 0 })
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -77,7 +78,7 @@ test('repo config: overrides profile values and keeps unset profile values', asy
     assert.equal(tower.config.repoConfigPresent, true)
   } finally {
     configureRuntime({})
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -105,7 +106,7 @@ test('repo config: mode.* keys cannot weaken the session mode guard', async () =
     assert.equal(cannotEnable.config.mode.allowAgentControl, false)
     configureRuntime({})
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -122,7 +123,7 @@ test('repo config: worktrees.root places new mission worktrees there', async () 
     assert.ok(provisioned.worktree.path.startsWith(worktreeRoot + path.sep), provisioned.worktree.path)
     assert.equal(provisioned.worktree.path, path.join(worktreeRoot, planned.missions[0].id))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -156,7 +157,7 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
     writeRepoConfig(repo, ' '.repeat(1024 * 1024 + 1))
     await assert.rejects(() => Tower.open(repo), /\[tower:config-invalid\].*too large/)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -184,7 +185,7 @@ test('two Tower instances in one process keep independent repository config', as
     assert.equal(b.config.spawn.workerPreset, 'second-worker')
     assert.notEqual(a.config.configPath, b.config.configPath)
   } finally {
-    fs.rmSync(first.root, { recursive: true, force: true })
-    fs.rmSync(second.root, { recursive: true, force: true })
+    removeTemp(first.root)
+    removeTemp(second.root)
   }
 })

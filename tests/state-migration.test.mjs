@@ -14,6 +14,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../app/tower.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
@@ -224,7 +225,7 @@ test('a v1 state migrates under the state lock: backup, one revision bump, state
     assert.equal(migrated[0].to, 2)
     assert.equal(tower.stateLoad.migration.persisted, true)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -259,7 +260,7 @@ test('read-only loads migrate in memory without rewriting the file; the first lo
     await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'After that', scope: ['src/**'] }] })
     assert.equal(activityFor(tower).filter((entry) => entry.type === 'state.migrated').length, 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -285,7 +286,7 @@ test('a state written by a newer plugin is refused and left byte-identical', asy
     assert.equal(sha256(tower.paths.state), before, 'a refused newer state must not be rewritten')
     assert.deepEqual(backupsFor(tower), [], 'a refused newer state must not be backed up or migrated')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -307,7 +308,7 @@ test('a corrupt state file stays state-corrupt and byte-identical', async () => 
       assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text)
     }
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -338,7 +339,7 @@ test('a throwing migration leaves the original file byte-identical and keeps the
     assert.equal(fs.readFileSync(`${paths.state}.v1.bak`, 'utf8'), text, 'the backup holds the pre-migration document')
     assert.deepEqual(readState(paths.state), legacy)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -381,6 +382,6 @@ test('tower_doctor reports the state schema version and the pending migration wi
     assert.equal(newer.checks.find((check) => check.id === 'state-schema').status, 'fail')
     assert.equal(newer.ok, false)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })

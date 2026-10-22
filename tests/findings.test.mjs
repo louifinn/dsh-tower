@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower, FINDING_STATUSES, FINDING_TRANSITIONS } from '../app/tower.js'
 
@@ -89,7 +90,7 @@ test('finding lifecycle: open → triaged → fixed → reopened, with notes', a
     assert.deepEqual(status.findingsByStatus, { open: 1, triaged: 0, fixed: 0, wontfix: 0 })
     assert.equal(status.recentFindings[0].status, 'open')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -134,7 +135,7 @@ test('finding lifecycle: invalid transitions, statuses and reviewer mutations ar
     const read = await tower.findings({ id: 'F1' })
     assert.equal(read.finding.status, 'open')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -171,7 +172,7 @@ test('finding lifecycle: filters, limit and status counts across findings', asyn
     assert.equal(limited.findings.length, 1)
     assert.equal(limited.findings[0].id, 'F3')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 

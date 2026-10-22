@@ -9,16 +9,13 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-faults-') {
@@ -125,7 +122,7 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
     const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     assert.equal(status.counts.planned, 1)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -153,7 +150,7 @@ test('a held state writer lock fails closed with [tower:state-locked]', async ()
       .execute({ repoRoot: repo, missions: [{ title: 'After lock', scope: ['x/**'] }] }, exec)
     assert.equal(planned.missions[0].id, 'M1')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -169,7 +166,7 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     const provisioned = await tower.provision({ missionId: 'M1' })
     const worktreePath = provisioned.worktree.path
     assert.ok(fs.existsSync(worktreePath))
-    fs.rmSync(worktreePath, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(worktreePath)
 
     const preflight = await tools.get('tower_preflight').execute({ repoRoot: repo, missionId: 'M1' }, exec)
     assert.equal(preflight.ok, false)
@@ -190,6 +187,6 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     assert.equal(merge.ok, false)
     assert.ok(merge.blockers.some((blocker) => blocker.code === 'branch-missing'))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

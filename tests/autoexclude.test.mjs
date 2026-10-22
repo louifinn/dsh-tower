@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
@@ -52,6 +53,6 @@ test('repo board is auto-excluded, idempotent, and preserves .gitignore/exclude'
     assert.deepEqual(lines.slice(0, 2), ['# keep me', 'node_modules/'])
     assert.equal(fs.readFileSync(gitignore, 'utf8'), gitignoreBefore, '.gitignore stays untouched')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })

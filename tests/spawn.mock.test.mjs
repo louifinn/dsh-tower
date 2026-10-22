@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 // index.js reads its mode-store location at import time; isolate it before the
 // import so a test never writes to the operator's real $DSH_HOME.
@@ -22,7 +23,7 @@ process.env.DSH_HOME = home
 const { apply } = await import('../index.js')
 const { Tower } = await import('../app/tower.js')
 
-after(() => fs.rmSync(home, { recursive: true, force: true }))
+after(() => removeTemp(home))
 
 function git(cwd, args) {
   return execFileSync('git', args, {
@@ -52,10 +53,6 @@ function isInside(parent, child) {
 }
 
 /** Windows may keep a transient handle on a just-removed git worktree; retry. */
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-}
-
 /**
  * Fake `subagents` service. `startActivation` resolves immediately with the
  * shape the real service returns, and every input is recorded so a case can
@@ -242,7 +239,7 @@ test('worker spawn: tower-worker preset, roster entry, worktree and briefing', a
 
     await settle()
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -269,7 +266,7 @@ test('worker spawn honors an explicit worktreeRoot argument', async () => {
 
     await settle()
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -334,7 +331,7 @@ test('reviewer spawn: rejected before completion, tower-reviewer afterwards', as
 
     await settle()
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -350,7 +347,7 @@ test('preset precheck: a missing tower-worker preset rejects with "not registere
     )
     assert.equal(harness.subagents.activations.length, 0, 'no activation may start when the preset is missing')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -365,7 +362,7 @@ test('missing subagents service rejects with "unavailable"', async () => {
       [/unavailable/i],
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -393,6 +390,6 @@ test('wait:true returns the child output text and stopReason', async () => {
     assert.ok(entry, 'the roster entry must exist')
     assert.equal(entry.state, 'inactive')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

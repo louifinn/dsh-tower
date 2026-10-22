@@ -8,16 +8,13 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-roles-') {
@@ -162,7 +159,7 @@ test('role enforcement: workers cannot change mission status, scope, blockers or
       assert.deepEqual(after.missions[0].scope, before.missions[0].scope)
     }
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -281,7 +278,7 @@ test('workers update tasks, blockers and notes; the tower owns lifecycle; review
     assert.equal(review.missionStatus, 'completed')
     assert.equal(review.review.reviewerRole, 'reviewer')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -325,6 +322,6 @@ test('tower-only tools reject a roster worker and start no activations', async (
     const torn = await call(tools, 'tower_teardown', { repoRoot: repo })
     assert.equal(torn.ok, true)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

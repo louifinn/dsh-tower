@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
@@ -45,7 +46,7 @@ test('complete rejects a state revision change prepared outside the lock', async
       },
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -66,7 +67,7 @@ test('complete commits when the prepared revision is still current', async () =>
     assert.equal(result.mission.status, 'completed')
     assert.equal((await tower.load()).missions[0].status, 'completed')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -89,7 +90,7 @@ test('recordSpawn captures the spawn tip outside the state lock', async () => {
     assert.equal(sawLock, false)
     assert.equal(entry.spawnTip, 'abc123')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -157,7 +158,7 @@ test('submitReview runs prepare git calls without the state lock', async () => {
     assert.equal(lockDuringRevParse, false)
     assert.equal(result.branchTip, result.review.reviewedCommit)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -182,7 +183,7 @@ test('submitReview rejects a state revision change prepared outside the lock', a
     assert.equal(state.reviewSeq ?? 0, 0)
     assert.equal(state.missions[0].status, 'completed')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -205,6 +206,6 @@ test('submitReview commits when the prepared revision is still current', async (
     assert.equal(state.reviewSeq, 1)
     assert.match(state.missions[0].notes.at(-1), /^review round 1 by tower: clean \(merge\)$/)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })

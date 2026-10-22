@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 // index.js reads the mode store at import time; isolate it before importing.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-reload-'))
@@ -105,7 +106,7 @@ test('HMR wiring: tower_reload and /tower reload reconcile the profile', async (
     assert.match(reply.text, /reload scheduled/i)
     await new Promise((resolve) => setTimeout(resolve, 120))
   } finally {
-    fs.rmSync(home, { recursive: true, force: true })
+    removeTemp(home)
   }
 })
 

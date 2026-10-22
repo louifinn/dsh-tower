@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
@@ -24,10 +25,6 @@ function seed(prefix) {
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])
   return { root, repo }
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 /** One completed, clean-reviewed mission whose branch has one commit. */
@@ -140,7 +137,7 @@ test('rebase runs git outside the state lock and mutates under the git lock', as
     // The clean rebase still waives re-review for the previously reviewed tip.
     assert.equal(ctx.tower.rebaseWaived(state.missions[0], state.reviews.at(-1)), true)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -171,7 +168,7 @@ test('rebase rejects a state revision change prepared outside the lock', async (
     assert.equal(state.missions[0].rebase ?? null, null, 'no rebase record may be written')
     assert.equal(git(ctx.wt, ['rev-parse', 'HEAD']), oldTip, 'the branch must not be rewritten')
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -222,7 +219,7 @@ test('rebase keeps a durable intent when the commit is stale and reconciles it n
     assert.equal(state.missions[0].rebase.baseTip, baseTip)
     assert.equal(ctx.tower.rebaseWaived(state.missions[0], state.reviews.at(-1)), true)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -244,7 +241,7 @@ test('rebase conflict still aborts, blocks the mission and clears the intent', a
     assert.match(state.missions[0].blockers.at(-1), /rebase conflict onto/)
     assert.equal(git(ctx.wt, ['status', '--porcelain']), '', 'the conflict must be aborted cleanly')
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -257,13 +254,13 @@ test('rebase refuses a running worker and a dirty worktree before locking', asyn
     const dirty = await ctx.tower.rebase({ missionId: 'M1', activity: {} })
     assert.equal(dirty.ok, false)
     assert.equal(dirty.blockers[0].code, 'worktree-dirty')
-    fs.rmSync(dirtyFile)
+    removeTemp(dirtyFile)
     const busy = await ctx.tower.rebase({ missionId: 'M1', activity: { [ctx.agentId]: 'running' } })
     assert.equal(busy.ok, false)
     assert.equal(busy.blockers[0].code, 'worker-busy')
     assert.equal((await ctx.tower.load()).rebaseIntent ?? null, null)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -303,7 +300,7 @@ test('teardown removes worktrees under the git lock and commits one revision bum
     assert.equal(decision.action, 'removed')
     assert.equal(decision.branch, ctx.branch)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -332,7 +329,7 @@ test('teardown rejects a stale decision before removing anything', async () => {
     const state = await ctx.tower.load()
     assert.equal(state.missions[0].worktreeRemovedAt ?? null, null)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -362,7 +359,7 @@ test('teardown preserves live-agent, dirty/force and dry-run behaviour', async (
     assert.deepEqual(forced.removed, ['M1'])
     assert.equal(fs.existsSync(ctx.wt), false)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -382,6 +379,6 @@ test('teardown still records a retained branch when branch deletion fails', asyn
     assert.equal(typeof state.missions[0].branchDeleteError, 'string')
     assert.match(git(ctx.repo, ['branch', '--list', ctx.branch]), new RegExp(ctx.branch.split('/')[1]))
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })

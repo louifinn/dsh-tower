@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { isInside, win32Lower } from '../lib/legacy.js'
 import { shellSpec } from '../lib/tests.js'
@@ -22,10 +23,6 @@ import { compareKey } from '../lib/worktreeOwnership.js'
 
 function tempDir(prefix = 'dsh-tower-platform-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function errno(code) {
@@ -120,7 +117,7 @@ test('renameWithRetry: a non-transient error fails at once and removes the temp 
     assert.equal(attempts, 1)
     assert.equal(fs.existsSync(tmp), false, 'the temp file must not be left behind')
   } finally {
-    cleanup(dir)
+    removeTemp(dir)
   }
 })
 
@@ -148,7 +145,7 @@ test('renameWithRetry: a persistent transient error stops at the retry budget', 
     assert.equal(slept.length, RENAME_ATTEMPTS)
     assert.equal(fs.existsSync(tmp), false, 'the temp file must not be left behind')
   } finally {
-    cleanup(dir)
+    removeTemp(dir)
   }
 })
 
@@ -190,7 +187,7 @@ test(
       } catch {
         // already closed by the timer
       }
-      cleanup(dir)
+      removeTemp(dir)
     }
   },
 )
@@ -269,7 +266,7 @@ test('unlinkWithRetry: removes a real file once and reports a missing file as fa
     assert.equal(fs.existsSync(file), false)
     assert.equal(await unlinkWithRetry(file), false)
   } finally {
-    cleanup(dir)
+    removeTemp(dir)
   }
 })
 

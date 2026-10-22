@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -16,10 +17,6 @@ const exec = { agent: { id: 'tower-status' } }
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-status-') {
@@ -130,7 +127,7 @@ test('pagination: total/offset/limit/nextOffset page the mission list determinis
     await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', note: 'board update' })
     assert.ok(fs.readFileSync(boardFile, 'utf8').includes('| M1 | planned |'))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -155,7 +152,7 @@ test('includeGate: every paged mission carries a preflight-style digest', async 
     // A digest is a summary, not the full gate object: no worktree/tip fields.
     assert.equal(paged.missions[0].gate.branchTip, undefined)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -244,6 +241,6 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
       /\[tower:mission-not-found\]/,
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

@@ -4,10 +4,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plan-mode-'))
 process.env.DSH_HOME = TEST_HOME
-test.after(() => fs.rmSync(TEST_HOME, { recursive: true, force: true }))
+test.after(() => removeTemp(TEST_HOME))
 
 const { apply } = await import('../index.js')
 

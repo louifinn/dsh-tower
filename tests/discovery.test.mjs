@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import {
   readDiscoveryConfig,
@@ -50,10 +51,6 @@ function tapConfig(command, extra = {}) {
 
 function jsonConfig(command, extra = {}) {
   return { version: 1, commands: [{ id: 'json', command, format: 'json-array', ...extra }] }
-}
-
-function removeDir(dir) {
-  fs.rmSync(dir, { recursive: true, force: true })
 }
 
 function gitAvailable() {
@@ -355,7 +352,7 @@ test('runDiscovery: invalid arguments and invalid config throw a plain Error', a
     )
     assert.equal(fs.existsSync(path.join(worktree, 'diag')), false, 'no diagnostics dir for invalid config')
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -372,7 +369,7 @@ test('runDiscovery: unconfigured discovery is a failed receipt, not an exception
       assert.equal(receipt.treeTip, null)
     }
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -433,7 +430,7 @@ test('runDiscovery: TAP and json-array success write hashed diagnostics and a re
     assert.equal(saved.commands[0].stdoutSha256, tap.stdoutSha256)
     assert.equal(saved.receiptPath, receipt.receiptPath)
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -487,7 +484,7 @@ test('runDiscovery: failures fail closed without throwing (nonzero/malformed/tim
     assert.equal(fs.existsSync(receipt.receiptPath), true, 'diagnostics receipt is written for failures too')
     assert.equal(fs.existsSync(byId.get('oversize').stdoutPath), true)
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -504,7 +501,7 @@ test('runDiscovery: only explicit minCount 0 can tolerate an empty command, neve
     assert.equal(empty.ok, false)
     assert.match(empty.error, /test discovery produced zero tests/)
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -524,7 +521,7 @@ test('runDiscovery: timeout kills the command and reports a failed receipt', asy
     assert.match(receipt.commands[0].error, /timed out after 400ms/)
     assert.ok(Date.now() - started < 10000, 'timeout must not wait for the sleeping command')
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -581,7 +578,7 @@ test('runDiscovery: accepts the readDiscoveryConfig wrapper and an injected runn
     assert.equal(failed.ok, false)
     assert.match(failed.commands[0].error, /exit code 7/)
   } finally {
-    removeDir(worktree)
+    removeTemp(worktree)
   }
 })
 
@@ -602,7 +599,7 @@ test(
       assert.ok(receipt.diagnosticsPath.startsWith(path.join(repo, '.git', 'dsh-tower', 'test-runs')), receipt.diagnosticsPath)
       assert.equal(fs.existsSync(path.join(receipt.diagnosticsPath, 'receipt.json')), true)
     } finally {
-      removeDir(root)
+      removeTemp(root)
     }
   },
 )

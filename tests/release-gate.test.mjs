@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { evaluateRelease, unreleasedSection, versionSection } from '../scripts/release-check.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -223,7 +224,7 @@ function makeRepo() {
     },
     cleanup() {
       try {
-        fs.rmSync(dir, { recursive: true, force: true })
+        removeTemp(dir)
       } catch {
         // Windows can keep a temp directory busy for a moment; the OS cleans it.
       }

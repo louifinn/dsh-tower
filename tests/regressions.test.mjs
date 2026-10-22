@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -112,7 +113,7 @@ test('regression: a worker-limit rejection happens before any activation or work
     const second = await tower.missionDetail(planned.missions[1].id)
     assert.equal(second.mission.worktree, null, 'no worktree may be provisioned for the rejected spawn')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -142,7 +143,7 @@ test('regression: repo config send.interruptDefault and init.snapshotDirty are h
     assert.equal(interrupts.length, 1, 'repo config send.interruptDefault must interrupt before delivery')
     assert.equal(interrupts[0].agentId, spawned.agentId)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -185,7 +186,7 @@ test('regression: a duplicate live worker is rejected before any activation', as
     )
     assert.equal(activations.length, 1, 'a duplicate worker must be rejected before activation')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -215,7 +216,7 @@ test('regression: rework rounds can spawn again with unique default names and ta
     const after = await (await Tower.open(repo)).rosterView()
     assert.equal(after.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker' && entry.state !== 'retired').length, 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -261,7 +262,7 @@ test('regression: gates.requireChecks blocks a completion without evidence', asy
     const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
     assert.ok(preflight.blockers.some((blocker) => blocker.code === 'no-check-evidence'))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -294,7 +295,7 @@ test('regression: docs.board:false suppresses MISSIONS.md; user-paused resume ca
     assert.equal(resumed.mission.status, 'active')
     assert.equal(resumed.mission.authorizationRef, 'human-approval-123')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -311,7 +312,7 @@ test('regression: mode persistence keeps workspace lock tokens across a reload',
     assert.equal(loaded.get('session-a').baseBranch, 'main')
     assert.equal(loaded.get('session-b').lock, null)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    removeTemp(dir)
   }
 })
 
@@ -322,7 +323,7 @@ test('regression: mode store reclaims a lock whose PID is dead', () => {
     assert.equal(saveModes(new Map([['s', { on: true, at: 1 }]]), dir), true)
     assert.equal(fs.existsSync(path.join(dir, 'modes.lock')), false)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    removeTemp(dir)
   }
 })
 
@@ -334,6 +335,6 @@ test('regression: mode store waits with a bounded timeout for a live lock', () =
     assert.equal(saveModes(new Map([['s', { on: true, at: 1 }]]), dir, 200, { timeoutMs: 30 }), false)
     assert.ok(Date.now() - started >= 25)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    removeTemp(dir)
   }
 })
