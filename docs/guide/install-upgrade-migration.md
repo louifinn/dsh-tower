@@ -29,6 +29,13 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.0.4 → 2.1.0-beta.1**: no state/config migration. This is a **pre-release** published on the
+  `next` dist-tag, so `latest` still resolves to 2.0.4 — install it with
+  `dsh plugin --profile web add dsh-tower@next` (or the exact version). The runtime behavior is
+  unchanged; the release carries the delivery gate (mount smoke in CI, `npm run release:check`, the
+  evidence conventions and the tracker policy) rather than tool changes. These docs merge before the
+  human publish step: `next` only resolves to 2.1.0-beta.1 after the [release checklist](release.md)
+  runs `npm publish --tag next`, and `latest` stays on 2.0.4 until a stable release.
 - **2.0.3 → 2.0.4**: no state/config migration. This is a security-hardening and integrity release
   (authorization, merge SHA binding, dirty-worktree completion, stale-lock recovery, limited test/git
   process environment, `tower_recover`, UI 0.2.2). Review `review.requireReview`, `tests.admission` and

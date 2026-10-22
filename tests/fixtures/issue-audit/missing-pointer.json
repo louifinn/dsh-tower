@@ -1,0 +1,15 @@
+{
+  "issues": [
+    {
+      "number": 77,
+      "title": "[P0] main has no protection",
+      "state": "CLOSED",
+      "labels": [{ "name": "P0" }],
+      "closedAt": "2026-10-22T10:00:00Z",
+      "body": "",
+      "comments": [
+        { "body": "verified-by: tests/does-not-exist.test.mjs\ncommit: deadbeef", "createdAt": "2026-10-22T10:00:00Z" }
+      ]
+    }
+  ]
+}

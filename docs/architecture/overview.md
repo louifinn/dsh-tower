@@ -121,6 +121,9 @@ dead-PID reclamation, and bounded lock waits. `state.json` is the mission persis
 - `domain/**` must not import I/O or adapters (`domain-pure`).
 - Only `adapters/vcs-git.js` may import `node:child_process`, and only
   `adapters/store-fs.js` may import `node:fs` (`child-process-surface`, `fs-surface`).
+  The rule is enforced over the source roots — `lib/`, `app/`, `domain/`, `tools/`,
+  `adapters/`, `ports/` — and does not cover `scripts/**`, which holds maintenance
+  entry points (release check, mount smoke, docs generators) that may spawn git or npm.
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
   `tools/index.js` is the thin public wiring module and stays exempt from the thinness rule,
   while registration/shared machinery lives in `lib/tool-registry.js`.
@@ -130,6 +133,16 @@ dead-PID reclamation, and bounded lock waits. `state.json` is the mission persis
 
 A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
 
+## Mount smoke and host internals
+
+`npm run smoke:mount` (#95) boots a real profile through the pinned host instead of mocking the loader.
+`scripts/mount-smoke/probe.mjs` is the one file that imports the host's internals — `runProfile` from
+`dsh/lib/profile-boot.js` and the layered env from `dsh-app-boot` — because those are the entry points
+`dsh` itself calls to compose a profile; the probe uses them to boot without a model, browser, or
+session. `scripts/mount-smoke/host.json` is the single host/pnpm pin (a unit test keeps its `dsh` field
+equal to the newest `COMPATIBILITY.md` row), so a host bump can move those entry points and may require
+probe adjustments in the same change.
+
 ## #56 definition of done
 
 All epic DoD items now have an executable gate:
@@ -138,8 +151,8 @@ All epic DoD items now have an executable gate:
   `npm run domain:check` (threshold 35%).
 - `domain/**` imports no fs, child_process, adapters, app, tools, or lib infrastructure;
   `domain-pure` is a blocking architecture rule.
-- Only `adapters/vcs-git.js` imports `node:child_process`; only `adapters/store-fs.js`
-  imports `node:fs`; both are blocking rules with fixtures.
+- Inside the source roots, only `adapters/vcs-git.js` imports `node:child_process`; only
+  `adapters/store-fs.js` imports `node:fs`; both are blocking rules with fixtures.
 - `lib`, `app`, and `domain` files stay <= 800 lines; every `tools/**` file stays
   40-200 lines (one handler module per tool; `tools/index.js` is 40-line wiring).
 - No `withLock` scope starts a process; the two-phase tests instrument every git call.

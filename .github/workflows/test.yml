@@ -13,6 +13,10 @@ jobs:
         node: [22, 24]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release gate compares the version against tags; a shallow clone
+          # would make every branch look untagged.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -21,6 +25,16 @@ jobs:
         run: npm ci
       - name: Offline suite
         run: npm test
+      # #97: warn on PR/branch pushes, fail on a tag push when the version did
+      # not move or the tag is not v<version>. One leg is enough to report it.
+      - name: Release check
+        if: matrix.node == 22
+        run: npm run release:check
+      # Wiring only (#81): no thresholds, no baseline, no badge. The coverage
+      # table is the visible result; one leg is enough to produce it.
+      - name: Coverage (Node 22)
+        if: matrix.node == 22
+        run: npm run test:coverage
       - name: Documentation consistency
         run: npm run docs:check
       - name: Generated error reference
@@ -37,3 +51,46 @@ jobs:
         run: npm run types:check
       - name: Pure domain share
         run: npm run domain:check
+
+  # #95: does the packed bundle mount and register what it claims?
+  # Node 22 only (cost control); no model, no browser.
+  # The host build is the single pin in scripts/mount-smoke/host.json, which a
+  # unit test keeps equal to the newest COMPATIBILITY.md row.
+  mount:
+    name: mount
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm (the plugin CLI's package manager)
+        run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
+      - name: Mount the packed bundle in a throwaway profile
+        run: npm run smoke:mount
+        # The step budget is 3 minutes; the whole job allows 5.
+        timeout-minutes: 3
+
+  # #95: the seeded-failure proof, not only the green run. The control plus both
+  # seeds each run the real smoke against a copy, so one cached host install is
+  # shared through --host-dir instead of three installs. Evidence only, never a
+  # merge gate: the required contexts stay `test (22)`, `test (24)` and `mount`.
+  mount-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm (the plugin CLI's package manager)
+        run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
+      - name: Cache the pinned host install
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dsh-tower/mount-host
+          key: dsh-tower-mount-host-${{ runner.os }}-${{ hashFiles('scripts/mount-smoke/host.json') }}
+      - name: Seeded failure fixtures
+        run: npm run smoke:fixtures -- --host-dir "$HOME/.cache/dsh-tower/mount-host"
+        timeout-minutes: 6
