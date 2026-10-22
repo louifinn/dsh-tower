@@ -13,10 +13,9 @@ npm test
 
 > Node's `--test` no longer accepts a directory argument; pass a glob instead. A bare directory fails with `Cannot find module`.
 
-The 2.0 suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
+The offline suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
 
 - `cleanup.test.mjs` — the shared teardown helper: bounded retry/backoff for `EPERM`/`EBUSY`/`EACCES`, the quarantine rename after the first transient failure, the `os.tmpdir()` isolation guard, and a seeded real Windows `FileShare.None` handle that must be released before the tree can be removed (declared with `skip:` off Windows, so Linux reports it as `# SKIP`).
-
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-Unicode titles (NFC, 120-character bound), glob matching.
 - `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_status` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
 - `platform.test.mjs` — the platform branches, asserted on every OS: win32 path case folding (`isInside`), the `pwsh`/`bash` discovery shell (`shellSpec`), the transient rename/unlink retry loops via injected syscalls, and worktree path identity (`compareKey`). The one real-Windows case (renaming over an open destination) is declared with `skip:` so Linux reports it as `# SKIP` rather than dropping it.
