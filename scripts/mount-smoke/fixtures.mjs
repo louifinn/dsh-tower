@@ -10,7 +10,9 @@
 // the copy, and requires a red run that names the cause. A green control run
 // comes first, so a broken environment is never mistaken for a caught bug.
 //
-// The fixtures are a local proof, not a CI job: CI runs the real smoke.
+// The fixtures run in CI as the non-required `mount-fixtures` job, with one
+// cached host install shared by the control and both seeds through --host-dir;
+// locally the short form is `npm run smoke:fixtures`.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
