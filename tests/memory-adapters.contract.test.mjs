@@ -17,6 +17,8 @@ import fs from 'node:fs'
 import * as realStore from '../lib/store.js'
 import * as realGit from '../lib/git.js'
 import { Tower } from '../lib/tower.js'
+import { PORTS } from '../ports/index.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
@@ -270,6 +272,40 @@ test('scripted vcs models the commands Tower issues and rejects everything else'
   assert.equal(vcs.unscripted.length, 2)
   assert.ok(vcs.calls.length > 0)
   assert.ok(vcs.calls.every((call) => call.cwd.startsWith('/virtual/')), 'every scripted call stays virtual')
+})
+
+test('the default adapters implement every port declared in ports/', () => {
+  const deps = createDefaultDeps()
+  for (const [member, port] of Object.entries(PORTS)) {
+    assert.ok(deps[member], `default deps must expose the ${member} port`)
+    for (const method of port.contract.methods) {
+      assert.equal(
+        typeof deps[member][method],
+        'function',
+        `${member}.${method} must exist at runtime on the ${port.contract.name} implementation`,
+      )
+    }
+  }
+})
+
+test('the in-memory doubles implement the store and vcs port contracts', () => {
+  const store = createMemoryStore()
+  const vcs = createScriptedVcs()
+  const implementations = new Map([
+    [PORTS.store, store],
+    [PORTS.vcs, vcs],
+  ])
+  for (const [port, impl] of implementations) {
+    for (const method of port.contract.methods) {
+      assert.equal(typeof impl[method], 'function', `${port.contract.name}.${method} must exist on the double`)
+    }
+  }
+})
+
+test('Tower validates its injected ports at construction', () => {
+  const repo = { root: '/virtual/repo', commonDir: '/virtual/repo/.git' }
+  assert.throws(() => new Tower(repo, {}, {}), /store: expected an object implementing StorePort/)
+  assert.throws(() => new Tower(repo, {}, null), /requires an injected deps object/)
 })
 
 test('the doubles have no filesystem or process dependency', () => {
