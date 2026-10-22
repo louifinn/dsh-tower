@@ -14,7 +14,7 @@ gh issue list --state open --search 'milestone:2.1.0-beta.1 label:P0,P1' --json 
 ```
 
 Empty output → proceed. Non-empty → close the issues (with the two-line closure contract in
-[CONTRIBUTING.md](../CONTRIBUTING.md#the-two-line-closure-contract)), or name each accepted
+[CONTRIBUTING.md](../../CONTRIBUTING.md#the-two-line-closure-contract)), or name each accepted
 issue and the reason in the release notes. The same query is saved in [the board](../board.md);
 comma means OR inside `--search`, while `--label P0,P1` matches one literal label name and
 returns nothing.
