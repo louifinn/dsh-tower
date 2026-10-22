@@ -243,6 +243,7 @@ const SCHEMAS = {
     {
       ok: S.bool,
       checks: S.arr(S.obj()),
+      stateLock: S.any,
       stateSchema: S.obj({
         currentVersion: S.any,
         supportedVersion: S.int,
@@ -266,7 +267,7 @@ const SCHEMAS = {
     ['ok', 'checks'],
   ),
   recover: S.obj(
-    { ok: S.bool, action: S.str, stateLock: S.any, cleared: S.bool, backup: S.any, error: S.str },
+    { ok: S.bool, action: S.str, stateLock: S.any, cleared: S.bool, backup: S.any, forced: S.bool, error: S.str },
     ['ok', 'action'],
   ),
   test: S.obj(

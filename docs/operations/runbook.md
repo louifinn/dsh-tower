@@ -48,9 +48,18 @@ fails, the previous plugin code no longer runs: restart DSH and check the HMR lo
 
 ## State lock
 
-`tower state is locked by another writer` means an operation holds `state.lock`. Wait and retry. Only if
-the owning process is gone, remove `<git-common-dir>/dsh-tower/state.lock` deliberately; never delete it
-while an agent may still be running.
+`tower state is locked by another writer` means an operation holds `state.lock`. Wait and retry: a
+live holder rewrites the record's `at` heartbeat every second, so it is never stolen while it runs.
+A crashed holder stops heartbeating; once its last heartbeat is older than three intervals (3 s), the
+next mutation reclaims the record after byte verification. A reclaimed live-PID record is kept as
+`state.lock.reclaimed-<ts>-<id>` for audit; a provably dead PID (ESRCH) is reclaimed immediately.
+
+If a lock never clears, `tower_recover({action:"status"})` reports the owner's `pid`, `startedAt`,
+`ageMs` and `heartbeatAgeMs`, and `tower_doctor` reports the same. `tower_recover
+clear-stale-lock` with `confirm:"CLEAR_STALE_LOCK"` moves a provably dead lock to
+`state.lock.recovered-<ts>`; add `force: true` to clear a live-but-silent PID (the recycled-PID case)
+after confirming no writer is active. The repair always renames, never deletes, so the bytes stay
+auditable. Never delete `state.lock` by hand while an agent may still be running.
 
 ## Worktrees and teardown
 

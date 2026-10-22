@@ -1,6 +1,7 @@
 // tower_recover: explicit stale state-lock diagnostics/repair.
 import { Tower } from '../app/tower.js'
 import { readStateLock } from '../lib/store.js'
+import { lockTiming } from '../lib/persistence.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { fsp } from '../adapters/store-fs.js'
@@ -16,16 +17,27 @@ export function registerRecoverTool(ctx, deps) {
   define(ctx, {
     name: 'tower_recover',
     description:
-      'Read-only recovery diagnostics and an explicit stale-state-lock repair. status reports the state lock owner; clear-stale-lock requires confirm:"CLEAR_STALE_LOCK" and only moves a lock whose PID is provably dead to a backup file. It never resets Tower state or worktrees.',
+      'Read-only recovery diagnostics and an explicit stale-state-lock repair. status reports the state lock owner with its age, heartbeat age and staleness; clear-stale-lock requires confirm:"CLEAR_STALE_LOCK" and only moves a lock whose PID is provably dead to a backup file. force:true additionally clears a live-but-silent PID (a recycled PID) and still renames the record to a .recovered-<ts> backup. It never resets Tower state or worktrees.',
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {
       const tower = await Tower.open(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'recover Tower state')
-      const lock = await readStateLock(tower.paths)
+      const now = Date.now()
+      const lock = await readStateLock(tower.paths, { now })
+      const timing = lockTiming(lock.record, { now })
       const publicLock = lock.record
-        ? { pid: lock.record.pid ?? null, startedAt: lock.record.startedAt ?? null, at: lock.record.at ?? null, alive: lock.alive }
+        ? {
+            pid: lock.record.pid ?? null,
+            startedAt: lock.record.startedAt ?? null,
+            at: lock.record.at ?? null,
+            alive: lock.alive,
+            ageMs: timing.ageMs,
+            heartbeatAgeMs: timing.heartbeatAgeMs,
+            staleAfterMs: timing.staleAfterMs,
+            stale: timing.stale,
+          }
         : null
       if (args.action === RECOVERY_ACTION.status) {
         return { ok: true, action: RECOVERY_ACTION.status, stateLock: publicLock, cleared: false }
@@ -34,12 +46,26 @@ export function registerRecoverTool(ctx, deps) {
         throw new TowerToolError('invalid-argument', 'clear-stale-lock requires confirm:"CLEAR_STALE_LOCK"')
       }
       if (!lock.record) return { ok: true, action: RECOVERY_ACTION.clearStaleLock, stateLock: null, cleared: false }
-      if (lock.alive !== false) {
-        throw new TowerToolError('state-locked', `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive; refusing to clear it`)
+      const forced = args.force === true
+      if (lock.alive !== false && !forced) {
+        // A live PID is not proof of a live writer (#92): report the heartbeat
+        // and require the explicit force opt-in before moving the record.
+        throw new TowerToolError(
+          'state-locked',
+          `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive (last heartbeat ${timing.heartbeatAgeMs ?? 'unknown'}ms ago, stale after ${timing.staleAfterMs}ms); pass force:true with confirm:"CLEAR_STALE_LOCK" to move it to a backup after confirming no writer is active`,
+        )
       }
+      // Always rename, never unlink: the recovered bytes stay auditable.
       const backup = `${tower.paths.lock}.recovered-${Date.now()}`
       await fsp.rename(tower.paths.lock, backup)
-      return { ok: true, action: RECOVERY_ACTION.clearStaleLock, stateLock: publicLock, cleared: true, backup }
+      return {
+        ok: true,
+        action: RECOVERY_ACTION.clearStaleLock,
+        stateLock: publicLock,
+        cleared: true,
+        backup,
+        forced,
+      }
     },
   })
 }
