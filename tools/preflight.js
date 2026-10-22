@@ -38,6 +38,7 @@ export function registerPreflightTool(ctx, deps) {
               reviewedCommit: gate.review.reviewedCommit,
             }
           : null,
+        ...(gate.archived ? { archived: true } : {}),
       }
     },
   })

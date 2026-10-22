@@ -20,6 +20,7 @@ import { checkCompletion, complete } from './checkCompletion.js'
 import { missionContext } from './missionContext.js'
 import { enrichedMissions } from './enrichedMissions.js'
 import { writeBoard, boardFile } from './board.js'
+import { archiveIndex, archivedMission } from './archive.js'
 import { recordSpawnOutcome, recordInterrupt, reserveRoster, recordSpawn, rosterView } from './spawn.js'
 import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recording.js'
 
@@ -329,9 +330,23 @@ export class Tower {
     return missionDetail(this, missionId)
   }
 
-  /** Human-readable mission board (markdown) for the current state. */
-  boardMarkdown(state) {
-    return boardMarkdown(state)
+  /**
+   * Human-readable mission board (markdown) for the current state.
+   * @param {import('../types/index.js').TowerState} state
+   * @param {{ count?: number, unreadable?: boolean, message?: string } | null} [archive]
+   */
+  boardMarkdown(state, archive = null) {
+    return boardMarkdown(state, archive)
+  }
+
+  /** Read `archive/index.json`; `ok:false` carries a diagnostic instead of throwing. */
+  archiveIndex() {
+    return archiveIndex(this)
+  }
+
+  /** Load one archived mission (full record) with its linked reviews and findings. */
+  archivedMission(missionId) {
+    return archivedMission(this, missionId)
   }
 
   async ensureExcluded(target) {

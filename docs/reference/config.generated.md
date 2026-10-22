@@ -53,6 +53,9 @@
 | `gates.allowReviewExemption` | `false` | Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers. |
 | `docs.board` | `true` | Write a human-readable MISSIONS.md after mission changes. |
 | `docs.boardLocation` | `"common"` | common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md. |
+| `archive.enabled` | `true` | Move terminal (merged/abandoned) missions whose worktree is gone into <git-common-dir>/dsh-tower/archive/ at the next mutation, so state.json stops carrying their full history. |
+| `archive.afterDays` | `30` | Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately). |
+| `archive.maxMissions` | `100` | Maximum terminal missions kept hot; once exceeded, the oldest eligible terminal missions are archived until the cap holds (0 archives every eligible terminal mission). |
 | `tools.exposeOperational` | `true` | Master switch for batch/resource/import/legacy/recover/test/doctor tools. |
 | `tools.exposeBatch` | `true` | Register tower_batch. |
 | `tools.exposeImport` | `true` | Register tower_import_legacy/tower_legacy_map. |

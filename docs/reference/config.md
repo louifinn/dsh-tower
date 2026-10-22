@@ -85,6 +85,9 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
 | `docs.board` | `true` | Write `MISSIONS.md` after mutations. |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. |
+| `archive.enabled` | `true` | Move terminal (`merged`/`abandoned`) missions whose worktree is gone into `<git-common-dir>/dsh-tower/archive/` at a mutation boundary. Archived missions keep tasks, reviews, findings and the completion report; they are moved, never deleted. |
+| `archive.afterDays` | `30` | Age trigger: a terminal mission untouched for at least this many days is archived on the next mutation (`0` archives immediately). |
+| `archive.maxMissions` | `100` | Cap trigger: once more than this many terminal missions are hot, the oldest eligible ones are archived until the cap holds (`0` archives every eligible terminal mission). A mission with a live worktree is never archived. |
 | `tools.exposeOperational` | `true` | Register batch/resource/import/legacy/recover/test/doctor tools; `false` shrinks the fixed tool-schema context. |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.hotReload` | `true` | Register `tower_reload`; `/tower reload` is disabled when off. It returns `reload-unavailable` when the profile has no HMR service. |

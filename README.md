@@ -18,6 +18,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
 - **审查门禁合并。** 开启 `review.requireReview:true` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选（门禁关闭）；全局开启时，单个 mission 用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
+- **受控的状态增长。** worktree 已移除的终态任务在达到 `archive.afterDays`/`archive.maxMissions` 后移入 `.git/dsh-tower/archive/`，保留 tasks、reviews、findings 与完成报告；此后 mutation 只重写活跃工作。`tower_status includeArchived` 列出压缩后的归档摘要，`tower_doctor` 报告归档大小、数量与策略。
 - **默认安全。** Tower 模式开启期间拒绝 `create_goal`、`update_goal(resume)`、`todo_write`、Team 任务板与 `spawn_teammate`；被暂停的 goal 不会被自动恢复。
 - **可追溯的 finding 生命周期。** `tower_findings` 列表、读取并按 `open → triaged → fixed` / `wontfix` 流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
 - **仓库级配置。** 每个仓库可用 `<git-common-dir>/dsh-tower/config.json` 覆盖 review/merge/worktree/spawn 策略，工具参数再覆盖仓库配置；无需为不同仓库改 profile。

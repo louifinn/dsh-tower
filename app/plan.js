@@ -9,21 +9,27 @@ import {
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { sweepArchive } from './archive.js'
 
 export async function plan(tower, input = {}) {
   const prepared = normalizePlanMissions(input)
   return withLock(tower.paths, async () => {
     const state = await tower.load()
     const now = Date.now()
-    const assigned = assignMissionIds(prepared, nextMissionNumber(state.missions))
+    // Archived ids stay in the known set: a new mission must not reuse an id
+    // and a merged dependency may live in the archive index (#73).
+    const archive = await tower.archiveIndex()
+    const known = [...state.missions, ...(archive.ok ? archive.missions : [])]
+    const assigned = assignMissionIds(prepared, nextMissionNumber(known))
 
-    assertKnownDependencies(assigned, state.missions)
+    assertKnownDependencies(assigned, known)
 
-    addAutoDeps(assigned, state.missions)
-    assertAcyclic([...state.missions, ...assigned])
+    addAutoDeps(assigned, known)
+    assertAcyclic([...known, ...assigned])
 
     const created = assigned.map((mission) => newMission(mission.id, mission, now))
     state.missions.push(...created)
+    const swept = await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 
@@ -37,6 +43,8 @@ export async function plan(tower, input = {}) {
     return {
       revision: state.revision,
       missions: created.map((mission) => fullMission(mission)),
+      ...(swept.archived.length > 0 ? { archived: swept.archived } : {}),
+      ...(swept.error ? { archiveError: swept.error } : {}),
     }
   })
 }

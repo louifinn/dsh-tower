@@ -101,7 +101,9 @@ After the command, regardless of exit status, it inspects `HEAD`:
 
 | Path | Contents |
 |---|---|
-| `<git-common-dir>/dsh-tower/state.json` | missions, roster, reviews, findings, messages, reviews sequence |
+| `<git-common-dir>/dsh-tower/state.json` | active missions, roster, reviews, findings, messages, reviews sequence |
+| `<git-common-dir>/dsh-tower/archive/index.json` | compact terminal-mission index (ids, status, branch, timestamps) |
+| `<git-common-dir>/dsh-tower/archive/<year>.json` | full archived missions plus their linked reviews/findings |
 | `<git-common-dir>/dsh-tower/activity.jsonl` | append-only activity |
 | `<git-common-dir>/dsh-tower/state.lock` | single-writer state lock (dead-PID reclaimed, live lock reported) |
 | `<git-common-dir>/dsh-tower/git.lock` | repo-scoped serialization for git mutations outside the state lock |
