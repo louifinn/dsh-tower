@@ -16,15 +16,23 @@
     "gitVersion": "git version 2.55.0",
     "repoRoot": "D:/repo",
     "commonDir": "D:/repo/.git",
-    "stateDir": "D:/repo/.git/dsh-tower"
+    "stateDir": "D:/repo/.git/dsh-tower",
+    "caseInsensitive": true,
+    "comparisonMode": "case-insensitive"
   }
 }
 ```
 
-检查覆盖：git 可用性、仓库身份、state schema/加载、仓库配置是否存在、worker/reviewer preset 名称、
-subagents 与 HMR 服务、workspace 锁持有者/是否过期、实时 roster、worktree 是否存在/归属/是否脏、
-test-discovery 策略、旧版快照、batch 与租约。被 `tower_teardown` 正常清理的 mission worktree 会被
-跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+`caseInsensitive` 是 `tower_init` 在检出目录所在文件系统上一次性探测的结果；`null` 表示“尚未探测”，
+此时 `case-mode` 检查为 `warn`。`comparisonMode` 是 scope 匹配实际使用的比较方式：
+`case-insensitive` 会折叠双方大小写，`case-sensitive` 则保持逐字节精确。doctor 从不执行探测（探测会
+创建临时文件，只读调用不能写入）；在没有可用写权限的检出上运行 `tower_init` 会记录该模式，在此之前
+使用安全的 `case-sensitive` 默认值。
+
+检查覆盖：git 可用性、仓库身份、state schema/加载、已探测的大小写模式、仓库配置是否存在、
+worker/reviewer preset 名称、subagents 与 HMR 服务、workspace 锁持有者/是否过期、实时 roster、
+worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、batch 与租约。被 `tower_teardown`
+正常清理的 mission worktree 会被跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 处理。state 加载失败会作为失败的检查报告而不是抛出，因此 doctor 在损坏的仓库上仍然有用。
 
 环境契约仅供参考；它不是身份或授权证明。`tower_init` 仍要求控制塔角色，`tower_spawn` 仍会检查

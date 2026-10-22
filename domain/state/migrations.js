@@ -44,9 +44,23 @@ export function migrateV1ToV2(state) {
   return next
 }
 
+/**
+ * v2 -> v3. Scope matching gained a detected case mode (#90). Older documents
+ * never recorded one, and a migration must not read the filesystem, so the
+ * field is backfilled as `null` ("not detected"). Comparison then keeps the
+ * safe exact default until the next `tower_init` probes the checkout.
+ * @param {Record<string, any>} state
+ * @returns {Record<string, any>}
+ */
+export function migrateV2ToV3(state) {
+  if (state.caseInsensitive !== undefined) return state
+  return { ...state, caseInsensitive: null }
+}
+
 /** Ordered registry: entry 0 moves 1 -> 2, entry 1 moves 2 -> 3, and so on. */
 export const STATE_MIGRATIONS = Object.freeze([
   Object.freeze({ from: 1, to: 2, migrate: migrateV1ToV2 }),
+  Object.freeze({ from: 2, to: 3, migrate: migrateV2ToV3 }),
 ])
 
 /**

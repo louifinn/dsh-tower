@@ -57,7 +57,7 @@ export async function evaluateGate(tower, input) {
           if (blocker) push(blocker.code, blocker.detail)
         }
         if (mission.kind !== 'survey') {
-          const blocker = outOfScopeBlocker({ mission, changedFiles })
+          const blocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
           if (blocker) push(blocker.code, blocker.detail)
         }
         const dirty = (await tower.git(tower.root, ['status', '--porcelain']))

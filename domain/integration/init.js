@@ -116,6 +116,7 @@ export function existingInitResult({ state, statePath, dirty }) {
     reanchored: false,
     dirty,
     snapshotCommit: state.snapshotCommit ?? null,
+    caseInsensitive: state.caseInsensitive ?? null,
   }
 }
 
@@ -128,10 +129,21 @@ export function existingInitResult({ state, statePath, dirty }) {
  * @param {string | null} [input.towerAgentId]
  * @param {string | null} [input.snapshotCommit]
  * @param {string | null} [input.snapshotRef]
+ * @param {boolean | null} [input.caseInsensitive]
  * @param {number} input.now
  * @returns {TowerState}
  */
-export function initialState({ repoRoot, commonDir, base, dirty, towerAgentId = null, snapshotCommit = null, snapshotRef = null, now }) {
+export function initialState({
+  repoRoot,
+  commonDir,
+  base,
+  dirty,
+  towerAgentId = null,
+  snapshotCommit = null,
+  snapshotRef = null,
+  caseInsensitive = null,
+  now,
+}) {
   return {
     schemaVersion: SCHEMA_VERSION,
     repoRoot,
@@ -141,6 +153,7 @@ export function initialState({ repoRoot, commonDir, base, dirty, towerAgentId = 
     createdAt: now,
     updatedAt: now,
     dirtyBase: dirty,
+    caseInsensitive,
     ...(towerAgentId ? { towerAgentId: String(towerAgentId) } : {}),
     ...(snapshotCommit ? { snapshotCommit, snapshotRef } : {}),
     missions: [],
@@ -156,9 +169,19 @@ export function initialState({ repoRoot, commonDir, base, dirty, towerAgentId = 
  * @param {boolean} input.dirty
  * @param {string | null} input.snapshotCommit
  * @param {string | null} input.snapshotRef
+ * @param {boolean | null} [input.caseInsensitive]
  * @returns {object}
  */
-export function createdInitResult({ repoRoot, commonDir, statePath, base, dirty, snapshotCommit, snapshotRef }) {
+export function createdInitResult({
+  repoRoot,
+  commonDir,
+  statePath,
+  base,
+  dirty,
+  snapshotCommit,
+  snapshotRef,
+  caseInsensitive = null,
+}) {
   return {
     created: true,
     repoRoot,
@@ -171,6 +194,7 @@ export function createdInitResult({ repoRoot, commonDir, statePath, base, dirty,
     dirty,
     snapshotCommit,
     snapshotRef,
+    caseInsensitive,
   }
 }
 
@@ -194,6 +218,7 @@ export function existingInitWriteResult({ state, statePath, dirty, reanchored })
     reanchored,
     dirty,
     snapshotCommit: state.snapshotCommit ?? null,
+    caseInsensitive: state.caseInsensitive ?? null,
   }
 }
 
@@ -202,10 +227,21 @@ export function existingInitWriteResult({ state, statePath, dirty, reanchored })
  * @param {string} input.base
  * @param {string | null} [input.snapshotCommit]
  * @param {boolean} input.dirty
+ * @param {boolean | null} [input.caseInsensitive]
  * @returns {string}
  */
-export function initActivityText({ base, snapshotCommit = null, dirty }) {
-  return `base ${base}${snapshotCommit ? ` snapshot ${snapshotCommit.slice(0, 12)}` : ''}${dirty ? ' (dirty base)' : ''}`
+export function initActivityText({ base, snapshotCommit = null, dirty, caseInsensitive = null }) {
+  const mode = caseInsensitive === null ? '' : ` (${caseInsensitive ? 'case-insensitive' : 'case-sensitive'} filesystem)`
+  return `base ${base}${snapshotCommit ? ` snapshot ${snapshotCommit.slice(0, 12)}` : ''}${dirty ? ' (dirty base)' : ''}${mode}`
+}
+
+/**
+ * Activity line for a probe recorded on an existing state.
+ * @param {boolean} caseInsensitive
+ * @returns {string}
+ */
+export function caseProbeActivityText(caseInsensitive) {
+  return `case sensitivity detected: ${caseInsensitive ? 'case-insensitive' : 'case-sensitive'}`
 }
 
 /**

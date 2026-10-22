@@ -15,7 +15,7 @@ export function registerDoctorTool(ctx, define) {
   define(ctx, {
     name: 'tower_doctor',
     description:
-      'Read-only environment and repository health check: git, state schema, config, presets/subagents/HMR, workspace lock, roster staleness, worktree ownership, test discovery, leases. Returns checks with pass/warn/fail and an environment contract. Never writes state.',
+      'Read-only environment and repository health check: git, state schema, case-sensitivity detection (caseInsensitive and the active scope comparison mode), config, presets/subagents/HMR, workspace lock, roster staleness, worktree ownership, test discovery, leases. Returns checks with pass/warn/fail and an environment contract. Never writes state and never probes the filesystem.',
     parameters: DoctorInput,
     output: output(SCHEMAS.doctor),
     async execute(args, exec) {

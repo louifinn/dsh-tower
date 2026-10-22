@@ -85,11 +85,14 @@ function assertAcyclic(missions) {
 /**
  * Kimi-style heuristic: overlapping build scopes are serialized by an
  * auto-added dependency. It is conservative, not a proof of disjointness.
+ * `caseInsensitive` is the checkout's detected mode (#90); on such a filesystem
+ * `src/Api/**` and `src/api/**` are the same real files and must serialise.
  * @param {Mission[]} newMissions
  * @param {Mission[]} existingMissions
+ * @param {{ caseInsensitive?: boolean }} [options]
  * @returns {void}
  */
-function addAutoDeps(newMissions, existingMissions) {
+function addAutoDeps(newMissions, existingMissions, { caseInsensitive = false } = {}) {
   const openExisting = existingMissions.filter((mission) => !isTerminal(mission.status))
   const all = [...existingMissions, ...newMissions]
   /** @type {Map<string, Mission>} */
@@ -100,7 +103,7 @@ function addAutoDeps(newMissions, existingMissions) {
       const earlier = newMissions[i]
       const later = newMissions[j]
       if (earlier.kind === 'survey' || later.kind === 'survey') continue
-      if (!scopesOverlap(earlier.scope, later.scope)) continue
+      if (!scopesOverlap(earlier.scope, later.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, later.id, earlier.id)) continue
       addDependency(later, earlier.id)
     }
@@ -108,7 +111,7 @@ function addAutoDeps(newMissions, existingMissions) {
     if (mission.kind === 'survey') continue
     for (const other of openExisting) {
       if (other.kind === 'survey') continue
-      if (!scopesOverlap(mission.scope, other.scope)) continue
+      if (!scopesOverlap(mission.scope, other.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, mission.id, other.id)) continue
       addDependency(mission, other.id)
     }

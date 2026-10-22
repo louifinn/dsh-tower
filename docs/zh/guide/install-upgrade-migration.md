@@ -36,7 +36,14 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   只读工具仍可读取 v1 文件且不改写它。`tower_doctor` 报告磁盘上的版本与待执行的迁移。由更新插件
   写入的文件会以 `[tower:state-version-unsupported]` 拒绝，绝不会被重写或降级；迁移抛错会报
   `[tower:state-migration-failed]`，原文件保持字节不变。
-- **2.0.4 → 2.1.0-beta.1**：不需要迁移 state/config。这是发布到 `next` dist-tag 的**预发布**，
+- **state schema v2 → v3（未发布，#90）**：scope 匹配跟随检出目录所在文件系统的行为。迁移把
+  `caseInsensitive` 回填为 `null`（“尚未探测”）；迁移不会读取文件系统，因此升级后的第一次
+  `tower_init` 会探测一次并记录 `true`/`false`。在此之前使用安全的 `case-sensitive` 比较，
+  `tower_doctor` 会把未知模式报告为 `warn`（`case-mode`）。在大小写不敏感的检出上，
+  `src/Api/**` 与 `src/api/**` 从此视为重叠，仅大小写不同的改动不再被 out-of-scope 门禁拒绝。
+  存储的 scope 文本永远不会被改写：看板仍显示操作者输入的原样。
+- **2.0.4 → 2.1.0-beta.1**：不需要迁移 config；state 会按上述说明自动迁移（v1/v2 → v3）。
+  这是发布到 `next` dist-tag 的**预发布**，
   `latest` 仍指向 2.0.4——请用 `dsh plugin --profile web add dsh-tower@next`（或精确版本号）安装。
   运行时行为未变；本版本承载的是交付闸门（CI 中的 mount smoke、`npm run release:check`、证据约定
   与追踪策略），而不是工具变化。本文档先于人工发布步骤合入：只有在[发布清单](release.md)执行

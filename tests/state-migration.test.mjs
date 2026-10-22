@@ -115,7 +115,7 @@ function v1Fixture() {
 }
 
 test('the migration registry is ordered, contiguous and ends at SCHEMA_VERSION', () => {
-  assert.equal(SCHEMA_VERSION, 2, 'this issue introduces schema version 2')
+  assert.equal(SCHEMA_VERSION, 3, 'the registry reaches schema version 3 (#72 added 2, #90 adds 3)')
   assert.ok(Array.isArray(STATE_MIGRATIONS))
   assert.ok(Object.isFrozen(STATE_MIGRATIONS))
   let version = 1
@@ -142,22 +142,43 @@ test('prepareState migrates a v1 fixture, validates the target schema and is ide
   assert.equal(prepared.changed, true)
   assert.equal(prepared.from, 1)
   assert.equal(prepared.to, SCHEMA_VERSION)
-  assert.deepEqual(prepared.migrated, [{ from: 1, to: 2 }])
+  assert.deepEqual(prepared.migrated, [
+    { from: 1, to: 2 },
+    { from: 2, to: 3 },
+  ])
   assert.equal(prepared.state.schemaVersion, SCHEMA_VERSION)
   assert.equal(prepared.state.revision, 0, 'the migration backfills a missing revision')
   assert.deepEqual(prepared.state.missions[0].tasks, [])
   assert.deepEqual(prepared.state.missions[0].deps, [])
+  // v2 -> v3 backfills the detected case mode as unknown; a migration must not
+  // read the filesystem, so the next tower_init probes and records it (#90).
+  assert.equal(prepared.state.caseInsensitive, null)
   // Validation ran after the migration: the migrated document is valid and the
   // pre-migration document was not mutated.
   assert.equal(validateState(prepared.state, 'state.json'), prepared.state)
   assert.equal(JSON.stringify(legacy), snapshot, 'migration steps must not mutate their input')
 
-  // Idempotent: a current document is a no-op, and the step itself is stable.
+  // Idempotent: a current document is a no-op, and the steps themselves are stable.
   const again = prepareState(prepared.state, 'state.json')
   assert.equal(again.changed, false)
   assert.equal(again.state, prepared.state)
   const step = STATE_MIGRATIONS[0]
   assert.deepEqual(step.migrate(step.migrate(legacy)), step.migrate(legacy))
+  const caseStep = STATE_MIGRATIONS[1]
+  assert.deepEqual(caseStep.migrate(caseStep.migrate(legacy)), caseStep.migrate(legacy))
+})
+
+test('v2 -> v3 backfills the case mode as unknown and preserves a recorded value', () => {
+  const unrecorded = { schemaVersion: 2, revision: 4, missions: [], base: 'main' }
+  const snapshot = JSON.stringify(unrecorded)
+  const migrated = prepareState(unrecorded, 'state.json')
+  assert.equal(migrated.changed, true)
+  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }])
+  assert.equal(migrated.state.caseInsensitive, null, 'a migration must not guess at the filesystem')
+  assert.equal(JSON.stringify(unrecorded), snapshot, 'the pre-migration document is not mutated')
+
+  const recorded = prepareState({ ...unrecorded, caseInsensitive: true }, 'state.json')
+  assert.equal(recorded.state.caseInsensitive, true)
 })
 
 test('a newer state version is state-version-unsupported, never state-corrupt', () => {
@@ -187,6 +208,9 @@ test('a migration that throws is state-migration-failed and leaves its input unt
         throw new Error('injected migration failure')
       },
     },
+    // The injected registry must still reach SCHEMA_VERSION; otherwise the gap
+    // is classified as unmigratable before the throwing step can run.
+    { from: 2, to: 3, migrate: (state) => state },
   ]
   assert.throws(
     () => prepareState(legacy, 'state.json', { migrations }),
@@ -221,7 +245,7 @@ test('a v1 state migrates under the state lock: backup, one revision bump, state
     const migrated = activityFor(tower).filter((entry) => entry.type === 'state.migrated')
     assert.equal(migrated.length, 1)
     assert.equal(migrated[0].from, 1)
-    assert.equal(migrated[0].to, 2)
+    assert.equal(migrated[0].to, SCHEMA_VERSION)
     assert.equal(tower.stateLoad.migration.persisted, true)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -328,6 +352,7 @@ test('a throwing migration leaves the original file byte-identical and keeps the
           throw new Error('injected migration failure')
         },
       },
+      { from: 2, to: 3, migrate: (state) => state },
     ]
 
     await assert.rejects(
@@ -364,7 +389,10 @@ test('tower_doctor reports the state schema version and the pending migration wi
     assert.deepEqual(pending.stateSchema, {
       currentVersion: 1,
       supportedVersion: SCHEMA_VERSION,
-      migrations: [{ from: 1, to: 2 }],
+      migrations: [
+        { from: 1, to: 2 },
+        { from: 2, to: 3 },
+      ],
       status: 'migratable',
     })
     assert.equal(pending.checks.find((check) => check.id === 'state-schema').status, 'warn')

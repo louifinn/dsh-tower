@@ -54,6 +54,7 @@ const SCHEMAS = {
       base: S.str,
       revision: S.int,
       missions: S.int,
+      caseInsensitive: S.any,
     },
     ['created', 'repoRoot', 'commonDir', 'statePath', 'base', 'revision', 'missions'],
   ),

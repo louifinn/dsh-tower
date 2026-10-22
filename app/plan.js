@@ -19,7 +19,7 @@ export async function plan(tower, input = {}) {
 
     assertKnownDependencies(assigned, state.missions)
 
-    addAutoDeps(assigned, state.missions)
+    addAutoDeps(assigned, state.missions, { caseInsensitive: state.caseInsensitive === true })
     assertAcyclic([...state.missions, ...assigned])
 
     const created = assigned.map((mission) => newMission(mission.id, mission, now))

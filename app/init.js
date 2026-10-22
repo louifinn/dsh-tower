@@ -7,10 +7,12 @@
 //   commit  — one short state lock writes/claims/reanchors, revalidating the
 //             state revision captured by prepare.
 import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { detectCaseSensitivity } from '../lib/caseSensitivity.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
   SNAPSHOT_REF_PREFIX,
+  caseProbeActivityText,
   claimCaller,
   createdInitResult,
   existingInitResult,
@@ -31,6 +33,19 @@ import {
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
+}
+
+/**
+ * Probe the checkout's own filesystem through the injected seam. The default
+ * composition uses the real probe; a composition that predates #90 keeps
+ * working through the fallback.
+ * @param {any} tower
+ * @returns {Promise<boolean | null>}
+ */
+async function detectCaseMode(tower) {
+  const detect = tower.deps?.caseSensitivity?.detect
+  if (typeof detect === 'function') return detect(tower.root)
+  return detectCaseSensitivity(tower.root)
 }
 
 /** Phase 1 of `Tower.init` (#51). A read-only init returns its result here. */
@@ -60,6 +75,10 @@ async function prepareInit(tower, input) {
     if (ownedByOther(owner, caller)) {
       fail(`tower state is owned by another agent; ${caller} is not the tower`, 'not-authorized')
     }
+    // "Detect once": a state that already carries a boolean is never re-probed,
+    // so a transient probe failure cannot silently flip the comparison mode.
+    const known = state.caseInsensitive === true || state.caseInsensitive === false
+    const caseInsensitive = known ? null : await detectCaseMode(tower)
     let reanchorBase = null
     if (input.reanchor === true) {
       const refusal = reanchorBlockedMessage(state.missions)
@@ -68,10 +87,10 @@ async function prepareInit(tower, input) {
     }
     const claim = claimCaller(owner, caller) !== null
     const reanchor = shouldReanchor({ reanchor: input.reanchor, reanchorBase, currentBase: state.base })
-    if (!claim && !reanchor) {
+    if (!claim && !reanchor && caseInsensitive === null) {
       return { early: existingInitResult({ state, statePath: tower.paths.state, dirty }) }
     }
-    return { stateRevision: state.revision, claim, reanchor, base: reanchorBase, dirty }
+    return { stateRevision: state.revision, claim, reanchor, base: reanchorBase, dirty, caseInsensitive }
   }
 
   return {
@@ -79,6 +98,7 @@ async function prepareInit(tower, input) {
     base: await resolveBase(),
     snapshot: shouldSnapshot({ snapshotDirty: input.snapshotDirty, dirty }),
     dirty,
+    caseInsensitive: await detectCaseMode(tower),
   }
 }
 
@@ -154,6 +174,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
       towerAgentId: input.towerAgentId ? String(input.towerAgentId) : null,
       snapshotCommit: acted.snapshotCommit,
       snapshotRef: acted.snapshotRef,
+      caseInsensitive: prepared.caseInsensitive,
       now,
     })
     validateState(state, tower.paths.state)
@@ -161,7 +182,12 @@ async function commitInitCreate(tower, prepared, acted, input) {
     await appendJsonl(tower.paths.activity, {
       at: now,
       type: 'init',
-      text: initActivityText({ base: prepared.base, snapshotCommit: acted.snapshotCommit, dirty: prepared.dirty }),
+      text: initActivityText({
+        base: prepared.base,
+        snapshotCommit: acted.snapshotCommit,
+        dirty: prepared.dirty,
+        caseInsensitive: prepared.caseInsensitive,
+      }),
     })
     return createdInitResult({
       repoRoot: tower.root,
@@ -171,6 +197,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
       dirty: prepared.dirty,
       snapshotCommit: acted.snapshotCommit,
       snapshotRef: acted.snapshotRef,
+      caseInsensitive: prepared.caseInsensitive,
     })
   })
 }
@@ -205,6 +232,21 @@ async function commitInitExisting(tower, prepared, input) {
       })
     }
     let reanchored = false
+    // Record the one-time case-sensitivity probe (#90). An unknown result is
+    // not persisted, so a later init can retry it without bumping the revision
+    // on every call.
+    if (prepared.caseInsensitive !== null && state.caseInsensitive !== prepared.caseInsensitive) {
+      state.caseInsensitive = prepared.caseInsensitive
+      state.revision += 1
+      state.updatedAt = now
+      validateState(state, tower.paths.state)
+      await writeJsonAtomic(tower.paths.state, state)
+      await appendJsonl(tower.paths.activity, {
+        at: now,
+        type: 'init',
+        text: caseProbeActivityText(prepared.caseInsensitive),
+      })
+    }
     if (prepared.reanchor && state.base !== prepared.base) {
       state.base = prepared.base
       state.baseChangedAt = now

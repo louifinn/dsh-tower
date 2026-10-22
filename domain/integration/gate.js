@@ -2,7 +2,7 @@
 // facts the app already read (tips, changed files, checkout branch). The app
 // performs every read and owns the result assembly.
 // @ts-check
-import { fileInScope } from '../scope.js'
+import { caseInsensitiveScopeMatch, fileInScope } from '../scope.js'
 
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -76,16 +76,29 @@ export function surveyChangedFilesBlocker({ missionId, changedFiles }) {
  * @param {object} input
  * @param {Mission} input.mission
  * @param {string[]} input.changedFiles
+ * @param {boolean} [input.caseInsensitive] the checkout's detected comparison mode
  * @returns {Blocker | null}
  */
-export function outOfScopeBlocker({ mission, changedFiles }) {
-  const outOfScope = changedFiles.filter((file) => !fileInScope(mission.scope, file))
-  return outOfScope.length > 0
-    ? {
-        code: 'out-of-scope',
-        detail: `changed files outside scope (${mission.scope.join(', ')}): ${outOfScope.slice(0, 8).join(', ')}`,
-      }
-    : null
+export function outOfScopeBlocker({ mission, changedFiles, caseInsensitive = false }) {
+  const outOfScope = changedFiles.filter((file) => !fileInScope(mission.scope, file, { caseInsensitive }))
+  if (outOfScope.length === 0) return null
+  const parts = [`changed files outside scope (${mission.scope.join(', ')}): ${outOfScope.slice(0, 8).join(', ')}`]
+  // On a case-sensitive checkout a case-only mismatch is a human error worth
+  // naming, but it stays a rejection: folding here would make src/Api and
+  // src/api the same directory on a filesystem where they are not (#90).
+  if (!caseInsensitive) {
+    const hints = outOfScope
+      .map((file) => {
+        const pattern = caseInsensitiveScopeMatch(mission.scope, file)
+        return pattern
+          ? `${file} matches "${pattern}" only when case is folded; this checkout is case-sensitive`
+          : null
+      })
+      .filter(Boolean)
+      .slice(0, 3)
+    if (hints.length > 0) parts.push(`case mismatch: ${hints.join('; ')}`)
+  }
+  return { code: 'out-of-scope', detail: parts.join('. ') }
 }
 
 /**

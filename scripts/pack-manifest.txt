@@ -117,6 +117,7 @@ domain/vocabulary.js
 icon.svg
 index.js
 lib/briefing.js
+lib/caseSensitivity.js
 lib/compatibility.js
 lib/config.js
 lib/doctor.js
