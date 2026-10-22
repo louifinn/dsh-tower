@@ -232,6 +232,12 @@ async function prepareFromState(tower, input, deps) {
   const { mergeTimeoutMs, MERGE_MAX_BUFFER } = deps
   let state = await tower.load()
   let mission = state.missions.find((entry) => entry.id === input.missionId)
+  if (!mission) {
+    // An archived terminal mission still answers `alreadyMerged` (or the same
+    // blockers) instead of turning into mission-missing after the move (#73).
+    const archived = await tower.archivedMission(input.missionId)
+    if (archived.ok && archived.entry) mission = archived.entry.mission
+  }
   if (!mission) return { result: missionMissingResult(input.missionId) }
 
   // Reconcile a stale merge intent: Git runs here, outside every state lock.

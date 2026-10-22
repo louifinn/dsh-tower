@@ -9,16 +9,13 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-faults-') {
@@ -78,7 +75,6 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
 
     const corruptVariants = [
       ['invalid JSON', 'this is not json at all'],
-      ['unsupported schemaVersion', JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)],
       ['missing missions array', JSON.stringify({ ...parsed, missions: 'nope' }, null, 2)],
       [
         'unknown mission status',
@@ -110,11 +106,23 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
       )
       fs.writeFileSync(tower.paths.state, baseline)
     }
+
+    // A newer schema is not corruption: it is refused without a rewrite so an
+    // older plugin can never silently downgrade state written by a newer one.
+    const newerText = JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)
+    fs.writeFileSync(tower.paths.state, newerText)
+    await assert.rejects(
+      () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+      /\[tower:state-version-unsupported\]/,
+    )
+    assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), newerText, 'a newer state must be left untouched')
+    fs.writeFileSync(tower.paths.state, baseline)
+
     // The untouched baseline still works afterwards.
     const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     assert.equal(status.counts.planned, 1)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -142,7 +150,7 @@ test('a held state writer lock fails closed with [tower:state-locked]', async ()
       .execute({ repoRoot: repo, missions: [{ title: 'After lock', scope: ['x/**'] }] }, exec)
     assert.equal(planned.missions[0].id, 'M1')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -158,7 +166,7 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     const provisioned = await tower.provision({ missionId: 'M1' })
     const worktreePath = provisioned.worktree.path
     assert.ok(fs.existsSync(worktreePath))
-    fs.rmSync(worktreePath, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(worktreePath)
 
     const preflight = await tools.get('tower_preflight').execute({ repoRoot: repo, missionId: 'M1' }, exec)
     assert.equal(preflight.ok, false)
@@ -179,6 +187,6 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     assert.equal(merge.ok, false)
     assert.ok(merge.blockers.some((blocker) => blocker.code === 'branch-missing'))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

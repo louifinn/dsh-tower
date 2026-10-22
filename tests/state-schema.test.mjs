@@ -6,12 +6,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { validateState } from '../domain/state.js'
+import { SCHEMA_VERSION } from '../domain/mission.js'
 import { StateSchema, stateShapeError } from '../domain/state/schema.js'
 
 /** A state exercising every declared collection and legacy extra field. */
 function validState() {
   return {
-    schemaVersion: 1,
+    schemaVersion: SCHEMA_VERSION,
     revision: 2,
     repoRoot: '/repo',
     commonDir: '/repo/.git',
@@ -19,6 +20,7 @@ function validState() {
     createdAt: 1,
     updatedAt: 2,
     dirtyBase: false,
+    caseInsensitive: true,
     towerAgentId: null,
     missions: [
       {
@@ -103,7 +105,7 @@ test('declarative StateSchema accepts a full valid state and returns it unchange
 
 test('schema tolerance: minimal legacy rows, reserved roster rows and extra fields stay valid', () => {
   const minimal = {
-    schemaVersion: 1,
+    schemaVersion: SCHEMA_VERSION,
     missions: [{ id: 'M1', status: 'planned', tasks: [], deps: [] }],
     roster: [{ name: 'reviewer-m1', role: 'reviewer', state: 'reserved' }],
     futureField: { anything: true },
@@ -122,7 +124,6 @@ test('schema tolerance: minimal legacy rows, reserved roster rows and extra fiel
 test('key structural and semantic failures keep historical state-corrupt messages', () => {
   const base = validState()
   const cases = [
-    ['unsupported schemaVersion', { ...base, schemaVersion: 99 }, 'unsupported tower state schemaVersion 99 at state.json'],
     ['missing missions', { ...base, missions: 'nope' }, 'tower state has no missions array at state.json'],
     [
       'duplicate mission id',
@@ -177,6 +178,11 @@ test('key structural and semantic failures keep historical state-corrupt message
     ['negative revision', { ...base, revision: -1 }, 'tower state revision is not a non-negative integer at state.json'],
     ['fractional revision', { ...base, revision: 1.5 }, 'tower state revision is not a non-negative integer at state.json'],
     [
+      'caseInsensitive shape',
+      { ...base, caseInsensitive: 'yes' },
+      'tower state caseInsensitive is not a boolean at state.json',
+    ],
+    [
       'worktree record shape',
       { ...base, missions: [{ ...base.missions[0], worktree: { path: 7, branch: 'b', baseCommit: 'c' } }] },
       'mission M1 has an invalid worktree record at state.json',
@@ -197,6 +203,7 @@ test('collection and entry shape failures are rejected as state-corrupt', () => 
   const base = validState()
   const cases = [
     ['not an object', null],
+    ['schemaVersion not an integer', { ...base, schemaVersion: 'v2' }],
     ['missions entries', { ...base, missions: [{ status: 'active', tasks: [], deps: [] }] }],
     ['tasks array', { ...base, missions: [{ ...base.missions[0], tasks: {} }] }],
     ['deps array', { ...base, missions: [{ ...base.missions[0], deps: 'M2' }] }],
@@ -221,9 +228,25 @@ test('collection and entry shape failures are rejected as state-corrupt', () => 
 })
 
 test('stateShapeError is pure and reports the first structural problem', () => {
-  const invalid = { ...validState(), schemaVersion: 2 }
+  const invalid = { ...validState(), schemaVersion: SCHEMA_VERSION + 1 }
   const before = JSON.stringify(invalid)
-  assert.match(String(stateShapeError(invalid, ' at x.json')), /schemaVersion 2 at x\.json/)
+  assert.match(
+    String(stateShapeError(invalid, ' at x.json')),
+    new RegExp(`schemaVersion ${SCHEMA_VERSION + 1} at x\\.json`),
+  )
   assert.equal(JSON.stringify(invalid), before, 'shape validation must not mutate the state')
   assert.equal(stateShapeError(null, ' at x.json'), 'tower state is not an object at x.json')
+})
+
+test('a newer schemaVersion is version-unsupported, not corrupt, and carries a nextAction', () => {
+  const newer = { ...validState(), schemaVersion: SCHEMA_VERSION + 1 }
+  let error
+  try {
+    validateState(newer, 'state.json')
+  } catch (thrown) {
+    error = thrown
+  }
+  assert.equal(error.code, 'state-version-unsupported')
+  assert.equal(error.nextAction === null, false)
+  assert.match(error.message, /newer/)
 })

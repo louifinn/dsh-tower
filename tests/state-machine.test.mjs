@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower, MISSION_STATUSES, validateState } from '../app/tower.js'
 
@@ -28,10 +29,6 @@ const EXPECTED_TRANSITIONS = {
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-machine-') {
@@ -160,7 +157,7 @@ test('mission transitions: the full allowed/denied table matches the implementat
       }
     }
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -251,7 +248,7 @@ test('tower_complete and tower_merge enforce their own state preconditions', asy
     assert.equal(notReady.ok, false)
     assert.ok(notReady.blockers.some((blocker) => blocker.code === 'mission-not-completed'))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -341,6 +338,6 @@ test('fuzz: 200 deterministic mutations keep a valid, monotonic state file', asy
     assert.ok(failures > 20, `expected many rejected mutations, saw ${failures}`)
     assert.ok(ids.length === 6)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

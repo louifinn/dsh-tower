@@ -4,6 +4,43 @@
 
 ## 未发布（Unreleased）
 
+### 新增
+
+- **#72 state 迁移**：`state.json` 的 `schemaVersion` 升到 2，并新增有序、纯函数式的迁移注册表
+  （`domain/state/migrations.js`）。旧 state 在持有 state 锁的加载中自动迁移：先写
+  `state.json.v<N>.bak` 备份，再原子替换、`revision` 只 +1、并向 activity 追加
+  `state.migrated {from,to}`；只读工具只在内存中迁移，不改写文件。由更新插件写入的 state 现在
+  以 `[tower:state-version-unsupported]` 拒绝（不再误报 `state-corrupt`），且绝不会被降级重写；
+  迁移抛错以 `[tower:state-migration-failed]` 报出，原文件保持字节不变。`tower_doctor` 新增
+  `stateSchema {currentVersion,supportedVersion,migrations,status}` 与 `state-schema` 检查。
+- **#73 终态任务归档**：`merged`/`abandoned` 且 worktree 已移除的 mission 在达到可配置策略
+  （`archive.enabled`/`archive.afterDays`/`archive.maxMissions`）后，于下一次变更边界移入
+  `<git-common-dir>/dsh-tower/archive/index.json` 与 `archive/<year>.json`（各自带 `archiveVersion`
+  头）。归档保留完整 mission、tasks、reviews、findings 与完成报告，state.json 只保留活跃任务，
+  因此每次 mutation 不再重写全部历史；归档按 id 幂等，进程崩溃后可重试。`tower_status` 默认只列
+  活跃任务，`includeArchived:true` 在活跃页后追加 `archived:true` 的压缩摘要（不含报告正文），
+  `missionId` 详情会从 year 文件加载；归档损坏时降级为 `archive.unreadable` 诊断而不是抛错。
+  `tower_doctor` 新增 `archive {missions,archivedMissions,stateBytes,archiveBytes,years,files,
+  unreadable,policy}` 与 `archive` 检查。`tower_preflight`/`tower_merge` 对已归档 mission 保持原行为，
+  新 mission 的编号也会避开归档 id。
+
+### 变更
+
+- **#89 completion report 上限**：`tower_complete.report` 新增 `gates.maxReportBytes`
+  （默认 32768，按 **UTF-8 字节**而非字符计）硬上限；超限以 `invalid-argument` 拒绝并给出
+  `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。存储的完成报告新增
+  `reportBytes`；`tower_status` 的分页摘要只返回大小，完整正文只在 `missionId` 详情中返回；
+  `tower_doctor` 新增 `reports` 检查并报告仓库中最大的报告。旧 state 无需迁移：缺失
+  `reportBytes` 时在读取时按 UTF-8 字节推导。
+
+- **#90 scope 大小写**：`tower_init` 在检出目录上做一次性大小写探测并记录 `caseInsensitive`
+  （探测失败记录 `null`，比较继续使用安全的 case-sensitive 默认值）；`tower_doctor` 报告
+  `caseInsensitive` 与生效的 `comparisonMode`。在大小写不敏感的文件系统上，`fileInScope` 与
+  `scopesOverlap` 折叠双方，因此 `src/Api/**` 与 `src/api/**` 视为重叠（plan 自动串行、扩 scope
+  被拒绝），仅大小写不同的改动不再被 out-of-scope 门禁拒绝；在大小写敏感的检出上仍拒绝，但 blocker
+  detail 会指出折叠大小写后本可匹配的 scope 条目。存储的 scope 文本保持原样。state schema 升到 3，
+  v2 → v3 迁移回填 `caseInsensitive: null`。
+
 ## 2.1.0-beta.1（2026-10-22）
 
 **预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。

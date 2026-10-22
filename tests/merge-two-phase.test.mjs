@@ -7,15 +7,12 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 import { validateState } from '../domain/state.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function readState(tower) {
@@ -158,7 +155,7 @@ test('merge runs git outside the state lock with the intent already recorded', a
     assert.equal(state.missions[0].status, 'merged')
     assert.equal(state.missions[0].mergedCommit, result.mergedCommit)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -233,7 +230,7 @@ test('a concurrent state bump during the merge does not corrupt state', async ()
     assert.equal(final.missions[0].mergedCommit, landedTip)
     assert.ok(final.missions[0].notes.includes('concurrent state bump'))
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -264,7 +261,7 @@ test('pre-merge hook failure still classifies merge-hook-failed and leaves no in
     assert.equal(state.mergeIntent ?? null, null, 'a failed-before-commit merge must not leave an intent')
     assert.equal(state.missions[0].status, 'completed', 'mission must stay retryable')
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -305,7 +302,7 @@ test('reconciliation runs every git read without the state lock held', async () 
     assert.equal(state.missions[0].status, 'merged')
     assert.equal(state.missions[0].mergedCommit, manualTip)
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -355,7 +352,7 @@ test('a stale merge intent is reconciled without any git call under the state lo
       'state mutations must still be serialized by withLock even though git is not',
     )
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })
 
@@ -397,6 +394,6 @@ test('a state bump during reconciliation makes the prepare retry without losing 
     assert.ok(after.revision >= before.revision + 2, 'both the bump and the reconcile must be reflected in the revision')
     assert.equal(git(ctx.repo, ['rev-parse', 'HEAD']), manualTip, 'retry must not create a second merge commit')
   } finally {
-    cleanup(ctx.root)
+    removeTemp(ctx.root)
   }
 })

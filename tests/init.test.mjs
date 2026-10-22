@@ -10,18 +10,15 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+import { Tower, SCHEMA_VERSION } from '../app/tower.js'
 import { configureRuntime } from '../lib/config.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function makeCtx() {
@@ -101,7 +98,7 @@ test('autoGitInit: a plain directory becomes a repository with an empty initial 
     assert.equal(git(plain, ['log', '-1', '--format=%s']), 'tower: initial empty commit')
 
     const state = JSON.parse(fs.readFileSync(initialized.statePath, 'utf8'))
-    assert.equal(state.schemaVersion, 1)
+    assert.equal(state.schemaVersion, SCHEMA_VERSION)
     assert.equal(state.base, branch)
     assert.equal(state.repoRoot, initialized.repoRoot)
 
@@ -111,7 +108,7 @@ test('autoGitInit: a plain directory becomes a repository with an empty initial 
     assert.equal(again.revision, 0)
     assert.equal(git(plain, ['rev-list', '--count', 'HEAD']), '1')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -145,7 +142,7 @@ test('snapshotDirty: the dirty working tree becomes the mission baseline', async
     // The snapshot is a dangling commit, not a rewrite of the base branch.
     assert.notEqual(initialized.snapshotCommit, git(repo, ['rev-parse', 'HEAD']))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -167,10 +164,10 @@ test('snapshotDirty: a clean tree records no snapshot, and a missing one is reje
         /snapshotDirty was requested but no snapshot commit could be created/i,
       )
     } finally {
-      cleanup(fresh.root)
+      removeTemp(fresh.root)
     }
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -216,7 +213,7 @@ test('reanchor: refused while missions are open, allowed after they are closed',
       /base branch "nope" does not exist locally/,
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -250,11 +247,11 @@ test('init config policy: profile init.autoGitInit / init.snapshotDirty supply t
         configureRuntime({})
       }
     } finally {
-      cleanup(seeded.root)
+      removeTemp(seeded.root)
     }
   } finally {
     configureRuntime({})
-    cleanup(base)
+    removeTemp(base)
   }
 })
 
@@ -270,6 +267,6 @@ test('init reports a dirty working tree without failing', async () => {
     assert.equal(second.dirty, true)
     assert.equal(second.snapshotCommit, null)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

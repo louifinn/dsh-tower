@@ -31,7 +31,7 @@ test('classifyError: GitError keeps repo/git/timing codes', async () => {
 })
 
 test('classifyError: prose alone no longer classifies', () => {
-  for (const message of ['unknown mission "M9"', 'mission title must be printable ASCII', 'state is locked']) {
+  for (const message of ['unknown mission "M9"', 'mission title must be at most 120 characters', 'state is locked']) {
     const error = classifyError(new Error(message))
     assert.equal(error.code, 'tool-internal')
     assert.ok(error.message.startsWith('[tower:tool-internal] '))
@@ -85,10 +85,14 @@ test('structured TowerToolError derives retryable from the catalog', async () =>
 
 test('pure domain validation throws structured errors', async () => {
   const { validateState } = await import('../domain/state.js')
+  const { SCHEMA_VERSION } = await import('../domain/mission.js')
   const { normalizeScope } = await import('../domain/scope.js')
   let stateError
-  try { validateState({ schemaVersion: 99 }, 'state.json') } catch (error) { stateError = error }
-  assert.equal(stateError.code, 'state-corrupt')
+  try { validateState({ schemaVersion: SCHEMA_VERSION + 1 }, 'state.json') } catch (error) { stateError = error }
+  assert.equal(stateError.code, 'state-version-unsupported')
+  let corruptError
+  try { validateState({ schemaVersion: 'nope' }, 'state.json') } catch (error) { corruptError = error }
+  assert.equal(corruptError.code, 'state-corrupt')
   let scopeError
   try { normalizeScope(['../x']) } catch (error) { scopeError = error }
   assert.equal(scopeError.code, 'invalid-argument')

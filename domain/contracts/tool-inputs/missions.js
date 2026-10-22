@@ -14,7 +14,7 @@ export const PlanInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missions: Type.Array(
     Type.Object({
-      title: Type.String({ description: 'Printable ASCII title; used as the mission label.' }),
+      title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
       deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must merge before this one.' })),
@@ -54,6 +54,7 @@ export const StatusInput = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Mission list offset (default 0).' })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Mission list page size (default 20).' })),
   includeGate: Type.Optional(Type.Boolean({ description: 'Compute tower_preflight-style gate digests for missions on this page.' })),
+  includeArchived: Type.Optional(Type.Boolean({ description: 'Append archived terminal missions (compact summaries, marked archived:true) after the active page. The default dashboard and board list active missions only.' })),
   format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'markdown returns the MISSIONS.md board text.' })),
 }, { additionalProperties: false })
 

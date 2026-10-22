@@ -21,6 +21,7 @@ import {
   teardownRemoveDecision,
   teardownRemovedDecision,
 } from '../domain/integration/teardown.js'
+import { sweepArchive } from './archive.js'
 
 /**
  * Phase 1 (#51): decide every keep/remove outcome without holding the state
@@ -180,5 +181,25 @@ export async function teardown(tower, input) {
     setDecision(candidate.decision, teardownRemovedDecision(outcome))
   }
 
-  return { ok: true, dryRun: false, removed, decisions: prepared.decisions }
+  // Archival runs under one final short lock. It is policy-driven (age or the
+  // hot-terminal cap), so a mission torn down a moment ago stays hot until it
+  // is old enough; `archive.afterDays: 0` archives it on this call.
+  const archive = await withLock(tower.paths, async () => {
+    const state = await tower.load()
+    const swept = await sweepArchive(tower, state, { now: Date.now(), activity: input.activity ?? {} })
+    if (swept.written) {
+      validateState(state, tower.paths.state)
+      await writeJsonAtomic(tower.paths.state, state)
+    }
+    return swept
+  })
+
+  return {
+    ok: true,
+    dryRun: false,
+    removed,
+    decisions: prepared.decisions,
+    archived: archive.archived,
+    ...(archive.error ? { archiveError: archive.error } : {}),
+  }
 }

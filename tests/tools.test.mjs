@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -132,7 +133,7 @@ test('tool aliases: missionId/id and taskDone/task_done/clearBlockers all work',
     validateAgainstSchema(status, tools.get('tower_status').output.schema)
     assert.equal(status.counts.blocked >= 1, true)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -177,7 +178,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
       /\[tower:finding-not-found\]/,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -242,7 +243,7 @@ test('findings tool: file, list, read and transition through the tool surface', 
     const reviewerRead = await tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id }, reviewerExec)
     assert.equal(reviewerRead.finding.status, 'triaged')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -263,7 +264,7 @@ test('tower_plan refuses before creating missions when a preset is missing (#64)
     const state = await new Tower({ root: repo, commonDir: path.join(repo, '.git'), branch: 'main' }).load().catch(() => null)
     assert.equal(state?.missions?.length ?? 0, 0)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })
 
@@ -292,6 +293,6 @@ test('missing towerAgentId gives an actionable error and tower_init re-claims', 
     const planned = await tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'After claim', scope: ['z/**'] }] }, restored)
     assert.ok(planned.missions.length > 0)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })

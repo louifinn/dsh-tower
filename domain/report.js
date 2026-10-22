@@ -7,9 +7,10 @@ import { taskCounts } from './summary.js'
 
 /**
  * @param {TowerState} state
+ * @param {{ count?: number, unreadable?: boolean, message?: string } | null} [archive]
  * @returns {string}
  */
-export function boardMarkdown(state) {
+export function boardMarkdown(state, archive = null) {
   const lines = []
   lines.push(`# Tower missions — ${state.repoRoot}`)
   lines.push('')
@@ -23,6 +24,13 @@ export function boardMarkdown(state) {
     `Missions: ${state.missions.length} · ` +
       MISSION_STATUSES.map((status) => `${status} ${counts[status]}`).join(' · '),
   )
+  if (archive) {
+    lines.push(
+      archive.unreadable === true
+        ? `Archived: unreadable (${archive.message ?? 'archive index could not be read'})`
+        : `Archived: ${archive.count ?? 0} terminal mission(s) in archive/ (not listed; use tower_status includeArchived)`,
+    )
+  }
   const openFindings = (state.findings ?? []).filter((finding) => !['fixed', 'wontfix'].includes(finding.status ?? 'open'))
   lines.push(`Findings: ${openFindings.length} open of ${(state.findings ?? []).length}`)
   lines.push('')

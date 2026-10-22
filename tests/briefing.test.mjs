@@ -8,16 +8,13 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
 import { Tower } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-briefing-') {
@@ -240,6 +237,6 @@ test('missionContext feeds the briefing with the real review and finding history
     assert.match(reviewBriefing, /Completion checks the worker ran:/)
     assert.match(reviewBriefing, /unit tests/)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

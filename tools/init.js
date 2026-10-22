@@ -16,7 +16,7 @@ export function registerInitTool(ctx, deps) {
   define(ctx, {
     name: 'tower_init',
     description:
-      'Initialize Tower mission state for a repository (absolute repoRoot). Creates <git-common-dir>/dsh-tower/state.json and an activity log; idempotent on an existing workspace. Options: autoGitInit (git init + empty initial commit when the directory is not a repository), snapshotDirty (snapshot uncommitted work into a dangling commit used as the mission baseline), reanchor (change base when every mission is merged/abandoned). Only the tower may initialize.',
+      'Initialize Tower mission state for a repository (absolute repoRoot). Creates <git-common-dir>/dsh-tower/state.json and an activity log; idempotent on an existing workspace. Probes whether the checkout filesystem folds case and records caseInsensitive once, so scope matching follows the real filesystem (a skipped probe records null and keeps the safe case-sensitive comparison). Options: autoGitInit (git init + empty initial commit when the directory is not a repository), snapshotDirty (snapshot uncommitted work into a dangling commit used as the mission baseline), reanchor (change base when every mission is merged/abandoned). Only the tower may initialize.',
     parameters: InitInput,
     aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'] },
     board: true,

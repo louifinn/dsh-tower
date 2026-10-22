@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TYPES, MISSION_STATUSES } from '../app/tower.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -51,7 +52,7 @@ test('every architecture rule can fail on a seeded fixture', async () => {
       assert.equal(violation.level, 'error', `${violation.rule} must be blocking`)
     }
   } finally {
-    fs.rmSync(fixture, { recursive: true, force: true })
+    removeTemp(fixture)
   }
 })
 

@@ -222,6 +222,7 @@ test('completion policy normalizes checks and validates the reporting worker', (
   assert.throws(() => assertCompletionInbox({ mission: target, worker, unread: [{}] }), /unread inbox message/ )
   assert.deepEqual(completionReport({ report: ' done ', worker, checks: [{ name: 'c' }], now: 7 }), {
     report: 'done',
+    reportBytes: 4,
     by: 'worker-1',
     at: 7,
     checks: [{ name: 'c' }],

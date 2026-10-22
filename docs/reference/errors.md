@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 33 tool error codes.
+release defines 35 tool error codes.
 
 Every `TowerToolError` also carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers; the message prefix remains the stable contract
@@ -26,7 +26,9 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `stale-base` | The repository state changed while the operation was being prepared; retry. | two-phase mutation revalidation |
 | `worktree-dirty` | The mission worktree has uncommitted changes and cannot complete. | staged, modified, or untracked files left behind before `tower_complete` |
 | `state-locked` | Another Tower writer holds the state lock. | concurrent mutation after the lock timeout |
-| `state-corrupt` | The Tower state file is unreadable or invalid. | hand-edited `state.json` |
+| `state-corrupt` | The Tower state file is unreadable or invalid. | hand-edited `state.json`; invalid JSON; no usable `schemaVersion` |
+| `state-version-unsupported` | The state file's schema version is newer than this build supports, or cannot be migrated. | opening a repository written by a newer plugin; an unknown older version; this build refuses to downgrade |
+| `state-migration-failed` | A state migration threw; the original file was not modified. | a bug in a migration step; see the pre-migration `state.json.v<N>.bak` |
 | `config-invalid` | Tower configuration is invalid. | malformed repo `config.json`, a value that violates the schema |
 | `config-unknown-key` | Tower configuration has an unknown top-level key. | a typo such as `allowAgentToggle` |
 | `git-failed` | A git command failed for a reason other than the delegated cases. | a rejected merge command, invalid ref |

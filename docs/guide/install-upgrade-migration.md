@@ -29,7 +29,24 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
-- **2.0.4 → 2.1.0-beta.1**: no state/config migration. This is a **pre-release** published on the
+- **state schema v1 → v2 (unreleased)**: `state.json` migrates automatically. The first **write** after
+  upgrading keeps a `state.json.v1.bak` backup, advances `revision` once, and appends
+  `state.migrated {from,to}` to `activity.jsonl`; read-only tools keep reading a v1 file without
+  rewriting it. `tower_doctor` reports the on-disk version and the pending migration. A file written by
+  a newer plugin is refused with `[tower:state-version-unsupported]` and is never rewritten or
+  downgraded; a migration that throws reports `[tower:state-migration-failed]` and leaves the original
+  file byte-identical.
+
+- **state schema v2 → v3 (unreleased, #90)**: scope matching follows the checkout's filesystem. The
+  migration backfills `caseInsensitive: null` ("not detected"); a migration never reads the filesystem,
+  so the first `tower_init` after upgrading probes the checkout once and records `true`/`false`. Until
+  then the safe `case-sensitive` comparison applies, and `tower_doctor` reports the unknown mode as a
+  `warn` (`case-mode`). On a case-insensitive checkout, `src/Api/**` and `src/api/**` then count as
+  overlapping and case-only mismatches are no longer refused by the out-of-scope gate. Stored scope
+  strings are never rewritten: the board keeps showing what the operator typed.
+
+- **2.0.4 → 2.1.0-beta.1**: no config migration; the state file migrates automatically (v1/v2 → v3) as
+  described above. This is a **pre-release** published on the
   `next` dist-tag, so `latest` still resolves to 2.0.4 — install it with
   `dsh plugin --profile web add dsh-tower@next` (or the exact version). The runtime behavior is
   unchanged; the release carries the delivery gate (mount smoke in CI, `npm run release:check`, the

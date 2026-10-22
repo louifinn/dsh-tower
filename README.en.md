@@ -18,6 +18,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
 - **Review-gated merges.** When `review.requireReview:true`, a reviewer bound to the current branch tip must submit a `clean` / `merge` verdict before merge; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default (the gate is off); use `reviewPolicy:"none"` + reason plus `gates.allowReviewExemption:true` for a single mission when the global gate is on.
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
+- **Bounded state growth.** Terminal missions whose worktree is gone move to `.git/dsh-tower/archive/` once `archive.afterDays`/`archive.maxMissions` says so, keeping their tasks, reviews, findings and completion report; mutations then rewrite only active work. `tower_status includeArchived` lists compact archived summaries, and `tower_doctor` reports archive size, count and policy.
 - **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
 - **Traceable finding lifecycle.** `tower_findings` lists, reads, and moves findings through `open → triaged → fixed` / `wontfix` (and can reopen); only the tower or a worker may change state, while reviewers can only read.
 - **Repository-level config.** Any repository can override review/merge/worktree/spawn policy in `<git-common-dir>/dsh-tower/config.json`; tool arguments override the repository layer, so no profile edit is needed per repository.
@@ -207,7 +208,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 | `locale/`, `icon.svg` | localization and icon |
 | `tests/` | pure-function, protocol end-to-end, and plugin-level tests; optional isolated Web-runtime scripts |
 | `ui-bundle/` | optional Client widget (Tower tool cards, persistent Tower-mode chip, mode-aware denied rows, dock summary, transient overlay strip), not installed by default |
-| `.github/workflows/test.yml` | CI running the offline suite on Node 22/24, the release and coverage checks, and the Node 22 mount smoke and seeded fixtures |
+| `.github/workflows/test.yml` | CI running the offline suite on Node 22/24 (Ubuntu) and Node 22 (Windows), the release and coverage checks, and the Node 22 mount smoke and seeded fixtures |
 
 ## Development and testing
 
@@ -227,11 +228,16 @@ Every push and PR runs the same set of jobs; each job backs one checkable claim 
 
 | Job | Claim | Evidence |
 |---|---|---|
-| `test` (Node 22/24) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the three `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
+| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the three `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
+| `test (22, windows)` (`windows-latest`, not required) | the same offline suite and offline gates hold on a real Windows filesystem, so path casing, the `pwsh` shell, and the rename/unlink retries are measured instead of assumed | `npm test` plus the same offline gates as Ubuntu (no release/coverage) |
 | `test`'s `Coverage (Node 22)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
 | `test`'s `Release check` step (Node 22) | a tag is a claim: the version moved past the previous version tag, a pushed tag is `v<version>`, and the changelog carries release content | `npm run release:check` |
 | `mount` (Node 22) | the packed tarball, added through the plugin CLI to a throwaway profile, mounts in the real loader and registers the surface the bundle claims | `npm run smoke:mount` |
 | `mount-fixtures` (Node 22, not required) | the mount smoke still goes red for the right seeded reasons (a renamed tool id, a removed skills section), with one cached host install shared by all runs | `npm run smoke:fixtures -- --host-dir <cached host>` |
+
+The `test` matrix pins each leg's context string through `matrix.name`: `test (22)`, `test (24)` and the new `test (22, windows)`. The first two are `main`'s required checks and keep their exact names; adding an `os` matrix key without an explicit name would rename them to `test (22, ubuntu-latest)`, and protected `main` would wait for a context that never reports. The Windows leg is Node 22 only and runs the offline suite and offline gates (no browser, no live suite, no release/coverage), in parallel with the existing jobs, so it does not extend the critical path. It is not a required context yet: making it green is the acceptance for #86, while adding it to the protection setting is a human step in #94.
+
+`tests/platform.test.mjs` injects `platform`/`rename`/`unlink` so both the win32 and POSIX branches are asserted on any OS; the only case that needs a real Windows filesystem (renaming over an open destination) is counted as `# SKIP` on Linux (`tests 11`, `skipped 1`), never silently absent. There is no macOS runner: macOS follows the same POSIX branch as Linux, which is a #86 non-goal.
 
 `mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 29 `tower_*` tools (27 `tools/*.js` modules plus `tower_mode` / `tower_control`), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, and exactly one top-level `tower-bundle` group row (the #66 invariant). It calls no model and opens no browser. Measured on the maintainer's Windows machine: about 100 seconds on a cold host (install included) and about 85 seconds with a cached host; the CI step allows 3 minutes (`timeout-minutes: 3`) inside the 5-minute `mount` job. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
 

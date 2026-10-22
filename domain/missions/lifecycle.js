@@ -169,8 +169,9 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     const others = state.missions.filter(
       (entry) => entry.id !== mission.id && !TERMINAL.has(entry.status) && entry.kind !== 'survey',
     )
+    const caseInsensitive = state.caseInsensitive === true
     for (const other of others) {
-      if (mission.kind !== 'survey' && scopesOverlap(scope, other.scope)) {
+      if (mission.kind !== 'survey' && scopesOverlap(scope, other.scope, { caseInsensitive })) {
         fail(`widened scope overlaps mission ${other.id}; retire it or add an explicit ordering`)
       }
     }

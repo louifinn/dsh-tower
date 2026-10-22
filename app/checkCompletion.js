@@ -10,6 +10,7 @@ import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { countCommits, isClean } from '../lib/git.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { sweepArchive } from './archive.js'
 
 export { normalizeChecks }
 
@@ -19,7 +20,12 @@ export async function checkCompletion(tower, input) {
   if (!mission) {
     throw new TowerToolError('invalid-argument', `unknown mission "${input.missionId}"`)
   }
-  const worker = assertCompletionRequest({ mission, roster: state.roster, input })
+  const worker = assertCompletionRequest({
+    mission,
+    roster: state.roster,
+    input,
+    maxReportBytes: tower.config.gates?.maxReportBytes,
+  })
   await tower.assertWorktree(mission.worktree)
   const commits = await countCommits(mission.worktree.path, mission.worktree.baseCommit)
   if (commits < 1) {
@@ -58,8 +64,15 @@ export async function complete(tower, input) {
     const checks = normalizeChecks(input.checks)
     const now = Date.now()
     mission.status = 'completed'
-    mission.completionReport = completionReport({ report: input.report, worker, checks, now })
+    mission.completionReport = completionReport({
+      report: input.report,
+      worker,
+      checks,
+      now,
+      maxReportBytes: tower.config.gates?.maxReportBytes,
+    })
     mission.updatedAt = now
+    await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 

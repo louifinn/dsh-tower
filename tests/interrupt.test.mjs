@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -15,10 +16,6 @@ import { configureRuntime } from '../lib/config.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-interrupt-') {
@@ -179,7 +176,7 @@ test('tower_interrupt: interrupts the running child, records the roster and is i
     assert.match(second.reason, /not running/)
     assert.equal(subagents.interrupts.length, 1, 'an idle agent must not be interrupted twice')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -240,7 +237,7 @@ test('tower_send interrupt:true interrupts the running recipient before deliveri
       configureRuntime({})
     }
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -283,7 +280,7 @@ test('tower_interrupt: tower-only target validation and agentId alias', async ()
     assert.equal(byId.interrupted, true)
     assert.equal(subagents.interrupts.at(-1).id, childId)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -300,6 +297,6 @@ test('interrupt fails with spawn-unavailable when the subagents service cannot i
       },
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

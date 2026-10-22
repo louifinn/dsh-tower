@@ -17,7 +17,7 @@
 | `branch-missing` | 还没有 worktree/分支：先 spawn worker。 |
 | `stale-base` | 分支不包含基线 tip：执行 `tower_rebase`。 |
 | `read-only-survey` | survey mission 修改了文件；survey mission 必须只读。 |
-| `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。 |
+| `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。在大小写敏感的检出上，仅大小写不同的路径仍会被拒绝，detail 会指出折叠大小写后本可匹配的 scope 条目。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未 merged/abandoned。 |
 | `no-review` | `review.requireReview:true` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |

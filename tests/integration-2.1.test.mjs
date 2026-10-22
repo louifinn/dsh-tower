@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -107,7 +108,7 @@ test('2.1 plan: references and review exemption fields round-trip and validate',
       /reviewExemptionReason/,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -167,7 +168,7 @@ test('2.1 discovery: tower_test records a receipt, completion adds the tests che
     assert.equal(closed.ok, true)
     assert.equal(closed.batch.status, 'closed')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -195,7 +196,7 @@ test('2.1 discovery: a failing command blocks completion with tests-failed', asy
       /\[tower:tests-failed\]/,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -224,7 +225,7 @@ test('2.1 leases: acquire/status/release, conflict, and spawn.requireLease', asy
     const released = await call(tools, 'tower_resource', { repoRoot: repo, action: 'release', name: 'heavy-ci', token })
     assert.equal(released.released, true)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -275,7 +276,7 @@ test('2.1 legacy: import a Codex-shaped snapshot and audit-map it to a mission',
     const listed = await call(tools, 'tower_legacy_map', { repoRoot: repo, action: 'status' })
     assert.equal(listed.maps.length, 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -290,8 +291,11 @@ test('2.1 doctor: reports repository, state and worktree checks without writing'
     assert.ok(doctor.checks.some((check) => check.id === 'state' && check.status === 'pass'))
     assert.ok(doctor.checks.some((check) => check.id === 'git'))
     assert.equal(doctor.environmentContract.repoRoot, repo)
+    // #86: the field is populated on every runner (Linux and Windows), not only
+    // on the platform the suite was written on.
+    assert.equal(doctor.environmentContract.platform, process.platform)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -310,7 +314,7 @@ test('2.1 governance: watchdog marks a quiet worker stale and the gate blocks me
     const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
     assert.ok(preflight.blockers.some((blocker) => blocker.code === 'worker-stale'))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -324,7 +328,7 @@ test('2.1 board/docs: boardLocation repo writes MISSIONS.md at the repository ro
     assert.equal(fs.existsSync(path.join(repo, 'MISSIONS.md')), true)
     assert.equal(fs.existsSync(path.join(repo, '.git', 'dsh-tower', 'MISSIONS.md')), false)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -358,7 +362,7 @@ test('2.1 review exemption: gate blocks by default and honors the opt-in with a 
     assert.equal(after.blockers.some((blocker) => blocker.code === 'review-exemption-invalid'), false)
     assert.equal(after.blockers.some((blocker) => blocker.code === 'no-review'), false)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -381,7 +385,7 @@ test('2.1 test admission: a failing spawn-time discovery starts no child', async
     )
     assert.equal(activations.length, 0)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -406,7 +410,7 @@ test('2.1 gates.requireTests: a completed mission without a test run is blocked'
     const gate = await (await Tower.open(repo)).evaluateGate({ missionId, activity: {} })
     assert.ok(gate.blockers.some((blocker) => blocker.code === 'tests-missing'))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -419,7 +423,7 @@ test('2.1 doctor: an uninitialized repository reports state failure instead of t
     assert.equal(doctor.ok, false)
     assert.ok(doctor.checks.some((check) => check.id === 'state' && check.status === 'fail'))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -452,7 +456,7 @@ test('2.1 batch: close returns structured blockers when evidence is missing', as
     assert.ok(closed.blockers.every((blocker) => typeof blocker.code === 'string' && typeof blocker.detail === 'string'))
     assert.equal(closed.batch.status, 'open')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -495,7 +499,7 @@ test('2.1 merge intent: a crash intent that created no commit is cleared by towe
     assert.equal(after.mergeIntent ?? null, null)
     assert.equal(after.missions.find((mission) => mission.id === missionId).status, 'merged')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -525,7 +529,7 @@ test('2.0.1 preflight: an unknown mission returns a lossless blocker shape', asy
     assert.equal(result.review, null)
     assert.ok(result.blockers.some((blocker) => blocker.code === 'mission-missing'))
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -547,7 +551,7 @@ test('2.0.1 plan: an unknown dependency is an actionable invalid-argument', asyn
       },
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -568,7 +572,7 @@ test('2.0.1 spawn: a worker cannot be spawned on a merged or abandoned mission',
     )
     assert.equal(activations.length, 0)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -624,7 +628,7 @@ test('2.0.1 batch: close accepts a merged member and abandon retires a stale bat
     assert.equal(abandoned.batch.status, 'abandoned')
     assert.equal(abandoned.batch.abandonReason, 'superseded')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -648,7 +652,7 @@ test('2.0.1 doctor: an intentionally removed worktree is not a failure', async (
     assert.equal(worktrees.status, 'pass')
     assert.match(worktrees.detail, /removed by teardown/)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -676,7 +680,7 @@ test('2.0.3 review toggle: review.requireReview:false allows a merge without a r
     assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
     assert.ok(merged.mergedCommit)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -697,6 +701,6 @@ test('2.1 delivery: inbox records an acknowledgement timestamp', async () => {
     assert.equal(inbox.messages.length, 1)
     assert.ok(inbox.messages[0].ackAt)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
