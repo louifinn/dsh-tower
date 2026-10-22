@@ -20,6 +20,20 @@ const TOOLS_REGISTRATION = new Set(['tools/index.js'])
 // per-tool ceiling: it wires the individual modules together. P3c split
 // tower_spawn, so every tool module now enforces the ceiling.
 const TOOLS_SIZE_ALLOWED = new Set(['tools/index.js'])
+// #69: the app layer may import only these. App siblings (`./x.js`), the pure
+// domain, and the explicit ports are the whole dependency surface.
+const APP_ALLOWED_PREFIXES = ['./', '../domain/', '../ports/']
+const APP_ALLOWED_EXACT = new Set(['node:path'])
+// #69: only the host entries (index.js/worker.js/reviewer.js, outside this scan
+// set) and the adapters may import adapters. lib/ is the infrastructure layer
+// below the ports and is retired by #70; until then it is the one documented
+// importer exemption, and app/tools/domain/ports never may.
+const COMPOSITION_ROOT_EXEMPT_PREFIXES = ['lib/']
+const ADAPTER_IMPORT = /^(?:\.\.\/)?adapters(?:\/|$)/
+// #69: a port must be a runtime contract, not a comment plus `export {}`.
+const RUNTIME_PORT_EXPORT = /^export\s+(?:const|function|class)\s/m
+// #69: port modules must not reach into an implementation.
+const PORT_IMPLEMENTATION_IMPORT = /^(?:\.\.\/)?(?:adapters|lib|app|tools)(?:\/|$)/
 const LITERAL_PATTERN = /enum:\s*\[\s*'(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix)'/
 const TOOL_LITERAL_PATTERN = /(?:===|!==|==|!=|\.includes\(|case\s+)'?(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix|create|abandon|close|status|merge|fix-then-merge|hold|acquire|release|map|user|failure|resource|dependency|json|markdown)'/
 
@@ -52,6 +66,44 @@ function evaluator(root) {
     }
     if (imports.some((spec) => spec === 'node:fs' || spec === 'node:fs/promises') && !FS_ALLOWED.has(file)) {
       record('fs-surface', file, 'only adapters/** may use fs', 'error')
+    }
+    // #69 app-ports-only: the app depends on ports, the pure domain, and Node's
+    // path module. Adapters and lib/ infrastructure are reached through deps.
+    if (file.startsWith('app/')) {
+      for (const spec of imports) {
+        const allowed =
+          APP_ALLOWED_EXACT.has(spec) ||
+          APP_ALLOWED_PREFIXES.some((prefix) => spec.startsWith(prefix))
+        if (!allowed) {
+          record(
+            'app-ports-only',
+            file,
+            `imports ${spec}; app/** may import only app siblings, domain/**, ports/** and node:path`,
+            'error',
+          )
+        }
+      }
+    }
+    // #69 composition-root: only the host entries and the adapters may import an
+    // adapter; lib/ is the documented infrastructure lapse until #70.
+    if (!COMPOSITION_ROOT_EXEMPT_PREFIXES.some((prefix) => file.startsWith(prefix)) && !file.startsWith('adapters/')) {
+      for (const spec of imports) {
+        if (ADAPTER_IMPORT.test(spec)) {
+          record('composition-root', file, `imports ${spec}; adapters are composed once in the host entry`, 'error')
+        }
+      }
+    }
+    // #69 port-shape: a port module exports a runtime contract and imports no
+    // implementation. `export {}` alone is a comment, not a seam.
+    if (file.startsWith('ports/')) {
+      if (!RUNTIME_PORT_EXPORT.test(text)) {
+        record('port-shape', file, 'port modules must export a runtime contract (const/function/class)', 'error')
+      }
+      for (const spec of imports) {
+        if (PORT_IMPLEMENTATION_IMPORT.test(spec)) {
+          record('port-shape', file, `imports ${spec}; ports must not depend on an implementation`, 'error')
+        }
+      }
     }
     if (file.startsWith('tools/')) {
       if (imports.some((spec) => spec.startsWith('node:') && spec !== 'node:path')) {

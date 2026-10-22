@@ -1,5 +1,4 @@
 // tower_status: dashboard and mission detail.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { classifyError } from '../domain/errors.js'
 import { StatusInput } from '../domain/contracts/tool-inputs/index.js'
@@ -10,6 +9,7 @@ import { archiveView } from '../app/archive.js'
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
+ *   openTower: any,
  *   workspaceHook: any,
  *   spawnBackoffView: any,
  *   observeActivity: any,
@@ -25,7 +25,7 @@ export function registerStatusTool(ctx, deps) {
     aliases: { mission_id: ['missionId'], include_gate: ['includeGate'], include_archived: ['includeArchived'] },
     output: output(SCHEMAS.status),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const boardPath = tower.boardFile()
       const mode = workspaceHook?.modeInfo?.(exec) ?? null
       const statusState = await tower.load()

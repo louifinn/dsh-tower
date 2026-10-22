@@ -19,7 +19,7 @@ import {
   withGitLock,
 } from '../lib/store.js'
 import { touchLock } from '../lib/persistence.js'
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { registerTowerTools } from '../lib/tool-registry.js'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

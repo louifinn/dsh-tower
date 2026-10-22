@@ -11,7 +11,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

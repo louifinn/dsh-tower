@@ -8,7 +8,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { Tower, FINDING_STATUSES, FINDING_TRANSITIONS } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
+import { FINDING_STATUSES, FINDING_TRANSITIONS } from '../app/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

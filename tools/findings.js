@@ -1,14 +1,14 @@
 // tower_findings: list, read, or update findings.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { FindingsInput } from '../domain/contracts/tool-inputs/index.js'
 import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireKnownActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireKnownActor: any }} deps
  */
 export function registerFindingsTool(ctx, deps) {
+  // openTower is injected by the composition root (#69).
   const { define, actorFor, requireKnownActor } = deps
   define(ctx, {
     name: 'tower_findings',
@@ -18,7 +18,7 @@ export function registerFindingsTool(ctx, deps) {
     aliases: {"missionId":["mission_id"]},
     output: output(SCHEMAS.findings),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireKnownActor(actor, 'tower_findings')
       const view = await tower.rosterView()

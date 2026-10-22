@@ -8,7 +8,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { testProcessEnv } from '../lib/tests.js'
 import { gitEnv } from '../lib/git.js'
 

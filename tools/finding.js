@@ -1,12 +1,11 @@
 // tower_finding: file one structured finding.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { FindingInput } from '../domain/contracts/tool-inputs/index.js'
 import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireKnownActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireKnownActor: any }} deps
  */
 export function registerFindingTool(ctx, deps) {
   const { define, actorFor, requireKnownActor } = deps
@@ -19,7 +18,7 @@ export function registerFindingTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.finding),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireKnownActor(actor, 'tower_finding')
       const view = await tower.rosterView()

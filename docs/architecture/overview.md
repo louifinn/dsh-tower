@@ -19,16 +19,19 @@ Host plugin (index.js)
        ├─ app/review.js, findings.js, batch.js, messages.js, roster.js
        ├─ app/plan.js, mission.js, checkCompletion.js, spawn.js, recording.js
        └─ app/gate.js, read.js, board.js, missionContext.js, enrichedMissions.js
- ports (explicit contracts):
-       ports/store.js vcs.js clock.js ids.js
- adapters (the only I/O):
-       adapters/store-fs.js   the only module importing node:fs
-       adapters/vcs-git.js    the only module importing node:child_process
-       adapters/default.js    composition root: store, vcs, clock, ids
+ ports (explicit runtime contracts, no implementation):
+       ports/contract.js      definePort/assertPort runtime contract primitives
+       ports/{store,vcs,clock,ids,config,state,ownership,caseSensitivity,archive}.js
+       ports/index.js         PORTS table + assertPorts(deps) injection check
+ adapters (the only I/O; implement the ports):
+       adapters/store-fs.js   the only module importing node:fs; createStorePort()
+       adapters/vcs-git.js    the only module importing node:child_process; createVcsPort()
+       adapters/default.js    createDefaultDeps(): the one default port implementation set
  infrastructure (lib/):
        lib/store.js           repo-scoped lock + atomic JSON + activity.jsonl
        lib/git.js             bounded git commands + timeout classification
        lib/config.js          profile/repo config layers over the pure schema
+       lib/tower.js           default-deps Tower binding for tests/embedders
        lib/workspaceLock.js   optional one-Tower-session-per-repository advisory lock
        lib/hmr.js             optional DSH HMR bridge (tower_reload / /tower reload)
        lib/modeStore.js       per-agent Tower mode persistence
@@ -60,6 +63,50 @@ Host plugin (index.js)
 The main checkout is the control-tower repo; each mission has a branch `tower/<id>-<slug>` and a
 worktree in `.dsh-tower-worktrees/<hash>/<missionId>`. The plugin never operates on the main checkout's
 working tree except merge and the read-only diff.
+
+## Ports and the composition root (#69)
+
+The seam is real, not documented-only. `ports/` exports **runtime contracts**: each module defines a
+frozen `{ name, methods }` descriptor plus an `assert*Port` helper, and `ports/index.js` exposes the
+`PORTS` table and `assertPorts(deps)`.
+
+`app/**` imports only app siblings, `domain/**`, `ports/**` and `node:path`. Every effectful call goes
+through the `deps` object:
+
+| deps member | contract | default implementation |
+|---|---|---|
+| `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` plus the raw-file and lock primitives `readText/writeText/appendText/rename/renameWithRetry/stat/unlink/readGitLock/gitLockView` | `adapters/store-fs.js` `createStorePort()` |
+| `vcs` | VcsPort: `git/tryGit/revParse/isClean/isAncestor/resolveRepo/currentBranch/countCommits/listWorktrees` | `adapters/vcs-git.js` `createVcsPort()` |
+| `clock`, `ids` | ClockPort / IdsPort | `adapters/default.js` |
+| `config` | ConfigPort: `runtimeConfig/resolveRepoConfig` | `lib/config.js` |
+| `state` | StatePort: `loadStateFile` | `lib/stateFile.js` |
+| `archive` | ArchivePort: `readIndex/readEntry/writeEntries` | `lib/archive.js` |
+| `ownership` | OwnershipPort: `assertOwnership/canonicalPath` | `lib/worktreeOwnership.js` |
+| `caseSensitivity` | CaseSensitivityPort: `detect` | `lib/caseSensitivity.js` |
+
+`index.js` is the composition root: it calls `createDefaultDeps()` once and passes the object to
+`registerTowerTools`. The registry adopts and validates that object (`assertPorts`) instead of building
+its own adapter set, hands every tool an `openTower(repoRoot)` factory bound to those ports, and
+`Tower.open(repoRoot, deps)` / `new Tower(repo, config, deps)` validates the object again before use.
+`app/tower.js` itself imports no adapter and no `lib/` module. The one piece of lock policy the app and
+the store share (the git-mutex budget, #93) is pure and lives in `domain/lockBudget.js`; `lib/store.js`
+re-exports it for the infrastructure callers.
+
+`store.rename` and `store.renameWithRetry` are both declared because they are not interchangeable: the
+retrying helper has temp-file semantics and removes its source when the rename finally fails, which is
+right for a disposable temp file but would destroy the lock bytes `tower_recover` must keep auditable.
+The audit rename therefore uses the plain `rename`. The contract test scans `app/**` **and** `tools/**`
+for every `deps.<port>.<method>` call and fails if the named port does not declare it, so a tool that
+reaches a new port method cannot slip past `assertPorts`.
+
+`lib/` remains the infrastructure layer that implements the adapters' durable behaviour (store, git,
+locks, config, archive); #70 retires it by moving the code into the adapters. Until then `lib/` is the
+one documented importer of `adapters/**`.
+
+A full mission lifecycle (init → plan → provision → spawn → complete → review → gate → merge →
+teardown) runs through the real app use cases on an in-memory store and a scripted vcs:
+`tests/ports-lifecycle.test.mjs`. The default adapter set and the in-memory doubles are both asserted
+against the same port contracts in `tests/memory-adapters.contract.test.mjs`.
 
 ## Mission state machine
 
@@ -134,6 +181,13 @@ its own lock.
 - Aggregate files have size ceilings; top-level mutable state is limited to explicit composition
   roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines; only the
   `tools/index.js` wiring module is exempt, and it is now far below the ceiling.
+- `app/**` may import only app siblings, `domain/**`, `ports/**` and `node:path` (`app-ports-only`);
+  an app module that reaches an adapter or a `lib/` module fails the gate.
+- Only the host entries (`index.js`, `worker.js`, `reviewer.js`) and `adapters/**` may import an
+  adapter (`composition-root`). `lib/` is the documented infrastructure lapse until #70 retires it;
+  `app/`, `tools/`, `domain/` and `ports/` never may.
+- Every `ports/**` module must export a runtime contract (`const`/`function`/`class`) and must not
+  import an implementation (`port-shape`); a typedef plus `export {}` is no longer accepted.
 
 A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
 
@@ -166,9 +220,10 @@ All epic DoD items now have an executable gate:
   `domain/state/semantics.js`.
 - `state.json` and `modes.json` share `lib/persistence.js` atomic write, token-owned
   lock, dead-PID quarantine, and bounded-wait primitives.
-- The in-memory lifecycle and adapter contracts run a full mission lifecycle with no
-  disk and no git.
-- The seven fitness rules are errors, each with a seeded failing fixture.
+- The in-memory lifecycle runs the real app use cases (init → plan → provision → spawn → complete →
+  review → gate → merge → teardown) on an in-memory store and scripted vcs supplied through the
+  composition root, with no disk, no git and no `defaultDeps` (#69).
+- The ten fitness rules are errors, each with a seeded failing fixture.
 
 
 

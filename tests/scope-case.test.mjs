@@ -17,7 +17,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { fileInScope, scopesOverlap } from '../domain/scope.js'
 import { outOfScopeBlocker } from '../domain/integration/gate.js'
 import { detectCaseSensitivity } from '../lib/caseSensitivity.js'

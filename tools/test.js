@@ -1,5 +1,4 @@
 // tower_test: run declared worktree test discovery.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { TestInput } from '../domain/contracts/tool-inputs/index.js'
@@ -9,6 +8,7 @@ import { isReviewerRole, isWorkerRole } from '../domain/vocabulary.js'
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
+ *   openTower: any,
  *   actorFor: any,
  *   requireKnownActor: any,
  *   runMissionDiscovery: any,
@@ -25,7 +25,7 @@ export function registerTestTool(ctx, deps) {
     requiresMissionId: true,
     output: output(SCHEMAS.test),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireKnownActor(actor, 'tower_test')
       const context = await tower.missionContext(args.missionId)

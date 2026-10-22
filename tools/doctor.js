@@ -1,5 +1,4 @@
 // tower_doctor: read-only health check.
-import { Tower } from '../app/tower.js'
 import { resolveRepo } from '../lib/git.js'
 import { runtimeConfig } from '../lib/config.js'
 import { runDoctor } from '../lib/doctor.js'
@@ -9,9 +8,10 @@ import { DOCTOR_STATUS } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {import('../types/index.js').DefineTool} define
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, createTower: any }} deps
  */
-export function registerDoctorTool(ctx, define) {
+export function registerDoctorTool(ctx, deps) {
+  const { define, createTower } = deps
   define(ctx, {
     name: 'tower_doctor',
     description:
@@ -22,13 +22,13 @@ export function registerDoctorTool(ctx, define) {
       let tower
       let configError = null
       try {
-        tower = await Tower.open(args.repoRoot)
+        tower = await deps.openTower(args.repoRoot)
       } catch (error) {
         const message = String(error?.message ?? error)
         if (error?.code !== 'config-invalid' && error?.code !== 'config-unknown-key') throw error
         configError = message
         const repo = await resolveRepo(args.repoRoot)
-        tower = new Tower(repo, { ...runtimeConfig(), configPath: null, repoConfigPresent: true })
+        tower = deps.createTower(repo, { ...runtimeConfig(), configPath: null, repoConfigPresent: true })
       }
       const report = await runDoctor(/** @type {any} */ ({ tower, ctx, agent: exec.agent }))
       if (!configError) return report

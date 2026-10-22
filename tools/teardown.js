@@ -8,13 +8,12 @@
 // Pure eligibility decisions live in domain/integration.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_teardown: remove eligible mission worktrees.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TeardownInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any, observeActivity: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, observeActivity: any }} deps
  */
 export function registerTeardownTool(ctx, deps) {
   const { define, actorFor, requireTowerActor, observeActivity } = deps
@@ -27,7 +26,7 @@ export function registerTeardownTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.teardown),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'tear down worktrees')
       const { activity } = await observeActivity(ctx, tower)

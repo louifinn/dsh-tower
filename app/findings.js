@@ -1,5 +1,4 @@
 // Findings use cases.
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
@@ -17,7 +16,7 @@ function fail(message, code = 'invalid-argument') {
 }
 
 export async function addFinding(tower, input) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       if (!Array.isArray(state.findings)) state.findings = []
       const fields = normalizeFindingInput(input, state.missions)
@@ -30,8 +29,8 @@ export async function addFinding(tower, input) {
       state.updatedAt = now
 
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'finding',
         missionId: finding.missionId,
@@ -55,7 +54,7 @@ export async function addFinding(tower, input) {
     const actor = normalizeFindingActor(input.actor)
     if (!wantsFindingUpdate(input)) return tower.readFindings(input)
 
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const all = state.findings ?? []
       const finding = all.find((entry) => entry.id === input.id)
@@ -65,8 +64,8 @@ export async function addFinding(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'finding',
         missionId: finding.missionId,

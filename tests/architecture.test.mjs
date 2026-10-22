@@ -35,6 +35,12 @@ test('every architecture rule can fail on a seeded fixture', async () => {
     write('lib/state.js', 'let ambient = 1\n')
     write('lib/big.js', '// x\n'.repeat(801))
     write('tools/bad.js', "import fs from 'node:fs'\nenum: ['planned']\n")
+    // #69 rules: an app module that reaches an adapter, a tools module that
+    // bypasses the composition root, and a port that is not a runtime contract.
+    write('app/bad-adapter.js', "import { createStorePort } from '../adapters/store-fs.js'\nexport const x = 1\n")
+    write('tools/bad-adapter.js', "import fsp from '../adapters/store-fs.js'\nexport const x = 1\n")
+    write('ports/empty.js', 'export {}\n')
+    write('ports/leaky.js', "import * as store from '../lib/store.js'\nexport const LEAK = store\n")
     const result = evaluator(fixture)
     const rules = new Set(result.violations.map((violation) => violation.rule))
     for (const rule of [
@@ -45,6 +51,9 @@ test('every architecture rule can fail on a seeded fixture', async () => {
       'tools-vocabulary',
       'aggregate-size',
       'ambient-state',
+      'app-ports-only',
+      'composition-root',
+      'port-shape',
     ]) {
       assert.ok(rules.has(rule), `${rule} must be able to fail`)
     }

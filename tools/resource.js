@@ -1,5 +1,4 @@
 // tower_resource: advisory resource leases.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { acquireLease, releaseLease, inspectLeases } from '../lib/leases.js'
@@ -8,7 +7,7 @@ import { LEASE_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
  */
 export function registerResourceTool(ctx, deps) {
   const { define, actorFor, requireTowerActor } = deps
@@ -19,7 +18,7 @@ export function registerResourceTool(ctx, deps) {
     parameters: ResourceInput,
     output: output(SCHEMAS.resource),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       const redact = (leases) => leases.map(({ token, ...lease }) => lease)
       if (args.action === LEASE_ACTION.status) {

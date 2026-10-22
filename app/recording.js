@@ -1,14 +1,13 @@
 // State recording use cases for test receipts and imported legacy snapshots.
 import { TowerToolError } from '../domain/errors.js'
 import { validateState } from '../domain/state.js'
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
 }
 
 export async function recordTestRun(tower, input = {}) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) fail(`unknown mission "${input.missionId}"`)
@@ -28,8 +27,8 @@ export async function recordTestRun(tower, input = {}) {
     state.revision += 1
     state.updatedAt = Date.now()
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: Date.now(),
       type: 'test',
       missionId: mission.id,
@@ -40,7 +39,7 @@ export async function recordTestRun(tower, input = {}) {
 }
 
 export async function recordLegacySnapshot(tower, snapshot) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (!Array.isArray(state.legacySnapshots)) state.legacySnapshots = []
     const existing = state.legacySnapshots.find((entry) => entry.sourceHash === snapshot.sourceHash)
@@ -49,13 +48,13 @@ export async function recordLegacySnapshot(tower, snapshot) {
     state.revision += 1
     state.updatedAt = Date.now()
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     return { snapshot, duplicate: false }
   })
 }
 
 export async function recordLegacyMap(tower, map) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (!Array.isArray(state.legacyMaps)) state.legacyMaps = []
     const existing = state.legacyMaps.find(
@@ -66,7 +65,7 @@ export async function recordLegacyMap(tower, map) {
     state.revision += 1
     state.updatedAt = Date.now()
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     return { map, duplicate: false }
   })
 }

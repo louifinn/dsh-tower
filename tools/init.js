@@ -1,5 +1,4 @@
 // tower_init: repository initialization.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { resolveRepo } from '../lib/git.js'
@@ -9,7 +8,7 @@ import { isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any, workspaceHook: any, ensureRepository: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, workspaceHook: any, ensureRepository: any }} deps
  */
 export function registerInitTool(ctx, deps) {
   const { define, actorFor, requireTowerActor, workspaceHook, ensureRepository } = deps
@@ -31,7 +30,7 @@ export function registerInitTool(ctx, deps) {
           args.autoGitInit === true || (args.autoGitInit === undefined && profileInit.autoGitInit === true)
         repo = await ensureRepository(args.repoRoot, autoGitInit)
       }
-      const tower = await Tower.open(repo.root)
+      const tower = await deps.openTower(repo.root)
       const initConfig = tower.config.init ?? {}
       const snapshotDirty =
         args.snapshotDirty === true || (args.snapshotDirty === undefined && initConfig.snapshotDirty === true)

@@ -1,5 +1,4 @@
 // Merge/preflight gate evaluation.
-import { currentBranch } from '../lib/git.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { completionBlockers, mergeGateBlockers } from '../domain/gate.js'
 import { fullMission } from '../domain/summary.js'
@@ -105,7 +104,7 @@ export async function evaluateGate(tower, input) {
       rebaseWaived: latest ? tower.rebaseWaived(mission, latest) : false,
     })) push(blocker.code, blocker.detail)
 
-    const checkoutBranch = await currentBranch(tower.root)
+    const checkoutBranch = await tower.deps.vcs.currentBranch(tower.root)
     const wrongBranch = baseWrongBranchBlocker({ checkoutBranch, base: state.base })
     if (wrongBranch) push(wrongBranch.code, wrongBranch.detail)
 

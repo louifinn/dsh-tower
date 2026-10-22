@@ -74,6 +74,8 @@ export function createMemoryStore(options = {}) {
   const dirs = new Set()
   const locks = new Map()
   const lockTails = new Map()
+  const activeByLock = new Map()
+  const maxByLock = new Map()
   let activeLocks = 0
   let lockSeq = 0
   const stats = { reads: 0, writes: [], appends: [], lockHolds: [], maxConcurrentLocks: 0 }
@@ -150,12 +152,16 @@ export function createMemoryStore(options = {}) {
     locks.set(lockPath, { token, at: Date.now() })
     activeLocks += 1
     if (activeLocks > stats.maxConcurrentLocks) stats.maxConcurrentLocks = activeLocks
+    const domainDepth = (activeByLock.get(lockPath) ?? 0) + 1
+    activeByLock.set(lockPath, domainDepth)
+    maxByLock.set(lockPath, Math.max(maxByLock.get(lockPath) ?? 0, domainDepth))
     const startedAt = Date.now()
     let released = false
     const release = () => {
       if (released) return
       released = true
       activeLocks -= 1
+      activeByLock.set(lockPath, Math.max(0, (activeByLock.get(lockPath) ?? 1) - 1))
       locks.delete(lockPath)
       stats.lockHolds.push({ lock: lockPath, ms: Math.max(0, Date.now() - startedAt), at: Date.now() })
       releaseGate()
@@ -166,6 +172,75 @@ export function createMemoryStore(options = {}) {
     } finally {
       release()
     }
+  }
+
+  /** The repo-scoped git mutex is a second, independent FIFO domain (#93). */
+  async function withGitLock(paths, fn, options = {}) {
+    if (!paths || typeof paths.gitLock !== 'string') throw new TypeError('withGitLock requires paths.gitLock')
+    return withLock({ ...paths, lock: paths.gitLock }, fn, options)
+  }
+
+  /** The read-only activity tail used by tower_status/tower_detail. */
+  async function readActivityTail(file, limit = 12) {
+    const text = files.get(normalizePath(file))?.text ?? ''
+    const lines = text.split('\n').filter(Boolean)
+    return lines.slice(Math.max(0, lines.length - limit)).map((line) => JSON.parse(line))
+  }
+
+  // ---- the small extended store surface app read paths use -------------------
+
+  async function readText(file) {
+    const entry = files.get(normalizePath(file))
+    if (!entry) throw missingFile(normalizePath(file), 'open')
+    return entry.text
+  }
+
+  async function writeText(file, text) {
+    const target = normalizePath(file)
+    assertParent(target)
+    files.set(target, { text: String(text) })
+  }
+
+  async function appendText(file, text) {
+    const target = normalizePath(file)
+    assertParent(target)
+    const previous = files.get(target)?.text ?? ''
+    files.set(target, { text: previous + String(text) })
+  }
+
+  async function rename(from, to) {
+    const source = normalizePath(from)
+    const target = normalizePath(to)
+    const entry = files.get(source)
+    if (!entry) throw missingFile(source, 'rename')
+    files.delete(source)
+    files.set(target, entry)
+  }
+
+  async function stat(file) {
+    const target = normalizePath(file)
+    const isDirectory = dirs.has(target)
+    if (!files.has(target) && !isDirectory) throw missingFile(target, 'stat')
+    return { mtimeMs: 0, isDirectory: () => isDirectory, isFile: () => !isDirectory }
+  }
+
+  async function unlink(file) {
+    const target = normalizePath(file)
+    if (!files.delete(target)) throw missingFile(target, 'unlink')
+  }
+
+  async function readGitLock() {
+    return { record: null, raw: null }
+  }
+
+  function gitLockView(lock) {
+    const record = lock?.record
+    if (!record) return { held: false }
+    return { held: true, pid: record.pid ?? null, phase: record.phase ?? null, heldMs: 0 }
+  }
+
+  function shortHash(text) {
+    return String(text).slice(-12)
   }
 
   const inspect = {
@@ -186,11 +261,35 @@ export function createMemoryStore(options = {}) {
     isLocked(lockPath) {
       return locks.has(normalizePath(lockPath))
     },
+    maxConcurrent(lockPath) {
+      return maxByLock.get(normalizePath(lockPath)) ?? 0
+    },
     exists(file) {
       const target = normalizePath(file)
       return files.has(target) || dirs.has(target)
     },
   }
 
-  return { pathsFor: memoryPathsFor, exists, ensureDir, readJson, writeJsonAtomic, appendJsonl, withLock, inspect }
+  return {
+    pathsFor: memoryPathsFor,
+    exists,
+    ensureDir,
+    readJson,
+    writeJsonAtomic,
+    appendJsonl,
+    withLock,
+    withGitLock,
+    readActivityTail,
+    readText,
+    writeText,
+    appendText,
+    rename,
+    renameWithRetry: rename,
+    stat,
+    unlink,
+    readGitLock,
+    gitLockView,
+    shortHash,
+    inspect,
+  }
 }

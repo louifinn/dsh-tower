@@ -8,8 +8,6 @@ import {
 } from '../domain/missions/completion.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
-import { countCommits, isClean } from '../lib/git.js'
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { sweepArchive } from './archive.js'
 
 export { normalizeChecks }
@@ -27,14 +25,14 @@ export async function checkCompletion(tower, input) {
     maxReportBytes: tower.config.gates?.maxReportBytes,
   })
   await tower.assertWorktree(mission.worktree)
-  const commits = await countCommits(mission.worktree.path, mission.worktree.baseCommit)
+  const commits = await tower.deps.vcs.countCommits(mission.worktree.path, mission.worktree.baseCommit)
   if (commits < 1) {
     throw new TowerToolError(
       'invalid-argument',
       `mission branch has no commits since ${String(mission.worktree.baseCommit).slice(0, 12)}`,
     )
   }
-  if (!(await isClean(mission.worktree.path))) {
+  if (!(await tower.deps.vcs.isClean(mission.worktree.path))) {
     const dirty = (await tower.git(mission.worktree.path, ['status', '--porcelain']))
       .split('\n')
       .filter(Boolean)
@@ -53,7 +51,7 @@ export async function complete(tower, input) {
   // Two-phase pilot (#51): expensive git/state checks run before the lock;
   // the lock only revalidates the state revision and commits the transition.
   const prepared = await tower.checkCompletion(input)
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== prepared.state.revision) {
       throw new TowerToolError('stale-base', 'tower state changed while completion was being prepared; retry')
@@ -77,8 +75,8 @@ export async function complete(tower, input) {
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'complete',
       missionId: mission.id,

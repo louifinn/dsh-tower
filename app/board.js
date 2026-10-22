@@ -1,7 +1,5 @@
 // Mission board (MISSIONS.md) writing use cases.
 import path from 'node:path'
-import { fsp } from '../adapters/store-fs.js'
-import { renameWithRetry } from '../lib/store.js'
 import { archiveView } from './archive.js'
 
 export function boardFile(tower) {
@@ -18,8 +16,8 @@ export async function writeBoard(tower) {
     const file = boardFile(tower)
     await tower.ensureExcluded(file)
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
-    await fsp.writeFile(tmp, tower.boardMarkdown(state, archiveView(index)), 'utf8')
-    await renameWithRetry(tmp, file)
+    await tower.deps.store.writeText(tmp, tower.boardMarkdown(state, archiveView(index)), 'utf8')
+    await tower.deps.store.renameWithRetry(tmp, file)
     return file
   } catch {
     return null

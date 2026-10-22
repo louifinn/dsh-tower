@@ -1,12 +1,14 @@
 // Tower domain: repo-scoped mission state machine, validation, and gates.
+//
+// #69: the app layer depends on the ports in ports/ and receives their
+// implementations through the deps object assembled by the composition root.
+// It imports no adapter and no infrastructure module.
 import path from 'node:path'
-import { fsp } from '../adapters/store-fs.js'
-import { defaultDeps } from '../adapters/default.js'
+import { assertPorts } from '../ports/index.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
-import { assertOwnership } from '../lib/worktreeOwnership.js'
 
-import { runtimeConfig, resolveRepoConfig } from '../lib/config.js'
 import { rebaseWaived } from '../domain/gate.js'
+import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
 export { fileInScope, scopesOverlap, validateTitle, normalizeScope } from '../domain/scope.js'
@@ -26,12 +28,11 @@ import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recordin
 
 export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
-const DEFAULT_MERGE_TIMEOUT_MS = 15 * 60 * 1000
 const MERGE_MAX_BUFFER = 64 * 1024 * 1024
 
 function mergeTimeoutMs(value, config) {
   if (value === undefined || value === null) {
-    const configured = (config ?? runtimeConfig()).merge.timeoutMs
+    const configured = (config ?? {}).merge?.timeoutMs
     return Number.isInteger(configured) && configured >= 1000 ? configured : DEFAULT_MERGE_TIMEOUT_MS
   }
   const ms = Number(value)
@@ -39,8 +40,8 @@ function mergeTimeoutMs(value, config) {
   return ms
 }
 
-async function commitParents(cwd, sha) {
-  const line = await defaultDeps.vcs.tryGit(cwd, ['rev-list', '--parents', '-n', '1', sha])
+async function commitParents(tower, cwd, sha) {
+  const line = await tower.deps.vcs.tryGit(cwd, ['rev-list', '--parents', '-n', '1', sha])
   return line ? line.trim().split(/\s+/).slice(1) : []
 }
 
@@ -49,10 +50,10 @@ async function commitParents(cwd, sha) {
  * `--no-ff` merges put the integrated branch on the second parent, so this is
  * the concrete evidence that a mission's work already landed in the base.
  */
-async function findLandedMerge(cwd, baseTip, tips) {
-  const revs = (await defaultDeps.vcs.tryGit(cwd, ['rev-list', '--merges', baseTip])) ?? ''
+async function findLandedMerge(tower, cwd, baseTip, tips) {
+  const revs = (await tower.deps.vcs.tryGit(cwd, ['rev-list', '--merges', baseTip])) ?? ''
   for (const sha of revs.split('\n').filter(Boolean)) {
-    const parents = await commitParents(cwd, sha)
+    const parents = await commitParents(tower, cwd, sha)
     if (parents.length >= 2 && tips.has(parents[1])) return { commit: sha, parents }
   }
   return null
@@ -65,14 +66,14 @@ function describeGitFailure(error) {
 
 /** Remove only lock files that are provably old. A fresh lock may belong to a
  * concurrent Git process; deleting it would let two writers into the index. */
-async function removeStaleGitLocks(commonDir, maxAgeMs = 60000) {
+async function removeStaleGitLocks(tower, commonDir, maxAgeMs = 60000) {
   const removed = []
   for (const name of ['index.lock', 'HEAD.lock', 'MERGE_HEAD.lock', 'ORIG_HEAD.lock']) {
     const file = path.join(commonDir, name)
     try {
-      const stat = await fsp.stat(file)
+      const stat = await tower.deps.store.stat(file)
       if (Date.now() - stat.mtimeMs < maxAgeMs) continue
-      await fsp.unlink(file)
+      await tower.deps.store.unlink(file)
       removed.push(name)
     } catch {
       // absent or in use; never force it
@@ -86,7 +87,6 @@ function fail(message, code = 'invalid-argument') {
 }
 
 import { validateState } from '../domain/state.js'
-import { loadStateFile } from '../lib/stateFile.js'
 import { boardMarkdown } from '../domain/report.js'
 import { diff, missionDetail, status } from './read.js'
 import { evaluateGate } from './gate.js'
@@ -106,26 +106,57 @@ export class Tower {
   /**
    * @param {{ root: string, commonDir: string, branch?: string | null }} repo
    * @param {import('../types/index.js').TowerConfig} [config]
+   * @param {Record<string, any>} [deps] ports assembled by the composition root
+   *   (the host entry); required.
    */
-  constructor(repo, config, deps = defaultDeps) {
+  constructor(repo, config, deps) {
+    assertPorts(deps)
     this.root = repo.root
     this.commonDir = repo.commonDir
     this.branch = repo.branch
-    this.deps = deps
+    this.deps = /** @type {Record<string, any>} */ (deps)
     this.paths = this.deps.store.pathsFor(repo.commonDir)
     // Effective config for this repository: code defaults < profile config <
     // repo config file. Per-call tool arguments are applied by the caller.
-    this.config = /** @type {import('../types/index.js').TowerConfig} */ (config ?? { ...runtimeConfig(), configPath: null, repoConfigPresent: false })
+    this.config = /** @type {import('../types/index.js').TowerConfig} */ (
+      config ?? { ...this.deps.config.runtimeConfig(), configPath: null, repoConfigPresent: false }
+    )
   }
 
-  static async open(repoRoot) {
-    const repo = await defaultDeps.vcs.resolveRepo(repoRoot)
-    const config = await resolveRepoConfig(repo)
-    return new Tower(repo, config)
+  /**
+   * Resolve the repository and config through the injected ports.
+   * @param {string} repoRoot
+   * @param {Record<string, any>} deps
+   */
+  static async open(repoRoot, deps) {
+    assertPorts(deps)
+    const repo = await deps.vcs.resolveRepo(repoRoot)
+    const config = await deps.config.resolveRepoConfig(repo)
+    return new Tower(repo, config, deps)
   }
 
   git(cwd, args, options = {}) {
     return this.deps.vcs.git(cwd, args, { timeoutMs: this.config.git?.timeoutMs, ...options })
+  }
+
+  /**
+   * Options for one git-mutex section: the phase, the wait budget derived from
+   * the merge timeout, and the injected clock so waiting is testable in virtual
+   * time. The budget itself is the pure domain policy in ../domain/lockBudget.js
+   * (#93); this method only adds the Tower config and the injected clock.
+   * @param {{ phase?: string, mergeTimeoutMs?: number, timeoutMs?: number, now?: Function }} [options]
+   * @returns {Record<string, any>}
+   */
+  gitMutexOptions(options = {}) {
+    const { phase, mergeTimeoutMs, timeoutMs, ...rest } = options
+    const clock = this.deps.clock
+    const clockNow = clock && typeof clock.now === 'function' ? clock.now.bind(clock) : null
+    return {
+      ...rest,
+      ...(phase ? { phase } : {}),
+      timeoutMs: timeoutMs ?? gitLockTimeoutMs(this.config, mergeTimeoutMs),
+      ...(clockNow ? { now: clockNow } : {}),
+    }
   }
 
   tryGit(cwd, args, options = {}) {
@@ -154,7 +185,7 @@ export class Tower {
     if (!(await this.deps.store.exists(this.paths.state))) {
       fail(`tower is not initialized for ${this.root} — run tower_init first`, 'not-initialized')
     }
-    const loaded = await loadStateFile({
+    const loaded = await this.deps.state.loadStateFile({
       store: this.deps.store,
       paths: this.paths,
       now: this.deps.clock?.now ? this.deps.clock.now() : Date.now(),
@@ -194,7 +225,7 @@ export class Tower {
 
   async assertWorktree(worktree) {
     if (!worktree || typeof worktree.path !== 'string') fail('mission has no worktree')
-    const owned = await assertOwnership({
+    const owned = await this.deps.ownership.assertOwnership({
       storedPath: worktree.path,
       storedRealPath: worktree.realPath,
       branch: worktree.branch,
@@ -361,14 +392,14 @@ export class Tower {
     await this.deps.store.ensureDir(path.dirname(file))
     let text = ''
     try {
-      text = await fsp.readFile(file, 'utf8')
+      text = await this.deps.store.readText(file)
     } catch {
       text = ''
     }
     const lines = text.split(/\r?\n/)
     if (lines.includes(pattern) || lines.includes(`${pattern}/`)) return { inside: true, excluded: true, pattern }
     const suffix = text === '' || text.endsWith('\n') ? '' : '\n'
-    await fsp.appendFile(file, `${suffix}${pattern}\n`, 'utf8')
+    await this.deps.store.appendText(file, `${suffix}${pattern}\n`)
     return { inside: true, excluded: true, pattern }
   }
 
@@ -426,6 +457,7 @@ export class Tower {
       landed = null // no merge commit was created; the intent is safe to drop
     } else {
       landed = await findLandedMerge(
+        this,
         this.root,
         head,
         new Set([intent.branchTip, intent.baseTip].filter(Boolean)),
@@ -489,7 +521,7 @@ export class Tower {
       return null
     }
     const tips = new Set([branchTip, reviewedTip].filter(Boolean))
-    const found = await findLandedMerge(this.root, baseTip, tips)
+    const found = await findLandedMerge(this, this.root, baseTip, tips)
     const mergedCommit = found ? found.commit : branchTip
     const now = Date.now()
     if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent

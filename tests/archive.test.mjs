@@ -23,7 +23,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { writeJsonAtomic } from '../lib/store.js'
 import { validateState } from '../domain/state.js'

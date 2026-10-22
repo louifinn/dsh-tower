@@ -1,5 +1,4 @@
 // Roster observation and retirement use cases.
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import {
   recordRosterObservations as recordObservations,
@@ -11,7 +10,7 @@ import {
 import { unreadMessages } from '../domain/collab/messages.js'
 
 export async function recordRosterObservations(tower, { present = [], absent = [], confirmations = 2 }) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { candidates, changed } = recordObservations(
@@ -23,7 +22,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
       }
       return { candidates }
     })
@@ -31,7 +30,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
 
   /** Release live roster slots whose catalog activity is explicitly inactive. */
   export async function reconcileObservedInactive(tower, activity = {}) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { released } = reconcileInactive(state.roster ?? [], activity, now)
@@ -39,8 +38,8 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
-        await appendJsonl(tower.paths.activity, {
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.appendJsonl(tower.paths.activity, {
           at: now,
           type: 'roster',
           text: `released inactive slots: ${released.join(', ')}`,
@@ -52,7 +51,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
 
   export async function markRetired(tower, agentIds) {
     if (!Array.isArray(agentIds) || agentIds.length === 0) return { retired: [] }
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { retired } = retireEntries(state.roster ?? [], agentIds, now)
@@ -60,8 +59,8 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
-        await appendJsonl(tower.paths.activity, {
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.appendJsonl(tower.paths.activity, {
           at: now,
           type: 'adopt',
           text: `retired ${retired.join(', ')}`,
@@ -73,7 +72,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
 
   export async function markMissing(tower, agentIds) {
     if (!Array.isArray(agentIds) || agentIds.length === 0) return { missing: [] }
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { missing } = markMissingEntries(state.roster ?? [], agentIds, now)
@@ -81,8 +80,8 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
-        await appendJsonl(tower.paths.activity, { at: now, type: 'adopt', text: `missing ${missing.join(', ')}` })
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'adopt', text: `missing ${missing.join(', ')}` })
       }
       return { missing }
     })
@@ -95,7 +94,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
     const staleMs = Number(input.staleMs) || 0
     if (staleMs <= 0 || input.authoritative !== true) return { marked: [], idled: [] }
     const activity = input.activity ?? {}
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { marked, idled } = sweepRosterState(
@@ -107,8 +106,8 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
-        await appendJsonl(tower.paths.activity, {
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.appendJsonl(tower.paths.activity, {
           at: now,
           type: 'watchdog',
           text: `stale ${marked.join(', ') || '-'}; idle ${idled.join(', ') || '-'}`,

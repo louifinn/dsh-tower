@@ -12,7 +12,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { withLock } from '../lib/store.js'
 
 function git(cwd, args) {
