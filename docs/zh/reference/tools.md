@@ -53,8 +53,8 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
 | `tower_control` | `action`（`enter`/`exit`）、`reason` | 模型主动切换模式；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
 | `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`dev.hotReload` 开启时注册；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
-| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], environmentContract}`。从不写状态。 |
-| `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁移到备份文件；不会重置状态或 worktree。 |
+| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，无需读取文件即可诊断卡住的控制塔。从不写状态。 |
+| `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |
 | `tower_resource` | `action`（`acquire`/`release`/`status`）、`name?`、`holder?`、`token?`、`ttlMs?`、`force?` | 每个仓库的咨询式租约，位于 `<common>/dsh-tower/leases.json`。没有 OS CPU/内存硬上限；过期的租约需要显式 `force` 与正确 token。 |

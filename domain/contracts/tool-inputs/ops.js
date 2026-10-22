@@ -25,6 +25,7 @@ export const RecoverInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   action: enumOf(RECOVERY_ACTIONS, { description: 'Recovery action.' }),
   confirm: Type.Optional(Type.String({ description: 'Required literal CLEAR_STALE_LOCK for clear-stale-lock.' })),
+  force: Type.Optional(Type.Boolean({ description: 'clear-stale-lock: clear the lock even when its recorded PID is alive (a recycled PID); requires confirm and still moves the record to a .recovered-<ts> backup.' })),
 }, { additionalProperties: false })
 
 export const TestInput = Type.Object({

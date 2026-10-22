@@ -12,6 +12,17 @@ It returns:
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 3 is current" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
+  "stateLock": {
+    "held": true,
+    "pid": 4242,
+    "startedAt": 1761280000000,
+    "at": 1761280120000,
+    "alive": true,
+    "ageMs": 121000,
+    "heartbeatAgeMs": 1000,
+    "staleAfterMs": 3000,
+    "stale": false
+  },
   "stateSchema": {
     "currentVersion": 3,
     "supportedVersion": 3,
@@ -49,6 +60,13 @@ and keeps a `state.json.v<N>.bak` backup). A file written by a newer plugin repo
 `fail`: this build refuses to downgrade it. A state-load failure is reported as a failed check rather
 than thrown so doctor remains useful on a broken repository.
 
+`stateLock` (and the `state-lock` check) reports the held lock's age (`ageMs`, from the record's
+`since`) and heartbeat freshness (`heartbeatAgeMs`, from its last `at`) against the stale window
+(`staleAfterMs = 3 × 1000 ms`). A live PID is not proof of a live writer: a holder that stopped
+heartbeating is reported as `stale: true` and is reclaimable by the next mutation (or by
+`tower_recover clear-stale-lock force:true`), while a fresh heartbeat is reported as held and is never
+stolen. This is what makes a recycled PID diagnosable without reading `state.lock` by hand.
+
 `archive` reports the terminal-mission archive: active `missions`, `archivedMissions` and `stateBytes`,
 the archive directory's `archiveBytes`/`years`/`files`, every `unreadable` diagnostic, and the configured
 `policy` (`enabled`, `afterDays`, `maxMissions`). A missing archive directory is a healthy empty archive
@@ -68,8 +86,8 @@ never probes — a probe creates a temporary file, and a read-only call must not
 applies.
 
 Checks cover: git availability, repository identity, state schema/load, the detected case mode, repo
-config presence, worker/reviewer preset names, subagents and HMR services, workspace lock
-holder/staleness, live roster, worktree existence/ownership/dirtiness, test-discovery policy, legacy
+config presence, worker/reviewer preset names, subagents and HMR services, state lock age/heartbeat,
+workspace lock holder/staleness, live roster, worktree existence/ownership/dirtiness, test-discovery policy, legacy
 snapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the
 check notes the removed count) instead of being reported as missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.

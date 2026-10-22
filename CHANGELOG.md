@@ -4,6 +4,20 @@
 
 ## 未发布（Unreleased）
 
+### 修复
+
+- **#92 PID 复用导致 state 锁永久不可恢复**：持有 state/git 锁期间，记录中的 `at` 现在按固定间隔
+  心跳重写（默认 1000 ms，`unref` 定时器，释放时清除且任何写失败都不会抛给调用方）。回收条件
+  从"PID 已死"改为"`ESRCH` 立即回收，或心跳静默超过 3 × 间隔（默认 3 s）且改名后字节校验通过"，
+  因此即使 PID 被无关进程复用也能安全回收，且仍在默认 5 s 的 state 锁等待预算内。修复前
+  `tower_recover clear-stale-lock` 会拒绝 PID 仍存活的锁；新增 `force: true`（仍需
+  `confirm:"CLEAR_STALE_LOCK"`）可清理"PID 存活但心跳静默"的锁，输出
+  `{pid, startedAt, ageMs, heartbeatAgeMs}` 并始终改名为 `.recovered-<ts>` 备份、绝不 unlink。
+  自动回收一个"PID 存活但心跳过期"的记录时保留 `state.lock.reclaimed-<ts>-<id>` 审计备份；
+  `ESRCH` 快速路径行为不变。`tower_doctor` 新增 `stateLock` 报告（`ageMs`、`heartbeatAgeMs`、
+  `staleAfterMs`、`stale`），锁记录新增 `since`（记录写入时间；旧记录回退到 `at`）。
+  改名 → 校验字节 → 再处置的顺序保持不变，回收中途被替换的记录会被还原而不会丢失。
+
 ## 2.1.0（2026-10-23）
 
 ### 新增
