@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -44,9 +45,7 @@ function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-}
+const cleanup = (root) => removeTemp(root)
 
 function makeRepo(prefix = 'dsh-tower-archive-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))

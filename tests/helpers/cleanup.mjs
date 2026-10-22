@@ -21,6 +21,20 @@ import path from 'node:path'
 // Total attempts, not retries. The backoff is 25, 50, ... capped at 500 ms, so
 // the worst case is about seven seconds before a genuinely stuck tree is
 // reported. A healthy tree pays none of it.
+// Windows CI exposes 8.3 short names in TEMP (RUNNER~1) while fs.realpath
+// returns the long form (runneradmin). Normalize once, at import time, so every
+// test-created path and every realpath compare agree. Node reads TMP/TEMP on
+// each os.tmpdir() call, so this is enough for the whole file.
+try {
+  const canonicalTmp = fs.realpathSync.native(os.tmpdir())
+  if (canonicalTmp !== os.tmpdir()) {
+    process.env.TMP = canonicalTmp
+    process.env.TEMP = canonicalTmp
+  }
+} catch {
+  // best effort: a missing temp dir will surface in the test that needs it
+}
+
 export const CLEANUP_ATTEMPTS = 24
 export const TRANSIENT_CLEANUP_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
 const MAX_DELAY_MS = 500
@@ -50,16 +64,8 @@ export function assertTempPath(target, options = {}) {
   if (typeof target !== 'string' || target.length === 0) {
     throw new TypeError('cleanup target must be a non-empty path string')
   }
-  const canonical = (value) => {
-    const resolvedPath = path.resolve(value)
-    try {
-      return fs.realpathSync.native(resolvedPath)
-    } catch {
-      return resolvedPath
-    }
-  }
-  const tmpRoot = canonical(options.tmpRoot ?? os.tmpdir())
-  const resolved = canonical(target)
+  const tmpRoot = path.resolve(options.tmpRoot ?? os.tmpdir())
+  const resolved = path.resolve(target)
   const relative = path.relative(tmpRoot, resolved)
   if (
     resolved === tmpRoot ||
