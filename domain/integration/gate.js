@@ -124,10 +124,25 @@ export function baseDirtyBlocker(wouldOverwrite) {
 }
 
 /**
+ * Whether a dependency already satisfies the gate. A build mission must be
+ * merged (or abandoned), but a survey is terminal-success at `completed`: it is
+ * read-only and has no branch to merge, so requiring `merged` would keep the
+ * dependent mission blocked forever (#107). Archived entries carry `kind` for
+ * the same decision.
+ * @param {{ kind?: string, status?: string } | null | undefined} dep
+ * @returns {boolean}
+ */
+export function dependencySatisfied(dep) {
+  if (!dep) return false
+  if (dep.status === 'merged' || dep.status === 'abandoned') return true
+  return dep.kind === 'survey' && dep.status === 'completed'
+}
+
+/**
  * @param {object} input
  * @param {string[]} input.deps
  * @param {TowerState} input.state
- * @param {Map<string, { status: string }>} [input.archived] compact archived missions (#73)
+ * @param {Map<string, { status: string, kind?: string }>} [input.archived] compact archived missions (#73)
  * @returns {Blocker[]}
  */
 export function dependencyBlockers({ deps = [], state, archived = new Map() }) {
@@ -135,7 +150,7 @@ export function dependencyBlockers({ deps = [], state, archived = new Map() }) {
   const blockers = []
   for (const depId of deps) {
     const dep = state.missions.find((entry) => entry.id === depId) ?? archived.get(depId)
-    if (!dep || !['merged', 'abandoned'].includes(dep.status)) {
+    if (!dependencySatisfied(dep)) {
       blockers.push({ code: 'deps-unmerged', detail: `${depId} is ${dep ? dep.status : 'missing'}` })
     }
   }

@@ -5,6 +5,7 @@ is shipped in the npm package; doctor reads it locally and never contacts a regi
 
 | dsh version | tag / commit | verified on | what was run |
 |---|---|---|---|
+| 0.2.1-rc.2 | v2.1.2 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (495), `npm run docs:check`, generated docs checks |
 | 0.2.1-rc.2 | v2.1.1 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (490), `npm run docs:check`, generated docs checks |
 | 0.2.1-rc.2 | v2.1.0 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (479), `npm run docs:check`, generated docs checks |
 | 0.2.1-rc.2 | v2.1.0-beta.1 | 2026-10-22 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (413), `npm run docs:check`, generated docs checks |

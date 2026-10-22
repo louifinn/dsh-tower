@@ -82,7 +82,7 @@ set by `tower_merge`/reconciliation.
    against the merge base.
 3. Survey missions must not change files; build missions must stay inside `scope`.
 4. The main checkout must be clean for the files this merge would overwrite and on the base branch.
-5. Dependency missions must be merged/abandoned.
+5. Dependency missions must be merged/abandoned, except a completed survey dependency which is its terminal success state (#107).
 6. If `review.requireReview:true` (default false), a review must exist, belong to this mission, be
    clean, approve merge, and be bound to the tip (unless a clean rebase waived it). No worker may be
    running.
