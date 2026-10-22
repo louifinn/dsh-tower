@@ -2,6 +2,8 @@
 //
 // App use cases depend on this contract, not on lib/store.js: they receive the
 // implementation through the composition root and never import the adapter.
+// The contract lists every method app/** calls, so an implementation that is
+// missing one fails `assertPorts` at construction instead of mid-mission.
 import { assertPort, definePort } from './contract.js'
 
 /**
@@ -15,6 +17,14 @@ import { assertPort, definePort } from './contract.js'
  * @property {(paths: object, fn: (paths: object) => Promise<any>, options?: object) => Promise<any>} withLock
  * @property {(paths: object, fn: (paths: object) => Promise<any>, options?: object) => Promise<any>} withGitLock
  * @property {(file: string, limit?: number) => Promise<any[]>} readActivityTail
+ * @property {(file: string) => Promise<string>} readText
+ * @property {(file: string, text: string, encoding?: string) => Promise<void>} writeText
+ * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText
+ * @property {(from: string, to: string) => Promise<void>} renameWithRetry
+ * @property {(file: string) => Promise<{ mtimeMs: number }>} stat
+ * @property {(file: string) => Promise<void>} unlink
+ * @property {(paths: object, options?: object) => Promise<{ record: any, raw: string | null }>} readGitLock
+ * @property {(lock: { record: any } | null, options?: object) => { held: boolean, pid?: number | null, phase?: string | null, heldMs?: number }} gitLockView
  */
 
 export const STORE_PORT = definePort('StorePort', [
@@ -27,6 +37,14 @@ export const STORE_PORT = definePort('StorePort', [
   'withLock',
   'withGitLock',
   'readActivityTail',
+  'readText',
+  'writeText',
+  'appendText',
+  'renameWithRetry',
+  'stat',
+  'unlink',
+  'readGitLock',
+  'gitLockView',
 ])
 
 /** @param {unknown} impl */

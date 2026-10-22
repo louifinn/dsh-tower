@@ -75,7 +75,7 @@ through the `deps` object:
 
 | deps member | contract | default implementation |
 |---|---|---|
-| `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` | `adapters/store-fs.js` `createStorePort()` |
+| `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` plus the raw-file and lock primitives `readText/writeText/appendText/renameWithRetry/stat/unlink/readGitLock/gitLockView` | `adapters/store-fs.js` `createStorePort()` |
 | `vcs` | VcsPort: `git/tryGit/revParse/isClean/isAncestor/resolveRepo/currentBranch/countCommits/listWorktrees` | `adapters/vcs-git.js` `createVcsPort()` |
 | `clock`, `ids` | ClockPort / IdsPort | `adapters/default.js` |
 | `config` | ConfigPort: `runtimeConfig/resolveRepoConfig` | `lib/config.js` |
@@ -85,9 +85,12 @@ through the `deps` object:
 | `caseSensitivity` | CaseSensitivityPort: `detect` | `lib/caseSensitivity.js` |
 
 `index.js` is the composition root: it calls `createDefaultDeps()` once and passes the object to
-`registerTowerTools`. The registry hands every tool an `openTower(repoRoot)` factory bound to those
-ports, and `Tower.open(repoRoot, deps)` / `new Tower(repo, config, deps)` validates the object with
-`assertPorts` before use. `app/tower.js` itself imports no adapter and no `lib/` module.
+`registerTowerTools`. The registry adopts and validates that object (`assertPorts`) instead of building
+its own adapter set, hands every tool an `openTower(repoRoot)` factory bound to those ports, and
+`Tower.open(repoRoot, deps)` / `new Tower(repo, config, deps)` validates the object again before use.
+`app/tower.js` itself imports no adapter and no `lib/` module. The one piece of lock policy the app and
+the store share (the git-mutex budget, #93) is pure and lives in `domain/lockBudget.js`; `lib/store.js`
+re-exports it for the infrastructure callers.
 
 `lib/` remains the infrastructure layer that implements the adapters' durable behaviour (store, git,
 locks, config, archive); #70 retires it by moving the code into the adapters. Until then `lib/` is the

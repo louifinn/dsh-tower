@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import * as realStore from '../lib/store.js'
 import * as realGit from '../lib/git.js'
 import { Tower } from '../lib/tower.js'
+import { registerTowerTools } from '../lib/tool-registry.js'
 import { PORTS } from '../ports/index.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -306,6 +307,76 @@ test('Tower validates its injected ports at construction', () => {
   const repo = { root: '/virtual/repo', commonDir: '/virtual/repo/.git' }
   assert.throws(() => new Tower(repo, {}, {}), /store: expected an object implementing StorePort/)
   assert.throws(() => new Tower(repo, {}, null), /requires an injected deps object/)
+})
+
+/** The minimal registration context: tools are captured, effects are disposable. */
+function makeRegistrationCtx() {
+  const tools = new Map()
+  const disposers = []
+  const ctx = {
+    effect(fn) {
+      const dispose = fn()
+      const disposer = typeof dispose === 'function' ? dispose : () => {}
+      disposers.push(disposer)
+      return disposer
+    },
+    get() {
+      return undefined
+    },
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition)
+        return () => {}
+      },
+      guard() {
+        return () => {}
+      },
+    },
+    systemPrompt: { section() {} },
+  }
+  return { ctx, tools, dispose: () => disposers.forEach((dispose) => dispose()) }
+}
+
+test('StorePort declares every store method app/** calls', () => {
+  const appDir = new URL('../app/', import.meta.url)
+  const used = new Set()
+  for (const file of fs.readdirSync(appDir)) {
+    if (!file.endsWith('.js')) continue
+    const source = fs.readFileSync(new URL(file, appDir), 'utf8')
+    for (const match of source.matchAll(/deps\.store\.([A-Za-z_][A-Za-z0-9_]*)/g)) used.add(match[1])
+  }
+  assert.ok(used.size > 0, 'app/** must call the store through deps.store')
+  const declared = new Set(PORTS.store.contract.methods)
+  const missing = [...used].filter((method) => !declared.has(method)).sort()
+  assert.deepEqual(missing, [], `StorePort must declare every app store call: ${missing.join(', ')}`)
+})
+
+test('the composition root supplies the ports the registry injects', async () => {
+  // #69: index.js constructs the adapter set once and passes it to
+  // registerTowerTools; the registry must inject that set into every Tower.
+  const deps = createDefaultDeps()
+  const sentinel = {
+    ...deps,
+    vcs: {
+      ...deps.vcs,
+      resolveRepo: async () => {
+        throw new Error('sentinel-composition-root: injected ports were used')
+      },
+    },
+  }
+  const { ctx, tools, dispose } = makeRegistrationCtx()
+  try {
+    registerTowerTools(ctx, { deps: sentinel })
+    const status = tools.get('tower_status')
+    assert.ok(status, 'tower_status is registered')
+    await assert.rejects(
+      () => status.execute({ repoRoot: '/virtual/repo' }, { agent: { id: 'contract-test' } }),
+      /sentinel-composition-root/,
+      'the registry must open the Tower with the host-supplied port set',
+    )
+  } finally {
+    dispose()
+  }
 })
 
 test('the doubles have no filesystem or process dependency', () => {
