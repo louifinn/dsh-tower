@@ -15,3 +15,7 @@ Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Execution workflow
+
+This repository is delivered with the Matt Pocock skills workflow (triage → spec → tickets → TDD → two-axis review → retro) and the Tower delivery protocol (missions in isolated worktrees, scope fences, review/merge gates). The combined convention — who owns each stage, when to use subagents versus Tower, the verification gates, and the tag-only versus published release modes — is in `docs/agents/workflow.md`.

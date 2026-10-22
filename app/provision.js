@@ -7,7 +7,7 @@
 //             mission still has no worktree, then records it. A rejected
 //             commit rolls the created worktree/branch back outside the lock.
 import path from 'node:path'
-import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl, shortHash } from '../lib/store.js'
+import { withLock, withGitLock, gitMutexOptions, exists, ensureDir, writeJsonAtomic, appendJsonl, shortHash } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { canonicalPath } from '../lib/worktreeOwnership.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -98,7 +98,7 @@ async function actProvision(tower, prepared) {
       realPath: await canonicalPath(prepared.wtPath),
     })
     return { phase: 'created', worktree }
-  })
+  }, gitMutexOptions(tower, { phase: 'provision' }))
 }
 
 /** Phase 3 of `Tower.provision` (#51): record the worktree under a short lock. */
@@ -138,7 +138,7 @@ async function rollbackProvision(tower, prepared) {
   await withGitLock(tower.paths, async () => {
     await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
     await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
-  })
+  }, gitMutexOptions(tower, { phase: 'provision' }))
 }
 
 /** #51 two-phase provision: prepare/act/commit with rollback on rejection. */

@@ -105,7 +105,7 @@ After the command, regardless of exit status, it inspects `HEAD`:
 | `<git-common-dir>/dsh-tower/archive/index.json` | compact terminal-mission index (ids, status, branch, timestamps) |
 | `<git-common-dir>/dsh-tower/archive/<year>.json` | full archived missions plus their linked reviews/findings |
 | `<git-common-dir>/dsh-tower/activity.jsonl` | append-only activity |
-| `<git-common-dir>/dsh-tower/state.lock` | single-writer state lock (dead-PID reclaimed, live lock reported) |
+| `<git-common-dir>/dsh-tower/state.lock` | single-writer state lock (heartbeat reclaim; a recycled PID cannot pin it) |
 | `<git-common-dir>/dsh-tower/git.lock` | repo-scoped serialization for git mutations outside the state lock |
 | `<git-common-dir>/dsh-tower/lock-holds.jsonl` | state/git lock-hold telemetry |
 | `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | mission worktree |
@@ -113,8 +113,10 @@ After the command, regardless of exit status, it inspects `HEAD`:
 | `$DSH_HOME/tower-mode/modes.lock` | mode-store single-writer lock |
 
 `state.json` and `modes.json` both use an atomic write (temp + rename), token-checked lock release,
-dead-PID reclamation, and bounded lock waits. `state.json` is the mission persistence contract;
-`modes.json` is the per-agent mode contract; neither is written without its own lock.
+heartbeat-based reclamation (a live PID with a silent heartbeat is reclaimed after byte verification;
+a live holder that keeps heartbeating is never stolen), and bounded lock waits. `state.json` is the
+mission persistence contract; `modes.json` is the per-agent mode contract; neither is written without
+its own lock.
 
 ## Layering rules
 

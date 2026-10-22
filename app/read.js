@@ -1,7 +1,7 @@
 // Read-only dashboard/detail use cases.
 import { TowerToolError } from '../domain/errors.js'
 import { diffView, missionDetailView, statusView } from '../domain/read/views.js'
-import { readActivityTail } from '../lib/store.js'
+import { readActivityTail, readGitLock, gitLockView } from '../lib/store.js'
 import { archiveView, archivedSummary } from './archive.js'
 
 function fail(message, code = 'invalid-argument') {
@@ -58,6 +58,9 @@ export async function missionDetail(tower, missionId) {
 export async function status(tower, input = {}) {
   const state = await tower.load()
   const activity = await readActivityTail(tower.paths.activity, 12)
+  // The repo-scoped git mutex can be held for a whole merge; expose the
+  // holder so "the tower is stuck" has a visible cause (#93).
+  const gitLock = gitLockView(await readGitLock(tower.paths))
   const index = await tower.archiveIndex()
   const activeIds = new Set(state.missions.map((mission) => mission.id))
   const wanted = Array.isArray(input.missionIds) ? new Set(input.missionIds) : null
@@ -81,6 +84,7 @@ export async function status(tower, input = {}) {
     missions,
     archivedMissions: index.ok ? index.missions.length : null,
     archive: archiveView(index),
+    gitLock,
   })
 }
 

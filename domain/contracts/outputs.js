@@ -79,6 +79,7 @@ const SCHEMAS = {
       recentFindings: S.arr(S.obj()),
       missions: S.arr(S.obj()),
       activity: S.arr(S.obj()),
+      gitLock: S.obj({ held: S.bool, pid: S.any, phase: S.any, heldMs: S.any }),
       mode: S.any,
       spawn: S.any,
       towerAgentId: S.any,
@@ -243,6 +244,8 @@ const SCHEMAS = {
     {
       ok: S.bool,
       checks: S.arr(S.obj()),
+      stateLock: S.any,
+      gitLock: S.any,
       stateSchema: S.obj({
         currentVersion: S.any,
         supportedVersion: S.int,
@@ -266,7 +269,7 @@ const SCHEMAS = {
     ['ok', 'checks'],
   ),
   recover: S.obj(
-    { ok: S.bool, action: S.str, stateLock: S.any, cleared: S.bool, backup: S.any, error: S.str },
+    { ok: S.bool, action: S.str, stateLock: S.any, cleared: S.bool, backup: S.any, forced: S.bool, error: S.str },
     ['ok', 'action'],
   ),
   test: S.obj(

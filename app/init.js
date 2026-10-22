@@ -6,7 +6,7 @@
 //             the repo-scoped git mutex, never under the state lock.
 //   commit  — one short state lock writes/claims/reanchors, revalidating the
 //             state revision captured by prepare.
-import { withLock, withGitLock, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { withLock, withGitLock, gitMutexOptions, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { detectCaseSensitivity } from '../lib/caseSensitivity.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -120,7 +120,7 @@ async function actInitCreate(tower, prepared) {
     const snapshotRef = snapshotRefFor(snapshotCommit)
     await tower.git(tower.root, ['update-ref', snapshotRef, snapshotCommit])
     return { snapshotCommit, snapshotRef }
-  })
+  }, gitMutexOptions(tower, { phase: 'init' }))
 }
 
 /** Phase 2b of `Tower.init` (#51): snapshot-ref cleanup for a base reanchor. */
@@ -143,7 +143,7 @@ async function actInitReanchor(tower, prepared) {
       }
     }
     return { deleted }
-  })
+  }, gitMutexOptions(tower, { phase: 'init' }))
 }
 
 /** Restore snapshot refs when the reanchor commit is rejected after phase 2. */
@@ -154,7 +154,7 @@ async function restoreInitRefs(tower, deleted) {
     for (const entry of entries) {
       await tower.git(tower.root, ['update-ref', entry.ref, entry.sha]).catch(() => {})
     }
-  })
+  }, gitMutexOptions(tower, { phase: 'init' }))
 }
 
 /** Phase 3a of `Tower.init` (#51): write the initial state under a short lock. */

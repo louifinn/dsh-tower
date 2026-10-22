@@ -13,6 +13,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
+import { withLock } from '../lib/store.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -126,16 +127,24 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
   }
 })
 
-test('a held state writer lock fails closed with [tower:state-locked]', async () => {
+test('a heartbeating state writer lock fails closed with [tower:state-locked]', async () => {
   const { root, repo } = seedRepo('dsh-tower-faults-lock-')
   const { tools } = makeCtx()
   try {
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)
     const tower = await Tower.open(repo)
-    fs.writeFileSync(
-      tower.paths.lock,
-      JSON.stringify({ token: 'held-by-another-process', pid: process.pid, at: Date.now() }),
-    )
+    // A lock is only "held" while its heartbeat is fresh (#92): hold it through
+    // the real withLock so the fixture is a live writer, not a bare PID record.
+    let releaseHolder
+    const gate = new Promise((resolve) => {
+      releaseHolder = resolve
+    })
+    const holding = withLock(tower.paths, () => gate)
+    for (let attempt = 0; attempt < 200 && !fs.existsSync(tower.paths.lock); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    assert.ok(fs.existsSync(tower.paths.lock), 'the holder must acquire the lock')
+
     const started = Date.now()
     await assert.rejects(
       () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Locked', scope: ['x/**'] }] }, exec),
@@ -144,7 +153,10 @@ test('a held state writer lock fails closed with [tower:state-locked]', async ()
     // The writer must wait for the documented 5s lock timeout, not steal it.
     assert.ok(Date.now() - started >= 4500, 'a held lock must not be stolen')
     assert.ok(fs.existsSync(tower.paths.lock), 'the foreign lock must still exist after giving up')
-    fs.unlinkSync(tower.paths.lock)
+
+    releaseHolder()
+    await holding
+    assert.equal(fs.existsSync(tower.paths.lock), false, 'releasing the holder must clear the lock')
     const planned = await tools
       .get('tower_plan')
       .execute({ repoRoot: repo, missions: [{ title: 'After lock', scope: ['x/**'] }] }, exec)
