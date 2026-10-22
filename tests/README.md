@@ -15,7 +15,8 @@ npm test
 
 The 2.0 suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
 
-- `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-ASCII titles, glob matching.
+- `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-Unicode titles (NFC, 120-character bound), glob matching.
+- `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_status` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
 - `errors.test.mjs` — the stable `[tower:<code>]` classifier for every documented failure family.
 - `config.repo.test.mjs` — repository config layer: path, precedence, legacy keys, and invalid input codes.
 - `findings.test.mjs` — the finding lifecycle through the domain class.

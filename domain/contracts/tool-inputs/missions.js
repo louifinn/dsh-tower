@@ -14,7 +14,7 @@ export const PlanInput = Type.Object({
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missions: Type.Array(
     Type.Object({
-      title: Type.String({ description: 'Printable ASCII title; used as the mission label.' }),
+      title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
       deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must merge before this one.' })),
