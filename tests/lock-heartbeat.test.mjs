@@ -48,8 +48,20 @@ function writeLock(file, record) {
   return JSON.stringify(record)
 }
 
+// A lock file is created with O_EXCL + write, so a concurrent reader can see
+// the name before the first write lands (and the heartbeat replaces the file by
+// rename). Retry briefly instead of failing the fixture on that window; the
+// production readers already ignore unparsable lock bytes (#92).
 function readLockFile(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'))
+  const deadline = Date.now() + 2000
+  for (;;) {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch (error) {
+      if (Date.now() > deadline) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+    }
+  }
 }
 
 function reclaimedBackups(dir) {
