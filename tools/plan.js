@@ -24,7 +24,7 @@ export function registerPlanTool(ctx, deps) {
   define(ctx, {
     name: 'tower_plan',
     description:
-      'Plan one or more missions in an initialized repository. Each mission has a printable-ASCII title, relative scope globs, optional task checklist, optional mission-id dependencies, and kind build|survey. Assigns M1.. ids and auto-adds a dependency when build scopes overlap (serializes merges); rejects dependency cycles.',
+      'Plan one or more missions in an initialized repository. Each mission has a printable-Unicode title (NFC-normalized, at most 120 characters), relative scope globs, optional task checklist, optional mission-id dependencies, and kind build|survey. Assigns M1.. ids and auto-adds a dependency when build scopes overlap (serializes merges); rejects dependency cycles.',
     parameters: PlanInput,
     board: true,
     output: output(SCHEMAS.plan),

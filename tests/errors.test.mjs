@@ -31,7 +31,7 @@ test('classifyError: GitError keeps repo/git/timing codes', async () => {
 })
 
 test('classifyError: prose alone no longer classifies', () => {
-  for (const message of ['unknown mission "M9"', 'mission title must be printable ASCII', 'state is locked']) {
+  for (const message of ['unknown mission "M9"', 'mission title must be at most 120 characters', 'state is locked']) {
     const error = classifyError(new Error(message))
     assert.equal(error.code, 'tool-internal')
     assert.ok(error.message.startsWith('[tower:tool-internal] '))
