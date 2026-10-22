@@ -4,6 +4,23 @@
 
 ## 未发布（Unreleased）
 
+## 2.1.2（2026-10-23）
+
+### 修复
+
+- **#107 survey 依赖满足门禁**：`dependencySatisfied()` 让 `merged`/`abandoned` 继续满足任意类型依赖，
+  并额外接受 `kind === 'survey' && status === 'completed'`（survey 的终态成功，没有可合并分支）；
+  `dependencyBlockers()` 对活跃 state 与归档索引一视同仁，因此归档的已完成 survey 也满足依赖。
+  build→build 仍要求 `merged`，不为 survey 发明新状态。
+- **#108 多路 review 同 tip 记录**：`reviewAdmission()` 允许 `active` mission 的后续 route 在同一
+  reviewed tip 上追加 verdict，并入同一 round（`appended:true`），不再次翻转状态；tip 已移动时以
+  明确说明拒绝。`app/review.js` 与输出 schema 同步。
+
+### 变更
+
+- **Tower 交付流程**：2.1.2 的 #107/#108 由 Tower mission M2 实施（worker → reviewer clean R2 →
+  preflight → merge）；review 后按文档化路径扩了 mission scope 以覆盖根文档，`tower_review` 契约
+  描述更新为「completed 起新 round / active 可追加同 tip route」。
 ## 2.1.1（2026-10-23）
 
 ### 修复
