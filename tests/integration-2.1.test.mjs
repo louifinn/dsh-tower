@@ -290,6 +290,9 @@ test('2.1 doctor: reports repository, state and worktree checks without writing'
     assert.ok(doctor.checks.some((check) => check.id === 'state' && check.status === 'pass'))
     assert.ok(doctor.checks.some((check) => check.id === 'git'))
     assert.equal(doctor.environmentContract.repoRoot, repo)
+    // #86: the field is populated on every runner (Linux and Windows), not only
+    // on the platform the suite was written on.
+    assert.equal(doctor.environmentContract.platform, process.platform)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

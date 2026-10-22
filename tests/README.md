@@ -16,6 +16,7 @@ npm test
 The 2.0 suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
 
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-ASCII titles, glob matching.
+- `platform.test.mjs` — the platform branches, asserted on every OS: win32 path case folding (`isInside`), the `pwsh`/`bash` discovery shell (`shellSpec`), the transient rename/unlink retry loops via injected syscalls, and worktree path identity (`compareKey`). The one real-Windows case (renaming over an open destination) is declared with `skip:` so Linux reports it as `# SKIP` rather than dropping it.
 - `errors.test.mjs` — the stable `[tower:<code>]` classifier for every documented failure family.
 - `config.repo.test.mjs` — repository config layer: path, precedence, legacy keys, and invalid input codes.
 - `findings.test.mjs` — the finding lifecycle through the domain class.

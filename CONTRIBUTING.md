@@ -20,6 +20,13 @@ and every PR stays unmergeable. The setting and its verification command are in
 [SECURITY.md](SECURITY.md#repository-protection-on-main). The `mount-fixtures` job runs the seeded
 smoke failures for evidence but is deliberately **not** a required context.
 
+The offline `test` matrix also has a `test (22, windows)` leg on `windows-latest` (Node 22). It runs the
+offline suite and the offline gates, not the release/coverage steps, so the platform branches are
+measured on a real Windows filesystem (see `tests/platform.test.mjs`). Its name is pinned through
+`matrix.name` so the two required contexts above stay byte-identical. The Windows leg is **not** a
+required context yet: #86 only asks that it exists and is green, and adding it to the protection setting
+is a separate human step.
+
 There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
 one maintainer, and a mandatory self-approval would be theatre. What replaces the second reviewer is a
 written contract.
@@ -74,7 +81,7 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (416 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (427 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.

@@ -122,7 +122,13 @@ test('CI runs the seeded fixtures against one shared host install', () => {
   assert.match(workflow, /hashFiles\('scripts\/mount-smoke\/host\.json'\)/)
   // Required contexts stay exactly `test (22)`, `test (24)` and `mount`; the
   // fixtures job is evidence, not a merge gate, so it must not borrow that name.
-  assert.match(workflow, /node: \[22, 24\]/)
+  // #86: every matrix leg names its own context, so adding the Windows leg must
+  // not rename the two required ones (a renamed context never reports).
+  assert.match(workflow, /^ {4}name: \$\{\{ matrix\.name \}\}$/m, 'matrix legs pin their context names')
+  const matrixNames = [...workflow.matchAll(/^ {10}- name: (.+)$/gm)].map((match) => match[1])
+  assert.deepEqual(matrixNames, ['test (22)', 'test (24)', 'test (22, windows)'])
+  assert.match(workflow, /^ {12}os: windows-latest$/m, 'the Windows leg runs on windows-latest')
+  assert.match(workflow, /^ {12}os: ubuntu-latest$/m, 'the required legs stay on ubuntu-latest')
   assert.equal((workflow.match(/^ {4}name: mount$/gm) ?? []).length, 1)
   assert.doesNotMatch(workflow, /^ {4}name: mount-fixtures$/m)
 })
