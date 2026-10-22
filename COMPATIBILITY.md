@@ -3,7 +3,7 @@
 Tower records the DeepSeek Harness host build each release was actually verified against. This file
 is shipped in the npm package; doctor reads it locally and never contacts a registry.
 
-| dsh version | commit | verified on | what was run |
+| dsh version | tag / commit | verified on | what was run |
 |---|---|---|---|
 | 0.2.1-rc.2 | 6ee19de | 2026-10-21 | `npm test` (229), `npm run docs:check`, offline `ui-bundle` tests |
 | 0.2.1-rc.2 | 5b0accd | 2026-10-18 | `npm test` (219), `npm run docs:check` |
@@ -22,7 +22,10 @@ Tower work. This is provenance, not a feature-detection mechanism.
 ## Release process
 
 Add a row in the release PR, before tagging, after running the offline suite and docs check on the
-host build being shipped. Do not claim a live run that was not performed.
+host build being shipped. Name the release tag in cell 1 and the host build in cell 0; the other
+columns are read positionally by `lib/compatibility.js`, so do not insert or reorder them. Do not
+claim a live run that was not performed. The full six-step procedure is the
+[release checklist](docs/guide/release.md).
 
 ## Pack provenance
 

@@ -9,7 +9,7 @@ Choose a path:
 | New user | [When to use Tower](guide/scenarios-and-philosophy.md) → [Quick start](guide/quickstart.md) → [Tools](reference/tools.md) → [Example](examples/first-mission.md) |
 | Choosing a workflow | [When to use Tower, and how it differs from Agent Teams, Ralph, Workflow and parallel subagents](guide/scenarios-and-philosophy.md) |
 | Operator | [Runbook](operations/runbook.md) → [Blockers](reference/blockers.md) → [Error codes](reference/errors.md) → [Events](reference/events.md) → [Doctor](reference/doctor.md) → [Testing](reference/testing.md) → [Batches/leases/legacy](reference/operations.md) → [Security](operations/security.md) |
-| Maintainer | [Architecture](architecture/overview.md) → [Config](reference/config.md) → [Hot reload](guide/hot-reload.md) → [Contributing](../CONTRIBUTING.md) |
+| Maintainer | [Architecture](architecture/overview.md) → [Config](reference/config.md) → [Hot reload](guide/hot-reload.md) → [Release checklist](guide/release.md) → [Tracker board](board.md) → [Contributing](../CONTRIBUTING.md) |
 
 Reference pages are the source of truth for the current release; the [tools reference](reference/tools.md),
 [blocker list](reference/blockers.md) and [error codes](reference/errors.md) are checked against the
@@ -41,6 +41,8 @@ Other useful pages: [When to use Tower](guide/scenarios-and-philosophy.md), [Ins
 
 - [Operations runbook](operations/runbook.md)
 - [Security model](operations/security.md)
+- [Release checklist](guide/release.md)
+- [Tracker board](board.md)
 - [Architecture and state machine](architecture/overview.md)
 - [First mission example](examples/first-mission.md)
 - [FAQ](faq.md)

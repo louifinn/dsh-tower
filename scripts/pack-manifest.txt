@@ -32,11 +32,13 @@ app/tower.js
 cordis.patch.yml
 docs/README.md
 docs/architecture/overview.md
+docs/board.md
 docs/examples/first-mission.md
 docs/faq.md
 docs/guide/hot-reload.md
 docs/guide/install-upgrade-migration.md
 docs/guide/quickstart.md
+docs/guide/release.md
 docs/guide/scenarios-and-philosophy.md
 docs/operations/runbook.md
 docs/operations/security.md
