@@ -70,8 +70,9 @@ test('pure mission summaries expose counts and full detail', async () => {
 test('pure board renderer and state validator are repository-independent', async () => {
   const { boardMarkdown } = await import('../domain/report.js')
   const { validateState } = await import('../domain/state.js')
+  const { SCHEMA_VERSION } = await import('../domain/mission.js')
   const state = {
-    schemaVersion: 1, revision: 2, repoRoot: '/repo', base: 'main', updatedAt: 1,
+    schemaVersion: SCHEMA_VERSION, revision: 2, repoRoot: '/repo', base: 'main', updatedAt: 1,
     missions: [{ id: 'M1', title: 'T', kind: 'build', status: 'active', scope: ['x/**'], deps: [], tasks: [], blockers: [] }],
     roster: [], messages: [], findings: [], reviews: [],
   }
@@ -79,7 +80,7 @@ test('pure board renderer and state validator are repository-independent', async
   assert.match(board, /Tower missions/)
   assert.match(board, /\| M1 \| active \|/)
   assert.equal(validateState(state, 'state.json'), state)
-  assert.throws(() => validateState({ ...state, schemaVersion: 99 }, 'state.json'), /schemaVersion/)
+  assert.throws(() => validateState({ ...state, schemaVersion: SCHEMA_VERSION + 1 }, 'state.json'), /schemaVersion/)
 })
 
 test('rebase waiver is a pure predicate', async () => {

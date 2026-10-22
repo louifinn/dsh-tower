@@ -4,6 +4,16 @@
 
 ## 未发布（Unreleased）
 
+### 新增
+
+- **#72 state 迁移**：`state.json` 的 `schemaVersion` 升到 2，并新增有序、纯函数式的迁移注册表
+  （`domain/state/migrations.js`）。旧 state 在持有 state 锁的加载中自动迁移：先写
+  `state.json.v<N>.bak` 备份，再原子替换、`revision` 只 +1、并向 activity 追加
+  `state.migrated {from,to}`；只读工具只在内存中迁移，不改写文件。由更新插件写入的 state 现在
+  以 `[tower:state-version-unsupported]` 拒绝（不再误报 `state-corrupt`），且绝不会被降级重写；
+  迁移抛错以 `[tower:state-migration-failed]` 报出，原文件保持字节不变。`tower_doctor` 新增
+  `stateSchema {currentVersion,supportedVersion,migrations,status}` 与 `state-schema` 检查。
+
 ## 2.1.0-beta.1（2026-10-22）
 
 **预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。

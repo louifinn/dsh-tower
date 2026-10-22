@@ -78,7 +78,6 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
 
     const corruptVariants = [
       ['invalid JSON', 'this is not json at all'],
-      ['unsupported schemaVersion', JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)],
       ['missing missions array', JSON.stringify({ ...parsed, missions: 'nope' }, null, 2)],
       [
         'unknown mission status',
@@ -110,6 +109,18 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
       )
       fs.writeFileSync(tower.paths.state, baseline)
     }
+
+    // A newer schema is not corruption: it is refused without a rewrite so an
+    // older plugin can never silently downgrade state written by a newer one.
+    const newerText = JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)
+    fs.writeFileSync(tower.paths.state, newerText)
+    await assert.rejects(
+      () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+      /\[tower:state-version-unsupported\]/,
+    )
+    assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), newerText, 'a newer state must be left untouched')
+    fs.writeFileSync(tower.paths.state, baseline)
+
     // The untouched baseline still works afterwards.
     const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     assert.equal(status.counts.planned, 1)

@@ -85,6 +85,7 @@ function fail(message, code = 'invalid-argument') {
 }
 
 import { validateState } from '../domain/state.js'
+import { loadStateFile } from '../lib/stateFile.js'
 import { boardMarkdown } from '../domain/report.js'
 import { diff, missionDetail, status } from './read.js'
 import { evaluateGate } from './gate.js'
@@ -142,12 +143,24 @@ export class Tower {
     return (await this.tryGit(cwd, ['merge-base', '--is-ancestor', ancestor, descendant].filter(Boolean))) !== null
   }
 
-  async load() {
+  /**
+   * Read the state document, migrating an older schema in memory and (while the
+   * caller holds the state lock) persisting that migration with one revision
+   * bump and a `state.migrated` activity entry (#72).
+   * @param {{ persist?: boolean }} [options]
+   */
+  async load(options = {}) {
     if (!(await this.deps.store.exists(this.paths.state))) {
       fail(`tower is not initialized for ${this.root} — run tower_init first`, 'not-initialized')
     }
-    const state = await this.deps.store.readJson(this.paths.state)
-    return validateState(state, this.paths.state)
+    const loaded = await loadStateFile({
+      store: this.deps.store,
+      paths: this.paths,
+      now: this.deps.clock?.now ? this.deps.clock.now() : Date.now(),
+      persist: options.persist,
+    })
+    this.stateLoad = { ...loaded.version, migration: loaded.migration }
+    return loaded.state
   }
 
   /** #51 two-phase init: see the prepare/act/commit helpers in `./tower/init.js`. */

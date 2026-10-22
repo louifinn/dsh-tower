@@ -70,6 +70,7 @@ import {
   shouldSnapshot,
   snapshotRefFor,
 } from '../domain/integration/init.js'
+import { SCHEMA_VERSION } from '../domain/mission.js'
 import {
   baseCommitChoice,
   createdWorktreeResult,
@@ -380,7 +381,7 @@ test('init base, ownership, snapshot and result decisions are pure', () => {
   assert.equal(snapshotRefFor('abc'), 'refs/tower/snapshot/abc')
   const state = initialState({ repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', dirty: true, towerAgentId: 'a', snapshotCommit: 's', snapshotRef: 'r', now: 5 })
   assert.deepEqual(state, {
-    schemaVersion: 1,
+    schemaVersion: SCHEMA_VERSION,
     repoRoot: '/repo',
     commonDir: '/repo/.git',
     base: 'main',

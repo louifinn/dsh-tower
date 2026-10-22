@@ -29,6 +29,14 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **state schema v1 → v2 (unreleased)**: `state.json` migrates automatically. The first **write** after
+  upgrading keeps a `state.json.v1.bak` backup, advances `revision` once, and appends
+  `state.migrated {from,to}` to `activity.jsonl`; read-only tools keep reading a v1 file without
+  rewriting it. `tower_doctor` reports the on-disk version and the pending migration. A file written by
+  a newer plugin is refused with `[tower:state-version-unsupported]` and is never rewritten or
+  downgraded; a migration that throws reports `[tower:state-migration-failed]` and leaves the original
+  file byte-identical.
+
 - **2.0.4 → 2.1.0-beta.1**: no state/config migration. This is a **pre-release** published on the
   `next` dist-tag, so `latest` still resolves to 2.0.4 — install it with
   `dsh plugin --profile web add dsh-tower@next` (or the exact version). The runtime behavior is

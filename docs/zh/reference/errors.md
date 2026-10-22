@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 33 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 35 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -23,7 +23,9 @@
 | `stale-base` | 操作准备期间仓库状态已变化，需要重试。 | two-phase mutation 重校验 |
 | `worktree-dirty` | mission worktree 有未提交改动，不能完成。 | `tower_complete` 前遗留 staged/modified/untracked 文件 |
 | `state-locked` | 另一个 Tower 写入者持有 state 锁。 | 锁超时后的并发写 |
-| `state-corrupt` | Tower state 文件不可读或无效。 | 手工编辑过的 `state.json` |
+| `state-corrupt` | Tower state 文件不可读或无效。 | 手工编辑过的 `state.json`；非法 JSON；没有可用的 `schemaVersion` |
+| `state-version-unsupported` | state 文件的 schema 版本高于本构建支持的版本，或无法迁移。 | 打开由更新插件写入的仓库；未知的旧版本；本构建拒绝降级 |
+| `state-migration-failed` | state 迁移抛出异常；原文件未被修改。 | 迁移步骤中的 bug；查看迁移前的 `state.json.v<N>.bak` |
 | `config-invalid` | Tower 配置无效。 | 格式错误的仓库 `config.json`、违反 schema 的值 |
 | `config-unknown-key` | Tower 配置存在未知顶层键。 | 例如把键拼成 `allowAgentToggle` |
 | `git-failed` | git 命令因未归入其他分类的原因失败。 | 被拒绝的合并命令、非法 ref |

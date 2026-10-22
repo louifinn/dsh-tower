@@ -238,7 +238,20 @@ const SCHEMAS = {
     },
     ['ok', 'scheduled'],
   ),
-  doctor: S.obj({ ok: S.bool, checks: S.arr(S.obj()), environmentContract: S.obj() }, ['ok', 'checks']),
+  doctor: S.obj(
+    {
+      ok: S.bool,
+      checks: S.arr(S.obj()),
+      stateSchema: S.obj({
+        currentVersion: S.any,
+        supportedVersion: S.int,
+        migrations: S.arr(S.obj({ from: S.int, to: S.int })),
+        status: S.str,
+      }),
+      environmentContract: S.obj(),
+    },
+    ['ok', 'checks'],
+  ),
   recover: S.obj(
     { ok: S.bool, action: S.str, stateLock: S.any, cleared: S.bool, backup: S.any, error: S.str },
     ['ok', 'action'],
