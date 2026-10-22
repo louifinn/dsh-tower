@@ -4,6 +4,8 @@
 
 ## 未发布（Unreleased）
 
+## 2.1.1（2026-10-23）
+
 ### 修复
 
 - **#92 PID 复用导致 state 锁永久不可恢复**：持有 state/git 锁期间，记录中的 `at` 现在按固定间隔
@@ -18,6 +20,19 @@
   `staleAfterMs`、`stale`），锁记录新增 `since`（记录写入时间；旧记录回退到 `at`）。
   改名 → 校验字节 → 再处置的顺序保持不变，回收中途被替换的记录会被还原而不会丢失。
 
+- **#93 git mutex 等待按合并超时预算**：持有 git 锁的一方记录 `{kind:'git', phase}`，并让
+  `tower_init`/`tower_teardown`/`tower_rebase`/`tower_spawn` 按 `merge.timeoutMs`
+  （默认 900000）+ 60 s 边距等待，慢 pre-merge hook 不再让并发操作在 60 s 失败。超时错误携带
+  `{holderPid, holderPhase, heldMs, waitedMs}`（消息形如 `held by pid 1234 (merge) for 92 s;
+  waited 60 s`），`tower_status`/`tower_doctor` 新增 `gitLock {held,pid,phase,heldMs}` 与
+  `git-lock` 检查；state 锁的 5 s 预算与 merge 超时默认值保持不变。
+
+### 变更
+
+- **#106 执行规范**：新增 `docs/agents/workflow.md`，把 Matt Pocock 技能流程（triage → spec →
+  tickets → TDD → 两轴 code-review → retro）与 Tower 交付协议（worktree mission、scope 围栏、
+  review/merge 门禁）合并为仓库唯一执行规范，`AGENTS.md` 指向它；明确 tag-only 与 published
+  两种发布模式以及人工门禁（npm publish/2FA、保护分支变更）。
 ## 2.1.0（2026-10-23）
 
 ### 新增
