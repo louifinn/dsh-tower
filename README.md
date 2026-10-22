@@ -175,7 +175,7 @@ review/merge 阶段死锁。
 ## 安全与约束
 
 - **门禁不全绿不合并。** `tower_preflight` 是只读检查，返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
-- **审查绑定提交。** 开启 `review.requireReview` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。
+- **审查绑定提交。** 开启 `review.requireReview` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。非 clean 的一轮审查会让 mission 回到 active，此后其他 route 仍可为同一 reviewed tip 提交结论并追加到同一轮；依赖为 `completed` 的 survey 视为已满足（build 依赖仍需 merged）。
 - **scope 强制。** mission 只能修改其 scope glob 匹配的文件，越界会以 `out-of-scope` 阻止合并。
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。

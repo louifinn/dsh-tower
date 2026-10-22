@@ -18,10 +18,10 @@ tables below define 32 stable blocker/failure codes.
 | `read-only-survey` | Survey mission changed files; survey missions must be read-only. |
 | `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. On a case-sensitive checkout a case-only mismatch is still rejected and the detail names the scope entry it would match if case were folded. |
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
-| `deps-unmerged` | A dependency mission is not merged/abandoned. |
+| `deps-unmerged` | A dependency mission is not satisfied: a build dependency must be `merged`/`abandoned`, while a survey dependency is satisfied at `completed` (archived entries included). |
 | `no-review` | `review.requireReview:true` and no review exists on the branch: spawn a reviewer (or disable the review gate). |
 | `review-mission-mismatch` | `review.requireReview:true` and the latest review belongs to another mission. |
-| `not-clean` | `review.requireReview:true` and latest review is `p1-Nitems`/`p2-Nitems`; another round is required. |
+| `not-clean` | `review.requireReview:true` and latest review is `p1-Nitems`/`p2-Nitems`; another round is required. Verdicts from later routes of the same round are appended to it instead of flipping the mission again. |
 | `review-hold` | `review.requireReview:true` and latest review recommends hold; a later clean review must supersede it. |
 | `review-not-approved` | `review.requireReview:true` and latest clean review says `fix-then-merge` or `hold`; only `merge` approves. |
 | `tip-moved` | `review.requireReview:true` and the branch changed after review; review again (or use a clean rebase waiver). |
