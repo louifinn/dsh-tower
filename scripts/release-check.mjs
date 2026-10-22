@@ -3,7 +3,7 @@
 //
 // The gate compares three facts on every run:
 //
-//   1. `package.json` version vs the previous reachable tag,
+//   1. `package.json` version vs the previous reachable `v<semver>` tag,
 //   2. whether the CHANGELOG carries release content (a non-empty Unreleased
 //      section, or a non-empty section whose heading names the version),
 //   3. on a tag push, that the pushed tag is exactly `v<version>`.
@@ -14,13 +14,12 @@
 // on a tag push a contradiction is an error (exit 1).
 //
 // Tag-push pitfall: `git describe --tags --abbrev=0` returns the *pushed* tag
-// itself, so the previous tag is resolved from `<tag>^` (falling back to the
-// newest version tag that is an ancestor).
+// itself (and otherwise the nearest tag of any shape), so the previous tag is
+// resolved from `<tag>^` and filtered to `v<semver>` (falling back to the newest
+// version tag that is an ancestor).
 //
 // Usage:
-//   node scripts/release-check.mjs [--mode pr|tag] [--tag <name>]
-//                                  [--root <dir>] [--package <file>]
-//                                  [--changelog <file>] [--json]
+//   node scripts/release-check.mjs [--mode pr|tag] [--tag <name>] [--json]
 //
 // On CI the mode comes from GITHUB_REF_TYPE (`tag` on a tag push) and the tag
 // name from GITHUB_REF_NAME. Locally, verify before tagging with
@@ -28,24 +27,27 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { compareVersions } from '../lib/compatibility.js'
+import { findingRecorder, parseArgs, runMain, UsageError } from './lib/cli.mjs'
 
-const USAGE = `usage: node scripts/release-check.mjs [--mode pr|tag] [--tag <name>]
-                                      [--root <dir>] [--package <file>]
-                                      [--changelog <file>] [--json] [--help]
+const USAGE = `usage: node scripts/release-check.mjs [--mode pr|tag] [--tag <name>] [--json] [--help]
 
   --mode       "pr" warns only (default); "tag" fails on a contradiction
   --tag        pushed tag name (default: GITHUB_REF_NAME in tag mode)
-  --root       Git work tree to inspect (default: current directory)
-  --package    package.json to read (default: <root>/package.json)
-  --changelog  CHANGELOG.md to read (default: <root>/CHANGELOG.md)
   --json       print the facts and findings as JSON
   --help       print this text`
 
 const VERSION_TAG = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-class UsageError extends Error {}
+// A version is stored without its tag prefix; a tag is `v` + that version. The
+// release gate talks about both, so the conversion lives in one place.
+function versionTag(version) {
+  return `v${stripTag(version)}`
+}
+
+function stripTag(tag) {
+  return String(tag).replace(/^v/i, '')
+}
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -106,10 +108,10 @@ export function evaluateRelease(input = {}) {
   const unreleasedText = unreleasedSection(changelog)
   const unreleased = hasContent(unreleasedText)
   const versionNotes = versionSection(changelog, version)
-  const notes = unreleased ? 'unreleased' : hasContent(versionNotes) ? 'version-section' : 'none'
-  const previousVersion = previousTag ? previousTag.replace(/^v/i, '') : null
+  const notesKind = unreleased ? 'unreleased' : hasContent(versionNotes) ? 'version-section' : 'none'
+  const previousVersion = previousTag ? stripTag(previousTag) : null
   const findings = []
-  const record = (code, findingLevel, message) => findings.push({ code, level: findingLevel, message })
+  const record = findingRecorder(findings)
 
   if (!previousTag) {
     record('no-baseline', 'warning', `no reachable previous tag; cannot compare version ${version} against a release${suffix}`)
@@ -127,7 +129,7 @@ export function evaluateRelease(input = {}) {
       )
     }
   }
-  if (notes === 'none') {
+  if (notesKind === 'none') {
     record(
       'no-release-notes',
       level,
@@ -139,8 +141,12 @@ export function evaluateRelease(input = {}) {
   if (isTag) {
     if (!tag) {
       record('tag-missing', 'error', 'tag push mode needs the tag name (GITHUB_REF_NAME or --tag)')
-    } else if (tag !== `v${version}`) {
-      record('tag-name-mismatch', 'error', `tag ${tag} does not match package version ${version}; expected v${version}`)
+    } else if (tag !== versionTag(version)) {
+      record(
+        'tag-name-mismatch',
+        'error',
+        `tag ${tag} does not match package version ${version}; expected ${versionTag(version)}`,
+      )
     }
   }
 
@@ -152,7 +158,7 @@ export function evaluateRelease(input = {}) {
     findings,
     errors,
     warnings,
-    facts: { version, mode, tag, previousTag, previousVersion, commitsSince, describe, unreleased, notes },
+    facts: { version, mode, tag, previousTag, previousVersion, commitsSince, describe, unreleased, notesKind },
   }
 }
 
@@ -214,64 +220,21 @@ export function collectFacts(root, options = {}) {
 
 // --- CLI ---------------------------------------------------------------------
 
-function parseArgs(argv) {
-  const options = { mode: null, tag: null, root: process.cwd(), packagePath: null, changelogPath: null, json: false, help: false }
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    const value = () => {
-      const next = argv[index + 1]
-      if (next === undefined || next.startsWith('--')) throw new UsageError(`${arg} needs a value`)
-      index += 1
-      return next
-    }
-    switch (arg) {
-      case '--mode':
-        options.mode = value()
-        break
-      case '--tag':
-        options.tag = value()
-        break
-      case '--root':
-        options.root = path.resolve(value())
-        break
-      case '--package':
-        options.packagePath = path.resolve(value())
-        break
-      case '--changelog':
-        options.changelogPath = path.resolve(value())
-        break
-      case '--json':
-        options.json = true
-        break
-      case '--help':
-      case '-h':
-        options.help = true
-        break
-      default:
-        throw new UsageError(`unknown argument ${JSON.stringify(arg)}`)
-    }
-  }
-  return options
-}
-
 function printFacts(facts) {
   const dash = (value) => (value === null || value === undefined || value === '' ? '-' : value)
   console.log(
     `release-check: version=${facts.version} mode=${facts.mode} tag=${dash(facts.tag)} ` +
       `previous-tag=${dash(facts.previousTag)} commits-since=${dash(facts.commitsSince)} ` +
-      `describe=${dash(facts.describe)} unreleased=${facts.unreleased ? 'yes' : 'no'} notes=${facts.notes}`,
+      `describe=${dash(facts.describe)} unreleased=${facts.unreleased ? 'yes' : 'no'} notes=${facts.notesKind}`,
   )
 }
 
 function cli(argv) {
-  let options
-  try {
-    options = parseArgs(argv)
-  } catch (error) {
-    console.error(`release-check: ${error.message}`)
-    console.error(USAGE)
-    return 2
-  }
+  const options = parseArgs(argv, {
+    initial: { mode: null, tag: null, json: false, help: false },
+    values: { '--mode': 'mode', '--tag': 'tag' },
+    flags: { '--json': 'json', '--help': 'help', '-h': 'help' },
+  })
   if (options.help) {
     console.log(USAGE)
     return 0
@@ -280,8 +243,9 @@ function cli(argv) {
   let tag = options.tag
   if (!tag && mode === 'tag' && process.env.GITHUB_REF_TYPE === 'tag') tag = process.env.GITHUB_REF_NAME || null
 
-  const packagePath = options.packagePath ?? path.join(options.root, 'package.json')
-  const changelogPath = options.changelogPath ?? path.join(options.root, 'CHANGELOG.md')
+  const root = process.cwd()
+  const packagePath = path.join(root, 'package.json')
+  const changelogPath = path.join(root, 'CHANGELOG.md')
   let version
   try {
     version = JSON.parse(fs.readFileSync(packagePath, 'utf8')).version
@@ -299,7 +263,7 @@ function cli(argv) {
 
   let result
   try {
-    const gitFacts = collectFacts(options.root, { tag })
+    const gitFacts = collectFacts(root, { tag })
     result = evaluateRelease({ version, mode, tag, changelog, ...gitFacts })
   } catch (error) {
     console.error(`release-check: ${error.message}`)
@@ -310,7 +274,7 @@ function cli(argv) {
     console.log(
       JSON.stringify(
         {
-          root: options.root,
+          root,
           package: packagePath,
           changelog: changelogPath,
           ...result,
@@ -336,5 +300,4 @@ function cli(argv) {
   return result.ok ? 0 : 1
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isMain) process.exitCode = cli(process.argv.slice(2))
+await runMain(import.meta.url, () => cli(process.argv.slice(2)), { errorPrefix: 'release-check', usage: USAGE })

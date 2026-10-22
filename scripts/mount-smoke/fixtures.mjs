@@ -16,32 +16,24 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs, runMain } from '../lib/cli.mjs'
+import { removeTreeQuietly } from '../lib/tmp.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..', '..')
 const smokePath = path.join(scriptDir, '..', 'mount-smoke.mjs')
 
-function parseArgs(argv) {
-  const options = { root: repoRoot, hostDir: undefined, keep: false }
-  for (let index = 0; index < argv.length; index += 1) {
-    const key = argv[index]
-    switch (key) {
-      case '--root':
-        options.root = path.resolve(argv[index + 1])
-        index += 1
-        break
-      case '--host-dir':
-        options.hostDir = path.resolve(argv[index + 1])
-        index += 1
-        break
-      case '--keep':
-        options.keep = true
-        break
-      default:
-        throw new Error(`mount smoke fixtures: unknown argument ${JSON.stringify(key)}`)
-    }
-  }
-  return options
+function parseOptions(argv) {
+  return parseArgs(argv, {
+    initial: { root: repoRoot, hostDir: undefined, keep: false },
+    values: {
+      '--root': { key: 'root', parse: path.resolve },
+      '--host-dir': { key: 'hostDir', parse: path.resolve },
+    },
+    flags: { '--keep': 'keep' },
+    error: (message) => new Error(message),
+    optionLikeValues: false,
+  })
 }
 
 function copyPackage(from, to) {
@@ -106,7 +98,7 @@ function selfDescribing(output) {
 }
 
 function main() {
-  const options = parseArgs(process.argv.slice(2))
+  const options = parseOptions(process.argv.slice(2))
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-mount-fixtures-'))
   const hostDir = options.hostDir ?? path.join(tmp, 'host')
   let failures = 0
@@ -153,11 +145,7 @@ function main() {
     if (options.keep) {
       console.log(`fixtures workspace kept: ${tmp}`)
     } else {
-      try {
-        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-      } catch {
-        // best effort; Windows temp cleanup is #91
-      }
+      removeTreeQuietly(tmp)
     }
   }
 
@@ -169,9 +157,4 @@ function main() {
   return 0
 }
 
-try {
-  process.exitCode = main()
-} catch (error) {
-  console.error(`mount smoke fixtures failed: ${error?.message ?? error}`)
-  process.exitCode = 1
-}
+await runMain(import.meta.url, main, { errorPrefix: 'mount smoke fixtures failed' })

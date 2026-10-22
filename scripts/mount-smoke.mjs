@@ -28,37 +28,26 @@ import {
   expectedSkillIds,
   expectedToolIds,
 } from './mount-smoke/surface.mjs'
+import { parseArgs, runMain } from './lib/cli.mjs'
+import { removeTreeQuietly } from './lib/tmp.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
 const probePath = path.join(scriptDir, 'mount-smoke', 'probe.mjs')
 const pinPath = path.join(scriptDir, 'mount-smoke', 'host.json')
 
-function parseArgs(argv) {
-  const options = { root: repoRoot, hostDir: undefined, profile: 'tower-smoke', keep: false }
-  for (let index = 0; index < argv.length; index += 1) {
-    const key = argv[index]
-    switch (key) {
-      case '--root':
-        options.root = path.resolve(argv[index + 1])
-        index += 1
-        break
-      case '--host-dir':
-        options.hostDir = path.resolve(argv[index + 1])
-        index += 1
-        break
-      case '--profile':
-        options.profile = argv[index + 1]
-        index += 1
-        break
-      case '--keep':
-        options.keep = true
-        break
-      default:
-        throw new Error(`mount smoke: unknown argument ${JSON.stringify(key)}`)
-    }
-  }
-  return options
+function parseOptions(argv) {
+  return parseArgs(argv, {
+    initial: { root: repoRoot, hostDir: undefined, profile: 'tower-smoke', keep: false },
+    values: {
+      '--root': { key: 'root', parse: path.resolve },
+      '--host-dir': { key: 'hostDir', parse: path.resolve },
+      '--profile': 'profile',
+    },
+    flags: { '--keep': 'keep' },
+    error: (message) => new Error(message),
+    optionLikeValues: false,
+  })
 }
 
 /** npm's JS entry, so no shell (and no quoting) is involved on any platform. */
@@ -210,7 +199,7 @@ function reportFailure(state, pin, options, error) {
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2))
+  const options = parseOptions(process.argv.slice(2))
   const root = options.root
   if (!fs.existsSync(path.join(root, 'package.json'))) throw new Error(`mount smoke: ${root} is not a package root`)
   const pin = JSON.parse(fs.readFileSync(pinPath, 'utf8'))
@@ -273,20 +262,9 @@ async function main() {
   if (options.keep) {
     console.log(`  workspace kept: ${tmp}`)
   } else {
-    try {
-      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-    } catch {
-      // Temp cleanup is best effort (Windows file locks are #91, out of scope).
-    }
+    removeTreeQuietly(tmp)
   }
   return 0
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    process.exitCode = await main()
-  } catch (error) {
-    console.error(`mount smoke failed: ${error?.message ?? error}`)
-    process.exitCode = 1
-  }
-}
+await runMain(import.meta.url, main, { errorPrefix: 'mount smoke failed' })

@@ -100,7 +100,7 @@ test('PR + version moved + unreleased content: clean', () => {
   assert.equal(result.ok, true)
   assert.deepEqual(result.findings, [])
   assert.equal(result.facts.unreleased, true)
-  assert.equal(result.facts.notes, 'unreleased')
+  assert.equal(result.facts.notesKind, 'unreleased')
 })
 
 test('tag push + version moved + unreleased content: clean when the tag is v<version>', () => {
@@ -129,7 +129,7 @@ test('a changelog section for the version supplies the release notes', () => {
   })
   assert.equal(result.ok, true)
   assert.equal(result.facts.unreleased, false)
-  assert.equal(result.facts.notes, 'version-section')
+  assert.equal(result.facts.notesKind, 'version-section')
 })
 
 test('the pushed tag must be exactly v<version>', () => {
@@ -176,6 +176,25 @@ test('prereleases compare as newer than the stable tag they follow', () => {
   const result = evaluate({ version: '2.1.0-beta.1', mode: 'tag', tag: 'v2.1.0-beta.1' })
   assert.equal(result.ok, true)
   assert.deepEqual(result.findings, [])
+})
+
+test('the CLI keeps only the documented flags', () => {
+  const repo = makeRepo()
+  try {
+    seed(repo, { version: '2.0.4', released: { version: '2.0.4', body: '- seeded' } })
+    repo.commit('release 2.0.4')
+    repo.tag('v2.0.4')
+    // --root/--package/--changelog were speculative: no test or doc used them,
+    // and the release checklist always runs in the checkout root. Rejecting
+    // them keeps the CLI to the documented --mode/--tag/--json surface.
+    for (const flag of ['--root', '--package', '--changelog']) {
+      const run = runCli(repo.dir, [flag, 'somewhere'])
+      assert.equal(run.status, 2, `${flag}: ${run.output}`)
+      assert.match(run.output, /unknown argument/)
+    }
+  } finally {
+    repo.cleanup()
+  }
 })
 
 // --- CLI fixtures over real Git repositories --------------------------------
