@@ -389,12 +389,18 @@ test('init base, ownership, snapshot and result decisions are pure', () => {
     createdAt: 5,
     updatedAt: 5,
     dirtyBase: true,
+    caseInsensitive: null,
     towerAgentId: 'a',
     snapshotCommit: 's',
     snapshotRef: 'r',
     missions: [],
   })
   assert.equal(initialState({ repoRoot: '/r', commonDir: '/r/.git', base: 'main', dirty: false, now: 1 }).towerAgentId, undefined)
+  assert.equal(
+    initialState({ repoRoot: '/r', commonDir: '/r/.git', base: 'main', dirty: false, now: 1, caseInsensitive: true })
+      .caseInsensitive,
+    true,
+  )
   const existing = existingInitResult({ state, statePath: '/state', dirty: true })
   assert.equal(existing.created, false)
   assert.equal(existing.snapshotCommit, 's')

@@ -76,6 +76,9 @@ export const StateSchema = Type.Object(
     createdAt: Type.Optional(Type.Number()),
     updatedAt: Type.Optional(Type.Number()),
     dirtyBase: Type.Optional(Type.Boolean()),
+    // Detected once at tower_init (#90). `null` means "not detected yet": the
+    // v2 -> v3 migration backfills it without touching the filesystem.
+    caseInsensitive: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
     towerAgentId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     snapshotCommit: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     snapshotRef: Type.Optional(Type.Union([Type.String(), Type.Null()])),
@@ -153,6 +156,9 @@ function firstShapeMessage(state, where) {
   }
   if (state.dirtyBase !== undefined && typeof state.dirtyBase !== 'boolean') {
     return `tower state dirtyBase is not a boolean${where}`
+  }
+  if (state.caseInsensitive !== undefined && state.caseInsensitive !== null && typeof state.caseInsensitive !== 'boolean') {
+    return `tower state caseInsensitive is not a boolean${where}`
   }
   for (const key of ['towerAgentId', 'snapshotCommit', 'snapshotRef']) {
     if (state[key] !== undefined && state[key] !== null && typeof state[key] !== 'string') {

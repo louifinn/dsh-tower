@@ -120,6 +120,7 @@ icon.svg
 index.js
 lib/archive.js
 lib/briefing.js
+lib/caseSensitivity.js
 lib/compatibility.js
 lib/config.js
 lib/doctor.js

@@ -20,6 +20,7 @@ function validState() {
     createdAt: 1,
     updatedAt: 2,
     dirtyBase: false,
+    caseInsensitive: true,
     towerAgentId: null,
     missions: [
       {
@@ -176,6 +177,11 @@ test('key structural and semantic failures keep historical state-corrupt message
     ],
     ['negative revision', { ...base, revision: -1 }, 'tower state revision is not a non-negative integer at state.json'],
     ['fractional revision', { ...base, revision: 1.5 }, 'tower state revision is not a non-negative integer at state.json'],
+    [
+      'caseInsensitive shape',
+      { ...base, caseInsensitive: 'yes' },
+      'tower state caseInsensitive is not a boolean at state.json',
+    ],
     [
       'worktree record shape',
       { ...base, missions: [{ ...base.missions[0], worktree: { path: 7, branch: 'b', baseCommit: 'c' } }] },

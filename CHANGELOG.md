@@ -33,6 +33,14 @@
   `tower_doctor` 新增 `reports` 检查并报告仓库中最大的报告。旧 state 无需迁移：缺失
   `reportBytes` 时在读取时按 UTF-8 字节推导。
 
+- **#90 scope 大小写**：`tower_init` 在检出目录上做一次性大小写探测并记录 `caseInsensitive`
+  （探测失败记录 `null`，比较继续使用安全的 case-sensitive 默认值）；`tower_doctor` 报告
+  `caseInsensitive` 与生效的 `comparisonMode`。在大小写不敏感的文件系统上，`fileInScope` 与
+  `scopesOverlap` 折叠双方，因此 `src/Api/**` 与 `src/api/**` 视为重叠（plan 自动串行、扩 scope
+  被拒绝），仅大小写不同的改动不再被 out-of-scope 门禁拒绝；在大小写敏感的检出上仍拒绝，但 blocker
+  detail 会指出折叠大小写后本可匹配的 scope 条目。存储的 scope 文本保持原样。state schema 升到 3，
+  v2 → v3 迁移回填 `caseInsensitive: null`。
+
 ## 2.1.0-beta.1（2026-10-22）
 
 **预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。

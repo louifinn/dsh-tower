@@ -250,6 +250,8 @@ export interface TowerState {
   createdAt?: number
   updatedAt?: number
   dirtyBase?: boolean
+  /** Detected once at tower_init; null means "not detected yet" (#90). */
+  caseInsensitive?: boolean | null
   towerAgentId?: string | null
   snapshotCommit?: string | null
   snapshotRef?: string | null

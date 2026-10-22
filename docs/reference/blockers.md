@@ -16,7 +16,7 @@ tables below define 32 stable blocker/failure codes.
 | `branch-missing` | No worktree/branch yet: spawn a worker first. |
 | `stale-base` | The branch does not contain the base tip: run `tower_rebase`. |
 | `read-only-survey` | Survey mission changed files; survey missions must be read-only. |
-| `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. |
+| `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. On a case-sensitive checkout a case-only mismatch is still rejected and the detail names the scope entry it would match if case were folded. |
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
 | `deps-unmerged` | A dependency mission is not merged/abandoned. |
 | `no-review` | `review.requireReview:true` and no review exists on the branch: spawn a reviewer (or disable the review gate). |

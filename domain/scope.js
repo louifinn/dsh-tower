@@ -11,16 +11,32 @@ function fail(message) {
   throw new TowerToolError('invalid-argument', message)
 }
 
+/** @typedef {{ caseInsensitive?: boolean }} MatchOptions */
+
+/**
+ * Case folding is a comparison decision, not a normalisation: the stored scope
+ * text keeps the operator's casing, and callers supply the checkout's detected
+ * mode (#90).
+ * @param {string} value
+ * @param {boolean} caseInsensitive
+ * @returns {string}
+ */
+function foldCase(value, caseInsensitive) {
+  return caseInsensitive ? value.toLowerCase() : value
+}
+
 /**
  * @param {string} pattern
+ * @param {MatchOptions} [options]
  * @returns {RegExp}
  */
-function globToRegExp(pattern) {
+function globToRegExp(pattern, { caseInsensitive = false } = {}) {
+  const source = foldCase(pattern, caseInsensitive)
   let out = '^'
-  for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index]
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
     if (char === '*') {
-      if (pattern[index + 1] === '*') {
+      if (source[index + 1] === '*') {
         out += '.*'
         index += 1
       } else {
@@ -38,10 +54,35 @@ function globToRegExp(pattern) {
 /**
  * @param {string[] | null | undefined} scope
  * @param {string} file
+ * @param {MatchOptions} [options]
  * @returns {boolean}
  */
-export function fileInScope(scope, file) {
-  return (scope ?? []).some((pattern) => globToRegExp(pattern).test(file))
+export function fileInScope(scope, file, { caseInsensitive = false } = {}) {
+  const target = foldCase(file, caseInsensitive)
+  return (scope ?? []).some((pattern) => globToRegExp(pattern, { caseInsensitive }).test(target))
+}
+
+/**
+ * The first scope entry that would match `file` if case were folded, or null.
+ * Only used to explain a rejection on a case-sensitive checkout; it never
+ * widens the acceptance test (#90).
+ * @param {string[] | null | undefined} scope
+ * @param {string} file
+ * @returns {string | null}
+ */
+export function caseInsensitiveScopeMatch(scope, file) {
+  const target = file.toLowerCase()
+  return (scope ?? []).find((pattern) => globToRegExp(pattern, { caseInsensitive: true }).test(target)) ?? null
+}
+
+/**
+ * The comparison the helpers use for a detected mode. `null`/`undefined` (a
+ * legacy state that predates detection) keeps the safe, exact default.
+ * @param {unknown} caseInsensitive
+ * @returns {'case-insensitive' | 'case-sensitive'}
+ */
+export function comparisonMode(caseInsensitive) {
+  return caseInsensitive === true ? 'case-insensitive' : 'case-sensitive'
 }
 
 // Mission titles are printable Unicode, not printable ASCII (#88). The hazards
@@ -116,11 +157,14 @@ function scopePrefix(pattern) {
 /**
  * @param {string[]} a
  * @param {string[]} b
+ * @param {MatchOptions} [options]
  * @returns {boolean}
  */
-export function scopesOverlap(a, b) {
-  for (const pa of a) {
-    for (const pb of b) {
+export function scopesOverlap(a, b, { caseInsensitive = false } = {}) {
+  for (const rawA of a) {
+    for (const rawB of b) {
+      const pa = foldCase(rawA, caseInsensitive)
+      const pb = foldCase(rawB, caseInsensitive)
       if (pa === pb) return true
       const x = scopePrefix(pa)
       const y = scopePrefix(pb)
