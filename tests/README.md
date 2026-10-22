@@ -13,8 +13,9 @@ npm test
 
 > Node's `--test` no longer accepts a directory argument; pass a glob instead. A bare directory fails with `Cannot find module`.
 
-The 2.0 suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
+The offline suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
 
+- `cleanup.test.mjs` — the shared teardown helper: bounded retry/backoff for `EPERM`/`EBUSY`/`EACCES`, the quarantine rename after the first transient failure, the `os.tmpdir()` isolation guard, and a seeded real Windows `FileShare.None` handle that must be released before the tree can be removed (declared with `skip:` off Windows, so Linux reports it as `# SKIP`).
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-Unicode titles (NFC, 120-character bound), glob matching.
 - `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_status` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
 - `platform.test.mjs` — the platform branches, asserted on every OS: win32 path case folding (`isInside`), the `pwsh`/`bash` discovery shell (`shellSpec`), the transient rename/unlink retry loops via injected syscalls, and worktree path identity (`compareKey`). The one real-Windows case (renaming over an open destination) is declared with `skip:` so Linux reports it as `# SKIP` rather than dropping it.
@@ -41,7 +42,11 @@ The 2.0 suites are grouped by concern; each file runs as its own process with re
 - `plan-mode.test.mjs` — Tower entry clears/refuses plan mode and the pre-step keeps them mutually exclusive.
 - `ui-bundle.test.mjs` — plain-JS UI module syntax, toolview/dock/overlay registrations, locale parity, theme tokens and defensive rendering.
 
-All temporary repositories and state are created under the OS temp directory and cleaned up automatically.
+All temporary repositories and state are created under the OS temp directory and cleaned up automatically. Teardown goes through `tests/helpers/cleanup.mjs`: it retries transient `EPERM`/`EBUSY`/`EACCES` failures with bounded backoff, moves the tree to a fresh sibling name after the first one, and refuses any target that is not a strict child of `os.tmpdir()`. Do not delete a test-owned tree directly — Windows can still hold a handle after the test that created it has finished, and a bare recursive delete turns a green suite red at random. The retry path is proven by `tests/cleanup.test.mjs`, including a real Windows handle.
+
+### Windows fallback
+
+Parallel file execution is the default and stays the default: `npm test` runs one process per file, exactly as CI does. If a Windows machine still fails because another program (antivirus, the search indexer) is holding a temp tree for longer than the bounded retry, `node --test --test-concurrency=1 tests/*.test.mjs` serialises the files to confirm that hypothesis. It is a diagnostic fallback, not the fix: a green run that only passes with `--test-concurrency=1` still has a teardown problem.
 
 ### Coverage and watch mode
 
