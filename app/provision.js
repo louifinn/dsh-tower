@@ -7,9 +7,7 @@
 //             mission still has no worktree, then records it. A rejected
 //             commit rolls the created worktree/branch back outside the lock.
 import path from 'node:path'
-import { withLock, withGitLock, gitMutexOptions, exists, ensureDir, writeJsonAtomic, appendJsonl, shortHash } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
-import { canonicalPath } from '../lib/worktreeOwnership.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
   baseCommitChoice,
@@ -53,13 +51,13 @@ async function prepareProvision(tower, input) {
     worktreeRoot: input.worktreeRoot,
     configuredRoot: tower.config.worktrees.root,
     repoRoot: tower.root,
-    commonDirHash: shortHash(tower.commonDir),
+    commonDirHash: tower.deps.ids.shortHash(tower.commonDir),
   })
   if (!path.isAbsolute(root)) fail('worktreeRoot must be an absolute path')
   tower.assertOutside(root)
-  await ensureDir(root)
+  await tower.deps.store.ensureDir(root)
   const wtPath = worktreePath(root, mission.id)
-  if (await exists(wtPath)) fail(`worktree path already exists: ${wtPath}`)
+  if (await tower.deps.store.exists(wtPath)) fail(`worktree path already exists: ${wtPath}`)
   if ((await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])) !== null) {
     fail(`branch already exists: ${branch}`)
   }
@@ -68,7 +66,7 @@ async function prepareProvision(tower, input) {
 
 /** Phase 2 of `Tower.provision` (#51): no state lock, worktree add under the git mutex. */
 async function actProvision(tower, prepared) {
-  return withGitLock(tower.paths, async () => {
+  return tower.deps.store.withGitLock(tower.paths, async () => {
     let fresh
     try {
       fresh = await tower.load()
@@ -84,7 +82,7 @@ async function actProvision(tower, prepared) {
       await tower.assertWorktree(mission.worktree)
       return { phase: 'existing', mission, worktree: mission.worktree }
     }
-    if (await exists(prepared.wtPath)) fail(`worktree path already exists: ${prepared.wtPath}`)
+    if (await tower.deps.store.exists(prepared.wtPath)) fail(`worktree path already exists: ${prepared.wtPath}`)
     if ((await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${prepared.branch}`])) !== null) {
       fail(`branch already exists: ${prepared.branch}`)
     }
@@ -95,15 +93,15 @@ async function actProvision(tower, prepared) {
       branch: prepared.branch,
       baseCommit: prepared.baseCommit,
       createdAt: Date.now(),
-      realPath: await canonicalPath(prepared.wtPath),
+      realPath: await tower.deps.ownership.canonicalPath(prepared.wtPath),
     })
     return { phase: 'created', worktree }
-  }, gitMutexOptions(tower, { phase: 'provision' }))
+  }, tower.deps.store.gitMutexOptions(tower, { phase: 'provision' }))
 }
 
 /** Phase 3 of `Tower.provision` (#51): record the worktree under a short lock. */
 async function commitProvision(tower, prepared, acted) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === prepared.missionId)
     if (!mission) throw new TowerToolError('mission-not-found', `unknown mission "${prepared.missionId}"`)
@@ -119,11 +117,11 @@ async function commitProvision(tower, prepared, acted) {
     state.updatedAt = now
     try {
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     } catch (error) {
       return { phase: 'persist-error', error }
     }
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'worktree',
       missionId: prepared.missionId,
@@ -135,10 +133,10 @@ async function commitProvision(tower, prepared, acted) {
 
 /** Undo a created worktree/branch outside the state lock (git mutex only). */
 async function rollbackProvision(tower, prepared) {
-  await withGitLock(tower.paths, async () => {
+  await tower.deps.store.withGitLock(tower.paths, async () => {
     await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
     await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
-  }, gitMutexOptions(tower, { phase: 'provision' }))
+  }, tower.deps.store.gitMutexOptions(tower, { phase: 'provision' }))
 }
 
 /** #51 two-phase provision: prepare/act/commit with rollback on rejection. */

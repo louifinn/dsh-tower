@@ -27,7 +27,7 @@ export const PORTS = Object.freeze({
   archive: { contract: ARCHIVE_PORT, assert: assertArchivePort },
 })
 
-/** @param {Record<string, any>} deps */
+/** @param {unknown} deps */
 export function assertPorts(deps) {
   if (!deps || typeof deps !== 'object') {
     throw new TypeError('Tower requires an injected deps object assembled by the composition root (see adapters/default.js)')

@@ -13,6 +13,7 @@
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { registerTowerTools } from './lib/tool-registry.js'
+import { createDefaultDeps } from './adapters/default.js'
 import { loadModes, saveModes, storePath } from './lib/modeStore.js'
 import { ModeState } from './lib/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
@@ -343,7 +344,9 @@ export function apply(ctx, rawConfig) {
     },
   }
 
-  registerTowerTools(ctx, { workspace, hmrBridge })
+  // #69: the host entry is the composition root — the adapters are constructed
+  // once here and injected into the tool layer and every Tower instance.
+  registerTowerTools(ctx, { workspace, hmrBridge, deps: createDefaultDeps() })
 
   // On dispose (including an HMR reload) release advisory workspace locks this
   // process still owns; a reloaded plugin restores the entries from modes.json.

@@ -1,5 +1,4 @@
 // tower_reload: dev-only HMR reload request.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { runtimeConfig } from '../lib/config.js'
@@ -8,7 +7,7 @@ import { ReloadInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any, sharedHmrBridge: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, sharedHmrBridge: any }} deps
  */
 export function registerReloadTool(ctx, deps) {
   const { define, actorFor, requireTowerActor, sharedHmrBridge } = deps
@@ -32,7 +31,7 @@ export function registerReloadTool(ctx, deps) {
       output: output(SCHEMAS.reload),
       async execute(args, exec) {
         if (typeof args.repoRoot === 'string') {
-          const tower = await Tower.open(args.repoRoot)
+          const tower = await deps.openTower(args.repoRoot)
           const actor = await actorFor(tower, exec)
           requireTowerActor(actor, 'reload the Tower plugin')
         }

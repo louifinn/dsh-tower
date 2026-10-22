@@ -1,5 +1,4 @@
 // tower_spawn: provision and start a worker/reviewer.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
@@ -16,6 +15,7 @@ import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../li
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
+ *   openTower: any,
  *   actorFor: any,
  *   requireTowerActor: any,
  *   enqueueSpawn: any,
@@ -43,7 +43,7 @@ export function registerSpawnTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.spawn),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
       const role = args.role ?? DEFAULT_ROLE

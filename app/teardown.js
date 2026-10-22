@@ -6,7 +6,6 @@
 // therefore bumps the state revision exactly once, and the revision is
 // revalidated immediately before the irreversible git mutation so a stale
 // decision never removes a worktree that changed hands.
-import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { hasLiveAgent } from '../domain/integration/liveness.js'
@@ -78,7 +77,7 @@ async function prepareTeardown(tower, input) {
 /** Short state lock: reject a stale decision before any git mutation. */
 async function claimRemoval(tower, candidate, expectedRevision, input) {
   const activity = input.activity ?? {}
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== expectedRevision) {
       throw new TowerToolError('stale-base', `${STALE}. No worktree was removed.`)
@@ -105,7 +104,7 @@ export async function teardown(tower, input) {
     // never under the state lock. Re-read state without the lock right before
     // mutating: the git lock may have waited behind another operation, so a
     // stale candidate is refused while the worktree still exists.
-    const outcome = await withGitLock(tower.paths, async () => {
+    const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
       let fresh
       try {
         fresh = await tower.load()
@@ -140,7 +139,7 @@ export async function teardown(tower, input) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
       return { phase: 'removed', branch: worktree.branch, branchDeleteError }
-    }, gitMutexOptions(tower, { phase: 'teardown' }))
+    }, tower.deps.store.gitMutexOptions(tower, { phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
       throw new TowerToolError('stale-base', `${STALE}: ${outcome.detail}. No worktree was removed.`)
@@ -155,7 +154,7 @@ export async function teardown(tower, input) {
     // the removal on the freshly loaded state instead of rejecting it (which
     // would leave state claiming a worktree that no longer exists). Only this
     // mission's fields change, so no concurrent update is lost.
-    const commit = await withLock(tower.paths, async () => {
+    const commit = await tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const mission = state.missions.find((entry) => entry.id === candidate.missionId)
       if (!mission) return { revision: state.revision }
@@ -167,8 +166,8 @@ export async function teardown(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'teardown',
         missionId: mission.id,
@@ -184,12 +183,12 @@ export async function teardown(tower, input) {
   // Archival runs under one final short lock. It is policy-driven (age or the
   // hot-terminal cap), so a mission torn down a moment ago stays hot until it
   // is old enough; `archive.afterDays: 0` archives it on this call.
-  const archive = await withLock(tower.paths, async () => {
+  const archive = await tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const swept = await sweepArchive(tower, state, { now: Date.now(), activity: input.activity ?? {} })
     if (swept.written) {
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     }
     return swept
   })

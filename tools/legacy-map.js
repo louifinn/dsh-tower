@@ -8,7 +8,6 @@
 // Pure mapping validation lives in the domain legacy layer.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_legacy_map: audit-only legacy snapshot mapping.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { validateLegacyMap } from '../lib/legacy.js'
@@ -17,7 +16,7 @@ import { LEGACY_MAP_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
  */
 export function registerLegacyMapTool(ctx, deps) {
   const { define, actorFor, requireTowerActor } = deps
@@ -28,7 +27,7 @@ export function registerLegacyMapTool(ctx, deps) {
     parameters: LegacyMapInput,
     output: output(SCHEMAS.legacyMap),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       const state = await tower.load()
       if (args.action === LEGACY_MAP_ACTION.status) {

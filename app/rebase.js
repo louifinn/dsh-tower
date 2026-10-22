@@ -6,8 +6,6 @@
 // The durable `state.rebaseIntent` lets a crash between act and commit be
 // reconciled by the next tower_rebase, and `mission.rebase` keeps the
 // reviewed-tip waiver semantics the merge gate depends on.
-import crypto from 'node:crypto'
-import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { liveAgentFor } from '../domain/integration/liveness.js'
@@ -150,7 +148,7 @@ async function reconcileRebaseIntent(tower) {
     if (inspection.action === 'ambiguous') {
       throw stale(ambiguousRebaseIntentMessage(intent, inspection.tip))
     }
-    const applied = await withLock(tower.paths, async () => {
+    const applied = await tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       if (state.revision !== snapshot.revision) return false
       const current = state.rebaseIntent
@@ -168,8 +166,8 @@ async function reconcileRebaseIntent(tower) {
         mission.updatedAt = now
       }
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'rebase',
         missionId: intent.missionId,
@@ -197,9 +195,9 @@ export async function rebase(tower, input) {
 
   // Record the intent before touching Git: a crash between the rebase and the
   // commit leaves a durable marker instead of an unexplained moved branch.
-  const token = crypto.randomUUID()
+  const token = tower.deps.ids.uuid()
   const startedAt = Date.now()
-  const intentRevision = await withLock(tower.paths, async () => {
+  const intentRevision = await tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) throw stale(STALE_PREPARE)
     const mission = findMission(state, prepared.missionId)
@@ -216,13 +214,13 @@ export async function rebase(tower, input) {
     })
     state.revision += 1
     state.updatedAt = startedAt
-    await writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     return state.revision
   })
 
   // Phase 2 (#51): the long git work runs under the git lock and never under
   // the state lock. Re-verify the snapshot right before rewriting the branch.
-  const outcome = await withGitLock(tower.paths, async () => {
+  const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
     const currentTip = await tower.revParse(worktree.path, 'HEAD')
     const currentBase = await tower.revParse(tower.root, prepared.base)
     if (rebaseTipsMoved({ oldTip: prepared.oldTip, baseTip: prepared.baseTip, currentTip, currentBase })) {
@@ -244,11 +242,11 @@ export async function rebase(tower, input) {
     }
     const newTip = await tower.revParse(worktree.path, 'HEAD')
     return { phase: 'done', newTip }
-  }, gitMutexOptions(tower, { phase: 'rebase' }))
+  }, tower.deps.store.gitMutexOptions(tower, { phase: 'rebase' }))
 
   // Phase 3 (#51): re-read state and revalidate the revision computed by the
   // intent write; the lock only holds the state mutation, never a subprocess.
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== intentRevision) throw stale(STALE_ACT)
     const mission = findMission(state, prepared.missionId)
@@ -262,7 +260,7 @@ export async function rebase(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
       throw stale(outcome.detail)
     }
 
@@ -274,8 +272,8 @@ export async function rebase(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, { at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
       return rebaseConflictResult(outcome.detail)
     }
 
@@ -290,8 +288,8 @@ export async function rebase(tower, input) {
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'rebase',
       missionId: mission.id,

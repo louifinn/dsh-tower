@@ -8,12 +8,11 @@ import {
 } from '../domain/missions/plan.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { sweepArchive } from './archive.js'
 
 export async function plan(tower, input = {}) {
   const prepared = normalizePlanMissions(input)
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const now = Date.now()
     // Archived ids stay in the known set: a new mission must not reuse an id
@@ -34,8 +33,8 @@ export async function plan(tower, input = {}) {
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'plan',
       text: `created ${created.map((mission) => mission.id).join(', ')}`,

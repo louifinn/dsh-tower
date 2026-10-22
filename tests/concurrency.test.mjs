@@ -10,7 +10,8 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower, validateState } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
+import { validateState } from '../app/tower.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -342,7 +343,7 @@ test('withGitLock serializes concurrent git mutations', async () => {
 })
 
 test('Tower accepts injected adapters instead of importing the defaults', async () => {
-  const { Tower } = await import('../app/tower.js')
+  const { Tower } = await import('../lib/tower.js')
   const { defaultDeps } = await import('../adapters/default.js')
   let gitCalls = 0
   let readCalls = 0

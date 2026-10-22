@@ -16,7 +16,7 @@ import fs from 'node:fs'
 
 import * as realStore from '../lib/store.js'
 import * as realGit from '../lib/git.js'
-import { Tower } from '../app/tower.js'
+import { Tower } from '../lib/tower.js'
 import { TowerToolError } from '../domain/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'

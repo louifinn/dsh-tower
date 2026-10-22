@@ -1,16 +1,14 @@
 // tower_recover: explicit stale state-lock diagnostics/repair.
-import { Tower } from '../app/tower.js'
 import { readStateLock } from '../lib/store.js'
 import { lockTiming } from '../lib/persistence.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { fsp } from '../adapters/store-fs.js'
 import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
 import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
  */
 export function registerRecoverTool(ctx, deps) {
   const { define, actorFor, requireTowerActor } = deps
@@ -21,7 +19,7 @@ export function registerRecoverTool(ctx, deps) {
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'recover Tower state')
       const now = Date.now()
@@ -57,7 +55,7 @@ export function registerRecoverTool(ctx, deps) {
       }
       // Always rename, never unlink: the recovered bytes stay auditable.
       const backup = `${tower.paths.lock}.recovered-${Date.now()}`
-      await fsp.rename(tower.paths.lock, backup)
+      await tower.deps.store.rename(tower.paths.lock, backup)
       return {
         ok: true,
         action: RECOVERY_ACTION.clearStaleLock,

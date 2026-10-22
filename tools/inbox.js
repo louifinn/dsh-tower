@@ -10,16 +10,16 @@
 // The unread calculation is a pure domain/collab projection.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_inbox: read and acknowledge inbound messages.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { InboxInput } from '../domain/contracts/tool-inputs/index.js'
 import { ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any }} deps
  */
 export function registerInboxTool(ctx, deps) {
+  // openTower is injected by the composition root (#69).
   const { define } = deps
   define(ctx, {
     name: 'tower_inbox',
@@ -29,7 +29,7 @@ export function registerInboxTool(ctx, deps) {
     aliases: {"include_read":["includeRead"]},
     output: output(SCHEMAS.inbox),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const view = await tower.rosterView()
       const self = view.roster.find((entry) => entry.agentId === String(exec.agent.id))
       const reader = self ? self.name : ROLE.tower

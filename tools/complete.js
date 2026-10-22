@@ -1,5 +1,4 @@
 // tower_complete: worker completion admission.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { CompleteInput } from '../domain/contracts/tool-inputs/index.js'
@@ -7,7 +6,7 @@ import { isCompleteAdmission } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, runMissionDiscovery: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, runMissionDiscovery: any }} deps
  */
 export function registerCompleteTool(ctx, deps) {
   const { define, runMissionDiscovery } = deps
@@ -21,7 +20,7 @@ export function registerCompleteTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.complete),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       // Validate authorization/state before executing repository-controlled
       // test code or writing a test receipt.
       await tower.checkCompletion({

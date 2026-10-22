@@ -9,15 +9,15 @@
 // Pure intent/waiver decisions live in domain/integration.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_rebase: rebase a mission branch inside its worktree.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { RebaseInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any, observeActivity: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, observeActivity: any }} deps
  */
 export function registerRebaseTool(ctx, deps) {
+  // openTower is injected by the composition root (#69).
   const { define, actorFor, requireTowerActor, observeActivity } = deps
   define(ctx, {
     name: 'tower_rebase',
@@ -29,7 +29,7 @@ export function registerRebaseTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.rebase),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'rebase missions')
       const { activity } = await observeActivity(ctx, tower)

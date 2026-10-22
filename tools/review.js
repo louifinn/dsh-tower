@@ -1,5 +1,4 @@
 // tower_review: independent review verdict.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { ReviewInput } from '../domain/contracts/tool-inputs/index.js'
@@ -7,7 +6,7 @@ import { isReviewerRole, isTowerRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any }} deps
  */
 export function registerReviewTool(ctx, deps) {
   const { define, actorFor } = deps
@@ -21,7 +20,7 @@ export function registerReviewTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.review),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       if (!isReviewerRole(actor.role) && !isTowerRole(actor.role)) {
         throw new TowerToolError('not-authorized', `only an assigned reviewer or the tower may review; ${actor.name} is ${actor.role}`)

@@ -1,5 +1,4 @@
 // tower_roster: authoritative roster activity.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { RosterInput } from '../domain/contracts/tool-inputs/index.js'
@@ -7,7 +6,7 @@ import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_GONE_STATES } from '../domain
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any }} deps
  */
 export function registerRosterTool(ctx, deps) {
   const { define } = deps
@@ -18,7 +17,7 @@ export function registerRosterTool(ctx, deps) {
     parameters: RosterInput,
     output: output(SCHEMAS.roster),
     async execute(args) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const view = await tower.rosterView()
       const subagents = ctx.get('subagents')
       if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot observe roster')

@@ -5,8 +5,6 @@
 // document is compacted, so a crash between the two leaves the mission in state
 // and the archive entry is deduped by id on retry. Nothing is deleted: the full
 // mission, its linked reviews and its findings are moved to archive/<year>.json.
-import { appendJsonl } from '../lib/store.js'
-import { readArchiveIndex, readArchivedEntry, writeArchiveEntries } from '../lib/archive.js'
 import { hasLiveAgent } from '../domain/integration/liveness.js'
 import { missionSummary } from '../domain/summary.js'
 import {
@@ -28,7 +26,7 @@ import {
  * @returns {Promise<{ ok: boolean, file: string, missions: any[], error?: string, exists: boolean }>}
  */
 export function archiveIndex(tower) {
-  return readArchiveIndex(tower.deps.store, tower.paths)
+  return tower.deps.archive.readIndex(tower.deps.store, tower.paths)
 }
 
 /**
@@ -37,7 +35,7 @@ export function archiveIndex(tower) {
  * @param {string} missionId
  */
 export function archivedMission(tower, missionId) {
-  return readArchivedEntry(tower.deps.store, tower.paths, missionId)
+  return tower.deps.archive.readEntry(tower.deps.store, tower.paths, missionId)
 }
 
 /**
@@ -145,7 +143,7 @@ export async function sweepArchive(tower, state, options = {}) {
 
   let written
   try {
-    written = await writeArchiveEntries(tower.deps.store, tower.paths, { entries, now })
+    written = await tower.deps.archive.writeEntries(tower.deps.store, tower.paths, { entries, now })
   } catch (error) {
     return { archived: [], written: false, error: `archive write failed: ${String(error?.message ?? error)}` }
   }
@@ -172,7 +170,7 @@ export async function sweepArchive(tower, state, options = {}) {
   state.updatedAt = now
 
   for (const mission of selected) {
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'archive',
       missionId: mission.id,
