@@ -7,7 +7,7 @@
 // reconciled by the next tower_rebase, and `mission.rebase` keeps the
 // reviewed-tip waiver semantics the merge gate depends on.
 import crypto from 'node:crypto'
-import { withLock, withGitLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { liveAgentFor } from '../domain/integration/liveness.js'
@@ -244,7 +244,7 @@ export async function rebase(tower, input) {
     }
     const newTip = await tower.revParse(worktree.path, 'HEAD')
     return { phase: 'done', newTip }
-  })
+  }, gitMutexOptions(tower, { phase: 'rebase' }))
 
   // Phase 3 (#51): re-read state and revalidate the revision computed by the
   // intent write; the lock only holds the state mutation, never a subprocess.

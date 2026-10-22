@@ -17,7 +17,7 @@
 // from. A writer that slipped in between observation and write makes the
 // prepare stale, so the whole prepare is retried, never partially applied.
 import path from 'node:path'
-import { withLock, withGitLock, writeJsonAtomic, appendJsonl, exists } from '../lib/store.js'
+import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl, exists } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import {
   alreadyMergedResult,
@@ -550,23 +550,28 @@ export async function merge(tower, input, deps) {
   const plan = await prepareMerge(tower, input, deps)
   if (plan.result) return plan.result
 
-  const acted = await withGitLock(tower.paths, async () => {
-    // No Git mutation has happened yet: a base that moved after prepare is a
-    // clean retryable stale-base rejection, with no intent left behind.
-    const head = await tower.revParse(tower.root, 'HEAD')
-    if (head !== plan.baseTip) {
-      return {
-        result: staleBaseResult(
-          plan.missionId,
-          `base moved after gate (${plan.baseTip.slice(0, 7)} -> ${head.slice(0, 7)}); re-run preflight`,
-        ),
+  const acted = await withGitLock(
+    tower.paths,
+    async () => {
+      // No Git mutation has happened yet: a base that moved after prepare is a
+      // clean retryable stale-base rejection, with no intent left behind.
+      const head = await tower.revParse(tower.root, 'HEAD')
+      if (head !== plan.baseTip) {
+        return {
+          result: staleBaseResult(
+            plan.missionId,
+            `base moved after gate (${plan.baseTip.slice(0, 7)} -> ${head.slice(0, 7)}); re-run preflight`,
+          ),
+        }
       }
-    }
-    const recorded = await recordMergeIntent(tower, plan)
-    if (recorded.result) return recorded
-    const outcome = await runMergeGit(tower, plan, recorded.intent, deps)
-    return { recorded, outcome }
-  })
+      const recorded = await recordMergeIntent(tower, plan)
+      if (recorded.result) return recorded
+      const outcome = await runMergeGit(tower, plan, recorded.intent, deps)
+      return { recorded, outcome }
+    },
+    // The merge itself may hold the mutex for plan.timeoutMs (#93).
+    gitMutexOptions(tower, { phase: 'merge', mergeTimeoutMs: plan.timeoutMs }),
+  )
   if (acted.result) return acted.result
 
   return commitMerge(tower, plan, acted.recorded, acted.outcome)

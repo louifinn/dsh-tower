@@ -32,7 +32,7 @@ function stateLockHolds(tower) {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line))
-    .filter((hold) => hold.phase !== 'git').length
+    .filter((hold) => hold.kind !== 'git').length
 }
 
 /**
