@@ -31,6 +31,9 @@ app/teardown.js
 app/tower.js
 cordis.patch.yml
 docs/README.md
+docs/agents/domain.md
+docs/agents/issue-tracker.md
+docs/agents/triage-labels.md
 docs/architecture/overview.md
 docs/board.md
 docs/examples/first-mission.md

@@ -31,3 +31,6 @@ credentials.json
 .DS_Store
 Thumbs.db
 *.tmp-*
+
+# Local agent worktrees (git worktree dirs, never committed)
+.agents/
