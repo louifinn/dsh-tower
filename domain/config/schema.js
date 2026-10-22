@@ -33,7 +33,7 @@ export const DEFAULT_DENY_TOOLS = [
 ]
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'leases', 'dev', 'tools']
+const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev', 'tools']
 
 const SECTION_KEYS = {
   init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
@@ -74,6 +74,7 @@ const SECTION_KEYS = {
   tests: ['enabled', 'admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
   docs: ['board', 'boardLocation'],
+  archive: ['enabled', 'afterDays', 'maxMissions'],
   tools: ['exposeOperational', 'exposeBatch', 'exposeImport', 'exposeLeases', 'exposeTests', 'exposeRecovery', 'exposeDoctor'],
   leases: ['ttlMs'],
   dev: ['hotReload', 'reloadDelayMs', 'reloadRequiredIds'],
@@ -245,6 +246,21 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Human-readable artifacts.'),
+  archive: Schema.object({
+    enabled: Schema.boolean()
+      .default(true)
+      .description('Move terminal (merged/abandoned) missions whose worktree is gone into <git-common-dir>/dsh-tower/archive/ at the next mutation, so state.json stops carrying their full history.'),
+    afterDays: Schema.natural()
+      .min(0)
+      .default(30)
+      .description('Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately).'),
+    maxMissions: Schema.natural()
+      .min(0)
+      .default(100)
+      .description('Maximum terminal missions kept hot; once exceeded, the oldest eligible terminal missions are archived until the cap holds (0 archives every eligible terminal mission).'),
+  })
+    .default({})
+    .description('Terminal-mission archival policy. Archived missions are moved, never deleted.'),
   tools: Schema.object({
     exposeOperational: Schema.boolean()
       .default(true)
@@ -322,7 +338,7 @@ export function assertKnownKeys(raw, label) {
   if (unknown.length > 0) {
     throw new TowerToolError(
       'config-unknown-key',
-      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, leases?, dev? }`,
+      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, archive?, leases?, dev?, tools? }`,
     )
   }
   for (const [group, allowed] of Object.entries(SECTION_KEYS)) {
@@ -403,6 +419,7 @@ export function resolveTowerConfig(rawConfig) {
     tests: clone(parsed.tests ?? {}),
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),
+    archive: clone(parsed.archive ?? {}),
     tools: clone(parsed.tools ?? {}),
     leases: clone(parsed.leases ?? {}),
     dev: clone(parsed.dev ?? {}),

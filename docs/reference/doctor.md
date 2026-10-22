@@ -17,6 +17,16 @@ It returns:
     "migrations": [],
     "status": "current"
   },
+  "archive": {
+    "missions": 3,
+    "archivedMissions": 12,
+    "stateBytes": 48211,
+    "archiveBytes": 190244,
+    "years": [2026],
+    "files": 2,
+    "unreadable": [],
+    "policy": { "enabled": true, "afterDays": 30, "maxMissions": 100 }
+  },
   "environmentContract": {
     "platform": "win32",
     "gitVersion": "git version 2.55.0",
@@ -36,12 +46,16 @@ and keeps a `state.json.v<N>.bak` backup). A file written by a newer plugin repo
 `fail`: this build refuses to downgrade it. A state-load failure is reported as a failed check rather
 than thrown so doctor remains useful on a broken repository.
 
+`archive` reports the terminal-mission archive: active `missions`, `archivedMissions` and `stateBytes`,
+the archive directory's `archiveBytes`/`years`/`files`, every `unreadable` diagnostic, and the configured
+`policy` (`enabled`, `afterDays`, `maxMissions`). A missing archive directory is a healthy empty archive
+(`archive` check `pass`); a truncated index or year file is a `warn` with the diagnostic, and archiving is
+paused until it is repaired rather than overwriting it. Nothing is lost while the archive is unreadable:
+the eligible missions stay in `state.json`.
+
 Checks cover: git availability, repository identity, state schema/load, repo config presence,
 worker/reviewer preset names, subagents and HMR services, workspace lock holder/staleness, live roster,
-worktree existence/ownership/dirtiness, test-discovery policy, completion-report sizes, legacy
-snapshots, batches and leases.
-Missions intentionally cleaned up by `tower_teardown` are skipped (the check notes the removed count)
-instead of being reported as missing.
+worktree existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy`nsnapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the check`nnotes the removed count) instead of being reported as missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,

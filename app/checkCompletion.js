@@ -10,6 +10,7 @@ import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { countCommits, isClean } from '../lib/git.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { sweepArchive } from './archive.js'
 
 export { normalizeChecks }
 
@@ -71,6 +72,7 @@ export async function complete(tower, input) {
       maxReportBytes: tower.config.gates?.maxReportBytes,
     })
     mission.updatedAt = now
+    await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 

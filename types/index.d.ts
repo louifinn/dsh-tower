@@ -155,6 +155,34 @@ export interface Mission {
   authorizationRef?: string | null
 }
 
+/**
+ * Compact archived-mission entry (`archive/index.json`). It keeps enough of the
+ * mission for ordering, dependency lookups and id allocation without loading the
+ * full year file, and it is what `tower_status includeArchived` pages from (#73).
+ */
+export interface ArchiveIndexEntry {
+  id: string
+  title: string
+  status: MissionStatus
+  kind?: MissionKind
+  scope?: string[]
+  deps?: string[]
+  owner?: string | null
+  branch?: string | null
+  mergedCommit?: string | null
+  mergedAt?: number | null
+  updatedAt?: number | null
+  archivedAt: number
+  archivedYear: number
+}
+
+/** Full archived record (`archive/<year>.json`): mission + linked history. */
+export interface ArchivedMissionRecord extends ArchiveIndexEntry {
+  mission: Mission
+  reviews: Review[]
+  findings: Finding[]
+}
+
 export interface Review {
   id?: string
   seq?: number

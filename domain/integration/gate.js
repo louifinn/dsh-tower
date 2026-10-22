@@ -114,13 +114,14 @@ export function baseDirtyBlocker(wouldOverwrite) {
  * @param {object} input
  * @param {string[]} input.deps
  * @param {TowerState} input.state
+ * @param {Map<string, { status: string }>} [input.archived] compact archived missions (#73)
  * @returns {Blocker[]}
  */
-export function dependencyBlockers({ deps = [], state }) {
+export function dependencyBlockers({ deps = [], state, archived = new Map() }) {
   /** @type {Blocker[]} */
   const blockers = []
   for (const depId of deps) {
-    const dep = state.missions.find((entry) => entry.id === depId)
+    const dep = state.missions.find((entry) => entry.id === depId) ?? archived.get(depId)
     if (!dep || !['merged', 'abandoned'].includes(dep.status)) {
       blockers.push({ code: 'deps-unmerged', detail: `${depId} is ${dep ? dep.status : 'missing'}` })
     }

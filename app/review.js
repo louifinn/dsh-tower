@@ -1,5 +1,6 @@
 // Independent review submission use case.
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { sweepArchive } from './archive.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
@@ -117,6 +118,7 @@ export async function submitReview(tower, input) {
     if (outcome.returnToActive) mission.status = 'active'
     mission.notes.push(outcome.note)
     mission.updatedAt = now
+    await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 

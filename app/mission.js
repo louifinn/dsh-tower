@@ -4,6 +4,7 @@ import { applyMissionUpdate } from '../domain/missions/lifecycle.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
+import { sweepArchive } from './archive.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
@@ -19,6 +20,7 @@ export async function updateMission(tower, input = {}) {
     const { changes } = applyMissionUpdate({ mission, state, input, config: tower.config })
     const now = Date.now()
     mission.updatedAt = now
+    await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 

@@ -54,6 +54,7 @@ export const StatusInput = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Mission list offset (default 0).' })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Mission list page size (default 20).' })),
   includeGate: Type.Optional(Type.Boolean({ description: 'Compute tower_preflight-style gate digests for missions on this page.' })),
+  includeArchived: Type.Optional(Type.Boolean({ description: 'Append archived terminal missions (compact summaries, marked archived:true) after the active page. The default dashboard and board list active missions only.' })),
   format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'markdown returns the MISSIONS.md board text.' })),
 }, { additionalProperties: false })
 

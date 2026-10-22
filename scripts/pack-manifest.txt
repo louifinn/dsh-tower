@@ -8,6 +8,7 @@ SECURITY.md
 adapters/default.js
 adapters/store-fs.js
 adapters/vcs-git.js
+app/archive.js
 app/batch.js
 app/board.js
 app/checkCompletion.js
@@ -109,6 +110,7 @@ domain/report.js
 domain/roster.js
 domain/scope.js
 domain/state.js
+domain/state/archive.js
 domain/state/migrations.js
 domain/state/schema.js
 domain/state/semantics.js
@@ -116,6 +118,7 @@ domain/summary.js
 domain/vocabulary.js
 icon.svg
 index.js
+lib/archive.js
 lib/briefing.js
 lib/compatibility.js
 lib/config.js

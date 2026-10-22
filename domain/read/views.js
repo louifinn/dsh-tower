@@ -38,9 +38,20 @@ export function missionDetailView({ state, mission, activity }) {
  * @param {number} input.unreadTower
  * @param {object} input.config
  * @param {object[]} input.missions enriched mission views
+ * @param {number | null} [input.archivedMissions] archived mission count, or null when unreadable
+ * @param {object} [input.archive] archive index view/diagnostic
  * @returns {object}
  */
-export function statusView({ state, statePath, activity, unreadTower, config = {}, missions }) {
+export function statusView({
+  state,
+  statePath,
+  activity,
+  unreadTower,
+  config = {},
+  missions,
+  archivedMissions = 0,
+  archive = null,
+}) {
   /** @type {Record<string, number>} */
   const counts = {}
   for (const status of MISSION_STATUSES) counts[status] = 0
@@ -88,6 +99,8 @@ export function statusView({ state, statePath, activity, unreadTower, config = {
       at: finding.at,
     })),
     missions,
+    archivedMissions,
+    ...(archive ? { archive } : {}),
     activity,
   }
 }
