@@ -31,6 +31,10 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.0.4 → 2.1.0-beta.1**：不需要迁移 state/config。这是发布到 `next` dist-tag 的**预发布**，
+  `latest` 仍指向 2.0.4——请用 `dsh plugin --profile web add dsh-tower@next`（或精确版本号）安装。
+  运行时行为未变；本版本承载的是交付闸门（CI 中的 mount smoke、`npm run release:check`、证据约定
+  与追踪策略），而不是工具变化。
 - **2.0.3 → 2.0.4**：不需要迁移 state/config。本版本是安全加固与完整性修复（授权、merge SHA 绑定、
   dirty worktree 完成拒绝、stale lock 恢复、限制 test/git 进程环境、`tower_recover`、UI 0.2.2）。
   升级后请按威胁模型重新检查 `review.requireReview`、`tests.admission` 与 worker 工具权限。

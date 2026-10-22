@@ -4,8 +4,43 @@
 
 ## 未发布（Unreleased）
 
+## 2.1.0-beta.1（2026-10-22）
+
+**预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。
+从 2.0.4 直接跳到 2.1.0-beta.1，是为了让 #94 的交付闸门（mount smoke、发布闸门、证据约定）有一个
+可验证的预发布载体；从 2.0.4 升级不需要改动配置。
+
+### 新增
+
+- **#95 mount smoke**：新增 `npm run smoke:mount`——打包本包、把 `scripts/mount-smoke/host.json` 中
+  唯一 pin 的 host 装进一次性目录、创建一次性 `DSH_HOME` 与 profile、用真实 loader 启动，并断言
+  **加载后的真实 surface**（29 个 `tower_*` 工具 id、3 个 skill、2 个 preset、`/tower` 命令，以及恰好
+  一个顶层 `tower-bundle` 行，#66 不变量）；CI 增加 `mount` job（Node 22，5 分钟预算），
+  `tests/mount-smoke.test.mjs` 锁定 oracle，并保持 host pin 等于 `COMPATIBILITY.md` 最新行。
+- **#95 覆盖率可见化**：CI 每次 push 运行 `npm run test:coverage` 并输出覆盖率表（只接线：无阈值、
+  无 baseline、无徽章）；`CONTRIBUTING.md` 写明 CI 能证明什么、不能证明什么。
+- **#97 发布闸门**：新增 `npm run release:check`（`scripts/release-check.mjs`）。每次运行都打印上一个
+  tag、`git describe`、自该 tag 起的提交数与 Unreleased 是否有内容；PR/分支 push 只警告（exit 0），
+  tag push 在版本没有前进、tag 不是 `v<version>`、或 CHANGELOG 没有该版本内容时失败（exit 1）。
+  CI 在每次 push 与 tag push 上运行它。
+- **#97 发布清单**：`docs/guide/release.md` 把发布收敛为六步（版本 → CHANGELOG → COMPATIBILITY →
+  `npm publish --tag next` → 注释 tag → `gh release create`），含里程碑 P0/P1 规则、CHANGELOG 段落的
+  bash/PowerShell 提取命令，以及 `--verify-tag`、`--prerelease --latest=false` 与“先发布后打 tag”的
+  原因。
+- **#96 离线 issue 审计**：新增 `npm run audit:issues`（`scripts/issue-audit.mjs`），读取本地
+  `tracker/issues.json` 导出，检查已关闭 P0/P1 的 `verified-by:`/`commit:` 两行契约，全程不访问
+  GitHub；`--since` 只看约定日期之后的关闭，`tracker/` 是 gitignored 的本地快照。
+- **#97 追踪看板**：新增 `docs/board.md`，把 owner 每周要问的三个问题写成可执行的 `gh` 命令，并记录
+  标签/搜索语义（`--label P0,P1` 匹配单个字面标签，`--search 'label:P0,P1'` 才是 OR）。
+
 ### 变更
 
+- **#96 受保护 `main` 与证据约定**：`main` 只能经 PR 合入（管理员同样受限），必需检查与“two-key
+  路径 + 四行 PR body”写进 `CONTRIBUTING.md`；P0/P1 关闭必须带 `verified-by:` 与 `commit:` 两行。
+  “某些路径允许直推”的例外被删除，因为 GitHub 的分支保护无法表达它——留一条服务器不会执行的规则
+  比没有规则更糟。
+- **#94/#97 追踪策略**：优先级只存在于 `P0`–`P3` 标签、领域在 `area/*`，issue 标题不再带 `[P*]`
+  前缀；milestone 仍然只表示发布范围（一个 release 一个 milestone）。
 - **README 徽章**：中英文 README 增加 “Listed on dsh-plugin.org” 徽章，链接到插件市场条目。
 - **#66 all-or-nothing bundle**：`cordis.patch.yml` 改为单个 `tower-bundle` `cordis:group`，Host、
   skills 与 worker/reviewer preset 成为内部 section；子行不再可独立启停，避免 host 关闭后的 orphan。
