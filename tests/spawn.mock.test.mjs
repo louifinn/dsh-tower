@@ -204,8 +204,9 @@ test('worker spawn: tower-worker preset, roster entry, worktree and briefing', a
     // <repo-parent>/.dsh-tower-worktrees/<hash>/M1 exists and is the cwd.
     const worktreeBase = path.join(root, '.dsh-tower-worktrees')
     assert.ok(fs.existsSync(report.worktree.path), `worktree must exist: ${report.worktree.path}`)
+    const canonicalPath = (value) => fs.realpathSync.native(value)
     assert.ok(
-      isInside(worktreeBase, report.worktree.path),
+      isInside(canonicalPath(worktreeBase), canonicalPath(report.worktree.path)),
       `${report.worktree.path} must be inside ${worktreeBase}`,
     )
     assert.equal(path.resolve(activation.request.cwd), path.resolve(report.worktree.path))
@@ -258,8 +259,9 @@ test('worker spawn honors an explicit worktreeRoot argument', async () => {
     })
 
     assert.ok(fs.existsSync(report.worktree.path), `worktree must exist: ${report.worktree.path}`)
+    const canonicalRoot = (value) => fs.realpathSync.native(value)
     assert.ok(
-      isInside(customRoot, report.worktree.path),
+      isInside(canonicalRoot(customRoot), canonicalRoot(report.worktree.path)),
       `${report.worktree.path} must be inside the configured ${customRoot}`,
     )
     assert.equal(harness.subagents.activations[0].request.cwd, report.worktree.path)

@@ -50,8 +50,16 @@ export function assertTempPath(target, options = {}) {
   if (typeof target !== 'string' || target.length === 0) {
     throw new TypeError('cleanup target must be a non-empty path string')
   }
-  const tmpRoot = path.resolve(options.tmpRoot ?? os.tmpdir())
-  const resolved = path.resolve(target)
+  const canonical = (value) => {
+    const resolvedPath = path.resolve(value)
+    try {
+      return fs.realpathSync.native(resolvedPath)
+    } catch {
+      return resolvedPath
+    }
+  }
+  const tmpRoot = canonical(options.tmpRoot ?? os.tmpdir())
+  const resolved = canonical(target)
   const relative = path.relative(tmpRoot, resolved)
   if (
     resolved === tmpRoot ||

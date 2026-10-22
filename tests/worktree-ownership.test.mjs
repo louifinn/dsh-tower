@@ -35,7 +35,7 @@ function seedRepo(prefix = 'dsh-tower-ownership-') {
 function addWorktree(fixture, { name = 'M1', branch = 'tower/m1-demo' } = {}) {
   const worktreePath = path.join(fixture.worktreeRoot, name)
   git(fixture.repo, ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'])
-  return { worktreePath, realPath: fs.realpathSync(worktreePath) }
+  return { worktreePath, realPath: fs.realpathSync.native(worktreePath) }
 }
 
 function expectCode(code, pattern) {
