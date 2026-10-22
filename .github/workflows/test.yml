@@ -5,12 +5,33 @@ on:
   pull_request:
 
 jobs:
+  # #86: the platform branches get a real OS, not only a Linux runner.
+  # The required contexts are exactly `test (22)`, `test (24)` and `mount`
+  # (branch protection matches the string byte for byte). Each leg therefore
+  # carries its full context in `matrix.name`; do not add an `os` matrix key
+  # without one, or GitHub would rename the checks to `test (22, ubuntu-latest)`
+  # and protected `main` would never merge again.
+  #
+  # Windows is Node 22 only: the leg exists for platform coverage, not for a
+  # second Node matrix. It runs the offline suite and the offline gates, and
+  # skips the Node 22 Ubuntu-only release and coverage steps.
   test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    timeout-minutes: 25
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24]
+        include:
+          - name: test (22)
+            os: ubuntu-latest
+            node: 22
+          - name: test (24)
+            os: ubuntu-latest
+            node: 24
+          - name: test (22, windows)
+            os: windows-latest
+            node: 22
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,12 +49,12 @@ jobs:
       # #97: warn on PR/branch pushes, fail on a tag push when the version did
       # not move or the tag is not v<version>. One leg is enough to report it.
       - name: Release check
-        if: matrix.node == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         run: npm run release:check
       # Wiring only (#81): no thresholds, no baseline, no badge. The coverage
       # table is the visible result; one leg is enough to produce it.
       - name: Coverage (Node 22)
-        if: matrix.node == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         run: npm run test:coverage
       - name: Documentation consistency
         run: npm run docs:check

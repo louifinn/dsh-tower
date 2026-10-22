@@ -203,7 +203,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
 | `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
-| `.github/workflows/test.yml` | CI：Node 22/24 离线套件、release 与覆盖率检查、Node 22 挂载 smoke 与种子失败 fixtures |
+| `.github/workflows/test.yml` | CI：Ubuntu 上 Node 22/24 与 Windows 上 Node 22 的离线套件、release 与覆盖率检查、Node 22 挂载 smoke 与种子失败 fixtures |
 
 ## 开发与测试
 
@@ -221,11 +221,16 @@ npm test        # node --test tests/*.test.mjs
 
 | Job | 声明 | 证据 |
 |---|---|---|
-| `test`（Node 22/24） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、三个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
+| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、三个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
+| `test (22, windows)`（`windows-latest`，非必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
 | `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
 | `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |
 | `mount`（Node 22） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
 | `mount-fixtures`（Node 22，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
+
+`test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与新增的 `test (22, windows)`。前两条是 `main` 的必需检查，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。它目前不是必需 context：让它变绿是本 issue 的验收，把它加入保护设置是 #94 的人工步骤。
+
+`tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 
 `mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：29 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令，以及唯一一个顶层 `tower-bundle` group 行（#66）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
