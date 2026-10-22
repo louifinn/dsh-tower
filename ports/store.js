@@ -2,8 +2,8 @@
 //
 // App use cases depend on this contract, not on lib/store.js: they receive the
 // implementation through the composition root and never import the adapter.
-// The contract lists every method app/** calls, so an implementation that is
-// missing one fails `assertPorts` at construction instead of mid-mission.
+// The contract lists every method app/** and tools/** call, so an implementation
+// that is missing one fails `assertPorts` at construction instead of mid-mission.
 import { assertPort, definePort } from './contract.js'
 
 /**
@@ -20,6 +20,7 @@ import { assertPort, definePort } from './contract.js'
  * @property {(file: string) => Promise<string>} readText
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} writeText
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText
+ * @property {(from: string, to: string) => Promise<void>} rename
  * @property {(from: string, to: string) => Promise<void>} renameWithRetry
  * @property {(file: string) => Promise<{ mtimeMs: number }>} stat
  * @property {(file: string) => Promise<void>} unlink
@@ -27,6 +28,11 @@ import { assertPort, definePort } from './contract.js'
  * @property {(lock: { record: any } | null, options?: object) => { held: boolean, pid?: number | null, phase?: string | null, heldMs?: number }} gitLockView
  */
 
+// `rename` and `renameWithRetry` are both declared because they are not
+// interchangeable: `renameWithRetry` has temp-file semantics and on a terminal
+// failure it unlinks its source, which is right for a disposable temp file but
+// would delete the bytes `tower_recover` must keep auditable. The audit rename
+// therefore uses the plain `rename` primitive (see tools/recover.js).
 export const STORE_PORT = definePort('StorePort', [
   'pathsFor',
   'exists',
@@ -40,6 +46,7 @@ export const STORE_PORT = definePort('StorePort', [
   'readText',
   'writeText',
   'appendText',
+  'rename',
   'renameWithRetry',
   'stat',
   'unlink',

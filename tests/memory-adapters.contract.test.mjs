@@ -337,18 +337,64 @@ function makeRegistrationCtx() {
   return { ctx, tools, dispose: () => disposers.forEach((dispose) => dispose()) }
 }
 
-test('StorePort declares every store method app/** calls', () => {
-  const appDir = new URL('../app/', import.meta.url)
-  const used = new Set()
-  for (const file of fs.readdirSync(appDir)) {
-    if (!file.endsWith('.js')) continue
-    const source = fs.readFileSync(new URL(file, appDir), 'utf8')
-    for (const match of source.matchAll(/deps\.store\.([A-Za-z_][A-Za-z0-9_]*)/g)) used.add(match[1])
+/**
+ * Every `deps.<port>.<method>` call under `root`, recursively.
+ * Returns `{ calls, files }`, where `calls` maps `member.method` to the source
+ * files that call it and `files` counts the modules scanned.
+ */
+function collectPortCalls(root) {
+  const calls = new Map()
+  let files = 0
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        walk(new URL(`${entry.name}/`, dir))
+      } else if (entry.name.endsWith('.js')) {
+        files += 1
+        const file = new URL(entry.name, dir)
+        const source = fs.readFileSync(file, 'utf8')
+        for (const match of source.matchAll(/deps\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+          const key = `${match[1]}.${match[2]}`
+          if (!calls.has(key)) calls.set(key, new Set())
+          calls.get(key).add(file.pathname)
+        }
+      }
+    }
   }
-  assert.ok(used.size > 0, 'app/** must call the store through deps.store')
-  const declared = new Set(PORTS.store.contract.methods)
-  const missing = [...used].filter((method) => !declared.has(method)).sort()
-  assert.deepEqual(missing, [], `StorePort must declare every app store call: ${missing.join(', ')}`)
+  walk(root)
+  return { calls, files }
+}
+
+test('every deps port call in app/** and tools/** is declared by its port', () => {
+  // #69: the contracts are only a substitutability guarantee if they declare
+  // every method the receiving layers call. Both layers receive the same deps
+  // object (app through Tower, tools through openTower), so both are scanned:
+  // tools/recover.js calling an undeclared store.rename is exactly the kind of
+  // gap an app-only scan misses.
+  const roots = {
+    app: new URL('../app/', import.meta.url),
+    tools: new URL('../tools/', import.meta.url),
+  }
+  const calls = new Map()
+  const scanned = {}
+  for (const [name, root] of Object.entries(roots)) {
+    const found = collectPortCalls(root)
+    scanned[name] = found.files
+    for (const [key, files] of found.calls) {
+      if (!calls.has(key)) calls.set(key, new Set())
+      for (const file of files) calls.get(key).add(file)
+    }
+  }
+  assert.ok(scanned.app > 0 && scanned.tools > 0, `both layers must be scanned, saw ${JSON.stringify(scanned)}`)
+  assert.ok(calls.size > 0, 'the app and tools layers must reach their dependencies through deps')
+  const missing = []
+  for (const key of [...calls.keys()].sort()) {
+    const [member, method] = key.split('.')
+    const port = PORTS[member]
+    if (!port) missing.push(`${key} (no such port member: ${member})`)
+    else if (!port.contract.methods.includes(method)) missing.push(`${key} <- ${[...calls.get(key)].join(', ')}`)
+  }
+  assert.deepEqual(missing, [], `ports must declare every deps call in app/** and tools/**: ${missing.join('; ')}`)
 })
 
 test('the composition root supplies the ports the registry injects', async () => {

@@ -75,7 +75,7 @@ through the `deps` object:
 
 | deps member | contract | default implementation |
 |---|---|---|
-| `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` plus the raw-file and lock primitives `readText/writeText/appendText/renameWithRetry/stat/unlink/readGitLock/gitLockView` | `adapters/store-fs.js` `createStorePort()` |
+| `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` plus the raw-file and lock primitives `readText/writeText/appendText/rename/renameWithRetry/stat/unlink/readGitLock/gitLockView` | `adapters/store-fs.js` `createStorePort()` |
 | `vcs` | VcsPort: `git/tryGit/revParse/isClean/isAncestor/resolveRepo/currentBranch/countCommits/listWorktrees` | `adapters/vcs-git.js` `createVcsPort()` |
 | `clock`, `ids` | ClockPort / IdsPort | `adapters/default.js` |
 | `config` | ConfigPort: `runtimeConfig/resolveRepoConfig` | `lib/config.js` |
@@ -91,6 +91,13 @@ its own adapter set, hands every tool an `openTower(repoRoot)` factory bound to 
 `app/tower.js` itself imports no adapter and no `lib/` module. The one piece of lock policy the app and
 the store share (the git-mutex budget, #93) is pure and lives in `domain/lockBudget.js`; `lib/store.js`
 re-exports it for the infrastructure callers.
+
+`store.rename` and `store.renameWithRetry` are both declared because they are not interchangeable: the
+retrying helper has temp-file semantics and removes its source when the rename finally fails, which is
+right for a disposable temp file but would destroy the lock bytes `tower_recover` must keep auditable.
+The audit rename therefore uses the plain `rename`. The contract test scans `app/**` **and** `tools/**`
+for every `deps.<port>.<method>` call and fails if the named port does not declare it, so a tool that
+reaches a new port method cannot slip past `assertPorts`.
 
 `lib/` remains the infrastructure layer that implements the adapters' durable behaviour (store, git,
 locks, config, archive); #70 retires it by moving the code into the adapters. Until then `lib/` is the

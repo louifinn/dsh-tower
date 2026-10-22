@@ -53,7 +53,10 @@ export function registerRecoverTool(ctx, deps) {
           `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive (last heartbeat ${timing.heartbeatAgeMs ?? 'unknown'}ms ago, stale after ${timing.staleAfterMs}ms); pass force:true with confirm:"CLEAR_STALE_LOCK" to move it to a backup after confirming no writer is active`,
         )
       }
-      // Always rename, never unlink: the recovered bytes stay auditable.
+      // Always rename, never unlink: the recovered bytes stay auditable. Use the
+      // plain port primitive, not `renameWithRetry`: the retrying helper has
+      // temp-file semantics and unlinks its source when the rename finally
+      // fails, which would destroy the record we are trying to preserve.
       const backup = `${tower.paths.lock}.recovered-${Date.now()}`
       await tower.deps.store.rename(tower.paths.lock, backup)
       return {
