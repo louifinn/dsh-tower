@@ -1,0 +1,35 @@
+{
+  "$comment": "Justified architecture-gate exemptions (#80). Every entry needs rule, path, reason, and owner or ref; ambient-state entries also need match, the exact top-level binding. Scripts/architecture.mjs fails with waiver-contract when an entry is not justified.",
+  "waivers": [
+    {
+      "rule": "child-process-surface",
+      "path": "adapters/vcs-git.js",
+      "reason": "The git adapter is the single process-spawning boundary; no other module implements VcsPort with a child process.",
+      "owner": "louifinn",
+      "ref": "#50"
+    },
+    {
+      "rule": "fs-surface",
+      "path": "adapters/store-fs.js",
+      "reason": "The filesystem adapter is the single node:fs boundary; the store port needs atomic writes, lock files, and raw store reads.",
+      "owner": "louifinn",
+      "ref": "#50"
+    },
+    {
+      "rule": "ambient-state",
+      "path": "lib/config.js",
+      "match": "profileRaw",
+      "reason": "The process-local profile snapshot is the only mutable state the config layer owns; repository config is merged over it on every read.",
+      "owner": "louifinn",
+      "ref": "#55"
+    },
+    {
+      "rule": "ambient-state",
+      "path": "lib/git.js",
+      "match": "configuredTimeoutMs",
+      "reason": "The configured git timeout is a process-wide default for adapter callers that do not pass one; Tower instances pass their own.",
+      "owner": "louifinn",
+      "ref": "#55"
+    }
+  ]
+}
