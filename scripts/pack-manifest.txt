@@ -146,6 +146,11 @@ scripts/enable-dev-hmr.mjs
 scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
 scripts/generate-tools-reference.mjs
+scripts/mount-smoke.mjs
+scripts/mount-smoke/fixtures.mjs
+scripts/mount-smoke/host.json
+scripts/mount-smoke/probe.mjs
+scripts/mount-smoke/surface.mjs
 scripts/pack-manifest.txt
 skills.js
 skills/tower-recovery.md

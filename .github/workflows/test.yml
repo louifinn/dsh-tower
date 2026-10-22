@@ -37,3 +37,22 @@ jobs:
         run: npm run types:check
       - name: Pure domain share
         run: npm run domain:check
+
+  # #95: does the packed bundle mount and register what it claims?
+  # Node 22 only (cost control); no model, no browser; budget under 120 s.
+  # The host build is the single pin in scripts/mount-smoke/host.json, which a
+  # unit test keeps equal to the newest COMPATIBILITY.md row.
+  mount:
+    name: mount
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm (the plugin CLI's package manager)
+        run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
+      - name: Mount the packed bundle in a throwaway profile
+        run: npm run smoke:mount
+        timeout-minutes: 3
