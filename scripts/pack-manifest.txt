@@ -146,6 +146,7 @@ scripts/enable-dev-hmr.mjs
 scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
 scripts/generate-tools-reference.mjs
+scripts/issue-audit.mjs
 scripts/mount-smoke.mjs
 scripts/mount-smoke/fixtures.mjs
 scripts/mount-smoke/host.json
