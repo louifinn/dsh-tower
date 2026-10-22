@@ -14,6 +14,15 @@
   迁移抛错以 `[tower:state-migration-failed]` 报出，原文件保持字节不变。`tower_doctor` 新增
   `stateSchema {currentVersion,supportedVersion,migrations,status}` 与 `state-schema` 检查。
 
+### 变更
+
+- **#89 completion report 上限**：`tower_complete.report` 新增 `gates.maxReportBytes`
+  （默认 32768，按 **UTF-8 字节**而非字符计）硬上限；超限以 `invalid-argument` 拒绝并给出
+  `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。存储的完成报告新增
+  `reportBytes`；`tower_status` 的分页摘要只返回大小，完整正文只在 `missionId` 详情中返回；
+  `tower_doctor` 新增 `reports` 检查并报告仓库中最大的报告。旧 state 无需迁移：缺失
+  `reportBytes` 时在读取时按 UTF-8 字节推导。
+
 ## 2.1.0-beta.1（2026-10-22）
 
 **预发布**：本版本发布到 npm 的 `next` dist-tag，`latest` 继续保持 `2.0.4`，直到出现稳定版本。

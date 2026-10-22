@@ -248,6 +248,7 @@ const SCHEMAS = {
         migrations: S.arr(S.obj({ from: S.int, to: S.int })),
         status: S.str,
       }),
+      reports: S.any,
       environmentContract: S.obj(),
     },
     ['ok', 'checks'],

@@ -82,6 +82,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
 | `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。 |
 | `gates.allowReviewExemption` | `false` | 在 `review.requireReview:true` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；全局审查关闭时无影响。 |
+| `gates.maxReportBytes` | `32768`（32 KiB） | `tower_complete.report` 的 UTF-8 字节硬上限。超出时以 `invalid-argument` 拒绝并给出可执行的 `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。已存在的超限报告仍可读取。 |
 | `docs.board` | `true` | 变更后写入 `MISSIONS.md`。 |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。 |
 | `tools.exposeOperational` | `true` | 注册 batch/resource/import/legacy/recover/test/doctor 工具；`false` 可缩小固定工具 schema 上下文。 |

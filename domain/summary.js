@@ -1,6 +1,7 @@
 // Pure mission/finding summaries.
 // @ts-check
 import { FINDING_STATUSES } from './mission.js'
+import { completionReportBytes } from './missions/completion.js'
 
 /** @typedef {import('../types/index.js').Finding} Finding */
 /** @typedef {import('../types/index.js').FindingSummary} FindingSummary */
@@ -53,6 +54,7 @@ export function missionSummary(mission) {
     reviewPolicy: mission.reviewPolicy ?? 'required-clean',
     mergedCommit: mission.mergedCommit ?? null,
     mergedAt: mission.mergedAt ?? null,
+    reportBytes: completionReportBytes(mission.completionReport),
     updatedAt: mission.updatedAt,
   }
 }

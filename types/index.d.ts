@@ -99,6 +99,8 @@ export interface CompletionCheck {
 
 export interface CompletionReport {
   report?: string
+  /** UTF-8 byte length of `report`; absent on documents written before #89. */
+  reportBytes?: number
   by?: string
   at?: number
   checks?: CompletionCheck[]
@@ -268,6 +270,8 @@ export interface MissionSummary {
   reviewPolicy: ReviewPolicy
   mergedCommit: string | null
   mergedAt: number | null
+  /** Size of the completion report without loading its body; null when absent. */
+  reportBytes: number | null
   updatedAt?: number
 }
 

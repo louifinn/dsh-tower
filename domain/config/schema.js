@@ -15,6 +15,7 @@
 // `allowAgentControl: true` via the legacy top-level key.
 import Schema from '@deepseek-ai/schemastery'
 import { TowerToolError } from '../errors.js'
+import { DEFAULT_MAX_REPORT_BYTES } from '../missions/completion.js'
 
 export const DEFAULT_DENY_TOOLS = [
   'create_goal',
@@ -71,7 +72,7 @@ const SECTION_KEYS = {
   ],
   send: ['maxPerMinute', 'interruptDefault'],
   tests: ['enabled', 'admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
-  gates: ['requireChecks', 'requireTests', 'allowReviewExemption'],
+  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
   docs: ['board', 'boardLocation'],
   tools: ['exposeOperational', 'exposeBatch', 'exposeImport', 'exposeLeases', 'exposeTests', 'exposeRecovery', 'exposeDoctor'],
   leases: ['ttlMs'],
@@ -226,6 +227,11 @@ export const Config = Schema.object({
     allowReviewExemption: Schema.boolean()
       .default(false)
       .description('Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers.'),
+    maxReportBytes: Schema.natural()
+      .min(1024)
+      .max(16 * 1024 * 1024)
+      .default(DEFAULT_MAX_REPORT_BYTES)
+      .description('Hard cap, in UTF-8 bytes, for tower_complete.report; a larger report is rejected with an actionable nextAction, never truncated.'),
   })
     .default({})
     .description('Merge-gate strictness.'),
