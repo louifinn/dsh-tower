@@ -44,6 +44,29 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Legacy import is read-only.** Imported snapshots live under the canonical state directory and are never
   activated, adopted, or resumed; an operator must explicitly re-plan/migrate work.
 
+## Repository protection
+
+This section is about **this repository**, not about a repository Tower runs on. Server-side branch
+protection is not a plugin feature — Tower writes to the local base branch and cannot configure a
+remote — but `dsh-tower` enables it for its own `main`, because the code that is the gate is also the
+code an attacker would most want to change:
+
+- `main` requires a pull request for every change, **enforced for admins**, so a direct push is
+  rejected even for the maintainer.
+- Required checks are `test (22)`, `test (24)` and `mount`. The mount job packs the tarball and boots
+  it in a throwaway profile, so "the tests pass" cannot land a bundle that fails to appear after
+  `dsh plugin add`.
+- Force-push and branch deletion are blocked, so history cannot be rewritten under a published tag.
+- There are no mandatory approvals: with one maintainer, a self-approval requirement would be a rubber
+  stamp. The evidence instead is the four-line PR body (failure mode, change, test, blast radius) for
+  the two-key paths, written in [CONTRIBUTING.md](../../CONTRIBUTING.md#landing-changes).
+
+What this buys: no untested change reaches `main`, a red or missing required check cannot be bypassed
+by the owner, and history is append-only. What it does **not** buy: a second reader, protection against
+a compromised maintainer token, or any protection for the repositories Tower itself operates on — those
+remain deployment concerns. The settings, their rationale and a verification command are recorded in
+[SECURITY.md](../../SECURITY.md#repository-protection-on-main).
+
 ## Model-initiated mode entry (threat model)
 
 `mode.allowAgentControl:true` means a prompt injection in a repository file, issue text, or fetched
@@ -85,8 +108,10 @@ Tower work, and run the host under OS-level isolation.
   from disk. Only enable HMR watch roots for checkouts you trust; a reload executes the current files.
 - **Prompt injection.** The reviewer reads untrusted branch content (diff/comments). The read-only preset
   limits impact, but no model-side protection is absolute.
-- **Base branch protection.** Tower writes to the local base branch; server-side branch protection/push
-  rules are not part of the plugin.
+- **Base branch protection.** Tower writes to the local base branch; server-side branch protection and
+  push rules are not part of the plugin. This repository's own `main` protection is described in
+  [Repository protection](#repository-protection); enabling equivalent protection on the repository you
+  run Tower on remains a deployment concern.
 
 ## Reporting
 

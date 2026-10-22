@@ -26,6 +26,17 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 - **建议性 workspace 锁。** `mode.workspaceLock` 防止两个 Tower 会话意外驱动同一个仓库；它是同用户
   之间的协调锁，不是用户间的认证机制。
 
+## 仓库保护
+
+本节描述的是**本仓库**，不是 Tower 所操作的仓库。服务端分支保护不是插件功能——Tower 只写入本地基线分支，无法配置远端——但 `dsh-tower` 为自己的 `main` 开启了保护，因为门禁代码本身也是攻击者最想修改的代码：
+
+- `main` 的所有变更都必须经过 pull request，且**对 admin 同样生效**，因此维护者也无法直接 push。
+- 必需检查为 `test (22)`、`test (24)` 与 `mount`。mount 任务会打包压缩包并在一次性 profile 中启动，所以“测试通过”不能把一个安装后不出现的 bundle 合入。
+- 禁止 force-push 与删除分支，已发布 tag 的历史不能被改写。
+- 不要求强制审批：只有一个维护者时，自我审批只是橡皮图章。替代它的是 two-key 路径的四行 PR 正文（failure mode、change、test、blast radius），见 [CONTRIBUTING.md](../../../CONTRIBUTING.md#landing-changes)。
+
+它带来的保证：未经验证的变更无法进入 `main`，必需检查变红或缺失时连所有者也不能绕过，历史只追加。它**不**提供：第二个审阅者、对泄露的维护者 token 的防护，或对 Tower 所操作仓库的任何保护——那些仍是部署关注点。设置、理由与校验命令记录在 [SECURITY.md](../../../SECURITY.md#repository-protection-on-main)。
+
 ## 模型主动进入模式的威胁模型
 
 `mode.allowAgentControl:true` 意味着仓库文件、issue 文本或抓取页面中的提示注入可以让模型“进入
@@ -63,7 +74,7 @@ OS 级隔离运行 host。
   插件。只为你信任的检出配置 HMR 监视 root；重载会执行这些文件当前的代码。
 - **提示注入。** reviewer 会读取不受信任的分支内容（diff/评论）。只读 preset 限制了影响面，但模型侧
   没有绝对防护。
-- **基线分支保护。** Tower 会写入本地基线分支；服务端的 branch protection/push 规则不属于本插件。
+- **基线分支保护。** Tower 会写入本地基线分支；服务端 branch protection/push 规则不属于本插件。本仓库自身 `main` 的保护见[仓库保护](#仓库保护)；为你运行 Tower 的仓库开启同等保护仍属于部署关注点。
 
 ## 报告问题
 

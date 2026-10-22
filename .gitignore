@@ -15,6 +15,9 @@ tests/live/.dsh-tower-worktrees/
 .dsh-tower-worktrees/
 testrepo/
 
+# Local tracker export for `npm run audit:issues` (regenerate; never commit)
+tracker/
+
 # Secrets and credentials
 .env
 .env.*
