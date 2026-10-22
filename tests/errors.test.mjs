@@ -85,10 +85,14 @@ test('structured TowerToolError derives retryable from the catalog', async () =>
 
 test('pure domain validation throws structured errors', async () => {
   const { validateState } = await import('../domain/state.js')
+  const { SCHEMA_VERSION } = await import('../domain/mission.js')
   const { normalizeScope } = await import('../domain/scope.js')
   let stateError
-  try { validateState({ schemaVersion: 99 }, 'state.json') } catch (error) { stateError = error }
-  assert.equal(stateError.code, 'state-corrupt')
+  try { validateState({ schemaVersion: SCHEMA_VERSION + 1 }, 'state.json') } catch (error) { stateError = error }
+  assert.equal(stateError.code, 'state-version-unsupported')
+  let corruptError
+  try { validateState({ schemaVersion: 'nope' }, 'state.json') } catch (error) { corruptError = error }
+  assert.equal(corruptError.code, 'state-corrupt')
   let scopeError
   try { normalizeScope(['../x']) } catch (error) { scopeError = error }
   assert.equal(scopeError.code, 'invalid-argument')

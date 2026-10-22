@@ -115,7 +115,7 @@ type SchemaMission = SchemaState['missions'][number]
 // a normalized document. These fixtures pin the overlapping contract:
 //   * the schemaVersion literal refines (not widens) the public number;
 //   * every schema root key and mission key has a public counterpart.
-export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 1>>
+export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 2>>
 export type StateSchemaRootKeysContract = Expect<Extends<keyof SchemaState, keyof TowerState>>
 export type StateSchemaMissionKeysContract = Expect<Extends<keyof SchemaMission, keyof Mission>>
 

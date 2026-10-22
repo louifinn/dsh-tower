@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+import { Tower, SCHEMA_VERSION } from '../app/tower.js'
 import { configureRuntime } from '../lib/config.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
@@ -101,7 +101,7 @@ test('autoGitInit: a plain directory becomes a repository with an empty initial 
     assert.equal(git(plain, ['log', '-1', '--format=%s']), 'tower: initial empty commit')
 
     const state = JSON.parse(fs.readFileSync(initialized.statePath, 'utf8'))
-    assert.equal(state.schemaVersion, 1)
+    assert.equal(state.schemaVersion, SCHEMA_VERSION)
     assert.equal(state.base, branch)
     assert.equal(state.repoRoot, initialized.repoRoot)
 
