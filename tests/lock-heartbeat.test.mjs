@@ -52,14 +52,16 @@ function writeLock(file, record) {
 // the name before the first write lands (and the heartbeat replaces the file by
 // rename). Retry briefly instead of failing the fixture on that window; the
 // production readers already ignore unparsable lock bytes (#92).
-function readLockFile(file) {
+async function readLockFile(file) {
   const deadline = Date.now() + 2000
   for (;;) {
     try {
       return JSON.parse(fs.readFileSync(file, 'utf8'))
     } catch (error) {
       if (Date.now() > deadline) throw error
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+      // Yield: the file may be mid-creation by an async write; blocking the
+      // event loop here would starve the write that fills it.
+      await sleep(5)
     }
   }
 }
@@ -121,10 +123,10 @@ test('touchLock only refreshes a record this token still owns', async () => {
     fs.writeFileSync(paths.lock, JSON.stringify(record))
 
     assert.equal(await touchLock(paths.lock, 'someone-else', { now: 2000 }), false)
-    assert.equal(readLockFile(paths.lock).at, 1000)
+    assert.equal((await readLockFile(paths.lock)).at, 1000)
 
     assert.equal(await touchLock(paths.lock, 'owner', { now: 2000 }), true)
-    const refreshed = readLockFile(paths.lock)
+    const refreshed = await readLockFile(paths.lock)
     assert.equal(refreshed.at, 2000)
     assert.equal(refreshed.token, 'owner')
     assert.equal(refreshed.since, 1000, 'the heartbeat must not rewrite the record age')
@@ -182,11 +184,11 @@ test('a lock that keeps heartbeating is never stolen even when the waiter times 
     const heartbeatStaleMs = 5000
     const holding = withLock(paths, () => holderGate, { heartbeatMs, heartbeatStaleMs })
     assert.ok(await waitFor(() => fs.existsSync(paths.lock)), 'the holder must acquire the lock')
-    const holderToken = readLockFile(paths.lock).token
+    const holderToken = (await readLockFile(paths.lock)).token
 
-    const before = readLockFile(paths.lock).at
+    const before = (await readLockFile(paths.lock)).at
     await sleep(60)
-    const during = readLockFile(paths.lock)
+    const during = await readLockFile(paths.lock)
     assert.ok(during.at > before, 'a held lock must keep rewriting its heartbeat')
     assert.equal(during.token, holderToken)
 
@@ -203,7 +205,7 @@ test('a lock that keeps heartbeating is never stolen even when the waiter times 
       (error) => error?.code === 'state-locked',
     )
     assert.equal(applied, false, 'the waiter must not write while the holder heartbeats')
-    assert.equal(readLockFile(paths.lock).token, holderToken, 'the lock must still belong to the holder')
+    assert.equal((await readLockFile(paths.lock)).token, holderToken, 'the lock must still belong to the holder')
     assert.equal(fs.existsSync(paths.lock), true)
 
     releaseHolder()
