@@ -2,6 +2,58 @@
 
 Thanks for your interest in `dsh-tower`. This is a DeepSeek Harness plugin; the repository root is the bundle itself (`package.json` + `cordis.patch.yml`).
 
+## Landing changes
+
+`main` is protected. Every change lands through a pull request; direct pushes to `main` are rejected,
+including the maintainer's, because protection is enforced for admins. To merge, a PR must pass these
+required checks:
+
+| Required context | What it proves |
+|---|---|
+| `test (22)` | offline suite, docs/pack/architecture/types/domain checks on Node 22 |
+| `test (24)` | the same jobs on Node 24 |
+| `mount` | the packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`) |
+
+The context names come from the workflow job id and matrix values. Renaming a job or a matrix value
+changes the required context; update the protection setting in the same PR, or the check never reports
+and every PR stays unmergeable. The setting and its verification command are in
+[SECURITY.md](SECURITY.md#repository-protection-on-main).
+
+There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
+one maintainer, and a mandatory self-approval would be theatre. What replaces the second reviewer is a
+written contract.
+
+### Two-key paths and the four-line PR body
+
+"Two-key" here means two independent keys of evidence — the written failure mode and the named test,
+on top of the green required checks — not two approvals. A change touching any of these paths carries a
+four-line body, in this order:
+
+- `domain/**`
+- `app/**`
+- `lib/store.js`, `lib/persistence.js`, `lib/*lock*.js`
+- `scripts/architecture.mjs`
+- `cordis.patch.yml`
+
+```markdown
+Failure mode: <what breaks for a user if this is wrong>
+Change: <what changed, one sentence>
+Test: <test file and case that fails without this change>
+Blast radius: <repositories, state files or tools that can be affected>
+```
+
+Those paths decide whether a user's repository is modified or a gate can be bypassed. Every other path
+still lands as a PR, but a one-line description is enough. The four lines are evidence, not ceremony:
+if the "Test" line cannot name a file, the change needs one first.
+
+### Direct push
+
+There is none. Before the delivery gate (#94 / #96), `main` accepted direct pushes, and #77 proposed
+the two-key rule as a path-scoped exception. GitHub branch protection cannot express "direct push
+allowed for these paths only", so the exception was dropped instead of documented as a rule the server
+would not enforce. An emergency bypass is not a workflow: repairing `main` means changing the setting
+deliberately and recording why, not silently pushing.
+
 ## Development setup
 
 ```bash
@@ -21,12 +73,13 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (368 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (387 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
 5. Update `README.md` / `README.en.md` when the user-visible behavior changes.
 6. If you touched `cordis.patch.yml`, `index.js`, `skills.js`, or `tools/`, run `npm run smoke:mount` (see below).
+7. A commit carries `Refs #n` or `Fixes #n`; a P0/P1 closure carries `verified-by:` and `commit:`, and `npm run audit:issues` reports no new failures.
 
 ## Mount smoke
 
@@ -48,9 +101,63 @@ than only counting rows.
 Coverage is reported by `npm run test:coverage` in CI. It is a signal, not a gate: no threshold,
 no baseline, no badge.
 
+## Commits, closures and evidence
+
+### Trailers
+
+Put the issue trailer on its own line at the end of the commit message:
+
+- `Refs #n` — the commit touches issue n but does not complete it.
+- `Fixes #n` — the commit completes the issue; GitHub closes it when the change reaches `main`.
+
+One trailer per issue, and exactly one of the two per commit. `Fixes` is not decoration for work that a
+later commit still has to finish.
+
+### The two-line closure contract
+
+A closure on a P0/P1 is a pointer, not prose. The closing comment starts with these two lines:
+
+```text
+verified-by: tests/<file>.test.mjs
+commit: <sha>
+```
+
+- `verified-by:` names a test file that exists in the repository (under `tests/`, or named `*.test.*` /
+  `*.spec.*`). A script or a doc is not a test.
+- `commit:` names the commit that landed the change.
+
+Prose may follow. A closure without the two lines is treated as unverified, and the audit below fails
+on it.
+
+### Checking closures offline
+
+The audit reads a local export; it never calls GitHub, so it cannot pass because of a network outage or
+a token. Produce the export once (network), then audit it offline:
+
+```powershell
+# 1) Export (PowerShell; no jq needed)
+New-Item -ItemType Directory -Force tracker | Out-Null
+$all = foreach ($n in (gh issue list --repo louifinn/dsh-tower --state all --limit 500 --json number --jq '.[].number')) {
+  gh issue view $n --repo louifinn/dsh-tower --json number,title,state,labels,closedAt,body,comments | ConvertFrom-Json
+}
+@{ issues = @($all) } | ConvertTo-Json -Depth 8 | Set-Content tracker/issues.json -Encoding utf8
+
+# 2) Audit (offline)
+npm run audit:issues                          # every closed P0/P1 in tracker/issues.json
+npm run audit:issues -- --since 2026-10-22    # only closures on/after the convention date
+npm run audit:issues -- --tracker path/to/export.json --json
+```
+
+The bash equivalent of step 1 is the same `gh` calls piped through `jq -s '{issues: .}'`.
+
+Exit codes: `0` — every checked closure names an existing test file (a missing `commit:` is a warning);
+`1` — at least one pointer is missing, nonexistent, not a test, or outside the repository; `2` — the
+export is missing or malformed. `--strict` promotes the missing-`commit:` warning to an error.
+`tracker/` is a local snapshot and is gitignored; regenerate it instead of committing it.
+
 ## Commit style
 
-Conventional-commit prefixes are preferred: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`. Keep the subject line in the imperative mood.
+Conventional-commit prefixes are preferred: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`. Keep the subject line in the imperative mood. Add the issue trailer (`Refs #n` / `Fixes #n`) described above.
 
 ## Reporting issues
 
