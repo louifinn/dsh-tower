@@ -13,6 +13,8 @@
 | `stale-base` | The repository state changed while the operation was being prepared; retry. |
 | `state-locked` | Another Tower writer holds the state lock. |
 | `state-corrupt` | The Tower state file is unreadable or invalid. |
+| `state-version-unsupported` | The Tower state file uses a schema version this build cannot read or downgrade. |
+| `state-migration-failed` | A Tower state migration failed; the original state file was not modified. |
 | `config-invalid` | Tower configuration is invalid. |
 | `config-unknown-key` | Tower configuration has an unknown top-level key. |
 | `git-failed` | A git command failed. |

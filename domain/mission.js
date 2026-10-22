@@ -9,7 +9,7 @@
 
 /** @type {readonly MissionStatus[]} */
 export const MISSION_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned']
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 /** @type {readonly MergeVerdict[]} */
 export const MERGE_VERDICTS = ['merge', 'fix-then-merge', 'hold']
 export const REVIEW_STATUS_RE = /^(clean|p1-\d+items|p2-\d+items)$/
