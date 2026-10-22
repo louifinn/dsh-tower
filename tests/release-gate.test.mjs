@@ -100,7 +100,7 @@ test('PR + version moved + unreleased content: clean', () => {
   assert.equal(result.ok, true)
   assert.deepEqual(result.findings, [])
   assert.equal(result.facts.unreleased, true)
-  assert.equal(result.facts.notes, 'unreleased')
+  assert.equal(result.facts.notesKind, 'unreleased')
 })
 
 test('tag push + version moved + unreleased content: clean when the tag is v<version>', () => {
@@ -129,7 +129,7 @@ test('a changelog section for the version supplies the release notes', () => {
   })
   assert.equal(result.ok, true)
   assert.equal(result.facts.unreleased, false)
-  assert.equal(result.facts.notes, 'version-section')
+  assert.equal(result.facts.notesKind, 'version-section')
 })
 
 test('the pushed tag must be exactly v<version>', () => {
@@ -176,6 +176,25 @@ test('prereleases compare as newer than the stable tag they follow', () => {
   const result = evaluate({ version: '2.1.0-beta.1', mode: 'tag', tag: 'v2.1.0-beta.1' })
   assert.equal(result.ok, true)
   assert.deepEqual(result.findings, [])
+})
+
+test('the CLI keeps only the documented flags', () => {
+  const repo = makeRepo()
+  try {
+    seed(repo, { version: '2.0.4', released: { version: '2.0.4', body: '- seeded' } })
+    repo.commit('release 2.0.4')
+    repo.tag('v2.0.4')
+    // --root/--package/--changelog were speculative: no test or doc used them,
+    // and the release checklist always runs in the checkout root. Rejecting
+    // them keeps the CLI to the documented --mode/--tag/--json surface.
+    for (const flag of ['--root', '--package', '--changelog']) {
+      const run = runCli(repo.dir, [flag, 'somewhere'])
+      assert.equal(run.status, 2, `${flag}: ${run.output}`)
+      assert.match(run.output, /unknown argument/)
+    }
+  } finally {
+    repo.cleanup()
+  }
 })
 
 // --- CLI fixtures over real Git repositories --------------------------------
@@ -321,6 +340,37 @@ test('a bumped tag with no changelog notes fails on a tag push', () => {
     const run = runCli(repo.dir, [], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v2.1.0' })
     assert.equal(run.status, 1, run.output)
     assert.match(run.output, /\[no-release-notes\]/)
+  } finally {
+    repo.cleanup()
+  }
+})
+
+test('a stray non-version tag never becomes the previous tag', () => {
+  const repo = makeRepo()
+  try {
+    seed(repo, { version: '2.0.4', released: { version: '2.0.4', body: '- seeded' } })
+    repo.commit('release 2.0.4')
+    repo.tag('v2.0.4')
+    // A UI/release tag that is not `v<semver>` is nearer to HEAD than v2.0.4,
+    // so `git describe` reports it; the gate must skip it and compare against
+    // the last version tag instead.
+    repo.write({ 'ui-version.json': '{"version":"0.2.2"}\n' })
+    repo.commit('feat(ui): bump the widget')
+    repo.tag('ui-0.2.2')
+    seed(repo, { version: '2.1.0', unreleased: '- feat: delivery gate' })
+    repo.commit('chore: prepare 2.1.0')
+
+    const branch = runCli(repo.dir)
+    assert.equal(branch.status, 0, branch.output)
+    assert.match(branch.output, /previous-tag=v2\.0\.4/)
+    assert.doesNotMatch(branch.output, /version-not-bumped/)
+    assert.doesNotMatch(branch.output, /previous tag ui-0\.2\.2/)
+
+    repo.tag('v2.1.0')
+    const tagged = runCli(repo.dir, [], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v2.1.0' })
+    assert.equal(tagged.status, 0, tagged.output)
+    assert.match(tagged.output, /previous-tag=v2\.0\.4/)
+    assert.doesNotMatch(tagged.output, /version-not-bumped/)
   } finally {
     repo.cleanup()
   }

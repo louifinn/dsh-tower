@@ -17,7 +17,8 @@ required checks:
 The context names come from the workflow job id and matrix values. Renaming a job or a matrix value
 changes the required context; update the protection setting in the same PR, or the check never reports
 and every PR stays unmergeable. The setting and its verification command are in
-[SECURITY.md](SECURITY.md#repository-protection-on-main).
+[SECURITY.md](SECURITY.md#repository-protection-on-main). The `mount-fixtures` job runs the seeded
+smoke failures for evidence but is deliberately **not** a required context.
 
 There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
 one maintainer, and a mandatory self-approval would be theatre. What replaces the second reviewer is a
@@ -73,7 +74,7 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (413 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (416 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
@@ -96,7 +97,8 @@ It needs network access the first time (the host install) and `pnpm` on `PATH` (
 package manager). `scripts/mount-smoke/host.json` is the single host build pin: bump it and the
 newest `COMPATIBILITY.md` row together — a unit test fails when the two disagree. The fixtures
 rename one tool id and remove the `tower-skills` row to prove the red run names the cause rather
-than only counting rows.
+than only counting rows; CI runs them in the `mount-fixtures` job, sharing one cached host install
+through `--host-dir`.
 
 Coverage is reported by `npm run test:coverage` in CI. It is a signal, not a gate: no threshold,
 no baseline, no badge.

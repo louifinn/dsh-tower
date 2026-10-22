@@ -25,7 +25,9 @@ Tower work. This is provenance, not a feature-detection mechanism.
 Add a row in the release PR, before tagging, after running the offline suite and docs check on the
 host build being shipped. Name the release tag in cell 1 and the host build in cell 0; the other
 columns are read positionally by `lib/compatibility.js`, so do not insert or reorder them. Do not
-claim a live run that was not performed. The full six-step procedure is the
+claim a live run that was not performed. The 2.1.0-beta.1 row is a pre-release: it becomes
+installable on the `next` dist-tag only after the checklist's publish step, and `latest` stays on
+2.0.4 until a stable release. The full six-step procedure is the
 [release checklist](docs/guide/release.md).
 
 ## Pack provenance

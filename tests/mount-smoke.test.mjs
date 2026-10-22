@@ -112,6 +112,21 @@ test('the presets claim both preset ids', () => {
   assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-worker'])
 })
 
+test('CI runs the seeded fixtures against one shared host install', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/test.yml'), 'utf8')
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+  assert.equal(pkg.scripts['smoke:fixtures'], 'node scripts/mount-smoke/fixtures.mjs')
+  assert.match(workflow, /^ {2}mount-fixtures:/m, 'the fixtures run as their own job')
+  assert.match(workflow, /npm run smoke:fixtures -- --host-dir/)
+  assert.match(workflow, /actions\/cache@v4/, 'the pinned host install is cached between runs')
+  assert.match(workflow, /hashFiles\('scripts\/mount-smoke\/host\.json'\)/)
+  // Required contexts stay exactly `test (22)`, `test (24)` and `mount`; the
+  // fixtures job is evidence, not a merge gate, so it must not borrow that name.
+  assert.match(workflow, /node: \[22, 24\]/)
+  assert.equal((workflow.match(/^ {4}name: mount$/gm) ?? []).length, 1)
+  assert.doesNotMatch(workflow, /^ {4}name: mount-fixtures$/m)
+})
+
 test('the mount smoke host pin matches the newest compatibility row', () => {
   const pin = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'mount-smoke', 'host.json'), 'utf8'))
   assert.match(pin.dsh, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)

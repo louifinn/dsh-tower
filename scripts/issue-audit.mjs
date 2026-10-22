@@ -20,6 +20,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { findingRecorder, parseArgs, runMain, UsageError } from './lib/cli.mjs'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_TRACKER = path.join('tracker', 'issues.json')
@@ -36,8 +37,6 @@ const USAGE = `usage: node scripts/issue-audit.mjs [--tracker <file>] [--root <d
 The export is {"issues": [...]} or a bare array; each issue needs number, title,
 state (or closedAt), labels, body and comments. Produce it once with gh (see
 CONTRIBUTING.md); the audit itself never touches the network.`
-
-class UsageError extends Error {}
 
 // `verified-by:` / `commit:` are line fields, not prose. Backticks, a leading
 // bullet or blockquote, and Windows path separators are tolerated because the
@@ -170,27 +169,26 @@ export function auditIssues(issues, options = {}) {
     if (since && closedAt && closedAt < since) continue
     checked += 1
     const label = `#${issue.number} ${String(issue.title ?? '').trim()}`
-    const record = (code, message, level = 'error') =>
-      findings.push({ number: issue.number, title: issue.title, priority, code, level, message })
+    const record = findingRecorder(findings, { number: issue.number, title: issue.title, priority })
 
     const fields = selectEvidence(issue)
     if (!fields) {
-      record('missing-evidence', `${label}: no verified-by: field in the body or comments`)
+      record('missing-evidence', 'error', `${label}: no verified-by: field in the body or comments`)
       continue
     }
     for (const pointer of fields.verifiedBy) {
       const problem = inspectPointer(pointer, root)
       if (!problem) continue
       if (problem.code === 'missing-test') {
-        record('missing-test', `${label}: verified-by names a missing test file: ${pointer}`)
+        record('missing-test', 'error', `${label}: verified-by names a missing test file: ${pointer}`)
       } else if (problem.code === 'not-a-test') {
-        record('not-a-test', `${label}: verified-by is not a test file: ${pointer} (${problem.detail})`)
+        record('not-a-test', 'error', `${label}: verified-by is not a test file: ${pointer} (${problem.detail})`)
       } else {
-        record('invalid-pointer', `${label}: verified-by must be a repository-relative path: ${pointer} (${problem.detail})`)
+        record('invalid-pointer', 'error', `${label}: verified-by must be a repository-relative path: ${pointer} (${problem.detail})`)
       }
     }
     if (!fields.commit) {
-      record('missing-commit', `${label}: no commit: <sha> field (warning; --strict fails)`, strict ? 'error' : 'warning')
+      record('missing-commit', strict ? 'error' : 'warning', `${label}: no commit: <sha> field (warning; --strict fails)`)
     }
   }
   const errors = findings.filter((finding) => finding.level === 'error')
@@ -206,52 +204,20 @@ export function auditIssues(issues, options = {}) {
   }
 }
 
-function parseArgs(argv) {
-  const options = { tracker: null, root: PACKAGE_ROOT, since: null, strict: false, json: false, help: false }
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    const value = () => {
-      const next = argv[index + 1]
-      if (next === undefined || next.startsWith('--')) throw new UsageError(`${arg} needs a value`)
-      index += 1
-      return next
-    }
-    switch (arg) {
-      case '--tracker':
-        options.tracker = value()
-        break
-      case '--root':
-        options.root = path.resolve(value())
-        break
-      case '--since':
-        options.since = value()
-        break
-      case '--strict':
-        options.strict = true
-        break
-      case '--json':
-        options.json = true
-        break
-      case '--help':
-      case '-h':
-        options.help = true
-        break
-      default:
-        throw new UsageError(`unknown argument ${JSON.stringify(arg)}`)
-    }
-  }
-  return options
+function parseOptions(argv) {
+  return parseArgs(argv, {
+    initial: { tracker: null, root: PACKAGE_ROOT, since: null, strict: false, json: false, help: false },
+    values: {
+      '--tracker': 'tracker',
+      '--root': { key: 'root', parse: path.resolve },
+      '--since': 'since',
+    },
+    flags: { '--strict': 'strict', '--json': 'json', '--help': 'help', '-h': 'help' },
+  })
 }
 
 function cli(argv) {
-  let options
-  try {
-    options = parseArgs(argv)
-  } catch (error) {
-    console.error(`issue-audit: ${error.message}`)
-    console.error(USAGE)
-    return 2
-  }
+  const options = parseOptions(argv)
   if (options.help) {
     console.log(USAGE)
     return 0
@@ -290,5 +256,4 @@ function cli(argv) {
   return result.ok ? 0 : 1
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isMain) process.exitCode = cli(process.argv.slice(2))
+await runMain(import.meta.url, () => cli(process.argv.slice(2)), { errorPrefix: 'issue-audit', usage: USAGE })
