@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import {
   acquireWorkspaceLock,
@@ -26,10 +27,6 @@ const { apply } = await import('../index.js')
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function tempCommonDir() {
@@ -76,7 +73,7 @@ test('workspace lock: acquire, self reacquire, inspect and holder reporting', as
     assert.equal(other.holder.sessionId, 'sess-a')
     assert.equal(other.corrupt, undefined)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -142,7 +139,7 @@ test('workspace lock: stale takeover and corrupt-lock handling', async () => {
     assert.equal(staleCorrupt.tookOver, true)
     assert.equal(readLock(commonDir).sessionId, 'sess-d')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -171,7 +168,7 @@ test('workspace lock: touch and release only act on the owning token', async () 
     assert.equal((await inspectWorkspaceLock(commonDir, { sessionId: 'nope' })).self, false)
     assert.equal(await releaseWorkspaceLock(commonDir, {}), true)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -282,7 +279,7 @@ test('mode.workspaceLock: the second Tower session is refused until the first le
     assert.equal(fs.existsSync(lockFile), false)
   } finally {
     harness.disposeAll()
-    cleanup(root)
-    fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
+    removeTemp(home)
   }
 })

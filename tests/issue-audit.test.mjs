@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { auditIssues, parseTracker } from '../scripts/issue-audit.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -43,7 +44,7 @@ function tempTracker(body) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-issue-audit-'))
   const file = path.join(dir, 'tracker.json')
   fs.writeFileSync(file, JSON.stringify(body))
-  return { file, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) }
+  return { file, cleanup: () => removeTemp(dir) }
 }
 
 test('parseTracker accepts both the export object and a bare issue array', () => {

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -19,10 +20,6 @@ const CJK_TITLE = '修复登录态过期'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo() {
@@ -148,7 +145,7 @@ test('CJK title round-trips plan -> state -> status -> MISSIONS.md -> briefing',
     assert.equal(briefing.split('\n')[0], `# Tower mission M1 — ${CJK_TITLE}`, 'the briefing heading keeps the title')
     assert.ok(briefing.includes(CJK_TITLE), 'the briefing body keeps the title')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -181,6 +178,6 @@ test('tower_plan rejects invisible and over-long titles with distinct stable cod
     const status = await call(tools, 'tower_status', { repoRoot: repo })
     assert.equal(status.total, 0, 'no mission is created when a title is rejected')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

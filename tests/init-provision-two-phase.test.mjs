@@ -8,16 +8,13 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../app/tower.js'
 import { shortHash } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seed(prefix = 'dsh-tower-init-provision-') {
@@ -118,7 +115,7 @@ test('init: the dirty snapshot and state file are created outside the state lock
     assert.equal(state.snapshotRef, result.snapshotRef)
     assert.equal(git(repo, ['rev-parse', result.snapshotRef]), result.snapshotCommit)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -158,7 +155,7 @@ test('init: reanchor deletes snapshot refs under the git lock and commits the ba
     assert.equal(state.snapshotRef ?? null, null)
     assert.equal(git(repo, ['show-ref']).includes(first.snapshotRef), false, 'the old snapshot ref must be gone')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -198,7 +195,7 @@ test('init: a state revision change during the reanchor act is rejected and keep
     assert.equal(state.snapshotRef, first.snapshotRef, 'state still references the snapshot ref')
     assert.equal(git(repo, ['rev-parse', first.snapshotRef]), first.snapshotCommit, 'the snapshot ref must not be deleted')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -248,7 +245,7 @@ test('provision: worktree add runs under the git lock and the state write happen
     assert.equal(again.worktree.path, result.worktree.path)
     assert.equal(readState(tower).revision, after.revision)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -303,6 +300,6 @@ test('provision: a state revision change during the act rolls the worktree back'
     assert.equal(retried.created, true)
     assert.equal(fs.existsSync(retried.worktree.path), true)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { validateJsonSchema } from './schema-validator.mjs'
@@ -164,6 +165,6 @@ test('every tool output satisfies its declared schema across a full mission', as
     assert.deepEqual(torn.removed, [missionId])
     await call('tower_adopt', { repoRoot: repo })
   } finally {
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemp(root)
   }
 })

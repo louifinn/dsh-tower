@@ -10,11 +10,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 // Isolate the mode store before importing the plugin: index.js reads it at
 // import time. Never write to the operator's real $DSH_HOME from a test.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plugin-'))
 process.env.DSH_HOME = home
+test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
 const { loadModes } = await import('../lib/modeStore.js')

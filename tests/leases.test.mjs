@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import {
   acquireLease,
@@ -20,10 +21,6 @@ function tempCommonDir(prefix = 'dsh-tower-leases-') {
   const commonDir = path.join(root, '.git')
   fs.mkdirSync(commonDir, { recursive: true })
   return { root, commonDir }
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function readLedger(commonDir) {
@@ -92,7 +89,7 @@ test('leases: acquire writes the repo ledger and inspect reports holder/token/pi
       },
     ])
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -134,7 +131,7 @@ test('leases: a live lease is refused, the same token renews, another holder is 
     )
     assert.equal(readLedger(commonDir).leases['heavy-ci'].token, 'token-a')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -165,7 +162,7 @@ test('leases: release requires the matching token and force for an expired lease
     const inspected = await inspectLeases(commonDir, { now: 6000 })
     assert.equal(inspected.count, 0)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -186,7 +183,7 @@ test('leases: concurrent acquires of one name serialize to exactly one winner', 
     assert.equal(winners.leases[0].token, fulfilled[0].value.token)
     assert.equal(fs.existsSync(leasesLockPath(commonDir)), false)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -216,7 +213,7 @@ test('leases: corrupt ledger and stale writer lock fail closed but a stale lock 
     assert.equal(lease.name, 'plugin-load')
     assert.equal(fs.existsSync(leasesLockPath(commonDir)), false)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -246,6 +243,6 @@ test('leases: invalid arguments are rejected before any write', async () => {
     )
     assert.equal(fs.existsSync(leasesPath(commonDir)), false)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

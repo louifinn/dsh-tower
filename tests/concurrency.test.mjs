@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower, validateState } from '../app/tower.js'
@@ -15,10 +16,6 @@ const exec = { agent: { id: 'tower-concurrency' } }
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-concurrency-') {
@@ -148,7 +145,7 @@ test('spawn.maxLiveWorkers caps live roster workers and allows the limit', async
       'raising spawn.maxLiveWorkers to 2 must allow a second worker entry',
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -182,7 +179,7 @@ test('tower_send rate limit: send.maxPerMinute rejects further sends in the wind
     const reloaded = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     assert.equal(reloaded.messages, 3)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -212,7 +209,7 @@ test('spawn.staleMs marks roster entries without catalog activity as stale', asy
     const entryAgain = fresh.roster.find((candidate) => candidate.agentId === spawned.agentId)
     assert.equal(entryAgain.stale, false)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -250,7 +247,7 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
     }
     assert.ok(after.revision > before.revision)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -276,7 +273,7 @@ test('reconcileObservedInactive releases a slot as soon as the catalog reports i
     const spawned = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M2', role: 'worker' }, exec)
     assert.equal(spawned.name, 'worker-m2')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -291,7 +288,7 @@ test('Tower instances keep independent git timeouts without mutating the process
     assert.equal(second.config.git.timeoutMs, 3000)
     assert.equal(configuredGitTimeout(), 15000)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -313,7 +310,7 @@ test('withGitLock serializes git work without the state lock', async () => {
     fs.writeFileSync(paths.gitLock, JSON.stringify({ pid: 999999, token: 'dead', at: 1 }))
     assert.equal(await withGitLock(paths, async () => 'ok'), 'ok')
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -340,7 +337,7 @@ test('withGitLock serializes concurrent git mutations', async () => {
     await Promise.all([withGitLock(paths, work), withGitLock(paths, work)])
     assert.equal(max, 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -380,6 +377,6 @@ test('Tower accepts injected adapters instead of importing the defaults', async 
     assert.equal(gitCalls, 1)
     assert.equal(readCalls, 1)
   } finally {
-    nodeFs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })

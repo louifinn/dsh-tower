@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import {
   DEFAULT_DELAY_MS,
@@ -66,7 +67,7 @@ function runScript(args, env) {
 
 function makeTempHome(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-hmr-'))
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  t.after(() => removeTemp(dir))
   return dir
 }
 

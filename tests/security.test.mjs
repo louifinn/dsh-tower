@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../lib/tool-registry.js'
 import { Tower } from '../app/tower.js'
@@ -101,7 +102,7 @@ test('security: unknown agents cannot use tower-only tools', async () => {
       await assert.rejects(() => call(tools, name, args, forged), /not-authorized/i)
     }
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -125,7 +126,7 @@ test('security: an unregistered caller cannot break-glass a review', async () =>
       /not-authorized/i,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -149,7 +150,7 @@ test('security: completion rejects a dirty worktree', async () => {
       /worktree-dirty/,
     )
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -174,7 +175,7 @@ test('security: retiring a stale worker clears the permanent stale flag', async 
     assert.equal(retired.stale, undefined)
     assert.equal(retired.staleAt, undefined)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -190,7 +191,7 @@ test('security: adopt needs two observations before retiring an absent worker', 
     const second = await call(tools, 'tower_adopt', { repoRoot: repo })
     assert.equal(second.retired.length, 1)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -218,7 +219,7 @@ test('security: tower_recover only clears a provably dead state lock', async () 
     assert.equal(fs.existsSync(tower.paths.lock), false)
     assert.equal(fs.existsSync(cleared.backup), true)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 
@@ -232,7 +233,7 @@ test('security: lease status never returns tokens', async () => {
     const status = await call(tools, 'tower_resource', { repoRoot: repo, action: 'status' })
     assert.equal(status.leases.some((lease) => 'token' in lease), false)
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTemp(root)
   }
 })
 

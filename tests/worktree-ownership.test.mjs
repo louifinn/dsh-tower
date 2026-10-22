@@ -9,15 +9,12 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { assertOwnership, canonicalPath } from '../lib/worktreeOwnership.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function seedRepo(prefix = 'dsh-tower-ownership-') {
@@ -70,7 +67,7 @@ test('ownership: a real linked worktree passes with path and realpath identity',
     })
     assert.equal(withoutRealPath.realPath, realPath)
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -90,7 +87,7 @@ test('ownership: a moved branch is rejected with the expected branch in the mess
       expectCode('invalid-transition', /is on tower\/m1-demo, expected tower\/other/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -110,7 +107,7 @@ test('ownership: a nested path is rejected as not the worktree root', async () =
       expectCode('invalid-transition', /is not the Git worktree root/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -129,7 +126,7 @@ test('ownership: a replaced realpath is rejected', async () => {
       expectCode('invalid-transition', /real path changed: expected .*repo, found .*M1/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -148,8 +145,8 @@ test('ownership: a worktree from a different repository is rejected', async () =
       expectCode('invalid-transition', /belongs to a different repository/),
     )
   } finally {
-    cleanup(fixture.root)
-    cleanup(other.root)
+    removeTemp(fixture.root)
+    removeTemp(other.root)
   }
 })
 
@@ -167,7 +164,7 @@ test('ownership: a missing path is rejected before any Git call', async () => {
       expectCode('invalid-transition', /is missing/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -203,7 +200,7 @@ test('ownership: a symlink/junction replacement is rejected (SKIP when the OS re
       expectCode('invalid-transition', /symlink or junction/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -218,7 +215,7 @@ test('canonicalPath: realpath of an existing path, and clear errors otherwise', 
       expectCode('invalid-transition', /does not exist/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })
 
@@ -250,6 +247,6 @@ test('ownership: a plain directory and invalid arguments are rejected', async ()
       expectCode('invalid-argument', /commonDir must be an absolute path/),
     )
   } finally {
-    cleanup(fixture.root)
+    removeTemp(fixture.root)
   }
 })

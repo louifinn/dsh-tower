@@ -11,6 +11,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { readLock, readLockSync, releaseLock, releaseLockSync } from '../lib/persistence.js'
 import { pathsFor, readStateLock, withLock, writeJsonAtomic } from '../lib/store.js'
@@ -23,10 +24,6 @@ const DEAD_PID = 999999
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 /** A repo-shaped state store with its lock directory already created. */
@@ -72,7 +69,7 @@ test('state.json and modes.json both reclaim a lock whose PID is dead', async ()
     assert.deepEqual(quarantineRemnants(modesDir), [])
     assert.equal(loadModes(modesDir).has('session-a'), true)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -101,7 +98,7 @@ test('a foreign live lock is reported, never deleted, for state.json and modes.j
     assert.equal(releaseLockSync(modesLock, 'not-the-owner'), false)
     assert.equal(readText(modesLock), foreignModes)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -130,7 +127,7 @@ test('both stores wait for a bounded time before reporting a live holder', async
     assert.ok(modesWaited < 2000, `mode lock wait must not exceed its bound (waited ${modesWaited}ms)`)
     assert.equal(JSON.parse(readText(modesLock)).token, 'live-modes')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -166,7 +163,7 @@ test('state.json and modes.json both replace their document atomically', async (
     assert.equal(saveModes(new Map([['broken', circular]]), modesDir), false)
     assert.equal(readText(storePath(modesDir)), modesBefore)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -203,6 +200,6 @@ test('concurrent mode saves merge by timestamp without losing updates', async ()
     assert.equal(saveModes(new Map([['baseline', { on: false, at: 5000 }]]), modesDir), true)
     assert.equal(JSON.parse(readText(storePath(modesDir))).modes.baseline.on, false)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })

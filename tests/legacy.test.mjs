@@ -8,6 +8,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 import { importLegacySnapshot, validateLegacyMap, validateLegacySnapshot } from '../lib/legacy.js'
 
@@ -105,10 +106,6 @@ function tempRepo(prefix = 'dsh-tower-legacy-') {
   const commonDir = path.join(repo, '.git')
   fs.mkdirSync(commonDir, { recursive: true })
   return { root, repo, commonDir }
-}
-
-function cleanup(root) {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 function sha256(buffer) {
@@ -263,7 +260,7 @@ test('importLegacySnapshot: writes exact bytes to the hash-addressed legacy stor
     assert.deepEqual(fs.readdirSync(path.join(commonDir, 'dsh-tower', 'legacy')), [`${expectedHash}.json`])
     assert.equal(fs.existsSync(path.join(commonDir, 'dsh-tower', 'state.json')), false, 'import must not create state.json')
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -278,7 +275,7 @@ test('importLegacySnapshot: DSH state payloads import into the same store', asyn
     assert.deepEqual(summary.paused, ['M1'])
     assert.ok(fs.existsSync(summary.storedPath))
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -300,7 +297,7 @@ test('importLegacySnapshot: paused stays paused and no state.json is adopted or 
     const legacyFiles = fs.readdirSync(path.join(stateDir, 'legacy'))
     assert.equal(legacyFiles.length, 1)
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
@@ -363,7 +360,7 @@ test('importLegacySnapshot: rejects relative, inside-state, non-file, invalid JS
       'rejections must not write a hash-addressed snapshot',
     )
   } finally {
-    cleanup(root)
+    removeTemp(root)
   }
 })
 
