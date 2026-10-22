@@ -176,16 +176,24 @@ function newestAncestorTag(root, revision, exclude) {
   return tags[0] ?? null
 }
 
+// The latest reachable *version* tag. `git describe` happily reports any tag
+// near HEAD, so a maintenance tag (`ui-0.2.2`) must be filtered out here or the
+// release math compares a version against a non-version string.
+function describeVersionTag(root, revision) {
+  const described = runGit(root, ['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', revision])
+  return described && VERSION_TAG.test(described) ? described : null
+}
+
 export function resolvePreviousTag(root, tag) {
   const tagExists = tag ? runGit(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]) !== null : false
   const revision = tag && tagExists ? tag : 'HEAD'
   // Never compare against the pushed tag itself: it is the release, not its
   // predecessor. `<tag>^` is the commit that was HEAD before the tag existed.
   if (tagExists) {
-    const parent = runGit(root, ['describe', '--tags', '--abbrev=0', `${tag}^`])
+    const parent = describeVersionTag(root, `${tag}^`)
     if (parent && parent !== tag) return parent
   }
-  const described = runGit(root, ['describe', '--tags', '--abbrev=0', revision])
+  const described = describeVersionTag(root, revision)
   if (described && described !== tag) return described
   return newestAncestorTag(root, revision, tag)
 }
