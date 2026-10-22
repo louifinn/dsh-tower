@@ -207,7 +207,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 | `locale/`, `icon.svg` | localization and icon |
 | `tests/` | pure-function, protocol end-to-end, and plugin-level tests; optional isolated Web-runtime scripts |
 | `ui-bundle/` | optional Client widget (Tower tool cards, persistent Tower-mode chip, mode-aware denied rows, dock summary, transient overlay strip), not installed by default |
-| `.github/workflows/test.yml` | CI running the offline suite on Node 22/24 |
+| `.github/workflows/test.yml` | CI running the offline suite on Node 22/24, Node 22 coverage, and the Node 22 mount smoke |
 
 ## Development and testing
 
@@ -220,6 +220,20 @@ Hot-reload development: `npm run dev:hmr` adds this checkout to the current prof
 [docs/guide/hot-reload.md](docs/guide/hot-reload.md).
 
 The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.
+
+## What CI proves
+
+Every push and PR runs the same set of jobs; each job backs one checkable claim instead of a README promise.
+
+| Job | Claim | Evidence |
+|---|---|---|
+| `test` (Node 22/24) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the three `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
+| `test`'s `Coverage (Node 22)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
+| `mount` (Node 22) | the packed tarball, added through the plugin CLI to a throwaway profile, mounts in the real loader and registers the surface the bundle claims | `npm run smoke:mount` |
+
+`mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 29 `tower_*` tools (27 `tools/*.js` modules plus `tower_mode` / `tower_control`), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, and exactly one top-level `tower-bundle` group row (the #66 invariant). It calls no model and opens no browser; about 5 seconds with a cached host, about 70 seconds on the first host install, budgeted at 120 seconds in CI. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
+
+The host build is pinned in exactly one place, `scripts/mount-smoke/host.json`; a unit test keeps the newest `COMPATIBILITY.md` row equal to it, so a release never retypes it. `npm run smoke:fixtures` proves the smoke still fails for the right seeded reasons (a renamed tool id, a removed skills section).
 
 ## Documentation
 

@@ -21,6 +21,11 @@ jobs:
         run: npm ci
       - name: Offline suite
         run: npm test
+      # Wiring only (#81): no thresholds, no baseline, no badge. The coverage
+      # table is the visible result; one leg is enough to produce it.
+      - name: Coverage (Node 22)
+        if: matrix.node == 22
+        run: npm run test:coverage
       - name: Documentation consistency
         run: npm run docs:check
       - name: Generated error reference
