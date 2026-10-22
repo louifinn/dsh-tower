@@ -32,11 +32,13 @@ app/tower.js
 cordis.patch.yml
 docs/README.md
 docs/architecture/overview.md
+docs/board.md
 docs/examples/first-mission.md
 docs/faq.md
 docs/guide/hot-reload.md
 docs/guide/install-upgrade-migration.md
 docs/guide/quickstart.md
+docs/guide/release.md
 docs/guide/scenarios-and-philosophy.md
 docs/operations/runbook.md
 docs/operations/security.md
@@ -153,6 +155,7 @@ scripts/mount-smoke/host.json
 scripts/mount-smoke/probe.mjs
 scripts/mount-smoke/surface.mjs
 scripts/pack-manifest.txt
+scripts/release-check.mjs
 skills.js
 skills/tower-recovery.md
 skills/tower-review.md

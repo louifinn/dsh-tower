@@ -73,7 +73,7 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (387 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (413 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
@@ -100,6 +100,24 @@ than only counting rows.
 
 Coverage is reported by `npm run test:coverage` in CI. It is a signal, not a gate: no threshold,
 no baseline, no badge.
+
+## Releasing
+
+A release is six steps: bump → changelog → COMPATIBILITY row → publish → annotated tag → GitHub
+Release. The one-page procedure with exact commands is [docs/guide/release.md](docs/guide/release.md).
+It carries the two rules that are easy to get wrong: **publish before tagging** (or delete the tag if
+publish fails), and a release **may not be tagged while its milestone holds an open P0/P1** unless the
+release notes say why. `npm publish` is the only human-only step (2FA).
+
+`npm run release:check` prints `git describe`, the previous tag, the commits since it and whether
+Unreleased is non-empty on every run. It warns on a PR and fails on a tag push whose
+`package.json` version did not move past the last tag or whose tag is not `v<version>`.
+
+## Tracker board
+
+Priority lives in the `P0`–`P3` labels; open titles carry no `[P*]` prefix. The saved queries — open
+P1, unmilestoned P0/P1, closed this week by area, and the milestone check that blocks a release — are
+in [docs/board.md](docs/board.md).
 
 ## Commits, closures and evidence
 

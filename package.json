@@ -73,6 +73,7 @@
     "test:coverage": "node --test --experimental-test-coverage tests/*.test.mjs",
     "smoke:mount": "node scripts/mount-smoke.mjs",
     "smoke:fixtures": "node scripts/mount-smoke/fixtures.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "audit:issues": "node scripts/issue-audit.mjs",
     "dev:hmr": "node scripts/enable-dev-hmr.mjs",
     "docs:check": "node scripts/check-docs.mjs",

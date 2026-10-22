@@ -13,6 +13,10 @@ jobs:
         node: [22, 24]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release gate compares the version against tags; a shallow clone
+          # would make every branch look untagged.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -21,6 +25,11 @@ jobs:
         run: npm ci
       - name: Offline suite
         run: npm test
+      # #97: warn on PR/branch pushes, fail on a tag push when the version did
+      # not move or the tag is not v<version>. One leg is enough to report it.
+      - name: Release check
+        if: matrix.node == 22
+        run: npm run release:check
       # Wiring only (#81): no thresholds, no baseline, no badge. The coverage
       # table is the visible result; one leg is enough to produce it.
       - name: Coverage (Node 22)
