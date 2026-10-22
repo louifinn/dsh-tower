@@ -97,6 +97,7 @@ domain/integration/provision.js
 domain/integration/rebase.js
 domain/integration/review.js
 domain/integration/teardown.js
+domain/lockBudget.js
 domain/mission.js
 domain/missions/completion.js
 domain/missions/findings.js

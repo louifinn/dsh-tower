@@ -8,6 +8,7 @@ import { assertPorts } from '../ports/index.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 
 import { rebaseWaived } from '../domain/gate.js'
+import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
 export { fileInScope, scopesOverlap, validateTitle, normalizeScope } from '../domain/scope.js'
@@ -27,14 +28,7 @@ import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recordin
 
 export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
-const DEFAULT_MERGE_TIMEOUT_MS = 15 * 60 * 1000
 const MERGE_MAX_BUFFER = 64 * 1024 * 1024
-/**
- * Extra time a git-mutex waiter gets on top of the merge's own timeout: a merge
- * legally holds the mutex for `plan.timeoutMs` and then runs a few cheap
- * evidence/cleanup calls before releasing it (#93).
- */
-const GIT_LOCK_MARGIN_MS = 60000
 
 function mergeTimeoutMs(value, config) {
   if (value === undefined || value === null) {
@@ -148,27 +142,19 @@ export class Tower {
   /**
    * Options for one git-mutex section: the phase, the wait budget derived from
    * the merge timeout, and the injected clock so waiting is testable in virtual
-   * time. This is pure policy over the Tower config, not persistence, so it
-   * lives in the app layer rather than in an adapter.
+   * time. The budget itself is the pure domain policy in ../domain/lockBudget.js
+   * (#93); this method only adds the Tower config and the injected clock.
    * @param {{ phase?: string, mergeTimeoutMs?: number, timeoutMs?: number, now?: Function }} [options]
    * @returns {Record<string, any>}
    */
   gitMutexOptions(options = {}) {
     const { phase, mergeTimeoutMs, timeoutMs, ...rest } = options
-    const explicit = Number(mergeTimeoutMs)
-    const configured = Number(this.config?.merge?.timeoutMs)
-    const base =
-      Number.isInteger(explicit) && explicit > 0
-        ? explicit
-        : Number.isInteger(configured) && configured > 0
-          ? configured
-          : DEFAULT_MERGE_TIMEOUT_MS
     const clock = this.deps.clock
     const clockNow = clock && typeof clock.now === 'function' ? clock.now.bind(clock) : null
     return {
       ...rest,
       ...(phase ? { phase } : {}),
-      timeoutMs: timeoutMs ?? base + GIT_LOCK_MARGIN_MS,
+      timeoutMs: timeoutMs ?? gitLockTimeoutMs(this.config, mergeTimeoutMs),
       ...(clockNow ? { now: clockNow } : {}),
     }
   }
