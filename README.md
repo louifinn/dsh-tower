@@ -203,7 +203,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
 | `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
-| `.github/workflows/test.yml` | CI：Node 22/24 上跑离线套件 |
+| `.github/workflows/test.yml` | CI：Node 22/24 离线套件、Node 22 覆盖率、Node 22 挂载 smoke |
 
 ## 开发与测试
 
@@ -214,6 +214,20 @@ npm test        # node --test tests/*.test.mjs
 热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `lib/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
 
 离线套件不需要 DSH 进程，只在系统临时目录创建一次性 Git 仓库。隔离 Web 运行时检查、模型驱动验收和会话诊断脚本见 `tests/README.md`。
+
+## CI 证明了什么
+
+每次 push 与 PR 都运行同一组 job；每个 job 对应一条可检查的声明，而不是一句 README 承诺。
+
+| Job | 声明 | 证据 |
+|---|---|---|
+| `test`（Node 22/24） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、三个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
+| `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
+| `mount`（Node 22） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
+
+`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：29 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令，以及唯一一个顶层 `tower-bundle` group 行（#66）。它不调用模型、不打开浏览器；host 已缓存时约 5 秒，首次安装 host 约 70 秒，CI 预算 120 秒。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
+
+host build 只固定在一个地方：`scripts/mount-smoke/host.json`，`COMPATIBILITY.md` 最新一行由单元测试强制与它一致，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红。
 
 ## 文档
 
