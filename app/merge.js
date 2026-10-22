@@ -569,7 +569,7 @@ export async function merge(tower, input, deps) {
       return { recorded, outcome }
     },
     // The merge itself may hold the mutex for plan.timeoutMs (#93).
-    tower.deps.store.gitMutexOptions(tower, { phase: 'merge', mergeTimeoutMs: plan.timeoutMs }),
+    tower.gitMutexOptions({ phase: 'merge', mergeTimeoutMs: plan.timeoutMs }),
   )
   if (acted.result) return acted.result
 

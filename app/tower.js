@@ -29,6 +29,12 @@ export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
 const DEFAULT_MERGE_TIMEOUT_MS = 15 * 60 * 1000
 const MERGE_MAX_BUFFER = 64 * 1024 * 1024
+/**
+ * Extra time a git-mutex waiter gets on top of the merge's own timeout: a merge
+ * legally holds the mutex for `plan.timeoutMs` and then runs a few cheap
+ * evidence/cleanup calls before releasing it (#93).
+ */
+const GIT_LOCK_MARGIN_MS = 60000
 
 function mergeTimeoutMs(value, config) {
   if (value === undefined || value === null) {
@@ -107,7 +113,7 @@ export class Tower {
    * @param {{ root: string, commonDir: string, branch?: string | null }} repo
    * @param {import('../types/index.js').TowerConfig} [config]
    * @param {Record<string, any>} [deps] ports assembled by the composition root
-   *   (index.js / adapters/default.js); required.
+   *   (the host entry); required.
    */
   constructor(repo, config, deps) {
     assertPorts(deps)
@@ -137,6 +143,34 @@ export class Tower {
 
   git(cwd, args, options = {}) {
     return this.deps.vcs.git(cwd, args, { timeoutMs: this.config.git?.timeoutMs, ...options })
+  }
+
+  /**
+   * Options for one git-mutex section: the phase, the wait budget derived from
+   * the merge timeout, and the injected clock so waiting is testable in virtual
+   * time. This is pure policy over the Tower config, not persistence, so it
+   * lives in the app layer rather than in an adapter.
+   * @param {{ phase?: string, mergeTimeoutMs?: number, timeoutMs?: number, now?: Function }} [options]
+   * @returns {Record<string, any>}
+   */
+  gitMutexOptions(options = {}) {
+    const { phase, mergeTimeoutMs, timeoutMs, ...rest } = options
+    const explicit = Number(mergeTimeoutMs)
+    const configured = Number(this.config?.merge?.timeoutMs)
+    const base =
+      Number.isInteger(explicit) && explicit > 0
+        ? explicit
+        : Number.isInteger(configured) && configured > 0
+          ? configured
+          : DEFAULT_MERGE_TIMEOUT_MS
+    const clock = this.deps.clock
+    const clockNow = clock && typeof clock.now === 'function' ? clock.now.bind(clock) : null
+    return {
+      ...rest,
+      ...(phase ? { phase } : {}),
+      timeoutMs: timeoutMs ?? base + GIT_LOCK_MARGIN_MS,
+      ...(clockNow ? { now: clockNow } : {}),
+    }
   }
 
   tryGit(cwd, args, options = {}) {

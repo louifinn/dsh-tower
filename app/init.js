@@ -115,7 +115,7 @@ async function actInitCreate(tower, prepared) {
     const snapshotRef = snapshotRefFor(snapshotCommit)
     await tower.git(tower.root, ['update-ref', snapshotRef, snapshotCommit])
     return { snapshotCommit, snapshotRef }
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Phase 2b of `Tower.init` (#51): snapshot-ref cleanup for a base reanchor. */
@@ -138,7 +138,7 @@ async function actInitReanchor(tower, prepared) {
       }
     }
     return { deleted }
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Restore snapshot refs when the reanchor commit is rejected after phase 2. */
@@ -149,7 +149,7 @@ async function restoreInitRefs(tower, deleted) {
     for (const entry of entries) {
       await tower.git(tower.root, ['update-ref', entry.ref, entry.sha]).catch(() => {})
     }
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Phase 3a of `Tower.init` (#51): write the initial state under a short lock. */

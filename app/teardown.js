@@ -139,7 +139,7 @@ export async function teardown(tower, input) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
       return { phase: 'removed', branch: worktree.branch, branchDeleteError }
-    }, tower.deps.store.gitMutexOptions(tower, { phase: 'teardown' }))
+    }, tower.gitMutexOptions({ phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
       throw new TowerToolError('stale-base', `${STALE}: ${outcome.detail}. No worktree was removed.`)

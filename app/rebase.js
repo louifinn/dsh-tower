@@ -242,7 +242,7 @@ export async function rebase(tower, input) {
     }
     const newTip = await tower.revParse(worktree.path, 'HEAD')
     return { phase: 'done', newTip }
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'rebase' }))
+  }, tower.gitMutexOptions({ phase: 'rebase' }))
 
   // Phase 3 (#51): re-read state and revalidate the revision computed by the
   // intent write; the lock only holds the state mutation, never a subprocess.

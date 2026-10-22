@@ -96,7 +96,7 @@ async function actProvision(tower, prepared) {
       realPath: await tower.deps.ownership.canonicalPath(prepared.wtPath),
     })
     return { phase: 'created', worktree }
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'provision' }))
+  }, tower.gitMutexOptions({ phase: 'provision' }))
 }
 
 /** Phase 3 of `Tower.provision` (#51): record the worktree under a short lock. */
@@ -136,7 +136,7 @@ async function rollbackProvision(tower, prepared) {
   await tower.deps.store.withGitLock(tower.paths, async () => {
     await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
     await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
-  }, tower.deps.store.gitMutexOptions(tower, { phase: 'provision' }))
+  }, tower.gitMutexOptions({ phase: 'provision' }))
 }
 
 /** #51 two-phase provision: prepare/act/commit with rollback on rejection. */
