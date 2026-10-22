@@ -30,6 +30,7 @@ The 2.0 suites are grouped by concern; each file runs as its own process with re
 - `concurrency.test.mjs` — `spawn.maxLiveWorkers`, `tower_send` per-minute rate limiting, stale roster entries (`spawn.staleMs`), and parallel writers serializing on the state lock with a monotonic revision.
 - `faults.test.mjs` — corrupt/unsupported state JSON (`state-corrupt`), a held writer lock (`state-locked`), and a vanished worktree reported as `branch-missing` instead of throwing.
 - `status.test.mjs` — `tower_status` pagination, one-mission detail, `includeGate` digests, `format:"markdown"` and the `MISSIONS.md` board written by mutations.
+- `report-cap.test.mjs` — `tower_complete.report` is capped in UTF-8 bytes (`gates.maxReportBytes`, 32 KiB default): a 40 KB report is rejected with the worktree `nextAction` and no state write, 30 KB of CJK is accepted, `reportBytes` is persisted, the paged summary omits the body, doctor names the largest report, and pre-cap completions load unchanged.
 - `briefing.test.mjs` — worker/reviewer briefing history injection (previous review rounds, findings, completion report and checks) and truncation bounds, including a real `missionContext` fixture.
 - `init.test.mjs` — `tower_init` policies: `autoGitInit` in a plain directory, `snapshotDirty` mission baselines, `reanchor` preconditions, and dirty-tree reporting.
 - `tools.test.mjs` / `tool-schemas.test.mjs` / `spawn.mock.test.mjs` — tool surface, aliases, stable error prefixes, full output-schema walk, and mock-spawn role/preset/briefing behavior.

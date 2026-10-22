@@ -51,6 +51,7 @@
 | `gates.requireChecks` | `false` | Require at least one completion check (tower_complete.checks) before a mission can merge. |
 | `gates.requireTests` | `false` | Require a passing test-discovery receipt for the reviewed worktree tip before merge. |
 | `gates.allowReviewExemption` | `false` | Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers. |
+| `gates.maxReportBytes` | `32768` | Hard cap, in UTF-8 bytes, for tower_complete.report; a larger report is rejected with an actionable nextAction, never truncated. |
 | `docs.board` | `true` | Write a human-readable MISSIONS.md after mission changes. |
 | `docs.boardLocation` | `"common"` | common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md. |
 | `tools.exposeOperational` | `true` | Master switch for batch/resource/import/legacy/recover/test/doctor tools. |

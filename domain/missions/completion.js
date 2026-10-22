@@ -9,6 +9,57 @@ import { TowerToolError } from '../errors.js'
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
 
 /**
+ * Hard cap for `tower_complete.report`, in UTF-8 bytes (32 KiB). The value is
+ * the default of `gates.maxReportBytes`; a repository may lower or raise it.
+ */
+export const DEFAULT_MAX_REPORT_BYTES = 32 * 1024
+
+/**
+ * UTF-8 byte length, so multi-byte text is not silently favoured by a
+ * character-count bound.
+ * @param {string} value
+ * @returns {number}
+ */
+export function utf8ByteLength(value) {
+  return Buffer.byteLength(String(value), 'utf8')
+}
+
+/**
+ * Reject a report over the cap instead of truncating it: a silent cut loses
+ * evidence and cannot be recovered by the tower. The writer is told to keep the
+ * full text beside the branch and reference it.
+ * @param {string} report
+ * @param {number} [maxBytes]
+ * @returns {number} accepted UTF-8 byte length
+ */
+export function assertReportSize(report, maxBytes = DEFAULT_MAX_REPORT_BYTES) {
+  const bytes = utf8ByteLength(report)
+  if (bytes > maxBytes) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `report is ${bytes} bytes (UTF-8), over the ${maxBytes}-byte cap; reports are rejected, not truncated — write the full text to a file in the mission worktree and reference the path in the report`,
+      {
+        nextAction: 'write the full text to a file in the mission worktree and reference the path in the report',
+      },
+    )
+  }
+  return bytes
+}
+
+/**
+ * Byte size of a stored completion report. Older documents have no
+ * `reportBytes`, so the body is measured on read; the field is never required.
+ * @param {any} completionReport
+ * @returns {number | null}
+ */
+export function completionReportBytes(completionReport) {
+  if (!isPlainObject(completionReport)) return null
+  const stored = completionReport.reportBytes
+  if (Number.isInteger(stored) && stored >= 0) return stored
+  return typeof completionReport.report === 'string' ? utf8ByteLength(completionReport.report) : null
+}
+
+/**
  * @param {string} message
  * @param {string} [code]
  * @returns {never}
@@ -53,10 +104,10 @@ export function normalizeChecks(checks) {
 /**
  * Resolve and validate the reporting worker and the mission's completion
  * preconditions that need no repository access.
- * @param {{ mission: Mission, roster: RosterEntry[] | undefined, input: any }} params
+ * @param {{ mission: Mission, roster: RosterEntry[] | undefined, input: any, maxReportBytes?: number }} params
  * @returns {RosterEntry}
  */
-export function assertCompletionRequest({ mission, roster, input }) {
+export function assertCompletionRequest({ mission, roster, input, maxReportBytes }) {
   const worker = (roster ?? []).find((entry) => entry.agentId === input.agentId)
   if (!worker || worker.missionId !== mission.id) {
     fail(`agent ${input.agentId} is not assigned to mission ${mission.id}`)
@@ -75,6 +126,7 @@ export function assertCompletionRequest({ mission, roster, input }) {
   if (typeof input.report !== 'string' || input.report.trim().length === 0) {
     fail('tower_complete requires a non-empty report')
   }
+  assertReportSize(input.report.trim(), maxReportBytes)
   const openTasks = (mission.tasks ?? []).filter((task) => task.status === 'open')
   if (openTasks.length > 0) {
     fail(
@@ -106,9 +158,10 @@ export function assertCompletionInbox({ mission, worker, unread }) {
 
 /**
  * Project the completion report stored on the mission.
- * @param {{ report: string, worker: RosterEntry, checks: any[], now: number }} params
+ * @param {{ report: string, worker: RosterEntry, checks: any[], now: number, maxReportBytes?: number }} params
  * @returns {any}
  */
-export function completionReport({ report, worker, checks, now }) {
-  return { report: report.trim(), by: worker.name, at: now, checks }
+export function completionReport({ report, worker, checks, now, maxReportBytes }) {
+  const text = report.trim()
+  return { report: text, reportBytes: assertReportSize(text, maxReportBytes), by: worker.name, at: now, checks }
 }

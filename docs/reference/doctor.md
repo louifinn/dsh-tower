@@ -38,10 +38,16 @@ than thrown so doctor remains useful on a broken repository.
 
 Checks cover: git availability, repository identity, state schema/load, repo config presence,
 worker/reviewer preset names, subagents and HMR services, workspace lock holder/staleness, live roster,
-worktree existence/ownership/dirtiness, test-discovery policy, legacy snapshots, batches and leases.
+worktree existence/ownership/dirtiness, test-discovery policy, completion-report sizes, legacy
+snapshots, batches and leases.
 Missions intentionally cleaned up by `tower_teardown` are skipped (the check notes the removed count)
 instead of being reported as missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
+
+The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,
+against the `gates.maxReportBytes` cap); the same numbers are returned as
+`reports: { count, largest: { missionId, bytes } | null, capBytes }`. Reports written before the cap
+only produce a `warn`; doctor never rewrites them.
 
 The environment contract is informational; it is not an identity or authorization proof. `tower_init`
 still requires the tower role, and `tower_spawn` still checks the live subagent catalog.
