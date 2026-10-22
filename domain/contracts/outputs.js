@@ -170,7 +170,7 @@ const SCHEMAS = {
     ['counts', 'total'],
   ),
   review: S.obj(
-    { review: S.obj(), branchTip: S.str, missionStatus: S.str, round: S.int, reviewerRounds: S.int },
+    { review: S.obj(), branchTip: S.str, missionStatus: S.str, round: S.int, appended: S.bool, reviewerRounds: S.int },
     ['review', 'branchTip', 'missionStatus', 'round', 'reviewerRounds'],
   ),
   preflight: S.obj(

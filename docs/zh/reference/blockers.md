@@ -19,10 +19,10 @@
 | `read-only-survey` | survey mission 修改了文件；survey mission 必须只读。 |
 | `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。在大小写敏感的检出上，仅大小写不同的路径仍会被拒绝，detail 会指出折叠大小写后本可匹配的 scope 条目。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
-| `deps-unmerged` | 依赖 mission 尚未 merged/abandoned。 |
+| `deps-unmerged` | 依赖 mission 尚未满足：build 依赖须 `merged`/`abandoned`；survey 依赖在 `completed` 即视为满足（含归档记录）。 |
 | `no-review` | `review.requireReview:true` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
 | `review-mission-mismatch` | `review.requireReview:true` 且最新审查属于另一个 mission。 |
-| `not-clean` | `review.requireReview:true` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮。 |
+| `not-clean` | `review.requireReview:true` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮（同一轮的各 route 结论会追加记录，不会让状态反复翻转）。 |
 | `review-hold` | `review.requireReview:true` 且最新审查建议 hold；必须由后续的干净审查取代。 |
 | `review-not-approved` | `review.requireReview:true` 且最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
 | `tip-moved` | `review.requireReview:true` 且审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |

@@ -23,6 +23,7 @@ import {
   normalizeReviewVerdict,
   assertReviewerSpawnTip,
   reviewRound,
+  reviewAdmission,
   reviewOutcome,
   reviewRecord,
   MAX_REVIEW_ROUNDS,
@@ -306,6 +307,37 @@ test('review policy resolves actors, verdicts, rounds, and outcome', () => {
     note: 'review round 4 by rev-1: p1-2items (hold) — returned to active',
   })
   assert.equal(reviewOutcome({ status: 'clean', merge: 'merge', round: 4, reviewerName: 'rev-1' }).returnToActive, false)
+
+  // #108: a later route appends to the round that returned the mission to
+  // active, for the same reviewed tip only.
+  const roundOne = [{ branch: 'b', reviewer: 'rev-1', round: 1, reviewedCommit: 'tip', status: 'p1-1items', seq: 1 }]
+  assert.deepEqual(
+    reviewAdmission({ mission: mission({ status: 'completed' }), reviews: roundOne, branch: 'b', tip: 'tip' }),
+    { appended: false, round: null },
+  )
+  assert.deepEqual(
+    reviewAdmission({ mission: mission({ status: 'active' }), reviews: roundOne, branch: 'b', tip: 'tip' }),
+    { appended: true, round: 1 },
+  )
+  assert.throws(
+    () => reviewAdmission({ mission: mission({ status: 'active' }), reviews: roundOne, branch: 'b', tip: 'moved' }),
+    /reviewed tip moved/,
+  )
+  assert.throws(
+    () => reviewAdmission({ mission: mission({ status: 'active' }), reviews: [], branch: 'b', tip: 'tip' }),
+    /no review round to append to/,
+  )
+  assert.throws(
+    () => reviewAdmission({ mission: mission({ status: 'blocked' }), reviews: roundOne, branch: 'b', tip: 'tip' }),
+    /only a completed mission can be reviewed/,
+  )
+  assert.deepEqual(
+    reviewOutcome({ status: 'clean', merge: 'merge', round: 1, reviewerName: 'rev-2', appended: true }),
+    {
+      returnToActive: false,
+      note: 'review round 1 by rev-2: clean (merge) — appended to the same round; the mission stays active until it is re-completed',
+    },
+  )
 })
 
 test('review record projection keeps the persisted shape', () => {
