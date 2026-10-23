@@ -15,6 +15,10 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-reload-'))
 process.env.DSH_HOME = home
 
 const { apply } = await import('../index.js')
+const hmrComponent = await import('../host/capability-hmr.js')
+const { __testResetComponentRegistry } = await import('../host/capability-registry.js')
+
+test.beforeEach(() => __testResetComponentRegistry())
 
 function makeCtx(hmr) {
   const tools = new Map()
@@ -26,7 +30,13 @@ function makeCtx(hmr) {
     },
     get(name) {
       if (name === 'hmr') return hmr
-      return undefined
+      return ctx[name]
+    },
+    provide(name, value) {
+      ctx[name] = value
+      return () => {
+        delete ctx[name]
+      }
     },
     emit() {},
     logger: { warn() {} },
@@ -85,6 +95,7 @@ test('HMR wiring: tower_reload and /tower reload reconcile the profile', async (
   }
   const { ctx, tools, commands } = makeCtx(hmr)
   apply(ctx, {})
+  hmrComponent.apply(ctx)
   try {
     assert.ok(tools.has('tower_reload'), 'tower_reload is registered when HMR is available')
     const result = await tools.get('tower_reload').execute({}, { agent: { id: 'agent-hmr' } })
@@ -113,6 +124,7 @@ test('HMR wiring: tower_reload and /tower reload reconcile the profile', async (
 test('HMR wiring: without HMR the tool reports reload-unavailable and /tower reload explains why', async () => {
   const { ctx, tools, commands } = makeCtx(undefined)
   apply(ctx, {})
+  hmrComponent.apply(ctx)
   assert.ok(tools.has('tower_reload'), 'tower_reload is still registered so the failure is actionable')
   await assert.rejects(
     () => tools.get('tower_reload').execute({}, { agent: { id: 'agent-no-hmr' } }),
@@ -127,9 +139,10 @@ test('HMR wiring: without HMR the tool reports reload-unavailable and /tower rel
   assert.match(reply.text, /HMR|restart/i)
 })
 
-test('HMR wiring: dev.hotReload:false removes the tool and disables the command branch', async () => {
+test('HMR wiring: the tower-hmr row off removes the tool and explains the component', async () => {
   const { ctx, tools, commands } = makeCtx(undefined)
-  apply(ctx, { dev: { hotReload: false } })
+  apply(ctx, {})
+  // The row is off by default: the capability entry point never ran.
   assert.equal(tools.has('tower_reload'), false)
   const reply = await commands.get('tower').handler({
     agent: { id: 'agent-reload-off' },
@@ -137,7 +150,7 @@ test('HMR wiring: dev.hotReload:false removes the tool and disables the command 
     attachments: [],
   })
   assert.equal(reply.kind, 'error')
-  assert.match(reply.text, /disabled/i)
+  assert.match(reply.text, /disabled by component tower-hmr/)
 })
 
 test('HMR wiring: /tower reload does not disturb on/off parsing', async () => {

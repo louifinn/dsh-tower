@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 // Isolate the mode store before importing the plugin: index.js reads it at
@@ -20,7 +21,36 @@ test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
 const { loadModes } = await import('../host/modeStore.js')
+const { __testResetComponentRegistry } = await import('../host/capability-registry.js')
+const batch = await import('../host/capability-batch.js')
+const legacyImport = await import('../host/capability-import.js')
+const leases = await import('../host/capability-leases.js')
+const tests = await import('../host/capability-tests.js')
+const hmr = await import('../host/capability-hmr.js')
+const skills = await import('../skills.js')
 const { validateJsonSchema } = await import('./schema-validator.mjs')
+
+const CAPABILITY_MODULES = [
+  ['tower-batch', batch],
+  ['tower-import', legacyImport],
+  ['tower-leases', leases],
+  ['tower-tests', tests],
+  ['tower-hmr', hmr],
+]
+
+/**
+ * Compose the mock profile the way the loader does: the mandatory host first,
+ * then the optional component rows. `skip` turns one row off without touching
+ * the others, which is the per-component fallback contract (#121).
+ */
+function compose(ctx, { skip = [] } = {}) {
+  __testResetComponentRegistry()
+  apply(ctx, {})
+  for (const [id, module] of CAPABILITY_MODULES) {
+    if (!skip.includes(id)) module.apply(ctx)
+  }
+  if (!skip.includes('tower-skills')) skills.apply(ctx)
+}
 
 function assertSchema(tool, value) {
   const violations = validateJsonSchema(tool.output.schema, value)
@@ -76,6 +106,11 @@ function makeCtx(options = {}) {
         return () => {}
       },
     },
+    skills: {
+      registerProvider() {
+        return () => {}
+      },
+    },
   }
   return { ctx, tools, guards, sections, commands, effects }
 }
@@ -89,6 +124,21 @@ function makeAgent(id) {
       steered.push(message)
     },
   }
+}
+
+/** A throwaway git repository for the reporter paths (doctor/status). */
+function makeRepo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plugin-repo-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  const run = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  run(['init'])
+  run(['config', 'user.email', 'tower@test'])
+  run(['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  run(['add', '-A'])
+  run(['commit', '-m', 'seed'])
+  return { root, repo }
 }
 
 async function callCommand(commands, agent, rawInput, attachments = []) {
@@ -328,13 +378,22 @@ test('tower_control is gated by config and requires a reason', async () => {
   assert.equal(anonymous.mode, 'unknown')
 })
 
-test('tools.exposeOperational:false removes the operational schema surface', () => {
-  const plain = makeCtx()
-  apply(plain.ctx, { tools: { exposeOperational: false } })
-  assert.ok(plain.tools.has('tower_status'))
-  assert.ok(plain.tools.has('tower_spawn'))
-  for (const name of ['tower_batch', 'tower_resource', 'tower_import_legacy', 'tower_legacy_map', 'tower_recover', 'tower_test', 'tower_doctor']) {
-    assert.equal(plain.tools.has(name), false, name)
+test('#122: tower_doctor and tower_recover are registered for every configuration', () => {
+  // Every valid profile shape: no config, and every optional row on or off.
+  for (const skip of [[], ...CAPABILITY_MODULES.map(([id]) => [id])]) {
+    const { ctx, tools } = makeCtx()
+    compose(ctx, { skip })
+    assert.ok(tools.has('tower_doctor'), `tower_doctor survives rows off: ${skip.join(',') || 'none'}`)
+    assert.ok(tools.has('tower_recover'), `tower_recover survives rows off: ${skip.join(',') || 'none'}`)
+    assert.ok(tools.has('tower_status'), 'the dashboard is never removed')
+    assert.ok(tools.has('tower_plan'), 'planning is never removed')
+    assert.ok(tools.has('tower_mode'), 'the mode reporter is never removed')
+  }
+
+  // The old safety-net keys are gone from the schema, so a profile that still
+  // sets them is rejected instead of silently accepting a no-op (#122).
+  for (const legacy of [{ tools: {} }, { tools: { exposeDoctor: false } }, { tools: { exposeRecovery: false } }]) {
+    assert.throws(() => apply(makeCtx().ctx, legacy), /unknown key/i)
   }
 })
 
@@ -410,23 +469,87 @@ test('mode entry refuses when a required preset is missing (#64)', async () => {
   assert.equal(ctx.tower.get('agent-preset-missing'), undefined)
 })
 
-test('individual operational flags gate one capability without hiding core tools', () => {
-  const { ctx, tools } = makeCtx()
-  apply(ctx, { tools: { exposeBatch: false, exposeTests: false } })
-  assert.ok(tools.has('tower_status'))
-  assert.ok(tools.has('tower_spawn'))
-  assert.equal(tools.has('tower_batch'), false)
-  assert.equal(tools.has('tower_test'), false)
-  assert.ok(tools.has('tower_recover'))
-  assert.ok(tools.has('tower_doctor'))
+test('#121: turning one capability row off leaves a working Tower and is reported', async () => {
+  const disabledTools = {
+    'tower-batch': ['tower_batch'],
+    'tower-import': ['tower_import_legacy', 'tower_legacy_map'],
+    'tower-leases': ['tower_resource'],
+    'tower-tests': ['tower_test'],
+    'tower-hmr': ['tower_reload'],
+    'tower-skills': [],
+  }
+  for (const [id, owned] of Object.entries(disabledTools)) {
+    const { ctx, tools } = makeCtx()
+    compose(ctx, { skip: [id] })
+    // Core surface still works.
+    for (const name of ['tower_mode', 'tower_plan', 'tower_status', 'tower_doctor', 'tower_recover', 'tower_spawn']) {
+      assert.ok(tools.has(name), `${id} off keeps ${name}`)
+    }
+    for (const name of owned) assert.equal(tools.has(name), false, `${id} off removes ${name}`)
+    // The disabled capability is named by tower_doctor, not silently absent.
+    const report = await tools.get('tower_doctor').execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor') })
+    assert.ok(
+      report.components.disabled.some((entry) => entry.id === id && entry.reason === `disabled by component ${id}`),
+      `${id} must be reported: ${JSON.stringify(report.components)}`,
+    )
+  }
+
+  // The reviewer row is a preset component: its off state is reported too.
+  const reviewer = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  compose(reviewer.ctx)
+  const reviewerReport = await reviewer.tools
+    .get('tower_doctor')
+    .execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-reviewer') })
+  assert.ok(
+    reviewerReport.components.disabled.some(
+      (entry) => entry.id === 'preset-tower-reviewer' && /disabled by component preset-tower-reviewer/.test(entry.reason),
+    ),
+    JSON.stringify(reviewerReport.components),
+  )
 })
 
-test('requireTests with tests/tool disabled is rejected at config resolution', async () => {
-  const { resolveTowerConfig } = await import('../host/config.js')
-  assert.throws(
-    () => resolveTowerConfig({ gates: { requireTests: true }, tools: { exposeTests: false } }),
-    /requireTests.*test discovery is disabled/,
+test('#121: tower_status also names a disabled component', async () => {
+  const { ctx, tools } = makeCtx()
+  compose(ctx, { skip: ['tower-batch'] })
+  const repo = makeRepo().repo
+  const agent = makeAgent('agent-status-components')
+  await tools.get('tower_init').execute({ repoRoot: repo }, { agent })
+  const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent })
+  assert.ok(
+    status.components.disabled.some(
+      (entry) => entry.id === 'tower-batch' && entry.reason === 'disabled by component tower-batch',
+    ),
+    JSON.stringify(status.components),
   )
+})
+
+test('#121: tower-tests off still rejects gates.requireTests true', async () => {
+  const { ctx, commands } = makeCtx()
+  compose(ctx, { skip: ['tower-tests'] })
+  apply(ctx, { gates: { requireTests: true } })
+  await assert.rejects(
+    () => callCommand(commands, makeAgent('agent-tests-off'), ''),
+    /gates\.requireTests is true but disabled by component tower-tests/,
+  )
+})
+
+test('#121: review.requireReview true with the reviewer row off is locked with an explanation', async () => {
+  const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  compose(ctx)
+  apply(ctx, { review: { requireReview: true } })
+  await assert.rejects(
+    () => callCommand(commands, makeAgent('agent-reviewer-off'), ''),
+    (error) => {
+      assert.equal(error.code, 'preset-missing')
+      assert.match(error.message, /preset-tower-reviewer/)
+      assert.match(error.message, /review\.requireReview is true/)
+      return true
+    },
+  )
+})
+
+test('requireTests with tests.enabled:false is rejected at config resolution', async () => {
+  const { resolveTowerConfig } = await import('../host/config.js')
   assert.throws(
     () => resolveTowerConfig({ gates: { requireTests: true }, tests: { enabled: false } }),
     /requireTests/,

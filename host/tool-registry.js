@@ -18,7 +18,7 @@ import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { runtimeConfig } from './config.js'
 import { runDoctor } from './doctor.js'
 import { createHmrBridge } from './hmr.js'
-import { assertPresetsAvailable } from './presets.js'
+import { assertRuntimePreconditions } from './presets.js'
 import { readStateLock } from '../adapters/store.js'
 import { lockTiming } from '../adapters/persistence.js'
 import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js'
@@ -53,6 +53,7 @@ import { registerFindingsTool } from '../tools/findings.js'
 import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
+import { componentEnabled, componentReport, holdComponent, disabledReason } from './capability-registry.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import { createDefaultDeps } from '../adapters/default.js'
@@ -359,15 +360,7 @@ async function ensureRepository(repoRootInput, autoGitInit) {
   }
 }
 
-const OPERATIONAL_TOOLS = new Map([
-  ['tower_batch', 'exposeBatch'],
-  ['tower_resource', 'exposeLeases'],
-  ['tower_import_legacy', 'exposeImport'],
-  ['tower_legacy_map', 'exposeImport'],
-  ['tower_recover', 'exposeRecovery'],
-  ['tower_test', 'exposeTests'],
-  ['tower_doctor', 'exposeDoctor'],
-])
+const OPERATIONAL_TOOLS = new Map()
 
 function plainSchema(value) {
   return JSON.parse(JSON.stringify(value))
@@ -392,12 +385,10 @@ function plainSchema(value) {
  */
 function define(ctx, definition) {
   const { aliases, requiresMissionId, board, execute, ...rest } = definition
-  // Record the definition before the exposure gate: the concept budget counts
-  // the tools this build can register, not only the ones a profile exposes.
+  // Record the definition for the concept budget. The capability that owns the
+  // tool decides whether it is registered at all (#121): the component row is
+  // the switch, so `define()` no longer consults a `tools.expose*` boolean.
   recordToolRegistration(rest.name)
-  const toolsConfig = runtimeConfig().tools ?? {}
-  const flag = OPERATIONAL_TOOLS.get(rest.name)
-  if (flag && (toolsConfig.exposeOperational === false || toolsConfig[flag] === false)) return
   ctx.effect(() =>
     ctx.tools.register({
       ...rest,
@@ -457,6 +448,12 @@ function textOf(blocks) {
 /** Read `package.json tower.testDiscovery` and run it for one mission worktree.
  * Returns `{configured:false}` when the repository has no discovery block. */
 async function runMissionDiscovery(tower, mission) {
+  // #121: test discovery is the tower-tests component. With the row off there is
+  // no tower_test tool and no receipt; never execute repository code silently
+  // because a config key still says admission complete/spawn.
+  if (!componentEnabled('tower-tests')) {
+    return { configured: false, disabledBy: 'tower-tests', reason: disabledReason('tower-tests') }
+  }
   const testsConfig = tower.config.tests ?? {}
   if (testsConfig.enabled === false || testsConfig.allowPackageDiscovery === false) {
     return { configured: false }
@@ -519,7 +516,17 @@ async function observeActivity(ctx, tower) {
   return { activity, parentStatus }
 }
 
-export function registerTowerTools(ctx, options = {}) {
+/**
+ * Register the mandatory Tower host surface (#121).
+ *
+ * The host owns planning, mode integration, the health contract
+ * (`tower_doctor`) and the recovery escape (`tower_recover`); neither is a
+ * component and neither can be switched off. The optional capabilities
+ * (batch/import/leases/tests/reload) are registered by their own entry points
+ * (`registerBatchCapability`, ...), so switching a component row off removes
+ * exactly that capability while the host keeps working.
+ */
+export function registerCoreTowerTools(ctx, options = {}) {
   runtimeState.workspaceHook = options.workspace ?? null
   runtimeState.hmrBridge = options.hmrBridge ?? null
   // #69: the host entry (index.js) is the composition root. When it supplies the
@@ -572,11 +579,13 @@ export function registerTowerTools(ctx, options = {}) {
   ctx.effect(() => () => clearInterval(timer))
   registerInitTool(ctx, { openTower, define, actorFor, requireTowerActor, workspaceHook: runtimeState.workspaceHook, ensureRepository, resolveRepo, runtimeConfig })
 
-  registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor, assertPresetsAvailable })
+  // #121: planning validates the mounted component rows as well as the presets,
+  // so a review gate without its reviewer row is refused before work starts.
+  registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor, assertPresetsAvailable: assertRuntimePreconditions })
 
   registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity })
+  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport })
 
   registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
 
@@ -615,24 +624,79 @@ export function registerTowerTools(ctx, options = {}) {
     resolveRepo,
     runtimeConfig,
     runDoctor,
-    // #84: the doctor reports the live surface; the count is the full defined
-    // tool surface, independent of which operational switches this profile uses.
+    // #84/#122: the doctor reports the full registered surface. It is always
+    // registered itself, and it is the reporter that names a disabled component.
     surface: () => ({ tools: definedToolCount() }),
   })
 
+  // #122: the recovery escape is registered for every configuration. The lock it
+  // repairs can be left behind by any crashed mutation, so an off state would be
+  // worse than uninstalling the plugin.
   registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
+}
 
-  registerTestTool(ctx, { openTower, define, actorFor, requireKnownActor, runMissionDiscovery })
-
+/** Evidence batches — the `tower-batch` component. */
+export function registerBatchCapability(ctx) {
   registerBatchTool(ctx, { openTower, define, actorFor, requireTowerActor, summarizeBatch, verifyBatchReceiptFiles })
+}
 
+/** Advisory leases — the `tower-leases` component. */
+export function registerLeasesCapability(ctx) {
   registerResourceTool(ctx, { openTower, define, actorFor, requireTowerActor, acquireLease, releaseLease, inspectLeases })
+}
 
+/** Legacy import and its audit map — the `tower-import` component. */
+export function registerImportCapability(ctx) {
   registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot })
-
   registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor, validateLegacyMap })
+}
 
-  registerReloadTool(ctx, { openTower, define, actorFor, requireTowerActor, sharedHmrBridge: runtimeState.hmrBridge, runtimeConfig, createHmrBridge })
+/** Declared test discovery — the `tower-tests` component. */
+export function registerTestsCapability(ctx) {
+  registerTestTool(ctx, { openTower, define, actorFor, requireKnownActor, runMissionDiscovery })
+}
+
+/**
+ * Dev hot reload — the `tower-hmr` component (shipped off).
+ * The returned bridge is the one `/tower reload` and `tower_mode` report.
+ */
+export function registerHmrCapability(ctx, options = {}) {
+  const dev = runtimeConfig().dev ?? {}
+  const bridge =
+    options.bridge ??
+    runtimeState.hmrBridge ??
+    createHmrBridge(ctx, {
+      requiredIds: dev.reloadRequiredIds,
+      delayMs: dev.reloadDelayMs,
+      logger: ctx.logger ?? console,
+    })
+  registerReloadTool(ctx, { openTower, define, actorFor, requireTowerActor, sharedHmrBridge: bridge, runtimeConfig, createHmrBridge })
+  return bridge
+}
+
+/**
+ * Register every optional capability in-process. This is the aggregate used by
+ * tests and embedders; the shipped profile mounts the capability rows instead,
+ * so one row can be off without removing the rest.
+ */
+export function registerAllCapabilities(ctx, options = {}) {
+  for (const id of ['tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-hmr']) holdComponent(ctx, id)
+  registerBatchCapability(ctx)
+  registerImportCapability(ctx)
+  registerLeasesCapability(ctx)
+  registerTestsCapability(ctx)
+  registerHmrCapability(ctx, options)
+}
+
+/**
+ * Backwards-compatible aggregate: the mandatory host surface plus every
+ * optional capability. Tests and embedders call this; the shipped composition
+ * calls `registerCoreTowerTools` and lets the component rows register their own
+ * capability.
+ */
+export function registerTowerTools(ctx, options = {}) {
+  registerCoreTowerTools(ctx, options)
+  registerAllCapabilities(ctx, options)
 }
 
 export const __testSpawnBackoff = {

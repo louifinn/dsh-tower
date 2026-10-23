@@ -1,20 +1,25 @@
-# dsh-tower is an all-or-nothing bundle. The single group row is the only
-# user-visible component: disabling it disables every internal section (host,
-# skills, worker/reviewer presets) together, so no orphan preset or skill can
-# point at missing tower_* tools. See docs/architecture/overview.md.
+# dsh-tower component rows (#121).
 #
-# That boundary equals uninstalling, which is why it is accepted; it is not the
-# target shape. The policy that governs what may be a switch is principle 11 in
-# PRINCIPLES.md + docs/adr/0005-component-surface.md, and the per-key answer is
-# docs/reference/component-surface.md. Optional rows arrive with #121 and the
-# safety-net switches are removed with #122; `npm run docs:check:components`
-# refuses a new switch and a moved component count without a written decision.
+# The first top-level row is the mandatory host group: the Host plugin and its
+# worker-preset dependency. Turning it off equals uninstalling Tower (no tools,
+# no presets, no skills), which is the accepted all-off boundary; every other
+# top-level row is an individually switchable optional capability whose off
+# state leaves the rest of Tower working.
+#
+# Policy: principle 11 in PRINCIPLES.md + docs/adr/0005-component-surface.md.
+# The per-key answer is docs/reference/component-surface.md, generated from
+# scripts/component-surface.json. `npm run docs:check:components` refuses a new
+# switch, a missing locale label, or a moved component count without a written
+# decision. `tower_doctor` and `tower_recover` are part of the host and are never
+# switches (#122); a capability row owns exactly one optional capability, and
+# `tower_status` / `tower_doctor` name any row that is off.
 - insert:
-    - id: tower-bundle
+    # Mandatory host anchor. Not an optional capability: off == uninstall.
+    - id: tower
       name: cordis:group
       group: true
       config:
-        - id: tower
+        - id: tower-host
           name: 'dsh-tower'
           config:
             mode:
@@ -28,8 +33,6 @@
               interruptDefault: true
             spawn:
               staleMs: 15000
-        - id: tower-skills
-          name: 'dsh-tower/skills'
         - id: preset-tower-worker
           name: '@deepseek-ai/dsh-agent-preset'
           config:
@@ -48,23 +51,41 @@
                   sampleOverCapGlobResults: false
               - id: tower-worker-pwsh
                 name: '@deepseek-ai/dsh-tool-pwsh'
-        - id: preset-tower-reviewer
-          name: '@deepseek-ai/dsh-agent-preset'
-          config:
-            id: tower-reviewer
-            name: Tower Reviewer
-            description: Read-only independent reviewer for a completed Tower mission.
-            order: 61
-            plugins:
-              - id: tower-reviewer-policy
-                name: 'dsh-tower/reviewer'
-              - id: tower-reviewer-fs
-                name: '@deepseek-ai/dsh-tool-fs'
-                config:
-                  write: false
-                  edit: false
-                  readImage: false
-              - id: tower-reviewer-fs-search
-                name: '@deepseek-ai/dsh-tool-fs-search'
-                config:
-                  sampleOverCapGlobResults: false
+    # Optional capabilities: each row is the switch for exactly one capability.
+    - id: tower-skills
+      name: 'dsh-tower/skills'
+    - id: tower-batch
+      name: 'dsh-tower/batch'
+    - id: tower-import
+      name: 'dsh-tower/import'
+    - id: tower-leases
+      name: 'dsh-tower/leases'
+    - id: tower-tests
+      name: 'dsh-tower/tests'
+    # dev hot reload: shipped off. Enable the row for a linked dev profile.
+    - id: tower-hmr
+      name: 'dsh-tower/hmr'
+      disabled: true
+    # Conditional optional component: off is supported only while
+    # review.requireReview is false; with the gate on planning/mode entry refuse
+    # the combination with an explanatory error.
+    - id: preset-tower-reviewer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tower-reviewer
+        name: Tower Reviewer
+        description: Read-only independent reviewer for a completed Tower mission.
+        order: 61
+        plugins:
+          - id: tower-reviewer-policy
+            name: 'dsh-tower/reviewer'
+          - id: tower-reviewer-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+              readImage: false
+          - id: tower-reviewer-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
