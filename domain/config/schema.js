@@ -290,6 +290,30 @@ export const Config = Schema.object({
     .description('Development and hot-reload behavior.'),
 }).description('DSH Tower configuration')
 
+/**
+ * The user-facing config surface (#84): every leaf key one level deep plus the
+ * names of the object sections. The generated config reference, `tower_doctor`
+ * and the surface baseline all count this same shape, so "how many concepts"
+ * is one number rather than three near-identical ones.
+ *
+ * @param {any} [config] the Schemastery root (defaults to the live `Config`)
+ * @returns {{ keys: string[], sections: string[], count: number }}
+ */
+export function configSurface(config = Config) {
+  const keys = []
+  const sections = []
+  for (const [key, schema] of Object.entries(config?.dict ?? {})) {
+    const dict = schema?.dict
+    if (dict && typeof dict === 'object') {
+      sections.push(key)
+      for (const child of Object.keys(dict)) keys.push(`${key}.${child}`)
+    } else {
+      keys.push(key)
+    }
+  }
+  return { keys, sections, count: keys.length }
+}
+
 export function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }

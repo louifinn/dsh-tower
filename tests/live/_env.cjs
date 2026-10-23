@@ -1,20 +1,25 @@
-// Shared environment for the live test/ops scripts.
+// Shared environment for the opt-in live suite (#47, #87).
 //
-// Resolve the DSH home and the per-workspace session directory from the
-// environment instead of hard-coding one machine's paths. Run these scripts
-// from the DSH workspace directory whose sessions you inspect, or set
-// DSH_SESSION_ROOT explicitly.
+// Requiring this module is the entry guard: it asserts, before a single browser
+// or server is touched, that DSH_LIVE=1 and that DSH_HOME is a disposable
+// directory under os.tmpdir() (never the operator's real DSH_HOME or one of its
+// profiles). Scripts that need a raw Playwright import use
+// `./resolve-playwright.cjs`, never `require('playwright')`.
+//
+// Read-only session diagnostics intentionally target the operator's real
+// $DSH_HOME and use `./_diagnostic-env.cjs` instead.
+'use strict'
+
 const os = require('node:os')
 const path = require('node:path')
 
+const { assertIsolatedHome, announceLine, hostVersion } = require('./_guard.cjs')
+
 if (process.env.DSH_LIVE !== '1') {
-  throw new Error('Live suite is opt-in: set DSH_LIVE=1 and an isolated DSH_HOME before running tests/live scripts.')
-}
-if (!process.env.DSH_HOME) {
-  throw new Error('Refusing non-isolated live run: DSH_HOME must be set explicitly to a disposable profile/home.')
+  throw new Error('Live suite is opt-in: set DSH_LIVE=1 and an isolated DSH_HOME before running tests/live scripts. Run the live suite with `npm run test:live`.')
 }
 
-const DSH_HOME = process.env.DSH_HOME
+const DSH_HOME = assertIsolatedHome()
 
 function sessionRoot() {
   if (process.env.DSH_SESSION_ROOT) return process.env.DSH_SESSION_ROOT
@@ -28,4 +33,17 @@ function chromePath() {
   return process.env.DSH_TEST_CHROME
 }
 
-module.exports = { DSH_HOME, sessionRoot, chromePath }
+/**
+ * Print the one-line provenance banner (#47). It is the first stdout line of a
+ * live run; a script spawned by tests/live/run.cjs passes
+ * DSH_LIVE_ANNOUNCED=1 so the banner is not duplicated.
+ */
+function announce() {
+  if (process.env.DSH_LIVE_ANNOUNCED === '1') return null
+  process.env.DSH_LIVE_ANNOUNCED = '1'
+  const line = announceLine(DSH_HOME)
+  console.log(line)
+  return line
+}
+
+module.exports = { DSH_HOME, announce, chromePath, hostVersion, sessionRoot }

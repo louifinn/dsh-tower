@@ -2,7 +2,12 @@
 // (port 59002): tower_control, guard denial, and mode reporting through real
 // tool calls. Requires the account overlay patch and a signed-in account.
 const fs = require('node:fs')
-const { chromium } = require('playwright')
+
+const env = require('./_env.cjs')
+
+env.announce()
+
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 const URL = process.env.DSH_TEST_URL
 if (!URL) {

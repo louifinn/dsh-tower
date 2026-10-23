@@ -2,6 +2,25 @@
 
 Thanks for your interest in `dsh-tower`. This is a DeepSeek Harness plugin; the repository root is the bundle itself (`package.json` + `cordis.patch.yml`).
 
+## Engineering philosophy and decisions
+
+Two short documents say what this project refuses to do:
+
+- [PRINCIPLES.md](PRINCIPLES.md) — the numbered refusals. Each one names what it
+  refuses and the file plus test or gate that enforces it. A principle whose
+  pointer does not resolve fails `npm run docs:check:philosophy`.
+- [docs/adr/](docs/adr/README.md) — dated decision records for choices already
+  made (ports as data, one `state.json`, `allowAgentControl`, the surface
+  budget).
+
+Every pull request answers **"which principle does this change touch, or which new
+one does it require?"** in the PR template. "None" is not an answer: if no
+existing refusal covers the change, say why a new principle is needed. The
+concept budget and its classification table are in
+[docs/reference/surface-budget.md](docs/reference/surface-budget.md): a config key
+or tool may grow only with an ADR or a provably matching deletion, checked by
+`npm run surface:check`.
+
 ## Landing changes
 
 `main` is protected. Every change lands through a pull request; direct pushes to `main` are rejected,
@@ -18,7 +37,9 @@ The context names come from the workflow job id and matrix values. Renaming a jo
 changes the required context; update the protection setting in the same PR, or the check never reports
 and every PR stays unmergeable. The setting and its verification command are in
 [SECURITY.md](SECURITY.md#repository-protection-on-main). The `mount-fixtures` job runs the seeded
-smoke failures for evidence but is deliberately **not** a required context.
+smoke failures for evidence but is deliberately **not** a required context. The `live` job is nightly
+(and manual-dispatch) only, runs on a pinned host matrix, and is evidence as well: it is never part of
+a push or a PR gate.
 
 The offline `test` matrix also has a `test (22, windows)` leg on `windows-latest` (Node 22). It runs the
 offline suite and the offline gates, not the release/coverage steps, so the platform branches are
@@ -72,6 +93,14 @@ npm test        # no dependencies to install; Node's built-in test runner only
 
 Requirements: Node.js 22+, Git. No package installation is needed for the offline suite.
 
+The opt-in live suite is the exception: install it once with
+`npm ci --prefix tests/live && npx --prefix tests/live playwright install chromium`, then run it with `npm run test:live`
+against a disposable `DSH_HOME` under the OS temp directory and a booted isolated profile. The guard
+refuses the operator's real `DSH_HOME` and any profile under `DSH_HOME/profiles`. `npm run test:live --
+--check` validates the environment and Playwright resolution without a browser. See
+[tests/README.md](tests/README.md#2-real-web-runtime-isolated-profile). The live suite is not part of
+the push gates; CI schedules it nightly.
+
 ## What to change
 
 - `index.js` — Host entry: `/tower` command, mode guard, dynamic prompt section, `tower_control`.
@@ -82,13 +111,19 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (536 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (573 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
 5. Update `README.md` / `README.en.md` when the user-visible behavior changes.
 6. If you touched `cordis.patch.yml`, `index.js`, `skills.js`, or `tools/`, run `npm run smoke:mount` (see below).
 7. A commit carries `Refs #n` or `Fixes #n`; a P0/P1 closure carries `verified-by:` and `commit:`, and `npm run audit:issues` reports no new failures.
+8. A regression closure carries the six-field record from
+   [docs/operations/incident.md](docs/operations/incident.md) and `npm run audit:regressions`
+   reports no failure; a `Regression test:` path must exist.
+9. If you added a config key or tool, `scripts/surface-baseline.json` and
+   [docs/reference/surface-budget.md](docs/reference/surface-budget.md) are updated in the
+   same PR, and `npm run surface:check` passes.
 
 ## Mount smoke
 
@@ -182,6 +217,29 @@ Exit codes: `0` — every checked closure names an existing test file (a missing
 `1` — at least one pointer is missing, nonexistent, not a test, or outside the repository; `2` — the
 export is missing or malformed. `--strict` promotes the missing-`commit:` warning to an error.
 `tracker/` is a local snapshot and is gitignored; regenerate it instead of committing it.
+
+## Regressions and incidents
+
+The `regression` label means **"worked in a released version, then stopped"**. It is
+narrower than `bug` and mutually exclusive with it for a shipped break: a user
+could rely on the old behavior, so the record must say which release broke it and
+which test prevents it from happening again.
+
+A closed `regression` issue carries the six-field record from
+[docs/operations/incident.md](docs/operations/incident.md) (symptom, introduced in,
+blast radius, root cause and fix, regression test, released in). The one checkable
+line is `Regression test:`, which must name a test file that exists. The same
+`tracker/issues.json` export from above is audited offline:
+
+```powershell
+npm run audit:regressions
+npm run audit:regressions -- --tracker path/to/export.json --json
+```
+
+Exit codes: `0` — every closed regression names an existing test; `1` — a line is
+missing or the path is nonexistent/non-test; `2` — the export is missing or
+malformed. The fixture in `tests/regression-audit.test.mjs` seeds a missing path
+and a valid one, so the rule cannot quietly become prose.
 
 ## Commit style
 

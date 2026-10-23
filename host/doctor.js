@@ -2,6 +2,7 @@
 import { execFile } from '../adapters/vcs-git.js'
 import { promisify } from 'node:util'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { fsp } from '../adapters/store-fs.js'
 import { git } from '../adapters/git.js'
 import { readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
@@ -11,11 +12,23 @@ import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
+import { configSurface } from '../domain/config/schema.js'
+import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
 import { inspectWorkspaceLock } from '../adapters/workspaceLock.js'
 
 const execFileAsync = promisify(execFile)
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/** Read the committed concept-budget baseline read-only; null when absent. */
+async function readSurfaceBaseline() {
+  try {
+    return parseBaseline(await fsp.readFile(path.join(PACKAGE_ROOT, SURFACE_BASELINE_FILE), 'utf8'))
+  } catch {
+    return null
+  }
+}
 
 async function exists(target) {
   try {
@@ -123,7 +136,7 @@ function stateSchemaReport(info) {
 }
 
 /** Run every read-only diagnostic; never writes state or takes the state lock. */
-export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityFile, loaderRows }) {
+export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityFile, loaderRows, surface }) {
   const checks = []
   let reportsReport = null
   let stateLockReport = null
@@ -246,6 +259,32 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       config.repoConfigPresent ? `repo config ${config.configPath}` : `repo config not present (${config.configPath ?? 'unknown'})`,
       'optional: add <git-common-dir>/dsh-tower/config.json',
     ),
+  )
+  // #84: report the concept-budget surface instead of implying it. The counts
+  // are the live schema/tool surface; the date is the committed baseline, so a
+  // reader sees both the number and the decision it was frozen at.
+  const configCounts = configSurface()
+  const baseline = await readSurfaceBaseline()
+  const toolCount = Number.isInteger(surface?.tools) ? surface.tools : null
+  const surfaceCounts = {
+    configKeys: configCounts.count,
+    sections: configCounts.sections.length,
+    tools: toolCount,
+  }
+  const surfaceReport = {
+    ...surfaceCounts,
+    baselineDate: baseline?.date ?? null,
+    line: surfaceLine(surfaceCounts),
+  }
+  checks.push(
+    toolCount === null
+      ? check('surface', 'warn', `${surfaceReport.line} (tool count unavailable; pass the registered surface)`)
+      : check(
+          'surface',
+          'pass',
+          `${surfaceReport.line}${baseline?.date ? ` (baseline ${baseline.date})` : ''}`,
+          baseline?.date ? undefined : `commit ${SURFACE_BASELINE_FILE} so growth is compared against a decision`,
+        ),
   )
   const presets = ctx.get?.('agentPresets')
   if (presets && typeof presets.list === 'function') {
@@ -480,6 +519,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     stateSchema: schemaReport.stateSchema,
 // reports (from #89) and archive (from #73) are both kept
     reports: reportsReport,
+    surface: surfaceReport,
     archive: {
       missions: state ? state.missions.length : null,
       archivedMissions: archiveInventory.missions,

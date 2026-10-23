@@ -87,7 +87,7 @@ export function selectEvidence(issue) {
   return null
 }
 
-function labelsOf(issue) {
+export function labelsOf(issue) {
   const labels = Array.isArray(issue.labels) ? issue.labels : []
   return labels.map((label) => (typeof label === 'string' ? label : label?.name ?? '')).filter(Boolean)
 }
@@ -116,7 +116,7 @@ function closedAtOf(issue) {
 
 // A pointer must stay inside the repository and name a real test file: an
 // existing script or doc is not evidence of a regression test.
-function inspectPointer(pointer, root) {
+export function inspectPointer(pointer, root) {
   const normalized = String(pointer).replace(/\\/g, '/').trim()
   if (!normalized) return { code: 'invalid-pointer', detail: 'empty' }
   if (path.isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized) || normalized.startsWith('/')) {

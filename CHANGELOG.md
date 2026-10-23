@@ -4,6 +4,34 @@
 
 ## 未发布（Unreleased）
 
+## 2.3.0（2026-10-23）
+
+### 新增
+
+- **#87 live harness 可复现**：`tests/live/package.json` 固定 `playwright`（含独立 lockfile），
+  根脚本 `npm run test:live` 解析本地/`NODE_PATH` 并在缺失时打印两条确切安装命令后退出 2（无堆栈）；
+  七个 live 脚本统一走该解析器；`--check` 模式无需浏览器即可在 clean clone 上通过；
+  `tests/README.md` 以可复现路径为默认、全局安装作为 fallback。
+- **#47 live 套件安全门禁 + nightly**：live 入口强制 `DSH_LIVE=1` 且 `DSH_HOME` 必须是 `os.tmpdir()` 的严格子目录，
+  拒绝真实 home 及其 `profiles/*`（错误信息指向 `npm run test:live`）；CI 的浏览器 live job 移出 push/PR，
+  改为 nightly `schedule`/`workflow_dispatch` 且主机版本固定在 `0.2.1-rc.2`；输出首行打印解析后的
+  `DSH_HOME` 与 host 版本。
+- **#83 工程哲学**：根目录 `PRINCIPLES.md`（10 条原则，每条带明确的 refusal 与可解析的 enforcement pointer）、
+  `docs/adr/` 四份带日期的 ADR（ports-as-data、单一 state.json、allowAgentControl 默认、surface budget，
+  均含 rejected alternatives）、`docs/` 非目标审计、PR 模板的 principle 问题；
+  `scripts/check-philosophy.mjs` + `npm run docs:check:philosophy` 在 pointer 失效时失败。
+- **#84 概念预算**：`tower_doctor` 打印 `config keys: 64 · sections: 15 · tools: 27 (baseline 2026-10-23)`；
+  生成的 config/tools 参考头部携带同一计数与日期；`scripts/surface-baseline.json` + `npm run surface:check`
+  在 surface 增长而无 ADR/等量删除时失败（fixture 覆盖）；64 个 config key 的 core/tuning/niche 分类
+  （含 3 条 niche removal note）与 27 个工具的 core/optional 分类。
+- **#85 事故实践**：`docs/operations/incident.md` 六字段模板（Symptom/Introduced in/Blast radius/Root cause/
+  Regression test/Released in），从 CONTRIBUTING 与 SECURITY 链接；`regression` label 语义固定为
+  “worked in a released version, then stopped”；`scripts/regression-audit.mjs` 离线审计已关闭 regression issue
+  的 `Regression test:` 路径；#68 已按模板回填并通过审计。
+
+### 修复
+
+- 发布前 CI flake：lock 心跳测试改为轮询等待一次 tick，避免高负载 Node 24 下固定 60ms 窗口偶发失败。
 ## 2.2.0（2026-10-23）
 
 ### 新增

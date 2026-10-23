@@ -1,7 +1,12 @@
 // Instrumented live `/tower` command acceptance against the isolated towertest
 // server. Writes progress to command.log so a hung step is visible.
 const fs = require('node:fs')
-const { chromium } = require('playwright')
+
+const env = require('./_env.cjs')
+
+env.announce()
+
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 const URL = process.env.DSH_TEST_URL
 if (!URL) {
