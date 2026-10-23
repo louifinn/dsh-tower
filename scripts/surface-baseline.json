@@ -14,8 +14,19 @@
     },
     "tools": {
       "seed": 27,
-      "value": 27,
-      "decisions": []
+      "value": 29,
+      "decisions": [
+        {
+          "from": 27,
+          "to": 29,
+          "date": "2026-10-23",
+          "correction": {
+            "reason": "Measurement correction, not surface growth: the 2.3.0 baseline recorded only define()-registered tools. tower_mode and tower_control are registered directly by index.js, so the shipped surface was always 29 (#118). The recorder in host/tool-registry.js now covers both paths.",
+            "date": "2026-10-23",
+            "ref": "docs/adr/0004-surface-budget.md"
+          }
+        }
+      ]
     }
   }
 }

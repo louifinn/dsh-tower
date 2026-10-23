@@ -14,6 +14,14 @@ default a user may want to change, and `niche` was added for one workflow and
 must carry a removal note for the next minor. A live key or tool missing from
 these tables fails `npm run surface:check`.
 
+The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
+`tower_mode` and `tower_control` are registered directly by `index.js`, so the
+shipped surface was always 29. The 27 → 29 step is an explicit
+*measurement correction* with a reason and date in
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) (see
+[ADR 0004](../adr/0004-surface-budget.md)), not surface growth; a later count
+change still needs an ADR or a provably matching deletion.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -86,14 +94,15 @@ these tables fails `npm run surface:check`.
 ## Tools
 
 Tools are `core` when the product does not work without them and `optional` when
-an operational switch (`tools.expose*`) or the dev mode can legitimately remove
-them from the surface.
+an operational switch (`tools.expose*`), `mode.allowAgentControl`, or the dev
+mode can legitimately remove them from the surface.
 
 | Tool | Class | Note |
 |---|---|---|
 | `tower_adopt` | core | Reconciles a restored roster with the durable catalog. |
 | `tower_batch` | optional | Evidence-batch workflow; `tools.exposeBatch`. |
 | `tower_complete` | core | The only completion path for a worker. |
+| `tower_control` | optional | Model-initiated mode change; `mode.allowAgentControl:false` removes it (ADR 0003). |
 | `tower_diff` | core | The read-only review view. |
 | `tower_doctor` | optional | Read-only health contract; `tools.exposeDoctor`. |
 | `tower_finding` | core | Out-of-scope issue recording. |
@@ -105,6 +114,7 @@ them from the surface.
 | `tower_legacy_map` | optional | Legacy audit mapping; `tools.exposeImport`. |
 | `tower_merge` | core | The only merge path. |
 | `tower_mission` | core | Mission progress and blockers. |
+| `tower_mode` | core | Reports the session stance, workspace lock, HMR and plugin version; always registered. |
 | `tower_plan` | core | Mission planning. |
 | `tower_preflight` | core | The read-only merge gate. |
 | `tower_rebase` | core | Keeps a mission branch current. |

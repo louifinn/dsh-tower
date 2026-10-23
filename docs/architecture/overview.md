@@ -11,7 +11,8 @@ or skill can remain mounted while the `tower_*` tools are gone.
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
  ├─ host/tool-registry.js -> registration aggregator, actor guards, shared helpers
- │                    (+ 27 registered repository tools)
+ │                    (+ 27 define()-registered tools)
+ │                    (+ tower_mode/tower_control registered by the Host entry, 29 total)
  │                    (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
  ├─ tools/index.js  -> thin public wiring (re-exports the registry + briefings)
  └─ app/tower.js   -> orchestration surface; delegates to use-case modules

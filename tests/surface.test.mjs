@@ -18,9 +18,35 @@ import {
 } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
 import { liveSurface } from '../scripts/surface-baseline.mjs'
+import {
+  definedToolCount,
+  definedToolNames,
+  recordToolRegistration,
+  __testResetToolSurface,
+} from '../host/tool-registry.js'
 import { runDoctor } from '../host/doctor.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * The tool names docs:check derives from source, reproduced so the test pins
+ * the same definition of "documented surface" the docs gate uses.
+ */
+function documentedToolNames() {
+  const modules = fs
+    .readdirSync(path.join(root, 'tools'))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => fs.readFileSync(path.join(root, 'tools', name), 'utf8'))
+    .join('\n')
+  const source =
+    fs.readFileSync(path.join(root, 'tools', 'index.js'), 'utf8') +
+    modules +
+    fs.readFileSync(path.join(root, 'host', 'tool-registry.js'), 'utf8') +
+    fs.readFileSync(path.join(root, 'index.js'), 'utf8')
+  return [...new Set([...source.matchAll(/name: '(tower_[a-z_]+)'/g)].map((match) => match[1]))]
+    .filter((name) => name !== 'tower-control')
+    .sort()
+}
 
 function baselineFor(values, decisions = {}, seeds = {}) {
   return parseBaseline({
@@ -80,6 +106,28 @@ test('the live surface equals the committed baseline and is fully classified', (
     })
     assert.ok(generated.includes(`> Surface: ${line} · baseline ${baseline.date}.`), `${file} carries the generated count line`)
   }
+
+  // #118: the count covers the full registered surface, including the two tools
+  // index.js registers directly, and agrees with the count docs:check derives.
+  assert.equal(current.tools, 29)
+  assert.ok(current.liveNames.tools.includes('tower_mode'))
+  assert.ok(current.liveNames.tools.includes('tower_control'))
+  assert.deepEqual(current.liveNames.tools, documentedToolNames())
+  const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
+  for (const name of current.liveNames.tools) {
+    assert.ok(generatedTools.includes(`| \`${name}\` |`), `tools.generated.md lists ${name}`)
+  }
+
+  // #118 fixture: a tool registered directly (outside define()) is counted once
+  // the Host entry records it through the same recorder.
+  __testResetToolSurface()
+  try {
+    recordToolRegistration('tower_fixture_direct')
+    assert.equal(definedToolCount(), 1)
+    assert.deepEqual(definedToolNames(), ['tower_fixture_direct'])
+  } finally {
+    __testResetToolSurface()
+  }
 })
 
 test('tower_doctor prints the surface counts plus the baseline date', async () => {
@@ -116,6 +164,12 @@ test('tower_doctor prints the surface counts plus the baseline date', async () =
     assert.equal(report.surface.sections, current.sections)
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
+    // #118: the doctor line, the generated reference and docs:check agree.
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 64, sections: 15, tools: 29 }))
+    assert.equal(current.tools, 29)
+    assert.equal(current.tools, documentedToolNames().length)
+    const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
+    assert.ok(generatedTools.includes(`> Surface: ${surfaceLine(current)} · baseline ${readBaseline(root).date}.`))
   } finally {
     removeTemp(repo)
   }
@@ -129,6 +183,27 @@ test('a baseline that matches the live counts and decision chain passes', () => 
     exists: (relative) => relative === 'docs/adr/0004-surface-budget.md',
   })
   assert.deepEqual(findings, [])
+
+  // #118: a measurement correction with a reason, a date and a resolving
+  // reference authorizes the 27 -> 29 step it names (and only that step).
+  const corrected = baselineFor({ configKeys: 2, sections: 1, tools: 29 }, {
+    tools: [{
+      from: 27,
+      to: 29,
+      date: '2026-10-23',
+      correction: {
+        reason: 'the 2.3.0 measurement recorded only the define() path; the shipped surface was always 29',
+        date: '2026-10-23',
+        ref: 'docs/adr/0004-surface-budget.md',
+      },
+    }],
+  }, { configKeys: 2, tools: 27 })
+  assert.deepEqual(
+    validateBaseline(corrected, currentFor({ configKeys: 2, sections: 1, tools: 29 }), {
+      exists: (relative) => relative === 'docs/adr/0004-surface-budget.md',
+    }),
+    [],
+  )
 })
 
 test('growth that is not recorded in the baseline fails', () => {
@@ -146,6 +221,29 @@ test('a decision that grows without an existing ADR fails', () => {
     exists: () => false,
   })
   assert.ok(findings.some((finding) => finding.code === 'growth-without-evidence'))
+
+  // #118: an incomplete correction is not evidence. A reason and a resolving
+  // reference are what separate a measurement correction from silent growth.
+  const noReason = baselineFor({ configKeys: 2 }, {
+    configKeys: [{ from: 1, to: 2, correction: { date: '2026-10-23' } }],
+  }, { configKeys: 1 })
+  const noReasonFindings = validateBaseline(noReason, currentFor({ configKeys: 2, sections: 1, tools: 1 }), {
+    exists: () => false,
+  })
+  assert.ok(noReasonFindings.some((finding) => finding.code === 'correction-invalid'))
+  assert.ok(noReasonFindings.some((finding) => finding.code === 'growth-without-evidence'))
+
+  const missingRef = baselineFor({ configKeys: 2 }, {
+    configKeys: [{
+      from: 1,
+      to: 2,
+      correction: { reason: 'a correction that points nowhere', date: '2026-10-23', ref: 'docs/adr/9999-missing.md' },
+    }],
+  }, { configKeys: 1 })
+  const missingRefFindings = validateBaseline(missingRef, currentFor({ configKeys: 2, sections: 1, tools: 1 }), {
+    exists: () => false,
+  })
+  assert.ok(missingRefFindings.some((finding) => finding.code === 'correction-invalid'))
 })
 
 test('a matching deletion that is really gone authorizes growth; one still live does not', () => {

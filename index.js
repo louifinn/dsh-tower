@@ -12,7 +12,7 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerTowerTools } from './host/tool-registry.js'
+import { registerTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
 import { loadModes, saveModes, storePath } from './host/modeStore.js'
 import { ModeState } from './host/modeState.js'
@@ -347,6 +347,14 @@ export function apply(ctx, rawConfig) {
   // #69: the host entry is the composition root — the adapters are constructed
   // once here and injected into the tool layer and every Tower instance.
   registerTowerTools(ctx, { workspace, hmrBridge, deps: createDefaultDeps() })
+
+  // #118: tower_mode/tower_control are registered directly here instead of
+  // through define(), so record them through the same recorder the registry
+  // uses. tower_control is recorded before the allowAgentControl gate: the
+  // concept budget measures the surface this build can register, not only the
+  // tools one profile exposes (#84). Both paths together are the shipped 29.
+  recordToolRegistration('tower_mode')
+  recordToolRegistration('tower_control')
 
   // On dispose (including an HMR reload) release advisory workspace locks this
   // process still owns; a reloaded plugin restores the entries from modes.json.

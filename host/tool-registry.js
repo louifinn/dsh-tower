@@ -67,21 +67,45 @@ const runtimeState = {
   // fallback is for tests/embedders that call registerTowerTools() directly;
   // it is still built once per process.
   deps: null,
-  // #84: the defined tool names are recorded before the exposure switches run,
-  // so the concept budget measures the full surface rather than one profile's
-  // subset. The number is reported by tower_doctor and compared with the
-  // committed scripts/surface-baseline.json.
+  // #84/#118: registered tool names are recorded before the exposure switches
+  // run, so the concept budget measures the full surface rather than one
+  // profile's subset. `recordToolRegistration` is the one recorder: define()
+  // calls it, and the Host entry calls it for the directly registered
+  // tower_mode/tower_control. The number is reported by tower_doctor and
+  // compared with the committed scripts/surface-baseline.json.
   definedTools: new Set(),
 }
 
-/** The full defined tool surface (names, sorted), independent of exposure flags. */
+/**
+ * Record one registered tool name in the concept-budget surface (#84, #118).
+ *
+ * This is the single recorder for the shipped tool surface. `define()` calls it
+ * for every definition before the exposure gate runs; the Host entry
+ * (`index.js`) calls it for the two tools it registers directly, `tower_mode`
+ * and `tower_control`. One recorder means the count cannot silently miss a
+ * registration path again: #118 found 27 of the 29 names because only the
+ * `define()` path was recorded.
+ */
+export function recordToolRegistration(name) {
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    throw new TypeError('recordToolRegistration requires a non-empty tool name')
+  }
+  runtimeState.definedTools.add(name.trim())
+}
+
+/** The full registered tool surface (names, sorted), independent of exposure flags. */
 export function definedToolNames() {
   return [...runtimeState.definedTools].sort()
 }
 
-/** The number of tools defined by this build, used by the concept budget (#84). */
+/** The number of tools registered by this build, used by the concept budget (#84). */
 export function definedToolCount() {
   return runtimeState.definedTools.size
+}
+
+/** Test hook: the recorded set is process state and must be reset per fixture. */
+export function __testResetToolSurface() {
+  runtimeState.definedTools.clear()
 }
 
 /** The injected port set for the app layer (built once per process). */
@@ -370,7 +394,7 @@ function define(ctx, definition) {
   const { aliases, requiresMissionId, board, execute, ...rest } = definition
   // Record the definition before the exposure gate: the concept budget counts
   // the tools this build can register, not only the ones a profile exposes.
-  runtimeState.definedTools.add(rest.name)
+  recordToolRegistration(rest.name)
   const toolsConfig = runtimeConfig().tools ?? {}
   const flag = OPERATIONAL_TOOLS.get(rest.name)
   if (flag && (toolsConfig.exposeOperational === false || toolsConfig[flag] === false)) return

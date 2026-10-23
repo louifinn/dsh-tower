@@ -184,6 +184,7 @@ scripts/issue-audit.mjs
 scripts/lib/cli.mjs
 scripts/lib/surface.mjs
 scripts/lib/tmp.mjs
+scripts/lib/tool-surface.mjs
 scripts/mount-smoke.mjs
 scripts/mount-smoke/fixtures.mjs
 scripts/mount-smoke/host.json
