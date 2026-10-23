@@ -102,7 +102,7 @@
     "architecture:check": "node scripts/architecture.mjs",
     "types:check": "tsc --noEmit",
     "types:coverage": "node scripts/types-coverage.mjs",
-    "check": "npm test && npm run docs:check && npm run docs:check:philosophy && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:components && npm run docs:check:components && npm run surface:check && npm run pack:check && npm run architecture:check && npm run types:check && npm run domain:check",
+    "check": "npm test && npm run docs:check && npm run docs:check:philosophy && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:components && npm run docs:check:components && npm run surface:check && npm run pack:check && npm run architecture:check && npm run types:coverage && npm run types:check && npm run domain:check",
     "domain:metrics": "node scripts/domain-metrics.mjs",
     "domain:check": "node scripts/domain-metrics.mjs --check"
   },

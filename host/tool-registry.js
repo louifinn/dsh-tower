@@ -61,6 +61,17 @@ import crypto from 'node:crypto'
 
 // Mutable composition state is grouped in one const object: the registration
 // aggregator is the composition root, not an ambient module-level binding.
+/**
+ * The workspace-lock hook the Host entry injects (`index.js`). Optional
+ * members are only present when the entry supplies them, so the registry and
+ * the tools that receive it declare the same shape.
+ * @typedef {object} WorkspaceHook
+ * @property {(repoRoot: string, exec: any, toolName: string) => Promise<void>} ensure
+ * @property {(exec: any) => string | null} [basePreference]
+ * @property {(exec: any) => Record<string, any> | null} [modeInfo]
+ * @property {(entry: any, key: string) => Promise<Record<string, any>>} [status]
+ */
+/** @type {{ workspaceHook: WorkspaceHook | null, hmrBridge: ReturnType<typeof createHmrBridge> | null, deps: Record<string, any> | null, definedTools: Set<string> }} */
 const runtimeState = {
   workspaceHook: null,
   hmrBridge: null,
@@ -604,13 +615,13 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport })
 
-  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
+  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
 
-  registerRosterTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, observeActivity, actorFor, requireTowerActor, interruptRosterAgent })
+  registerRosterTool(ctx, { openTower, define })
 
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerDiffTool(ctx, { openTower, define })
 
   registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 

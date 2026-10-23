@@ -55,6 +55,34 @@ function fixture(files, tsconfigInclude) {
   return dir
 }
 
+test('types coverage: the real gate derives the shipped set from package.json and passes', () => {
+  const result = run([])
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /shipped runtime \.js files are in the tsc program/)
+})
+
+test('types coverage: every root entry point and host module is in the shipped runtime set', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+  const all = []
+  const walk = (relative) => {
+    for (const entry of fs.readdirSync(path.join(root, relative || '.'), { withFileTypes: true })) {
+      const next = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && entry.name !== '.git') walk(next)
+      } else all.push(next)
+    }
+  }
+  walk('')
+  const shipped = expandShipped(pkg.files, all)
+  const { runtime } = runtimeJavaScript(shipped)
+  for (const file of ['index.js', 'worker.js', 'reviewer.js', 'skills.js']) {
+    assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
+  }
+  const hostModules = all.filter((file) => /^host\/[^/]+\.js$/.test(file))
+  assert.equal(hostModules.length, 15)
+  for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
+})
+
 test('types coverage: shipped runtime files outside the tsc program fail (fixture)', () => {
   const dir = fixture(['index.js', 'host/a.js', 'host/b.js', 'ui-bundle/client.js', 'scripts/legacy.js', 'types/index.d.ts'], ['index.js', 'host/a.js'])
   try {

@@ -107,6 +107,10 @@ jobs:
         run: npm run pack:check
       - name: Architecture fitness
         run: npm run architecture:check
+      # #115: the checked program is derived from the shipped program, so a
+      # runtime .js file outside the tsc program is a red check.
+      - name: Type coverage
+        run: npm run types:coverage
       - name: Type declarations
         run: npm run types:check
       - name: Pure domain share
