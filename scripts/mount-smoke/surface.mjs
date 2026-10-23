@@ -9,7 +9,13 @@
 // one tool id per tool module, one skill id per bundled skill file. The bundle
 // rows and presets come from `cordis.patch.yml` and are stated here as the
 // contract the component policy protects: one mandatory host group plus
-// individually switchable optional top-level rows (#121).
+// individually switchable optional top-level rows (#121). Tools owned by a row
+// that ships off (today only `tower-hmr` -> `tower_reload`) are trimmed from the
+// expected surface using the same ownership table the runtime reports, so the
+// shipped default profile (28 tools) and the all-rows-on build surface (29)
+// cannot be confused again.
+
+import { COMPONENT_TOOLS } from '../../host/capability-registry.js'
 
 /** Tools registered by index.js rather than by a handler module under tools/. */
 export const INDEX_TOOL_IDS = ['tower_control', 'tower_mode']
@@ -34,6 +40,21 @@ export const OPTIONAL_ROW_IDS = [
 /** Rows shipped off: the mount smoke must not expect them to be active. */
 export const DEFAULT_OFF_ROW_IDS = ['tower-hmr']
 
+/**
+ * Tool ids owned by the rows in {@link DEFAULT_OFF_ROW_IDS}. The ownership table
+ * is the one `host/capability-registry.js` uses to report a disabled component,
+ * so the oracle cannot drift from the runtime: turning a row's default off in
+ * `cordis.patch.yml` automatically removes its tools from the expected surface.
+ * @returns {Set<string>} the tool ids a default profile does not register.
+ */
+export function defaultOffToolIds() {
+  const ids = new Set()
+  for (const rowId of DEFAULT_OFF_ROW_IDS) {
+    for (const toolId of COMPONENT_TOOLS[rowId] ?? []) ids.add(toolId)
+  }
+  return ids
+}
+
 /** Presets the bundle declares for its worker and reviewer roles. */
 export const PRESET_IDS = ['tower-reviewer', 'tower-worker']
 
@@ -57,14 +78,25 @@ export function toolIdForModule(fileName) {
 
 /**
  * @param {string[]} moduleFiles - file names under tools/.
+ * @param {{ enabledRows?: string[] }} [options] - rows enabled in the profile
+ *   under test. Defaults to the shipped profile: every optional row except the
+ *   ones in {@link DEFAULT_OFF_ROW_IDS}. Pass every row id to pin the full
+ *   build surface (29 tools with the shipped sources).
  * @returns {string[]} sorted tool ids the loaded profile must register.
  */
-export function expectedToolIds(moduleFiles) {
+export function expectedToolIds(moduleFiles, options = {}) {
+  const enabledRows = options.enabledRows === undefined ? null : new Set(options.enabledRows)
+  const skipped = new Set()
+  for (const rowId of DEFAULT_OFF_ROW_IDS) {
+    if (enabledRows !== null && enabledRows.has(rowId)) continue
+    for (const toolId of COMPONENT_TOOLS[rowId] ?? []) skipped.add(toolId)
+  }
   const ids = new Set(INDEX_TOOL_IDS)
   for (const file of moduleFiles) {
     const id = toolIdForModule(file)
     if (id !== null) ids.add(id)
   }
+  for (const id of skipped) ids.delete(id)
   return [...ids].sort()
 }
 

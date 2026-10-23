@@ -344,11 +344,12 @@ export function apply(ctx, rawConfig) {
   // capability.
   registerCoreTowerTools(ctx, { workspace, deps: createDefaultDeps() })
 
-  // #118: tower_mode/tower_control are registered directly here instead of
+  // #118/#121: tower_mode/tower_control are registered directly here instead of
   // through define(), so record them through the same recorder the registry
   // uses. tower_control is recorded before the allowAgentControl gate: the
   // concept budget measures the surface this build can register, not only the
-  // tools one profile exposes (#84). Both paths together are the shipped 29.
+  // tools one profile exposes (#84). Together with the capability-tool names the
+  // registry records before row gating, these are the shipped 29.
   recordToolRegistration('tower_mode')
   recordToolRegistration('tower_control')
 

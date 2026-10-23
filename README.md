@@ -243,7 +243,7 @@ live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，�
 
 `tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 
-`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：29 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`，按可选能力行全开计）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
+`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 28 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`，减去因 `tower-hmr` 随包关闭而不注册的 `tower_reload`；所有可选能力行全开时为 29 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
 host build 只固定在一个地方：`scripts/mount-smoke/host.json`，`COMPATIBILITY.md` 最新一行由单元测试强制与它一致，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
 

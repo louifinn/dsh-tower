@@ -53,7 +53,7 @@ import { registerFindingsTool } from '../tools/findings.js'
 import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
-import { componentEnabled, componentReport, holdComponent, disabledReason } from './capability-registry.js'
+import { COMPONENT_TOOLS, componentEnabled, componentReport, holdComponent, disabledReason } from './capability-registry.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import { createDefaultDeps } from '../adapters/default.js'
@@ -68,24 +68,28 @@ const runtimeState = {
   // fallback is for tests/embedders that call registerTowerTools() directly;
   // it is still built once per process.
   deps: null,
-  // #84/#118: registered tool names are recorded before the exposure switches
-  // run, so the concept budget measures the full surface rather than one
-  // profile's subset. `recordToolRegistration` is the one recorder: define()
-  // calls it, and the Host entry calls it for the directly registered
-  // tower_mode/tower_control. The number is reported by tower_doctor and
-  // compared with the committed scripts/surface-baseline.json.
+  // #84/#118/#121: registered tool names are recorded before any component row
+  // decides whether its capability mounts, so the concept budget measures the
+  // full build surface (29 tools) rather than one profile's mounted subset (28
+  // with the shipped `tower-hmr` row off). `recordToolRegistration` is the one
+  // recorder: define() calls it for every definition, the Host entry calls it
+  // for the directly registered tower_mode/tower_control pair, and the host
+  // records the declared capability tools (COMPONENT_TOOLS) because those entry
+  // points only run when their row is on. The number is reported by
+  // tower_doctor and compared with the committed scripts/surface-baseline.json.
   definedTools: new Set(),
 }
 
 /**
- * Record one registered tool name in the concept-budget surface (#84, #118).
+ * Record one tool name in the concept-budget surface (#84, #118, #121).
  *
- * This is the single recorder for the shipped tool surface. `define()` calls it
- * for every definition before the exposure gate runs; the Host entry
- * (`index.js`) calls it for the two tools it registers directly, `tower_mode`
- * and `tower_control`. One recorder means the count cannot silently miss a
- * registration path again: #118 found 27 of the 29 names because only the
- * `define()` path was recorded.
+ * This is the single recorder for the *build* tool surface. `define()` calls it
+ * for every definition when a capability is mounted; the Host entry (`index.js`)
+ * calls it for the two tools it registers directly, `tower_mode` and
+ * `tower_control`; and `registerCoreTowerTools` records the declared capability
+ * tools up front so a row that ships off does not shrink the budget. One
+ * recorder means the count cannot silently miss a registration path again: #118
+ * found 27 of the 29 names because only the `define()` path was recorded.
  */
 export function recordToolRegistration(name) {
   if (typeof name !== 'string' || name.trim().length === 0) {
@@ -94,12 +98,15 @@ export function recordToolRegistration(name) {
   runtimeState.definedTools.add(name.trim())
 }
 
-/** The full registered tool surface (names, sorted), independent of exposure flags. */
+/**
+ * The full shipped tool surface (names, sorted). It covers every tool this build
+ * can register, including capabilities whose component row is currently off.
+ */
 export function definedToolNames() {
   return [...runtimeState.definedTools].sort()
 }
 
-/** The number of tools registered by this build, used by the concept budget (#84). */
+/** The number of tools this build ships, used by the concept budget (#84). */
 export function definedToolCount() {
   return runtimeState.definedTools.size
 }
@@ -529,6 +536,16 @@ async function observeActivity(ctx, tower) {
 export function registerCoreTowerTools(ctx, options = {}) {
   runtimeState.workspaceHook = options.workspace ?? null
   runtimeState.hmrBridge = options.hmrBridge ?? null
+  // #121/#122: capability tools are part of this build even while their
+  // component row is off. A row's entry point only runs when the row is on, so
+  // record the declared capability names here — before any row gates
+  // registration — and the concept budget reports the full 29-tool build
+  // surface in every profile. `componentReport` is what names the subset that
+  // is actually mounted; this count never shrinks because a user switched a
+  // component off.
+  for (const toolIds of Object.values(COMPONENT_TOOLS)) {
+    for (const toolId of toolIds) recordToolRegistration(toolId)
+  }
   // #69: the host entry (index.js) is the composition root. When it supplies the
   // port set, adopt it — validated once — instead of constructing a second set
   // here. Tests/embedders that omit deps fall back to one lazily built set.

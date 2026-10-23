@@ -508,6 +508,22 @@ test('#121: turning one capability row off leaves a working Tower and is reporte
   )
 })
 
+test('#121: tower_doctor reports the full build surface, not the mounted subset', async () => {
+  // The shipped default profile: the host plus the four capability rows that
+  // ship on; tower-hmr is off, so 28 tools are actually registered.
+  const { ctx, tools } = makeCtx()
+  compose(ctx, { skip: ['tower-hmr'] })
+  assert.equal(tools.size, 28, 'the shipped profile mounts 28 tools')
+  assert.equal(tools.has('tower_reload'), false, 'tower-hmr is off')
+
+  const report = await tools.get('tower_doctor').execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-surface') })
+  // The concept budget is the build surface (29), so it still agrees with
+  // scripts/surface-baseline.json and docs; the mounted subset is not a
+  // different "29 vs 28" surface and must not be mistaken for one.
+  assert.equal(report.surface.tools, 29, 'the doctor reports every tool this build can register')
+  assert.match(report.surface.line, /tools: 29$/)
+})
+
 test('#121: tower_status also names a disabled component', async () => {
   const { ctx, tools } = makeCtx()
   compose(ctx, { skip: ['tower-batch'] })

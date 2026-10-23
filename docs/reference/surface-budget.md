@@ -35,6 +35,13 @@ shipped surface was always 29. The 27 → 29 step is an explicit
 [ADR 0004](../adr/0004-surface-budget.md)), not surface growth; a later count
 change still needs an ADR or a provably matching deletion.
 
+The tool count is the **build** surface, not one profile's mounted subset (#121):
+the recorder includes every tool this build can register, so a component row that
+ships off (`tower-hmr`, whose `tower_reload` keeps the count at 29) does not
+shrink the budget. `tower_doctor` reports the same 29 and names the mounted
+subset through its `components` check; the mount smoke asserts the shipped
+profile's 28 loaded tools and pins 29 for the all-rows-on surface.
+
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
 sections 15 → 14. Those are recorded shrank values in the committed baseline,
