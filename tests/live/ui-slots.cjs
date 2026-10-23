@@ -7,8 +7,10 @@
 //   dsh --profile towertest --from-default-profile web --dump-config
 //   dsh plugin --profile towertest add <repo-root>\ui-bundle
 //   dsh --profile towertest --port 59001 --no-open
+//   $env:DSH_LIVE='1'
+//   $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live").FullName
 //   $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
-//   node tests/live/ui-slots.cjs
+//   npm run test:live -- --script ui-slots
 //
 // Optional environment:
 //   DSH_TEST_CHROME     force a browser executable (Playwright browser by default)
@@ -32,14 +34,20 @@
 // is available; once bound and the bundle is installed, the history-derived
 // Tower-mode chip (`Tower · on`, #11) must be rendered in the dock.
 //
-// The script prints SKIP and exits 0 when DSH_TEST_URL or Playwright is
-// missing, so it is safe to run in the offline CI checkout.
+// The script prints SKIP and exits 0 when DSH_TEST_URL is missing. A missing
+// Playwright install prints the two setup commands and exits 2. It always
+// requires the isolated live environment first (#47), so run it through
+// `npm run test:live -- --script ui-slots` with DSH_LIVE=1 and a temp DSH_HOME.
 //
 // Artifacts (gitignored): tests/live/ui-slots.png and tests/live/ui-slots.log.
 'use strict'
 
 const fs = require('node:fs')
 const path = require('node:path')
+
+const env = require('./_env.cjs')
+
+env.announce()
 
 const OUT = __dirname
 const LOG = path.join(OUT, 'ui-slots.log')
@@ -70,12 +78,7 @@ function skip(reason) {
 
 if (!URL) skip('set DSH_TEST_URL to the isolated test server URL printed at boot')
 
-let chromium
-try {
-  ({ chromium } = require('playwright'))
-} catch (error) {
-  skip(`Playwright is not installed (${error && error.message ? error.message : error})`)
-}
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 fs.writeFileSync(LOG, '')
 const log = (message) => {

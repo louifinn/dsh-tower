@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const zlib = require('node:zlib')
 const path = require('node:path')
 
-const root = require('./_env.cjs').sessionRoot()
+const root = require('./_diagnostic-env.cjs').sessionRoot()
 const suffix = process.argv[2]
 const from = Number(process.argv[3] || 0)
 const to = Number(process.argv[4] || Number.MAX_SAFE_INTEGER)

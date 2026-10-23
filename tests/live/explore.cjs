@@ -1,6 +1,10 @@
 // Live exploration of the isolated DSH web UI (towertest profile, port 59001).
 // Not part of the offline suite: needs a booted server and Playwright.
-const { chromium } = require('playwright')
+const env = require('./_env.cjs')
+
+env.announce()
+
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 const URL = process.env.DSH_TEST_URL
 if (!URL) {

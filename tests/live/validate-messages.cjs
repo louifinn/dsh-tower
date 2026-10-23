@@ -1,7 +1,7 @@
 const fs = require('node:fs')
 const zlib = require('node:zlib')
 const path = require('node:path')
-const root = require('./_env.cjs').sessionRoot()
+const root = require('./_diagnostic-env.cjs').sessionRoot()
 const suffix = process.argv[2]
 function decodeFrames(buf) {
   const magic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])

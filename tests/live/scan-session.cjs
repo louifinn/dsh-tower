@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const zlib = require('node:zlib')
 const path = require('node:path')
 
-const root = require('./_env.cjs').sessionRoot()
+const root = require('./_diagnostic-env.cjs').sessionRoot()
 const needle = process.argv[2] || '这是一条测试消息'
 
 function decodeFrames(buf) {

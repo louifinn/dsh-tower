@@ -64,6 +64,17 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 Purpose: verify command registration, real `agent.steer`, `ctx.goals`, the guard, and tool output. It uses **another profile and another port**, so your active profile is untouched.
 
+### Install the live harness (reproducible, once)
+
+```powershell
+npm ci --prefix tests/live                 # Playwright version pinned in tests/live/package-lock.json
+npx --prefix tests/live playwright install chromium
+```
+
+The live scripts resolve `playwright` from `tests/live/node_modules` first, then from `NODE_PATH`. A global install still works as a fallback (`npm root -g` prints the directory; put it on `NODE_PATH`), but the local install is the supported path: the root `npm ci` deliberately downloads neither Playwright nor a browser.
+
+### Create the throwaway profile
+
 ```powershell
 # 1) Create a throwaway profile from the shipped web template
 #    (do not use `desktop`: it can only be started by the Electron app)
@@ -75,13 +86,36 @@ dsh plugin --profile towertest add <repo-root>
 dsh --profile towertest --port 59001 --no-open
 ```
 
-The `tests/live/*.cjs` scripts require Playwright installed globally (`NODE_PATH` may point at the global `node_modules`; on Windows, `npm root -g` prints the path). Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a specific executable.
+### Run the live suite
+
+`npm run test:live` validates the environment and the Playwright resolution before anything runs. A missing install prints the two commands above and exits 2; it never prints a `MODULE_NOT_FOUND` stack.
+
+```powershell
+# A disposable DSH_HOME, always under the OS temp directory (never ~/.dsh):
+$env:DSH_LIVE='1'
+$env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live-$(Get-Random)").FullName
+# The tokenized URL printed by the isolated server in step 3:
+$env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
+# Optional: the host build under test, named on the first output line:
+$env:DSH_HOST_VERSION='0.2.1-rc.2'
+
+npm run test:live                       # boot smoke against DSH_TEST_URL (default)
+npm run test:live -- --check            # environment + resolution only, no browser, < 10 s
+npm run test:live -- --script command   # the /tower command acceptance
+npm run test:live -- --list             # the selectable scripts
+```
+
+`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.1-rc.2`.
+
+Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a specific executable. The individual scripts still run with `node tests/live/<name>.cjs` once the same environment is exported.
+
+The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.1-rc.2)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
 ### Command semantics (no model required)
 
 ```powershell
 $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
-node tests/live/command.cjs
+npm run test:live -- --script command
 ```
 
 The script opens a new session and submits `/tower on 继续`, `/tower`, `/tower off 继续`, and `/tower 继续` in order, saving screenshots and a log under `tests/live/`.
@@ -93,7 +127,7 @@ The `towertest` profile name is not `desktop`, so the account route is unavailab
 ```powershell
 dsh --profile towertest --patch <repo-root>\tests\live\account.patch.yml --port 59002 --no-open
 $env:DSH_TEST_URL='http://127.0.0.1:59002/?token=<token printed in the previous step>'
-node tests/live/model.cjs
+npm run test:live -- --script model
 ```
 
 `model.cjs` asks the model to: `tower_control enter` → read `tower_mode` → call `create_goal` (must be denied by the guard) → `tower_control exit`.
@@ -102,8 +136,8 @@ node tests/live/model.cjs
 
 `npm run dev:hmr` enables the DSH HMR service for this repository in the selected profile (idempotent; supports `--dry-run` and `--remove`; needs one restart). See `docs/guide/hot-reload.md` for the profile patch details.
 
-- `node tests/live/hmr.cjs` — opt-in live acceptance for `/tower reload` and the `tower_reload` tool. It drives only `DSH_TEST_URL`; Playwright or `DSH_TEST_URL` missing prints SKIP and exits 0. Set `DSH_TEST_HMR_ROOT` to a scratch copy under `%TEMP%` when you want the script to touch a watched file.
-- `node tests/live/ui-slots.cjs` — read-only check for the optional `ui-bundle/`: it binds a session with a bare `/tower`, then verifies the state-aware dock chip, tool cards and `window.__TOWER_UI_DIAG__` registrations. `DSH_TEST_EXPECT_HINT=1` makes a missing dock entry a failure; `DSH_TEST_EXPECT_MODE=1` also requires the `Tower · on` chip.
+- `npm run test:live -- --script hmr` — opt-in live acceptance for `/tower reload` and the `tower_reload` tool. It drives only `DSH_TEST_URL`; a missing `DSH_TEST_URL` prints SKIP and exits 0, and a missing Playwright install prints the two setup commands and exits 2. Set `DSH_TEST_HMR_ROOT` to a scratch copy under `%TEMP%` when you want the script to touch a watched file.
+- `npm run test:live -- --script ui-slots` — read-only check for the optional `ui-bundle/`: it binds a session with a bare `/tower`, then verifies the state-aware dock chip, tool cards and `window.__TOWER_UI_DIAG__` registrations. `DSH_TEST_EXPECT_HINT=1` makes a missing dock entry a failure; `DSH_TEST_EXPECT_MODE=1` also requires the `Tower · on` chip.
 
 Neither live script touches the desktop profile or the live `$DSH_HOME` session state.
 
@@ -112,6 +146,7 @@ Neither live script touches the desktop profile or the live `$DSH_HOME` session 
 ```powershell
 # After stopping the servers:
 Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\towertest"
+Remove-Item -Recurse -Force $env:DSH_HOME   # the disposable temp home from this run
 # Delete only the sessions created by this test run; never delete by timestamp,
 # and remove the test entries left in $DSH_HOME/tower-mode/modes.json.
 ```
@@ -120,7 +155,7 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\towertest"
 
 ### Diagnostic and repair scripts (`tests/live/`)
 
-These scripts resolve `$DSH_HOME` from the environment and derive the session directory from the **current working directory** by default; set `DSH_SESSION_ROOT` to override.
+These are read-only diagnostics (except `repair-session.cjs`) against the DSH home whose sessions you inspect, usually the operator's real `$DSH_HOME`. They are opt-in (`DSH_LIVE=1`) but deliberately do **not** go through the live-suite isolation guard: the live suite must run only against a temp home, while a diagnostic has to read the real one. They resolve `$DSH_HOME` from the environment and derive the session directory from the **current working directory** by default; set `DSH_SESSION_ROOT` to override.
 
 - `scan-session.cjs <text>` — search all session logs for a text fragment (decodes concatenated zstd frames).
 - `dump-session.cjs <session-suffix> <from> <to>` — print events by sequence number; useful for locating a malformed message.
