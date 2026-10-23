@@ -237,6 +237,26 @@ test('an exemption without an owner or reference fails the gate', async () => {
   })
 })
 
+test('no-lib-from-core rejects a lib import from app/ and domain/', async () => {
+  await withFixture(
+    {
+      'app/bad.js': "import * as store from '../lib/store.js'\nexport const A = store\n",
+      'domain/bad.js': "import * as store from '../../lib/store.js'\nexport const D = store\n",
+      'host/ok.js': "import * as store from '../lib/store.js'\nexport const H = store\n",
+    },
+    (fixture) => {
+      const result = evaluator(fixture, { waivers: [] })
+      const violations = result.violations.filter((violation) => violation.rule === 'no-lib-from-core')
+      assert.deepEqual(
+        violations.map((violation) => violation.file).sort(),
+        ['app/bad.js', 'domain/bad.js'],
+        'app/ and domain/ may not import lib/; host/** is not a core layer',
+      )
+      assert.equal(result.ok, false)
+    },
+  )
+})
+
 test('no-lib-from-core cannot be waived even with a justification', async () => {
   await withFixture({ 'app/bad-lib.js': "import * as store from '../lib/store.js'\nexport const LEAK = store\n" }, (fixture) => {
     const result = evaluator(fixture, {
