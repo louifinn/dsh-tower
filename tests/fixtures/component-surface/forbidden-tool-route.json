@@ -1,0 +1,82 @@
+{
+  "surface": {
+    "schema": 1,
+    "date": "2026-10-23",
+    "adr": "docs/adr/0005-component-surface.md",
+    "classes": {
+      "core": "Removing it breaks the Tower contract. It is never a switch.",
+      "optional-component": "A capability whose off state leaves the rest of Tower intact.",
+      "optional-config": "A tuning knob, not a capability.",
+      "forbidden-to-disable": "The host, health, recovery, review contract and merge gates."
+    },
+    "components": [
+      {
+        "id": "tower-bundle",
+        "scope": "visible",
+        "kind": "group",
+        "fallback": "Off equals uninstalling."
+      }
+    ],
+    "gateableTools": {
+      "tower_batch": "tools.exposeBatch",
+      "tower_doctor": "tools.exposeDoctor"
+    },
+    "keys": [
+      {
+        "name": "tools.exposeBatch",
+        "class": "optional-component",
+        "note": "Evidence batches; an optional component."
+      },
+      {
+        "name": "tools.exposeDoctor",
+        "class": "forbidden-to-disable",
+        "note": "Removes tower_doctor, the health contract."
+      }
+    ],
+    "forbidden": [
+      {
+        "id": "merge-gates",
+        "capability": "the merge gates",
+        "reason": "gates.* decides delivery; a component may not bypass it.",
+        "tools": [],
+        "rowIds": ["tower-merge-gates"]
+      },
+      {
+        "id": "health",
+        "capability": "tower_doctor (read-only health contract)",
+        "reason": "Diagnosis must always exist so a failure message can point at it.",
+        "tools": ["tower_doctor"],
+        "rowIds": ["tower-doctor"],
+        "acceptedSwitches": {
+          "keys": ["tools.exposeDoctor", "tools.exposeOperational"],
+          "decision": {
+            "date": "2026-10-23",
+            "ref": "docs/adr/0005-component-surface.md",
+            "issue": "#122",
+            "reason": "Recorded debt until #122 deletes the switch."
+          }
+        }
+      }
+    ]
+  },
+  "live": {
+    "booleans": ["tools.exposeBatch", "tools.exposeDoctor", "tools.exposeOperational"],
+    "registry": {
+      "tower_batch": "exposeBatch",
+      "tower_doctor": "exposeDoctor",
+      "tower_merge": "exposeBatch"
+    },
+    "patch": {
+      "rows": [
+        {
+          "id": "tower-bundle",
+          "scope": "visible",
+          "kind": "group",
+          "group": true,
+          "overrides": []
+        }
+      ],
+      "visible": ["tower-bundle"]
+    }
+  }
+}

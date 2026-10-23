@@ -136,6 +136,11 @@ orphan preset/skill。不要再把子行单独启停。
 拒绝（并在消息中点名 `preset-tower-worker` / `preset-tower-reviewer`），不会先完成规划/派发再在
 review/merge 阶段死锁。
 
+这个唯一的 group 行是被接受的“全关边界”，不是目标形态。原则 11（[PRINCIPLES.md](PRINCIPLES.md)）
+与 [ADR 0005](docs/adr/0005-component-surface.md) 要求：只有关闭后仍不破坏其余能力的 capability
+才能成为组件；host、健康检查、恢复通道、审查契约与合并门禁永远不是开关。逐键答案见生成的
+[组件表面](docs/reference/component-surface.md)，由 `npm run docs:check:components` 强制。
+
 ## 配置
 
 ```yaml
@@ -166,11 +171,11 @@ review/merge 阶段死锁。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知顶层键会被拒绝（防止拼写错误静默失效），嵌套分组内的未知键会被忽略。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（27 个核心）
+## 工具（29 个：20 个核心 + 9 个可选）
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` 默认注册（`allowAgentControl:true`）；设为 `false` 可禁用；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 29 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+上面列出的是 20 个核心工具加 7 个可选的验证/运维工具。`tower_control` 是第 8 个可选工具，默认注册（`allowAgentControl:true`）；设为 `false` 可禁用。`tower_reload` 是第 9 个，在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 29 个工具：20 个核心 + 9 个可选）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 

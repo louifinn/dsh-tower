@@ -88,6 +88,14 @@ jobs:
         run: npm run docs:check:generated:config
       - name: Generated events reference
         run: npm run docs:check:generated:events
+      # #120: the component table is generated from scripts/component-surface.json,
+      # so "should this be a component?" is a table lookup rather than prose.
+      - name: Generated component surface
+        run: npm run docs:check:generated:components
+      # #120: locale coverage, the forbidden-to-disable denylist, and the baselined
+      # component count. Principle 11 has no teeth without this step.
+      - name: Component surface policy
+        run: npm run docs:check:components
       # #83: every principle's enforcement pointer must resolve, the ADR set must
       # stay dated and structured, and docs/ "Non-goals" must be auditable.
       - name: Engineering philosophy

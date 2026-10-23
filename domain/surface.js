@@ -9,9 +9,19 @@
 //
 // This module is pure: no fs, no git. `scripts/surface-baseline.mjs` supplies
 // the live counts and the file reads; `scripts/lib/surface.mjs` wraps them.
+//
+// Since #120 `components` is a fourth surface: the number of user-visible
+// component rows in `cordis.patch.yml`. That is what makes a contraction (the
+// 2.3.0 4 -> 1 group row) and the coming #121 growth require a written decision
+// instead of arriving quietly.
 export const SURFACE_BASELINE_FILE = 'scripts/surface-baseline.json'
 export const SURFACE_CLASSIFICATION_FILE = 'docs/reference/surface-budget.md'
-export const SURFACE_KEYS = ['configKeys', 'sections', 'tools']
+export const SURFACE_KEYS = ['configKeys', 'sections', 'tools', 'components']
+// A count in this list is two-way: a contraction needs a decision record just
+// like growth does. The component surface is where the failure actually
+// happened (4 top-level rows -> 1 group row), so "a reduction is cheap" is
+// exactly the policy hole #120 closes.
+export const SURFACE_TWO_WAY_KEYS = ['components']
 export const CONFIG_CLASSES = ['core', 'tuning', 'niche']
 export const TOOL_CLASSES = ['core', 'optional']
 export const SURFACE_SCHEMA_VERSION = 1
@@ -224,74 +234,114 @@ function correctionEvidence(decision, where, record, exists) {
 }
 
 /**
- * Validate a committed baseline against the live counts and its own decision
- * chain. This is the brake: `current[surface] !== entry.value` fails, and every
- * decision that grows a count must name an existing ADR, deletions that are
- * provably absent from the live surface, or a valid measurement-correction
- * record.
+ * Validate one surface entry against its live count and its decision chain. This
+ * is the brake: `live !== entry.value` fails, and every decision that grows a
+ * count must name an existing ADR, deletions that are provably absent from the
+ * live surface, or a valid measurement-correction record.
+ *
+ * A two-way surface (see SURFACE_TWO_WAY_KEYS) also refuses a contraction whose
+ * new count is not reached by a decision record; the other surfaces keep the
+ * "a reduction is cheap" rule from ADR 0004.
+ *
+ * Extracted from `validateBaseline` so a narrower gate (`docs:check:components`,
+ * #120) can validate just the component count without re-measuring the others.
+ *
+ * @param {string} key one of SURFACE_KEYS
+ * @param {{ seed: number, value: number, decisions: any[] }} entry
+ * @param {number} live
+ * @param {string[]} liveNames
+ * @param {{ exists?: (relativePath: string) => boolean }} [options]
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function validateSurfaceEntry(key, entry, live, liveNames, options = {}) {
+  const exists = options.exists ?? (() => false)
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  if (!Number.isInteger(live)) {
+    record('surface-missing', `live ${key} count is unavailable`)
+    return findings
+  }
+  if (live !== entry.value) {
+    const direction = live > entry.value ? 'grew' : 'shrank'
+    record(
+      'stale-baseline',
+      `${key} ${direction} from the committed baseline ${entry.value} to ${live}; update ${SURFACE_BASELINE_FILE} with an ADR or a deletion record before landing`,
+    )
+  }
+  let running = entry.seed
+  entry.decisions.forEach((decision, index) => {
+    const where = `${key}.decisions[${index}]`
+    if (decision.from !== running) {
+      record('broken-chain', `${where}.from ${decision.from} does not continue from ${running}`)
+    }
+    if (decision.date !== undefined && !ISO_DATE.test(String(decision.date))) {
+      record('broken-chain', `${where}.date is not YYYY-MM-DD`)
+    }
+    const growth = decision.to - decision.from
+    if (growth > 0) {
+      const deletions = Array.isArray(decision.deletions)
+        ? decision.deletions.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim())
+        : []
+      const adr = typeof decision.adr === 'string' && decision.adr.trim() ? decision.adr.trim().replace(/\\/g, '/') : null
+      const adrExists = Boolean(adr) && adr.startsWith('docs/adr/') && adr.endsWith('.md') && exists(adr)
+      const liveSet = new Set(liveNames ?? [])
+      const stillLive = deletions.filter((name) => liveSet.has(name))
+      const deletionEvidence = deletions.length >= growth && stillLive.length === 0
+      const correction = correctionEvidence(decision, where, record, exists)
+      if (!adrExists && !deletionEvidence && !correction) {
+        const reasons = []
+        if (adr && !adrExists) reasons.push(`ADR ${adr} does not exist under docs/adr/`)
+        if (deletions.length === 0) reasons.push('no deletions recorded')
+        else if (stillLive.length > 0) reasons.push(`deleted name(s) are still in the live surface: ${stillLive.join(', ')}`)
+        else if (deletions.length < growth) reasons.push(`only ${deletions.length} deletion(s) for a growth of ${growth}`)
+        if (decision.correction !== undefined && !correction) reasons.push('the correction record is invalid')
+        record('growth-without-evidence', `${where} grows ${key} by ${growth} without an ADR, a matching deletion or a valid correction (${reasons.join('; ')})`)
+      }
+    }
+    running = decision.to
+  })
+  const twoWay = SURFACE_TWO_WAY_KEYS.includes(key)
+  if (running !== entry.value && !(entry.decisions.length === 0 && entry.value < running && !twoWay)) {
+    record(
+      'broken-chain',
+      `${key} value ${entry.value} does not match the last decision (${running}); every count change needs a decision record`,
+    )
+  }
+  return findings
+}
+
+/**
+ * Validate the whole committed baseline. Every surface in SURFACE_KEYS is
+ * checked, so a missing `current` entry is a `surface-missing` finding.
  *
  * @param {ReturnType<typeof parseBaseline>} baseline
- * @param {{ configKeys: number, sections: number, tools: number, liveNames: { configKeys: string[], sections: string[], tools: string[] } }} current
+ * @param {{ configKeys: number, sections: number, tools: number, components: number, liveNames: { configKeys: string[], sections: string[], tools: string[], components: string[] } }} current
  * @param {{ exists?: (relativePath: string) => boolean }} [options]
  * @returns {Array<{ code: string, level: string, message: string }>}
  */
 export function validateBaseline(baseline, current, options = {}) {
-  const exists = options.exists ?? (() => false)
   const findings = []
-  const record = (code, message) => findings.push({ code, level: 'error', message })
-
   for (const key of SURFACE_KEYS) {
-    const entry = baseline.surfaces[key]
-    const live = current[key]
-    if (!Number.isInteger(live)) {
-      record('surface-missing', `live ${key} count is unavailable`)
-      continue
-    }
-    if (live !== entry.value) {
-      const direction = live > entry.value ? 'grew' : 'shrank'
-      record(
-        'stale-baseline',
-        `${key} ${direction} from the committed baseline ${entry.value} to ${live}; update ${SURFACE_BASELINE_FILE} with an ADR or a deletion record before landing`,
-      )
-    }
-    let running = entry.seed
-    entry.decisions.forEach((decision, index) => {
-      const where = `${key}.decisions[${index}]`
-      if (decision.from !== running) {
-        record('broken-chain', `${where}.from ${decision.from} does not continue from ${running}`)
-      }
-      if (decision.date !== undefined && !ISO_DATE.test(String(decision.date))) {
-        record('broken-chain', `${where}.date is not YYYY-MM-DD`)
-      }
-      const growth = decision.to - decision.from
-      if (growth > 0) {
-        const deletions = Array.isArray(decision.deletions)
-          ? decision.deletions.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim())
-          : []
-        const adr = typeof decision.adr === 'string' && decision.adr.trim() ? decision.adr.trim().replace(/\\/g, '/') : null
-        const adrExists = Boolean(adr) && adr.startsWith('docs/adr/') && adr.endsWith('.md') && exists(adr)
-        const liveNames = new Set(current.liveNames?.[key] ?? [])
-        const stillLive = deletions.filter((name) => liveNames.has(name))
-        const deletionEvidence = deletions.length >= growth && stillLive.length === 0
-        const correction = correctionEvidence(decision, where, record, exists)
-        if (!adrExists && !deletionEvidence && !correction) {
-          const reasons = []
-          if (adr && !adrExists) reasons.push(`ADR ${adr} does not exist under docs/adr/`)
-          if (deletions.length === 0) reasons.push('no deletions recorded')
-          else if (stillLive.length > 0) reasons.push(`deleted name(s) are still in the live surface: ${stillLive.join(', ')}`)
-          else if (deletions.length < growth) reasons.push(`only ${deletions.length} deletion(s) for a growth of ${growth}`)
-          if (decision.correction !== undefined && !correction) reasons.push('the correction record is invalid')
-          record('growth-without-evidence', `${where} grows ${key} by ${growth} without an ADR, a matching deletion or a valid correction (${reasons.join('; ')})`)
-        }
-      }
-      running = decision.to
-    })
-    if (running !== entry.value && !(entry.decisions.length === 0 && entry.value < running)) {
-      record(
-        'broken-chain',
-        `${key} value ${entry.value} does not match the last decision (${running}); every count change needs a decision record`,
-      )
-    }
+    findings.push(...validateSurfaceEntry(key, baseline.surfaces[key], current[key], current.liveNames?.[key], options))
   }
   return findings
+}
+
+/**
+ * Validate one surface entry of the committed baseline (the narrower form used
+ * by `docs:check:components`).
+ *
+ * @param {ReturnType<typeof parseBaseline>} baseline
+ * @param {string} key
+ * @param {Record<string, any>} current
+ * @param {{ exists?: (relativePath: string) => boolean }} [options]
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function validateSurfaceBaselineKey(baseline, key, current, options = {}) {
+  if (!SURFACE_KEYS.includes(key)) {
+    throw surfaceError(`surface ${key} is not one of ${SURFACE_KEYS.join('/')}`)
+  }
+  const entry = baseline.surfaces[key]
+  if (!entry) throw surfaceError(`surface baseline has no "${key}" entry`)
+  return validateSurfaceEntry(key, entry, current[key], current.liveNames?.[key], options)
 }

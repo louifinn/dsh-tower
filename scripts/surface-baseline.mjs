@@ -2,12 +2,14 @@
 // Concept-budget gate (#84): compare the live surface with the committed
 // baseline and require evidence for growth.
 //
-// The surface is three counts the user has to hold at once:
+// The surface is four counts the user has to hold at once:
 //   config keys   leaf keys in domain/config/schema.js (one level deep)
 //   sections      object groups in that schema
 //   tools         every tool the Host entry registers, including the
 //                 tower_mode/tower_control pair that index.js registers
 //                 directly rather than through define() (#118)
+//   components    user-visible rows in cordis.patch.yml (#120), so the 2.3.0
+//                 4 -> 1 contraction and any future move need a written decision
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
@@ -22,6 +24,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configSurface } from '../domain/config/schema.js'
+import { parseCordisPatch } from '../domain/components.js'
 import { SURFACE_CLASSIFICATION_FILE, SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
@@ -38,7 +41,8 @@ Growth is refused by default. To grow a count, update ${SURFACE_BASELINE_FILE}
 with a decision that names an existing docs/adr/ ADR, deletions that are no
 longer in the live surface, or a measurement-correction record with a reason and
 date. The classification table in
-${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once.`
+${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
+the component count comes from the visible rows in cordis.patch.yml.`
 
 /**
  * The live tool names: apply the shipped Host entry so every registration path
@@ -56,18 +60,22 @@ function liveToolNames() {
 /**
  * The live surface used by the gate. Exported so tests can compare the counts
  * with the generated references without spawning the CLI.
+ * @param {string} [root] repository root (defaults to this package)
  */
-export function liveSurface() {
+export function liveSurface(root = PACKAGE_ROOT) {
   const config = configSurface()
   const tools = liveToolNames()
+  const patch = parseCordisPatch(fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8'))
   return {
     configKeys: config.count,
     sections: config.sections.length,
     tools: tools.length,
+    components: patch.visible.length,
     liveNames: {
       configKeys: config.keys,
       sections: config.sections,
       tools,
+      components: patch.visible,
     },
   }
 }
@@ -94,6 +102,7 @@ function main(argv) {
     return result.ok ? 0 : 1
   }
   console.log(`surface: ${surfaceLine(current)}`)
+  console.log(`surface: components: ${current.components} visible (${current.liveNames.components.join(', ')})`)
   if (result.baseline) console.log(`surface: baseline ${result.baseline.date} (${SURFACE_BASELINE_FILE})`)
   if (result.classification) {
     const configRows = result.classification.entries.filter((entry) => entry.kind === 'config').length

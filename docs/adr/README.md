@@ -15,6 +15,7 @@ alternatives, Date and Status.
 | [0002](0002-single-state-json.md) | One `state.json` is the mission persistence contract | 2026-10-23 |
 | [0003](0003-allow-agent-control-default-true.md) | `allowAgentControl` defaults to `true` | 2026-10-23 |
 | [0004](0004-surface-budget.md) | The concept surface is frozen by a committed baseline | 2026-10-23 |
+| [0005](0005-component-surface.md) | Mandatory host plus individually toggleable optional component rows | 2026-10-23 |
 
 ## Template
 

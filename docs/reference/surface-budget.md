@@ -1,10 +1,12 @@
 # Surface budget
 
-The plugin measures its user-facing surface in three numbers: **config leaf keys**,
-**config sections**, and **registered tools**. The committed baseline is
-[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); the brake
-is `npm run surface:check`; the decision record is
-[ADR 0004](../adr/0004-surface-budget.md).
+The plugin measures its user-facing surface in four numbers: **config leaf keys**,
+**config sections**, **registered tools**, and **visible component rows**. The
+committed baseline is [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json);
+the brakes are `npm run surface:check` for the first three and
+`npm run docs:check:components` for the component count; the decision records are
+[ADR 0004](../adr/0004-surface-budget.md) and
+[ADR 0005](../adr/0005-component-surface.md).
 
 Decision date: 2026-10-23
 
@@ -13,6 +15,16 @@ check can read. `core` is a behavioural or safety contract, `tuning` is a safe
 default a user may want to change, and `niche` was added for one workflow and
 must carry a removal note for the next minor. A live key or tool missing from
 these tables fails `npm run surface:check`.
+
+A second axis asks who may turn a key off. It is generated from
+[`scripts/component-surface.json`](../../scripts/component-surface.json) into
+[component-surface.md](component-surface.md): every key is `core`,
+`optional-component`, `optional-config` or `forbidden-to-disable`, and the
+component count is the fourth baselined surface, two-way: a contraction needs a
+dated decision just like growth does (`npm run docs:check:components`,
+[ADR 0005](../adr/0005-component-surface.md)). The same source of truth records
+the `gateableTools` allowlist, so a `tools.expose*` route to a tool that is not
+listed is refused before it can remove a review, merge or host tool.
 
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` and `tower_control` are registered directly by `index.js`, so the
