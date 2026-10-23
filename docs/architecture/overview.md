@@ -7,6 +7,15 @@ internal sections are the Host plugin, the skills provider, and the worker/revie
 group is the only user-facing component; disabling it disables every section together, so no preset
 or skill can remain mounted while the `tower_*` tools are gone.
 
+That is the shipped shape, not the policy. [Principle 11](../../PRINCIPLES.md) and
+[ADR 0005](../adr/0005-component-surface.md) say a component may exist only for a capability whose
+off state leaves the rest intact, and that the host, health, recovery, review and merge-gate
+capabilities are never switches. Which keys are allowed to be switches is a table lookup in
+[component-surface.md](../reference/component-surface.md), generated from
+`scripts/component-surface.json`; the component count is baselined and checked by
+`npm run docs:check:components`. #121 grows this shape with individually toggleable optional rows
+and #122 removes the safety-net switches.
+
 ```
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)

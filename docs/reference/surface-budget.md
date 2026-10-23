@@ -14,6 +14,13 @@ default a user may want to change, and `niche` was added for one workflow and
 must carry a removal note for the next minor. A live key or tool missing from
 these tables fails `npm run surface:check`.
 
+A second axis asks who may turn a key off. It is generated from
+[`scripts/component-surface.json`](../../scripts/component-surface.json) into
+[component-surface.md](component-surface.md): every key is `core`,
+`optional-component`, `optional-config` or `forbidden-to-disable`, and the
+component count is the fourth baselined surface (`npm run docs:check:components`,
+[ADR 0005](../adr/0005-component-surface.md)).
+
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` and `tower_control` are registered directly by `index.js`, so the
 shipped surface was always 29. The 27 → 29 step is an explicit

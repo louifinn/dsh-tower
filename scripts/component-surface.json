@@ -1,0 +1,422 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "adr": "docs/adr/0005-component-surface.md",
+  "classes": {
+    "core": "Removing it breaks the Tower contract. It is never a switch.",
+    "optional-component": "A capability whose off state leaves the rest of Tower intact. It must be a user-visible switch with a documented fallback.",
+    "optional-config": "A tuning knob, not a capability. It stays in the config form and never hides a component.",
+    "forbidden-to-disable": "The host, the health contract, the recovery escape, the review contract and the merge gates. No group, row or boolean key may turn it off."
+  },
+  "components": [
+    {
+      "id": "tower-bundle",
+      "scope": "visible",
+      "kind": "group",
+      "fallback": "Off equals uninstalling: no Tower tools, presets or skills remain. That is the accepted all-off boundary, not a state below it."
+    },
+    {
+      "id": "tower",
+      "scope": "internal",
+      "kind": "row",
+      "fallback": "No Tower host: nothing works. Mandatory dependency, never a switch."
+    },
+    {
+      "id": "tower-skills",
+      "scope": "internal",
+      "kind": "row",
+      "fallback": "The 3 skills leave the catalog; worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost. Qualifies as an optional component (#121)."
+    },
+    {
+      "id": "preset-tower-worker",
+      "scope": "internal",
+      "kind": "row",
+      "fallback": "tower_spawn fails without the worker preset. A dependency, not a feature, never a switch."
+    },
+    {
+      "id": "preset-tower-reviewer",
+      "scope": "internal",
+      "kind": "row",
+      "fallback": "The reviewer cannot be dispatched; with review.requireReview false merge is unaffected. Qualifies as a conditional optional component (#121)."
+    }
+  ],
+  "keys": [
+    {
+      "name": "section",
+      "class": "core",
+      "note": "Legacy alias for mode.promptSection: the Tower-mode prompt contract, not a capability."
+    },
+    {
+      "name": "allowAgentControl",
+      "class": "core",
+      "note": "Legacy alias for mode.allowAgentControl: the human-owned mode rule (ADR 0003), not a component."
+    },
+    {
+      "name": "init.autoGitInit",
+      "class": "optional-config",
+      "note": "Bootstrap convenience; off only means tower_init will not run git init."
+    },
+    {
+      "name": "init.snapshotDirty",
+      "class": "optional-config",
+      "note": "Dirty-work baseline convenience; no capability is removed."
+    },
+    {
+      "name": "init.autoExclude",
+      "class": "optional-config",
+      "note": "Keeps Tower artifacts out of .git/info/exclude; safe either way."
+    },
+    {
+      "name": "mode.promptSection",
+      "class": "core",
+      "note": "Replaces the whole Tower-mode prompt text; contract text, not a capability."
+    },
+    {
+      "name": "mode.sectionAppend",
+      "class": "optional-config",
+      "note": "Appends team conventions to the prompt."
+    },
+    {
+      "name": "mode.allowAgentControl",
+      "class": "core",
+      "note": "Decides whether the model may toggle the mode (ADR 0003). A governance rule, never a component."
+    },
+    {
+      "name": "mode.autoPauseGoal",
+      "class": "core",
+      "note": "Entering the mode pauses an active goal; exit never resumes it."
+    },
+    {
+      "name": "mode.requireResumeAuthorization",
+      "class": "core",
+      "note": "Guards resuming a user-paused mission."
+    },
+    {
+      "name": "mode.requireHumanAckOnFirstEntry",
+      "class": "core",
+      "note": "First entry can require an explicit human ack."
+    },
+    {
+      "name": "mode.workspaceLock",
+      "class": "core",
+      "note": "One Tower session per repository is a safety contract; a row may not turn it off."
+    },
+    {
+      "name": "mode.workspaceLockScope",
+      "class": "optional-config",
+      "note": "Chooses whether read-only tools take the workspace lock."
+    },
+    {
+      "name": "mode.planModePolicy",
+      "class": "core",
+      "note": "Plan mode and Tower mode stay mutually exclusive."
+    },
+    {
+      "name": "mode.workspaceStaleMs",
+      "class": "optional-config",
+      "note": "Stale window for the advisory workspace lock."
+    },
+    {
+      "name": "mode.heartbeatMs",
+      "class": "optional-config",
+      "note": "Heartbeat interval while the mode is on."
+    },
+    {
+      "name": "mode.denyTools",
+      "class": "core",
+      "note": "The denied-tool list is part of the mode guard."
+    },
+    {
+      "name": "mode.storePath",
+      "class": "optional-config",
+      "note": "Custom mode-store location; no capability is removed."
+    },
+    {
+      "name": "mode.maxEntries",
+      "class": "optional-config",
+      "note": "Bounds the persisted mode store."
+    },
+    {
+      "name": "mode.lockTimeoutMs",
+      "class": "optional-config",
+      "note": "Bounded wait for the cross-process mode lock."
+    },
+    {
+      "name": "review.requireReview",
+      "class": "forbidden-to-disable",
+      "note": "Turns independent review into a merge blocker; no component may switch it off."
+    },
+    {
+      "name": "review.maxRoundsPerReviewer",
+      "class": "forbidden-to-disable",
+      "note": "Caps review rounds; part of the review contract."
+    },
+    {
+      "name": "merge.timeoutMs",
+      "class": "optional-config",
+      "note": "Default merge timeout; a per-call value wins."
+    },
+    {
+      "name": "merge.maxBufferBytes",
+      "class": "optional-config",
+      "note": "Captured merge output buffer."
+    },
+    {
+      "name": "git.timeoutMs",
+      "class": "optional-config",
+      "note": "Default Git command timeout outside merge."
+    },
+    {
+      "name": "worktrees.root",
+      "class": "optional-config",
+      "note": "Default worktree placement."
+    },
+    {
+      "name": "spawn.workerPreset",
+      "class": "core",
+      "note": "Chooses the worker tool surface; a dependency, never a switch."
+    },
+    {
+      "name": "spawn.reviewerPreset",
+      "class": "core",
+      "note": "Chooses the read-only reviewer surface; a dependency, never a switch."
+    },
+    {
+      "name": "spawn.maxDepth",
+      "class": "optional-config",
+      "note": "Subagent depth requested at spawn."
+    },
+    {
+      "name": "spawn.provider",
+      "class": "optional-config",
+      "note": "Provider route for spawned agents."
+    },
+    {
+      "name": "spawn.workerModel",
+      "class": "optional-config",
+      "note": "Optional model route for workers."
+    },
+    {
+      "name": "spawn.reviewerModel",
+      "class": "optional-config",
+      "note": "Optional independent model route for reviewers."
+    },
+    {
+      "name": "spawn.maxLiveWorkers",
+      "class": "core",
+      "note": "Resource-safety cap on live workers."
+    },
+    {
+      "name": "spawn.staleMs",
+      "class": "optional-config",
+      "note": "Roster staleness window before merge is blocked."
+    },
+    {
+      "name": "spawn.maxWaitMs",
+      "class": "optional-config",
+      "note": "Upper bound for a blocking spawn wait."
+    },
+    {
+      "name": "spawn.requireLease",
+      "class": "optional-config",
+      "note": "Advisory-lease gate before a worker starts."
+    },
+    {
+      "name": "send.maxPerMinute",
+      "class": "optional-config",
+      "note": "Message rate limit; zero disables it."
+    },
+    {
+      "name": "send.interruptDefault",
+      "class": "optional-config",
+      "note": "Default for the interrupt-before-deliver flag."
+    },
+    {
+      "name": "tests.enabled",
+      "class": "optional-component",
+      "note": "Test discovery is an optional capability (component tower-tests, #121). Off leaves mission gates intact; gates.requireTests refuses the combination."
+    },
+    {
+      "name": "tests.admission",
+      "class": "optional-config",
+      "note": "Chooses when discovery runs inside the optional tests capability."
+    },
+    {
+      "name": "tests.timeoutMs",
+      "class": "optional-config",
+      "note": "Per-command discovery timeout."
+    },
+    {
+      "name": "tests.maxBytes",
+      "class": "optional-config",
+      "note": "Captured discovery output cap."
+    },
+    {
+      "name": "tests.autoChecks",
+      "class": "optional-config",
+      "note": "Attaches a tests check to completion when discovery runs."
+    },
+    {
+      "name": "tests.allowPackageDiscovery",
+      "class": "core",
+      "note": "Allows repository code to execute; a security contract, not a component."
+    },
+    {
+      "name": "gates.requireChecks",
+      "class": "forbidden-to-disable",
+      "note": "Requires completion evidence before merge; a merge gate."
+    },
+    {
+      "name": "gates.requireTests",
+      "class": "forbidden-to-disable",
+      "note": "Requires a test receipt before merge; a merge gate."
+    },
+    {
+      "name": "gates.allowReviewExemption",
+      "class": "forbidden-to-disable",
+      "note": "The review-exemption path is part of the review and merge contract."
+    },
+    {
+      "name": "gates.maxReportBytes",
+      "class": "forbidden-to-disable",
+      "note": "The report cap is part of the completion contract; the refusal itself is never configurable away."
+    },
+    {
+      "name": "docs.board",
+      "class": "optional-config",
+      "note": "Writes the human-readable board; no capability is removed."
+    },
+    {
+      "name": "docs.boardLocation",
+      "class": "optional-config",
+      "note": "Chooses the board location."
+    },
+    {
+      "name": "archive.enabled",
+      "class": "optional-config",
+      "note": "Archival is maintenance, not a tool capability; off only leaves terminal missions hot."
+    },
+    {
+      "name": "archive.afterDays",
+      "class": "optional-config",
+      "note": "Archive age threshold."
+    },
+    {
+      "name": "archive.maxMissions",
+      "class": "optional-config",
+      "note": "Hot terminal-mission cap."
+    },
+    {
+      "name": "tools.exposeOperational",
+      "class": "forbidden-to-disable",
+      "note": "A master switch that spans the health contract and the recovery escape; it may not exist as a user switch (#122). Recorded as debt below until #122 deletes it."
+    },
+    {
+      "name": "tools.exposeBatch",
+      "class": "optional-component",
+      "note": "Evidence batches; component tower-batch (#121)."
+    },
+    {
+      "name": "tools.exposeImport",
+      "class": "optional-component",
+      "note": "Legacy import; component tower-import (#121)."
+    },
+    {
+      "name": "tools.exposeLeases",
+      "class": "optional-component",
+      "note": "Advisory leases; component tower-leases (#121)."
+    },
+    {
+      "name": "tools.exposeTests",
+      "class": "optional-component",
+      "note": "Test discovery; component tower-tests (#121)."
+    },
+    {
+      "name": "tools.exposeRecovery",
+      "class": "forbidden-to-disable",
+      "note": "Removes tower_recover, the stale-lock escape (#122). Recorded as debt below until #122 deletes it."
+    },
+    {
+      "name": "tools.exposeDoctor",
+      "class": "forbidden-to-disable",
+      "note": "Removes tower_doctor, the health contract (#122). Recorded as debt below until #122 deletes it."
+    },
+    {
+      "name": "leases.ttlMs",
+      "class": "optional-config",
+      "note": "Tuning inside the optional leases capability."
+    },
+    {
+      "name": "dev.hotReload",
+      "class": "optional-component",
+      "note": "Registers tower_reload when HMR exists; component tower-hmr, default off once #121 lands."
+    },
+    {
+      "name": "dev.reloadDelayMs",
+      "class": "optional-config",
+      "note": "Delay so a tool result is delivered before a scheduled reload."
+    },
+    {
+      "name": "dev.reloadRequiredIds",
+      "class": "optional-config",
+      "note": "Loader ids passed to reconcileProfile as required."
+    }
+  ],
+  "forbidden": [
+    {
+      "id": "host",
+      "capability": "the Tower host",
+      "reason": "Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it.",
+      "tools": [],
+      "rowIds": ["tower-host"]
+    },
+    {
+      "id": "health",
+      "capability": "tower_doctor (read-only health contract)",
+      "reason": "Diagnosis must always exist so a failure message can point at it.",
+      "tools": ["tower_doctor"],
+      "rowIds": ["tower-doctor"],
+      "acceptedSwitches": {
+        "keys": ["tools.exposeDoctor", "tools.exposeOperational"],
+        "decision": {
+          "date": "2026-10-23",
+          "ref": "docs/adr/0005-component-surface.md",
+          "issue": "#122",
+          "reason": "2.3.0 ships exposeDoctor and the exposeOperational master switch as user-settable booleans; #122 deletes them. Recorded here so a new switch fails the gate before #122 lands."
+        }
+      }
+    },
+    {
+      "id": "recovery",
+      "capability": "tower_recover (stale state-lock escape)",
+      "reason": "The escape hatch must exist whenever the lock it repairs can be left behind.",
+      "tools": ["tower_recover"],
+      "rowIds": ["tower-recover"],
+      "acceptedSwitches": {
+        "keys": ["tools.exposeRecovery", "tools.exposeOperational"],
+        "decision": {
+          "date": "2026-10-23",
+          "ref": "docs/adr/0005-component-surface.md",
+          "issue": "#122",
+          "reason": "2.3.0 ships exposeRecovery and the exposeOperational master switch as user-settable booleans; #122 deletes them. Recorded here so a new switch fails the gate before #122 lands."
+        }
+      }
+    },
+    {
+      "id": "review",
+      "capability": "the review contract",
+      "reason": "review.requireReview is a merge blocker, not a component; a row may not switch it off.",
+      "tools": [],
+      "rowIds": ["tower-review"],
+      "gatedBy": ["review.requireReview", "review.maxRoundsPerReviewer"]
+    },
+    {
+      "id": "merge-gates",
+      "capability": "the merge gates",
+      "reason": "gates.* decides delivery; a component may not bypass it.",
+      "tools": [],
+      "rowIds": ["tower-gates", "tower-merge-gates"],
+      "gatedBy": ["gates.requireChecks", "gates.requireTests", "gates.allowReviewExemption", "gates.maxReportBytes"]
+    }
+  ]
+}

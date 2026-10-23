@@ -2,6 +2,13 @@
 # user-visible component: disabling it disables every internal section (host,
 # skills, worker/reviewer presets) together, so no orphan preset or skill can
 # point at missing tower_* tools. See docs/architecture/overview.md.
+#
+# That boundary equals uninstalling, which is why it is accepted; it is not the
+# target shape. The policy that governs what may be a switch is principle 11 in
+# PRINCIPLES.md + docs/adr/0005-component-surface.md, and the per-key answer is
+# docs/reference/component-surface.md. Optional rows arrive with #121 and the
+# safety-net switches are removed with #122; `npm run docs:check:components`
+# refuses a new switch and a moved component count without a written decision.
 - insert:
     - id: tower-bundle
       name: cordis:group

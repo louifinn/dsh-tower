@@ -68,6 +68,11 @@ function baselineFor(values, decisions = {}, seeds = {}) {
         value: values.tools ?? 1,
         decisions: decisions.tools ?? [],
       },
+      components: {
+        seed: seeds.components ?? values.components ?? 1,
+        value: values.components ?? 1,
+        decisions: decisions.components ?? [],
+      },
     },
   })
 }
@@ -77,10 +82,12 @@ function currentFor(values, names = {}) {
     configKeys: values.configKeys,
     sections: values.sections,
     tools: values.tools,
+    components: values.components ?? 1,
     liveNames: {
       configKeys: names.configKeys ?? [],
       sections: names.sections ?? [],
       tools: names.tools ?? [],
+      components: names.components ?? [],
     },
   }
 }
@@ -91,7 +98,11 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(current.configKeys, baseline.surfaces.configKeys.value)
   assert.equal(current.sections, baseline.surfaces.sections.value)
   assert.equal(current.tools, baseline.surfaces.tools.value)
+  assert.equal(current.components, baseline.surfaces.components.value)
   assert.equal(current.configKeys, configSurface().count)
+  // #120: the component surface is the visible rows in cordis.patch.yml.
+  assert.equal(current.components, 1)
+  assert.deepEqual(current.liveNames.components, ['tower-bundle'])
 
   const classification = fs.readFileSync(path.join(root, 'docs', 'reference', 'surface-budget.md'), 'utf8')
   const result = validateClassification(classification, current.liveNames, { baselineDate: baseline.date })

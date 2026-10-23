@@ -138,6 +138,12 @@ Mode entry and `tower_plan` validate both presets before work starts. A missing 
 with `preset-missing` and names `preset-tower-worker` / `preset-tower-reviewer`, instead of planning
 or spawning first and dead-ending at review/merge.
 
+That single row is the accepted all-off boundary, not the target shape. [Principle 11](PRINCIPLES.md)
+and [ADR 0005](docs/adr/0005-component-surface.md) say a component may exist only for a capability
+whose off state leaves the rest intact; the host, health, recovery, review and merge-gate
+capabilities are never switches. The per-key answer is the generated
+[component surface](docs/reference/component-surface.md), enforced by `npm run docs:check:components`.
+
 ## Configuration
 
 ```yaml
@@ -168,11 +174,11 @@ or spawning first and dead-ending at review/merge.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown top-level keys are rejected so typos cannot silently disable security-relevant settings, while unknown keys inside a group are ignored. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
-## Tools (27 core)
+## Tools (29: 20 core + 9 optional)
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` is registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 29 tools). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+The list above is the 20 core tools plus 7 of the optional verification/ops tools. `tower_control` is the eighth optional tool, registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is the ninth, registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 29 tools: 20 core + 9 optional). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 

@@ -27,6 +27,19 @@
           }
         }
       ]
+    },
+    "components": {
+      "seed": 4,
+      "value": 1,
+      "decisions": [
+        {
+          "from": 4,
+          "to": 1,
+          "date": "2026-10-23",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "The component surface joins the budget with its history. 2.0.4 shipped four top-level rows (tower, tower-skills, preset-tower-worker, preset-tower-reviewer); 2.3.0 replaced them with one tower-bundle group row that still mounts the same four sections. This is a recorded contraction, not a free ratchet: the seed stays at 4 so any further move -- including the #121 growth back to individually toggleable optional rows -- must extend this chain with a dated decision."
+        }
+      ]
     }
   }
 }

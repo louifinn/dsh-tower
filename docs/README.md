@@ -9,7 +9,7 @@ Choose a path:
 | New user | [When to use Tower](guide/scenarios-and-philosophy.md) → [Quick start](guide/quickstart.md) → [Tools](reference/tools.md) → [Example](examples/first-mission.md) |
 | Choosing a workflow | [When to use Tower, and how it differs from Agent Teams, Ralph, Workflow and parallel subagents](guide/scenarios-and-philosophy.md) |
 | Operator | [Runbook](operations/runbook.md) → [Blockers](reference/blockers.md) → [Error codes](reference/errors.md) → [Events](reference/events.md) → [Doctor](reference/doctor.md) → [Testing](reference/testing.md) → [Batches/leases/legacy](reference/operations.md) → [Security](operations/security.md) → [Incidents and regressions](operations/incident.md) |
-| Maintainer | [Engineering principles](../PRINCIPLES.md) → [ADRs](adr/README.md) → [Architecture](architecture/overview.md) → [Surface budget](reference/surface-budget.md) → [Config](reference/config.md) → [Hot reload](guide/hot-reload.md) → [Release checklist](guide/release.md) → [Tracker board](board.md) → [Contributing](../CONTRIBUTING.md) |
+| Maintainer | [Engineering principles](../PRINCIPLES.md) → [ADRs](adr/README.md) → [Architecture](architecture/overview.md) → [Surface budget](reference/surface-budget.md) → [Component surface](reference/component-surface.md) → [Config](reference/config.md) → [Hot reload](guide/hot-reload.md) → [Release checklist](guide/release.md) → [Tracker board](board.md) → [Contributing](../CONTRIBUTING.md) |
 
 Reference pages are the source of truth for the current release; the [tools reference](reference/tools.md),
 [blocker list](reference/blockers.md) and [error codes](reference/errors.md) are checked against the
@@ -37,6 +37,7 @@ Other useful pages: [When to use Tower](guide/scenarios-and-philosophy.md), [Ins
 - [Batches, leases and legacy import](reference/operations.md)
 - [Doctor](reference/doctor.md)
 - [Surface budget and classification](reference/surface-budget.md)
+- [Component surface: who may be switched off](reference/component-surface.md)
 
 **Operations and background**
 
