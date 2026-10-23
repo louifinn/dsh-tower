@@ -166,10 +166,6 @@ jobs:
     env:
       DSH_LIVE: '1'
       DSH_HOST_VERSION: ${{ matrix.dsh }}
-      # #47: same contract as the push-level check above — os.tmpdir() must equal
-      # runner.temp for the guard to accept DSH_HOME under it.
-      TMPDIR: ${{ runner.temp }}
-      DSH_HOME: ${{ runner.temp }}/dsh-live-home
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -194,6 +190,11 @@ jobs:
         env:
           DSH_HOST_DIR: ${{ runner.temp }}/dsh-host
           DSH_REPO: ${{ github.workspace }}
+          # #47: same contract as the push-level check above — os.tmpdir() must equal
+          # runner.temp for the guard to accept DSH_HOME under it. runner context is
+          # step-only, so these live here, not at job level (invalid workflow otherwise).
+          TMPDIR: ${{ runner.temp }}
+          DSH_HOME: ${{ runner.temp }}/dsh-live-home
         run: |
           mkdir -p "$DSH_HOME"
           npm run test:live -- --script nightly
