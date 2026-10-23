@@ -1,5 +1,4 @@
 // Inbox/message use cases.
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
@@ -14,7 +13,7 @@ function fail(message) {
 }
 
 export async function recordMessage(tower, input) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       if (!Array.isArray(state.messages)) state.messages = []
       assertMessageRecipient({ roster: state.roster ?? [], to: input.to, from: input.from })
@@ -27,8 +26,8 @@ export async function recordMessage(tower, input) {
       state.updatedAt = now
 
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'message',
         text: `${input.from} -> ${input.to}: ${input.subject}`,
@@ -38,20 +37,20 @@ export async function recordMessage(tower, input) {
   }
 
   export async function recordDelivery(tower, messageId, results) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const message = (state.messages ?? []).find((entry) => entry.id === messageId)
       if (!message) fail(`unknown message "${messageId}"`)
       addDelivery(message, results)
       state.revision += 1
       state.updatedAt = Date.now()
-      await writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
       return message.delivery
     })
   }
 
   export async function inbox(tower, input) {
-    return withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async () => {
       const state = await tower.load()
       const now = Date.now()
       const { payload, changed } = inboxView(state.messages ?? [], input, now)
@@ -59,7 +58,7 @@ export async function recordMessage(tower, input) {
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
       }
       return payload
     })

@@ -1,5 +1,4 @@
 // tower_spawn: provision and start a worker/reviewer.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
@@ -9,13 +8,14 @@ import {
   precheckSpawnServices,
   precheckWorkerOwnership,
   resolveRosterName,
-} from '../lib/spawn-prechecks.js'
-import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../lib/spawn-support.js'
+} from '../app/spawn-prechecks.js'
+import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../app/spawn-support.js'
 
 /**
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
+ *   openTower: any,
  *   actorFor: any,
  *   requireTowerActor: any,
  *   enqueueSpawn: any,
@@ -25,6 +25,7 @@ import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../li
  *   recordSpawnSuccess: any,
  *   runMissionDiscovery: any,
  *   textOf: any,
+ *   inspectLeases: any,
  * }} deps
  */
 export function registerSpawnTool(ctx, deps) {
@@ -43,7 +44,7 @@ export function registerSpawnTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.spawn),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
       const role = args.role ?? DEFAULT_ROLE
@@ -68,7 +69,9 @@ export function registerSpawnTool(ctx, deps) {
           role, tower, ctx, view, missionId: args.missionId, takeover: args.takeover,
           maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity,
         })
-        const { subagents, provider } = await precheckSpawnServices({ tower, ctx, config, preset, actor, exec })
+        const { subagents, provider } = await precheckSpawnServices({
+          tower, ctx, config, preset, actor, exec, inspectLeases: deps.inspectLeases,
+        })
 
         const provisioned = await tower.provision({
           missionId: args.missionId,

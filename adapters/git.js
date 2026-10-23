@@ -1,6 +1,6 @@
 import { TowerToolError } from '../domain/errors.js'
 // Minimal git port: array arguments only, bounded output, no shell.
-import { execFile } from '../adapters/vcs-git.js'
+import { execFile } from './vcs-git.js'
 import path from 'node:path'
 
 const GIT_TIMEOUT_MS = 15000

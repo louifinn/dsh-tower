@@ -17,10 +17,11 @@
 // from. A writer that slipped in between observation and write makes the
 // prepare stale, so the whole prepare is retried, never partially applied.
 import path from 'node:path'
-import { withLock, withGitLock, gitMutexOptions, writeJsonAtomic, appendJsonl, exists } from '../lib/store.js'
 import { validateState } from '../domain/state.js'
 import {
   alreadyMergedResult,
+  applyLandedMerge,
+  applyMergeSuccess,
   buildMergeIntent,
   classifyCommitOutcome,
   gateTipDrift,
@@ -37,7 +38,6 @@ import {
   mergeIntentEvidence,
   mergeIntentReconcileNote,
   mergeShapeDetail,
-  mergeSuccessNote,
   missionMissingResult,
   pendingMergeIntentResult,
   staleBaseResult,
@@ -83,7 +83,7 @@ async function observeMergeIntent(tower, state, mission) {
   } catch {
     return null
   }
-  const mergeInProgress = await exists(path.join(tower.commonDir, 'MERGE_HEAD'))
+  const mergeInProgress = await tower.deps.store.exists(path.join(tower.commonDir, 'MERGE_HEAD'))
   if (mergeInProgress) return null
   if (head === intent.baseTip) return mergeIntentEvidence({ head, baseTip: intent.baseTip, mergeInProgress, landed: null })
   const tips = new Set([intent.branchTip, intent.baseTip].filter(Boolean))
@@ -98,7 +98,7 @@ async function observeMergeIntent(tower, state, mission) {
  * the new state instead of overwriting it.
  */
 async function applyMergeIntentReconcile(tower, stateRevision, missionId, evidence) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
@@ -108,8 +108,8 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
     delete state.mergeIntent
     state.revision += 1
     state.updatedAt = now
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
       missionId: mission.id,
@@ -173,31 +173,30 @@ async function observeLandedMerge(tower, state, mission) {
 
 /** Locked write half of `reconcileLandedMerge`, guarded by the revision CAS. */
 async function applyLandedMergeReconcile(tower, stateRevision, missionId, observed) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
     if (!mission) return { result: missionMissingResult(missionId) }
     const now = Date.now()
     if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent
-    mission.status = 'merged'
-    mission.mergedAt = now
-    mission.mergedCommit = observed.mergedCommit
-    mission.blockers = []
-    mission.notes.push(
-      landedMergeNote({ found: observed.found, mergedCommit: observed.mergedCommit, base: state.base }),
-    )
-    mission.updatedAt = now
+    const applied = applyLandedMerge({
+      mission,
+      mergedCommit: observed.mergedCommit,
+      note: landedMergeNote({ found: observed.found, mergedCommit: observed.mergedCommit, base: state.base }),
+      now,
+    })
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
       missionId: mission.id,
       text: `reconciled already-landed ${observed.mergedCommit.slice(0, 7)} on ${state.base}`,
     })
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return { result: landedMergeResult(observed) }
   })
 }
@@ -302,7 +301,7 @@ async function prepareFromState(tower, input, deps) {
  * next tower_merge/preflight instead of leaving an unexplained base tip.
  */
 async function recordMergeIntent(tower, plan) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     // State revision policy: the plan was built from `plan.stateRevision`; a
     // writer that slipped in before any Git mutation makes the plan stale and
@@ -336,7 +335,7 @@ async function recordMergeIntent(tower, plan) {
     })
     state.revision += 1
     state.updatedAt = now
-    await writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
     return { intent: state.mergeIntent, intentRevision: state.revision }
   })
 }
@@ -361,7 +360,7 @@ async function runMergeGit(tower, plan, intent, deps) {
   }
 
   const newTip = await tower.revParse(tower.root, 'HEAD')
-  const parents = await commitParents(tower.root, newTip)
+  const parents = await commitParents(tower, tower.root, newTip)
   const expectedShape = isExpectedMergeShape(parents, intent.baseTip, intent.branchTip)
   const warnings = []
 
@@ -384,12 +383,12 @@ async function runMergeGit(tower, plan, intent, deps) {
     const conflict = unmerged.trim().length > 0
     let cleanup = 'none'
     const mergeHeadPath = path.join(tower.commonDir, 'MERGE_HEAD')
-    if (await exists(mergeHeadPath)) {
+    if (await tower.deps.store.exists(mergeHeadPath)) {
       try {
         await tower.git(tower.root, ['merge', '--abort'])
         cleanup = 'aborted'
       } catch {
-        await removeStaleGitLocks(tower.commonDir)
+        await removeStaleGitLocks(tower, tower.commonDir)
         try {
           await tower.git(tower.root, ['merge', '--abort'])
           cleanup = 'aborted-after-lock-cleanup'
@@ -411,7 +410,7 @@ async function runMergeGit(tower, plan, intent, deps) {
     if (dirtyAfter.length > 0) {
       const changed = new Set(plan.changedFiles)
       if (newTip === intent.baseTip && dirtyAfter.every((file) => changed.has(file))) {
-        await removeStaleGitLocks(tower.commonDir)
+        await removeStaleGitLocks(tower, tower.commonDir)
         await tower.git(tower.root, ['reset', '--hard', intent.baseTip]).catch(() => {})
         cleanup = cleanup === 'none' ? 'reset' : `${cleanup}+reset`
       } else {
@@ -435,7 +434,7 @@ async function runMergeGit(tower, plan, intent, deps) {
 
 /** Phase 3: apply the observed outcome under a short state lock. */
 async function commitMerge(tower, plan, recorded, outcome) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === plan.missionId)
     if (!mission) return missionMissingResult(plan.missionId)
@@ -463,21 +462,24 @@ async function commitMerge(tower, plan, recorded, outcome) {
     if (kind === 'merged') {
       const now = Date.now()
       if (intentActive) delete state.mergeIntent
-      mission.status = 'merged'
-      mission.mergedAt = now
-      mission.mergedCommit = outcome.newTip
-      mission.updatedAt = now
-      mission.notes.push(mergeSuccessNote(recorded.intent.branchTip, state.base, outcome.newTip))
+      const applied = applyMergeSuccess({
+        mission,
+        branchTip: recorded.intent.branchTip,
+        base: state.base,
+        newTip: outcome.newTip,
+        now,
+      })
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'merge',
         missionId: mission.id,
         text: `${recorded.intent.branchTip.slice(0, 7)} -> ${outcome.newTip.slice(0, 7)} on ${state.base}`,
       })
+      tower.emitEvents(applied.events, { revision: state.revision, at: now })
       return {
         ok: true,
         mergedCommit: outcome.newTip,
@@ -497,8 +499,8 @@ async function commitMerge(tower, plan, recorded, outcome) {
         state.mergeIntent.problem = { code: 'merge-shape', newTip: outcome.newTip, parents: outcome.parents, at: Date.now() }
         state.revision += 1
         state.updatedAt = Date.now()
-        await writeJsonAtomic(tower.paths.state, state)
-        await appendJsonl(tower.paths.activity, {
+        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.deps.store.appendJsonl(tower.paths.activity, {
           at: state.updatedAt,
           type: 'merge',
           missionId: mission.id,
@@ -528,8 +530,8 @@ async function commitMerge(tower, plan, recorded, outcome) {
     mission.updatedAt = now
     state.revision += 1
     state.updatedAt = now
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
       missionId: mission.id,
@@ -550,7 +552,7 @@ export async function merge(tower, input, deps) {
   const plan = await prepareMerge(tower, input, deps)
   if (plan.result) return plan.result
 
-  const acted = await withGitLock(
+  const acted = await tower.deps.store.withGitLock(
     tower.paths,
     async () => {
       // No Git mutation has happened yet: a base that moved after prepare is a
@@ -570,7 +572,7 @@ export async function merge(tower, input, deps) {
       return { recorded, outcome }
     },
     // The merge itself may hold the mutex for plan.timeoutMs (#93).
-    gitMutexOptions(tower, { phase: 'merge', mergeTimeoutMs: plan.timeoutMs }),
+    tower.gitMutexOptions({ phase: 'merge', mergeTimeoutMs: plan.timeoutMs }),
   )
   if (acted.result) return acted.result
 

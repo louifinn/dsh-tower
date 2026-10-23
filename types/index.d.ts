@@ -106,7 +106,7 @@ export interface CompletionReport {
   checks?: CompletionCheck[]
 }
 
-/** One recorded test-discovery receipt (lib/tests.js). */
+/** One recorded test-discovery receipt (adapters/tests.js). */
 export interface TestRun {
   version?: number
   ok?: boolean

@@ -1,5 +1,4 @@
 // Independent review submission use case.
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { sweepArchive } from './archive.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -12,6 +11,7 @@ import {
   reviewRound,
   reviewOutcome,
   reviewRecord,
+  applyReviewOutcome,
 } from '../domain/missions/review.js'
 
 function fail(message, code = 'invalid-argument') {
@@ -83,7 +83,7 @@ export async function submitReview(tower, input) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const prepared = await prepareReview(tower, input)
     try {
-      return await withLock(tower.paths, async () => {
+      return await tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) {
       throw new TowerToolError('stale-base', 'tower state changed while the review was being prepared; retry')
@@ -122,21 +122,20 @@ export async function submitReview(tower, input) {
       reviewerName: prepared.reviewerName,
       appended: prepared.appended,
     })
-    if (outcome.returnToActive) mission.status = 'active'
-    mission.notes.push(outcome.note)
-    mission.updatedAt = now
+    const applied = applyReviewOutcome({ mission, outcome, now })
     await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'review',
       missionId: mission.id,
       text: `round ${prepared.round} ${prepared.reviewerName}: ${prepared.status} / ${prepared.merge} @ ${prepared.tip.slice(0, 12)}`,
     })
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return {
       review,
       branchTip: prepared.tip,

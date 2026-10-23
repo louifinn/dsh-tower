@@ -14,8 +14,15 @@ import {
   isTowerRole,
   isUnknownRole,
 } from '../domain/vocabulary.js'
-import { git, resolveRepo, hasAnyCommit } from './git.js'
+import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { runtimeConfig } from './config.js'
+import { runDoctor } from './doctor.js'
+import { createHmrBridge } from './hmr.js'
+import { assertPresetsAvailable } from './presets.js'
+import { readStateLock } from '../adapters/store.js'
+import { lockTiming } from '../adapters/persistence.js'
+import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js'
+import { importLegacySnapshot, validateLegacyMap } from '../adapters/legacy.js'
 import { registerDoctorTool } from '../tools/doctor.js'
 import { registerRecoverTool } from '../tools/recover.js'
 import { registerTestTool } from '../tools/test.js'
@@ -43,10 +50,12 @@ import { registerSpawnTool } from '../tools/spawn.js'
 import { registerCompleteTool } from '../tools/complete.js'
 import { registerFindingTool } from '../tools/finding.js'
 import { registerFindingsTool } from '../tools/findings.js'
-import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from './tests.js'
+import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
+import { assertPorts } from '../ports/index.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import crypto from 'node:crypto'
 
 // Mutable composition state is grouped in one const object: the registration
@@ -54,6 +63,26 @@ import crypto from 'node:crypto'
 const runtimeState = {
   workspaceHook: null,
   hmrBridge: null,
+  // #69: the host entry builds the adapter set once and passes it in. The lazy
+  // fallback is for tests/embedders that call registerTowerTools() directly;
+  // it is still built once per process.
+  deps: null,
+}
+
+/** The injected port set for the app layer (built once per process). */
+function towerDeps() {
+  if (!runtimeState.deps) runtimeState.deps = createDefaultDeps()
+  return runtimeState.deps
+}
+
+/** Compose the app Tower with the injected ports (never a bare adapter import). */
+function openTower(repoRoot) {
+  return Tower.open(repoRoot, towerDeps())
+}
+
+/** Build a Tower with an explicit config for the read-only doctor path. */
+function createTower(repo, config) {
+  return new Tower(repo, config, towerDeps())
 }
 
 function normalizeToolArgs(args, aliases = {}) {
@@ -364,7 +393,7 @@ function define(ctx, definition) {
         }
         if (board === true && typeof normalized.repoRoot === 'string') {
           try {
-            const opened = await Tower.open(normalized.repoRoot)
+            const opened = await openTower(normalized.repoRoot)
             await opened.writeBoard()
           } catch {
             // board output is best effort
@@ -451,6 +480,24 @@ async function observeActivity(ctx, tower) {
 export function registerTowerTools(ctx, options = {}) {
   runtimeState.workspaceHook = options.workspace ?? null
   runtimeState.hmrBridge = options.hmrBridge ?? null
+  // #69: the host entry (index.js) is the composition root. When it supplies the
+  // port set, adopt it — validated once — instead of constructing a second set
+  // here. Tests/embedders that omit deps fall back to one lazily built set.
+  // #75: the event port is bound here to the live Cordis emitter; emitting is
+  // best effort so a listener can never fail the tool that produced the fact.
+  const baseDeps = options.deps ? assertPorts(options.deps) : (runtimeState.deps ?? createDefaultDeps())
+  runtimeState.deps = {
+    ...baseDeps,
+    events: {
+      emit(name, payload) {
+        try {
+          ctx.emit?.(name, payload)
+        } catch {
+          // events are an optional side channel; never fail a tool for them
+        }
+      },
+    },
+  }
   // A lightweight roster watchdog: the authoritative activity comes from the
   // subagents catalog; a missing observation after spawn.staleMs is marked
   // stale (never silently treated as stopped) and blocks merge via the gate.
@@ -460,7 +507,7 @@ export function registerTowerTools(ctx, options = {}) {
       try {
         if (!ctx.get('subagents')) return
         for (const repoRoot of [...WATCHED_REPOS]) {
-          const tower = await Tower.open(repoRoot)
+          const tower = await openTower(repoRoot)
           const view = await tower.rosterView()
           const live = view.roster.filter((entry) => !ROSTER_INACTIVE_STATES.includes(entry.state))
           if (live.length === 0) { WATCHED_REPOS.delete(repoRoot); continue }
@@ -481,59 +528,59 @@ export function registerTowerTools(ctx, options = {}) {
   }, watchMs)
   timer.unref?.()
   ctx.effect(() => () => clearInterval(timer))
-  registerInitTool(ctx, { define, actorFor, requireTowerActor, workspaceHook: runtimeState.workspaceHook, ensureRepository })
+  registerInitTool(ctx, { openTower, define, actorFor, requireTowerActor, workspaceHook: runtimeState.workspaceHook, ensureRepository, resolveRepo, runtimeConfig })
 
-  registerPlanTool(ctx, { define, actorFor, requireTowerActor })
+  registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor, assertPresetsAvailable })
 
-  registerMissionTool(ctx, { define, actorFor, requireKnownActor })
+  registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerStatusTool(ctx, { define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity })
+  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity })
 
-  registerSpawnTool(ctx, { define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf })
+  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
 
-  registerRosterTool(ctx, { define, workspaceHook: runtimeState.workspaceHook, observeActivity, actorFor, requireTowerActor, interruptRosterAgent })
+  registerRosterTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, observeActivity, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerInterruptTool(ctx, { define, actorFor, requireTowerActor, interruptRosterAgent })
+  registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffTool(ctx, { define, actorFor, requireTowerActor })
+  registerDiffTool(ctx, { openTower, define, actorFor, requireTowerActor })
 
-  registerAdoptTool(ctx, { define, actorFor, requireTowerActor })
+  registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 
-  registerSendTool(ctx, { define, actorFor, checkSendRate })
+  registerSendTool(ctx, { openTower, define, actorFor, checkSendRate })
 
-  registerInboxTool(ctx, { define })
+  registerInboxTool(ctx, { openTower, define })
 
-  registerCompleteTool(ctx, { define, runMissionDiscovery })
+  registerCompleteTool(ctx, { openTower, define, runMissionDiscovery })
 
-  registerFindingTool(ctx, { define, actorFor, requireKnownActor })
+  registerFindingTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerFindingsTool(ctx, { define, actorFor, requireKnownActor })
+  registerFindingsTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerReviewTool(ctx, { define, actorFor })
+  registerReviewTool(ctx, { openTower, define, actorFor })
 
-  registerPreflightTool(ctx, { define, observeActivity })
+  registerPreflightTool(ctx, { openTower, define, observeActivity })
 
-  registerMergeTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
+  registerMergeTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
-  registerRebaseTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
+  registerRebaseTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
-  registerTeardownTool(ctx, { define, actorFor, requireTowerActor, observeActivity })
+  registerTeardownTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
-  registerDoctorTool(ctx, define)
+  registerDoctorTool(ctx, { openTower, define, createTower, resolveRepo, runtimeConfig, runDoctor })
 
-  registerRecoverTool(ctx, { define, actorFor, requireTowerActor })
+  registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
 
-  registerTestTool(ctx, { define, actorFor, requireKnownActor, runMissionDiscovery })
+  registerTestTool(ctx, { openTower, define, actorFor, requireKnownActor, runMissionDiscovery })
 
-  registerBatchTool(ctx, { define, actorFor, requireTowerActor, summarizeBatch, verifyBatchReceiptFiles })
+  registerBatchTool(ctx, { openTower, define, actorFor, requireTowerActor, summarizeBatch, verifyBatchReceiptFiles })
 
-  registerResourceTool(ctx, { define, actorFor, requireTowerActor })
+  registerResourceTool(ctx, { openTower, define, actorFor, requireTowerActor, acquireLease, releaseLease, inspectLeases })
 
-  registerImportLegacyTool(ctx, { define, actorFor, requireTowerActor })
+  registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot })
 
-  registerLegacyMapTool(ctx, { define, actorFor, requireTowerActor })
+  registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor, validateLegacyMap })
 
-  registerReloadTool(ctx, { define, actorFor, requireTowerActor, sharedHmrBridge: runtimeState.hmrBridge })
+  registerReloadTool(ctx, { openTower, define, actorFor, requireTowerActor, sharedHmrBridge: runtimeState.hmrBridge, runtimeConfig, createHmrBridge })
 }
 
 export const __testSpawnBackoff = {

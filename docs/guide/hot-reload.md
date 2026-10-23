@@ -86,7 +86,7 @@ To stop watching, run `npm run dev:hmr -- --remove` and restart DSH once.
 
 ## The edit loop
 
-1. Edit `lib/*.js`, `index.js`, `worker.js`, `reviewer.js` or `skills.js`.
+1. Edit `host/*.js`, `adapters/*.js`, `app/*.js`, `domain/**/*.js`, `index.js`, `worker.js`, `reviewer.js` or `skills.js`.
 2. Save the file. The watcher debounces (DSH default 100 ms) and reconciles the profile; changed
    modules are replaced and the affected Loader entries restart.
 3. Watch the DSH log for `reload plugin at <path>` / `restart required: …` messages.

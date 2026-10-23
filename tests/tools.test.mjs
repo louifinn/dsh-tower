@@ -10,8 +10,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function makeCtx(services = {}) {

@@ -1,4 +1,4 @@
-// Offline tests for the 2.1 test-discovery admission module (lib/tests.js).
+// Offline tests for the 2.1 test-discovery admission module (adapters/tests.js).
 // Every command is a local shell snippet (PowerShell/bash) or a fake runner;
 // no network, no DSH runtime, no real $DSH_HOME.
 // Run with: node --test tests/discovery.test.mjs
@@ -17,7 +17,7 @@ import {
   parseTap,
   parseJsonArray,
   runDiscovery,
-} from '../lib/tests.js'
+} from '../adapters/tests.js'
 
 const isWindows = process.platform === 'win32'
 

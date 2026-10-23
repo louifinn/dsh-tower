@@ -12,9 +12,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower, SCHEMA_VERSION } from '../app/tower.js'
-import { configureRuntime } from '../lib/config.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
+import { SCHEMA_VERSION } from '../app/tower.js'
+import { configureRuntime } from '../host/config.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {

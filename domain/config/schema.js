@@ -2,7 +2,7 @@
 //
 // This module is pure: it declares the Schemastery schema, validates raw config
 // objects, and materializes defaults. Profile and repository loading (fs and the
-// process-local profile snapshot) live in lib/config.js, which re-exports
+// process-local profile snapshot) live in host/config.js, which re-exports
 // `Config` and `resolveTowerConfig` for compatibility.
 //
 // Layers, lowest precedence first:

@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { assertOwnership, canonicalPath } from '../lib/worktreeOwnership.js'
+import { assertOwnership, canonicalPath } from '../adapters/worktreeOwnership.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

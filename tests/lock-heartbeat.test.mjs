@@ -24,10 +24,10 @@ import {
   lockStaleAfterMs,
   reclaimDeadLock,
   touchLock,
-} from '../lib/persistence.js'
-import { pathsFor, withLock } from '../lib/store.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
+} from '../adapters/persistence.js'
+import { pathsFor, withLock } from '../adapters/store.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
 
 const DEAD_PID = 999999
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -187,8 +187,15 @@ test('a lock that keeps heartbeating is never stolen even when the waiter times 
     const holderToken = (await readLockFile(paths.lock)).token
 
     const before = (await readLockFile(paths.lock)).at
-    await sleep(60)
-    const during = await readLockFile(paths.lock)
+    // The heartbeat timer shares this event loop, so a fixed sleep can elapse
+    // before one tick under a loaded CI host (seen on Node 24). Poll for the
+    // rewrite instead of assuming a tick lands inside the window.
+    let during = await readLockFile(paths.lock)
+    const heartbeatDeadline = Date.now() + 2000
+    while (!(during.at > before) && Date.now() < heartbeatDeadline) {
+      await sleep(10)
+      during = await readLockFile(paths.lock)
+    }
     assert.ok(during.at > before, 'a held lock must keep rewriting its heartbeat')
     assert.equal(during.token, holderToken)
 

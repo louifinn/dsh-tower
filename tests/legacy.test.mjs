@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { importLegacySnapshot, validateLegacyMap, validateLegacySnapshot } from '../lib/legacy.js'
+import { importLegacySnapshot, validateLegacyMap, validateLegacySnapshot } from '../adapters/legacy.js'
 
 const HASH = 'a'.repeat(64)
 

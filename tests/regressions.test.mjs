@@ -8,9 +8,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../app/tower.js'
-import { loadModes, saveModes } from '../lib/modeStore.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
+import { loadModes, saveModes } from '../host/modeStore.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

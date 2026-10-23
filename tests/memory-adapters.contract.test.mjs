@@ -1,7 +1,7 @@
 // Contract tests for the no-disk/no-git doubles under tests/support (#50).
 //
 // The doubles exist so a future Tower lifecycle can inject a store and a vcs
-// instead of importing lib/store.js and lib/git.js. These tests pin the two
+// instead of importing adapters/store.js and adapters/git.js. These tests pin the two
 // properties that make that possible:
 //
 //   1. surface parity - the doubles expose what app/tower.js actually calls;
@@ -14,9 +14,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-import * as realStore from '../lib/store.js'
-import * as realGit from '../lib/git.js'
-import { Tower } from '../app/tower.js'
+import * as realStore from '../adapters/store.js'
+import * as realGit from '../adapters/git.js'
+import { Tower } from '../host/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { PORTS } from '../ports/index.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
@@ -43,7 +46,7 @@ test('memory store exposes the state-store surface app/tower.js imports', () => 
 
   assert.deepEqual(Object.keys(paths).sort(), Object.keys(realPaths).sort())
   for (const name of [...STORE_SURFACE, ...STORE_EXTRA_SURFACE]) {
-    assert.equal(typeof store[name], typeof realStore[name], `store.${name} must match lib/store.js`)
+    assert.equal(typeof store[name], typeof realStore[name], `store.${name} must match adapters/store.js`)
   }
   for (const value of Object.values(paths)) {
     assert.ok(value.startsWith(MEMORY_SCHEME), `pathsFor values must be virtual, saw ${value}`)
@@ -54,7 +57,7 @@ test('memory store exposes the state-store surface app/tower.js imports', () => 
 test('scripted vcs exposes the git surface Tower calls', () => {
   const vcs = createScriptedVcs()
   for (const name of VCS_SURFACE) {
-    assert.equal(typeof realGit[name], 'function', `lib/git.js must export ${name}`)
+    assert.equal(typeof realGit[name], 'function', `adapters/git.js must export ${name}`)
     assert.equal(typeof Tower.prototype[name], 'function', `Tower must expose ${name}`)
     assert.equal(typeof vcs[name], 'function', `scripted vcs must expose ${name}`)
   }
@@ -270,6 +273,156 @@ test('scripted vcs models the commands Tower issues and rejects everything else'
   assert.equal(vcs.unscripted.length, 2)
   assert.ok(vcs.calls.length > 0)
   assert.ok(vcs.calls.every((call) => call.cwd.startsWith('/virtual/')), 'every scripted call stays virtual')
+})
+
+test('the default adapters implement every port declared in ports/', () => {
+  const deps = createDefaultDeps()
+  for (const [member, port] of Object.entries(PORTS)) {
+    assert.ok(deps[member], `default deps must expose the ${member} port`)
+    for (const method of port.contract.methods) {
+      assert.equal(
+        typeof deps[member][method],
+        'function',
+        `${member}.${method} must exist at runtime on the ${port.contract.name} implementation`,
+      )
+    }
+  }
+})
+
+test('the in-memory doubles implement the store and vcs port contracts', () => {
+  const store = createMemoryStore()
+  const vcs = createScriptedVcs()
+  const implementations = new Map([
+    [PORTS.store, store],
+    [PORTS.vcs, vcs],
+  ])
+  for (const [port, impl] of implementations) {
+    for (const method of port.contract.methods) {
+      assert.equal(typeof impl[method], 'function', `${port.contract.name}.${method} must exist on the double`)
+    }
+  }
+})
+
+test('Tower validates its injected ports at construction', () => {
+  const repo = { root: '/virtual/repo', commonDir: '/virtual/repo/.git' }
+  assert.throws(() => new Tower(repo, {}, {}), /store: expected an object implementing StorePort/)
+  assert.throws(() => new Tower(repo, {}, null), /requires an injected deps object/)
+})
+
+/** The minimal registration context: tools are captured, effects are disposable. */
+function makeRegistrationCtx() {
+  const tools = new Map()
+  const disposers = []
+  const ctx = {
+    effect(fn) {
+      const dispose = fn()
+      const disposer = typeof dispose === 'function' ? dispose : () => {}
+      disposers.push(disposer)
+      return disposer
+    },
+    get() {
+      return undefined
+    },
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition)
+        return () => {}
+      },
+      guard() {
+        return () => {}
+      },
+    },
+    systemPrompt: { section() {} },
+  }
+  return { ctx, tools, dispose: () => disposers.forEach((dispose) => dispose()) }
+}
+
+/**
+ * Every `deps.<port>.<method>` call under `root`, recursively.
+ * Returns `{ calls, files }`, where `calls` maps `member.method` to the source
+ * files that call it and `files` counts the modules scanned.
+ */
+function collectPortCalls(root) {
+  const calls = new Map()
+  let files = 0
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        walk(new URL(`${entry.name}/`, dir))
+      } else if (entry.name.endsWith('.js')) {
+        files += 1
+        const file = new URL(entry.name, dir)
+        const source = fs.readFileSync(file, 'utf8')
+        for (const match of source.matchAll(/deps\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+          const key = `${match[1]}.${match[2]}`
+          if (!calls.has(key)) calls.set(key, new Set())
+          calls.get(key).add(file.pathname)
+        }
+      }
+    }
+  }
+  walk(root)
+  return { calls, files }
+}
+
+test('every deps port call in app/** and tools/** is declared by its port', () => {
+  // #69: the contracts are only a substitutability guarantee if they declare
+  // every method the receiving layers call. Both layers receive the same deps
+  // object (app through Tower, tools through openTower), so both are scanned:
+  // tools/recover.js calling an undeclared store.rename is exactly the kind of
+  // gap an app-only scan misses.
+  const roots = {
+    app: new URL('../app/', import.meta.url),
+    tools: new URL('../tools/', import.meta.url),
+  }
+  const calls = new Map()
+  const scanned = {}
+  for (const [name, root] of Object.entries(roots)) {
+    const found = collectPortCalls(root)
+    scanned[name] = found.files
+    for (const [key, files] of found.calls) {
+      if (!calls.has(key)) calls.set(key, new Set())
+      for (const file of files) calls.get(key).add(file)
+    }
+  }
+  assert.ok(scanned.app > 0 && scanned.tools > 0, `both layers must be scanned, saw ${JSON.stringify(scanned)}`)
+  assert.ok(calls.size > 0, 'the app and tools layers must reach their dependencies through deps')
+  const missing = []
+  for (const key of [...calls.keys()].sort()) {
+    const [member, method] = key.split('.')
+    const port = PORTS[member]
+    if (!port) missing.push(`${key} (no such port member: ${member})`)
+    else if (!port.contract.methods.includes(method)) missing.push(`${key} <- ${[...calls.get(key)].join(', ')}`)
+  }
+  assert.deepEqual(missing, [], `ports must declare every deps call in app/** and tools/**: ${missing.join('; ')}`)
+})
+
+test('the composition root supplies the ports the registry injects', async () => {
+  // #69: index.js constructs the adapter set once and passes it to
+  // registerTowerTools; the registry must inject that set into every Tower.
+  const deps = createDefaultDeps()
+  const sentinel = {
+    ...deps,
+    vcs: {
+      ...deps.vcs,
+      resolveRepo: async () => {
+        throw new Error('sentinel-composition-root: injected ports were used')
+      },
+    },
+  }
+  const { ctx, tools, dispose } = makeRegistrationCtx()
+  try {
+    registerTowerTools(ctx, { deps: sentinel })
+    const status = tools.get('tower_status')
+    assert.ok(status, 'tower_status is registered')
+    await assert.rejects(
+      () => status.execute({ repoRoot: '/virtual/repo' }, { agent: { id: 'contract-test' } }),
+      /sentinel-composition-root/,
+      'the registry must open the Tower with the host-supplied port set',
+    )
+  } finally {
+    dispose()
+  }
 })
 
 test('the doubles have no filesystem or process dependency', () => {

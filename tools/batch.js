@@ -1,5 +1,4 @@
 // tower_batch: finite evidence batches.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { BatchInput } from '../domain/contracts/tool-inputs/index.js'
@@ -7,7 +6,7 @@ import { BATCH_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any, summarizeBatch: any, verifyBatchReceiptFiles: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, summarizeBatch: any, verifyBatchReceiptFiles: any }} deps
  */
 export function registerBatchTool(ctx, deps) {
   const { define, actorFor, requireTowerActor, summarizeBatch, verifyBatchReceiptFiles } = deps
@@ -19,7 +18,7 @@ export function registerBatchTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.batch),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       if (args.action === BATCH_ACTION.status) {
         const state = await tower.load()

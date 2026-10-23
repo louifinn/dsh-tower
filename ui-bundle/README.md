@@ -1,6 +1,6 @@
 # Tower UI (optional Client bundle)
 
-An **optional** Web Client bundle for the Host `dsh-tower` plugin. It never touches Tower state directly: everything it renders is derived from the conversation the user is already looking at, or from the tool results already in that conversation. There is no Host → Client remote channel, no `host.call`, no DOM manipulation, no iframe, and no import of Harness Client packages (the only module it requires is `react` from the browser module table).
+An **optional** Web Client bundle for the Host `dsh-tower` plugin. It never touches Tower state directly: everything it renders is derived from the conversation the user is already looking at, or from the tool results already in that conversation. There is no Host → Client remote channel, no `host.call`, no DOM manipulation, no iframe, and no import of Harness Client packages (the only browser module-table word it requires is `react`).
 
 Version: **0.2.2** (private, not published). The Host plugin version is unchanged.
 
@@ -20,6 +20,39 @@ The cards are deliberately compact: mission status/counts, task checklist progre
 
 The overlay strip is `pointer-events: none` end-to-end and uses `role="status"` / `aria-live="polite"`; it never blocks the composer or the page.
 
+## Source layout (#71)
+
+The bundle is split along the surfaces above. `client.js` is the entry: it owns
+the diagnostics seam and the registrations, and loads the package-local chunks
+through the DSH client module system's `require.async("./client.<surface>.js")`
+(bundles execute as classic scripts, so the entry cannot require a sibling
+synchronously). Every chunk registers through the same `window.__ModuleLoader__`
+surface as `{ id: 'dsh-tower-ui', chunk: 'client.<surface>.js', factory }` and
+receives the shared helpers/styles/locales through the `env` the entry composes;
+no chunk reaches the Host or another chunk.
+
+| File | Surface |
+|---|---|
+| `client.js` | entry: diagnostics, `apply`, the five registrations |
+| `client.toolview.js` | toolview card: lifecycle + `TowerToolCard` |
+| `client.cards.js` | the per-tool card models behind the card |
+| `client.dock.js` | composer dock: mode chip, unknown state, latest summary |
+| `client.mode.js` | history-derived mode model + observable |
+| `client.denied.js` | mode-aware `Tower mode · disabled` rows |
+| `client.overlay.js` | transient `shell.overlay` status strip + notice store |
+| `client.locales.js` | `en`/`zh` dictionaries and the `t`-seat helpers |
+| `client.styles.js` | the `--dsw-alias-*` inline style table |
+| `client.helpers.js` | tool vocabulary + defensive payload helpers |
+| `index.js` | Host half (empty `apply`) |
+
+The client tier is gated by `scripts/architecture.mjs` like any other source
+root: `client-no-node` (no `node:*` imports; DOM globals are fine),
+`client-size` (800-line ceiling per file) and `client-ambient` (no module-level
+`let`; state lives in the `create*` closure), each with a seeded fixture in
+`tests/architecture.test.mjs`. Every client source file stays under 400 lines
+and the split preserves the pre-split line total within 10%
+(`tests/ui-bundle.test.mjs`).
+
 ## Persistent Tower-mode indicator (#11)
 
 Tower mode is a Host-side session stance and there is no Client RPC for it. The dock derives it from the durable session history that the Chat projection exposes in `useChat(snapshot.legacy)`:
@@ -38,7 +71,7 @@ The Host guard returns a plain tool error like `tower mode: <tool> is disabled w
 
 While the displayed session is in Tower mode the bundle dynamically registers `tool.call.toolview` entries for:
 
-- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise `lib/config.js` `DEFAULT_DENY_TOOLS` (`create_goal`, `todo_write`, `team_task_create`, `team_task_update`, `team_task_reopen`, `team_task_list`, `spawn_teammate`, `wait_agent`, `workflow`, `ralph`, `subagent`, `subagent_fork`);
+- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise `host/config.js` `DEFAULT_DENY_TOOLS` (`create_goal`, `todo_write`, `team_task_create`, `team_task_update`, `team_task_reopen`, `team_task_list`, `spawn_teammate`, `wait_agent`, `workflow`, `ralph`, `subagent`, `subagent_fork`);
 - `update_goal` unconditionally, because the guard special-cases its `action: "resume"`.
 
 Those entries register with `priority: -10`. The slot core renders the lowest priority for a key, so this shadows the native keyed views without replacing them; disposing the entries (mode off) restores the native views exactly. A denial result renders as a distinct **`Tower mode · disabled`** row (warn marker, label, the preserved denial message, and the `/tower off` hint) — not the generic error text styling. `update_goal` resume denials get the same row. A non-denial result that lands in one of those slots while the mode is on renders a defensive generic row (there is no native view to delegate to while the registration shadows it); ordinary tool errors are not misclassified as Tower-mode denials.
@@ -56,7 +89,7 @@ Verified **statically** against the installed DSH **0.2.1-rc.2** sources:
 - Locale: `ctx.locale.register(ns, { en, zh })`, dictionaries are flat `key → template` maps with `{param}` interpolation; a slot declaration's `locale` option supplies the bound `t` seat.
 - The bundle's `dsh.client.inject` orders activation after `ui-conversation` and `ui-tool`, the two packages that declare the slots it targets. `ctx.slots.inject` only installs a registration while its owner declaration exists; each injection is guarded and reported in diagnostics instead of crashing the whole Client half.
 
-Automated offline coverage: `tests/ui-bundle.test.mjs` loads `client.js` through a fake `window.__ModuleLoader__`, asserts the 12 keys / dock id / overlay id, en–zh dictionary parity, theme-token discipline, and renders every card plus the dock/overlay components with fake hooks. It also drives fake chat history through the dock to assert the off hint, the on chip (including refresh re-derivation), `tower_mode`/`tower_control`/command updates, dynamic registration for default and configured deny lists, disposal on mode off, `update_goal`, denial-row treatment, generic fallbacks, and locale parity — no browser required.
+Automated offline coverage: `tests/ui-bundle.test.mjs` loads `client.js` through a fake `window.__ModuleLoader__` (and each split chunk through the same loader when the entry calls `require.async`), asserts the 12 keys / dock id / overlay id, en–zh dictionary parity, theme-token discipline, every file's loader format and the split-size budget, and renders every card plus the dock/overlay components with fake hooks. It also drives fake chat history through the dock to assert the off hint, the on chip (including refresh re-derivation), `tower_mode`/`tower_control`/command updates, dynamic registration for default and configured deny lists, disposal on mode off, `update_goal`, denial-row treatment, generic fallbacks, and locale parity — no browser required.
 
 Live/browser verification is **opt-in** (`tests/live/ui-slots.cjs`) because it needs an isolated profile with the bundle installed. From a teammate/subagent session the Client `Slots` inspect query times out by design (the page answers only the agent whose session it displays), so this phase did not run a live inspection; the source-level contract above is the evidence. When the script runs against an installed profile it binds a session with a bare `/tower` command and asserts, through the read-only `window.__TOWER_UI_DIAG__` report, that apply() ran without errors, that all 12 toolview keys and the dock/overlay entries registered, that the dock outlet is visible, and — since the bind command turns the Host mode on — that the history-derived `Tower · on` chip rendered (#11). The chip can be inspected visually in the same run (`data-tower-ui="dock-mode"`).
 
@@ -65,6 +98,7 @@ Live/browser verification is **opt-in** (`tests/live/ui-slots.cjs`) because it n
 ```powershell
 # offline, no browser
 node --check ui-bundle/client.js
+Get-ChildItem ui-bundle -Filter 'client*.js' | ForEach-Object { node --check $_.FullName }
 node --test tests/ui-bundle.test.mjs
 
 # opt-in live check (isolated profile only)

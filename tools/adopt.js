@@ -1,5 +1,4 @@
 // tower_adopt: reconcile the roster with the subagent catalog.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { AdoptInput } from '../domain/contracts/tool-inputs/index.js'
@@ -7,7 +6,7 @@ import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_STATE } from '../domain/vocab
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
  */
 export function registerAdoptTool(ctx, deps) {
   const { define, actorFor, requireTowerActor } = deps
@@ -19,7 +18,7 @@ export function registerAdoptTool(ctx, deps) {
     aliases: { retire_missing: ['retireMissing'] },
     output: output(SCHEMAS.adopt),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'adopt the roster')
       const view = await tower.rosterView()

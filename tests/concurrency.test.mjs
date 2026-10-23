@@ -9,8 +9,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower, validateState } from '../app/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
+import { validateState } from '../app/tower.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -279,7 +280,7 @@ test('reconcileObservedInactive releases a slot as soon as the catalog reports i
 
 test('Tower instances keep independent git timeouts without mutating the process default', async () => {
   const { root, repo } = seedRepo()
-  const { configuredGitTimeout } = await import('../lib/git.js')
+  const { configuredGitTimeout } = await import('../adapters/git.js')
   try {
     git(repo, ['init'])
     const first = new Tower({ root: repo, commonDir: path.join(repo, '.git'), branch: 'main' }, { git: { timeoutMs: 1000 } })
@@ -296,7 +297,7 @@ test('withGitLock serializes git work without the state lock', async () => {
   const fs = await import('node:fs')
   const os = await import('node:os')
   const path = await import('node:path')
-  const { withGitLock, pathsFor } = await import('../lib/store.js')
+  const { withGitLock, pathsFor } = await import('../adapters/store.js')
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-gitlock-'))
   const commonDir = path.join(root, '.git')
   try {
@@ -318,7 +319,7 @@ test('withGitLock serializes concurrent git mutations', async () => {
   const fs = await import('node:fs')
   const os = await import('node:os')
   const path = await import('node:path')
-  const { withGitLock, pathsFor } = await import('../lib/store.js')
+  const { withGitLock, pathsFor } = await import('../adapters/store.js')
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-gitlock-serialize-'))
   const commonDir = path.join(root, '.git')
   try {
@@ -342,7 +343,7 @@ test('withGitLock serializes concurrent git mutations', async () => {
 })
 
 test('Tower accepts injected adapters instead of importing the defaults', async () => {
-  const { Tower } = await import('../app/tower.js')
+  const { Tower } = await import('../host/tower.js')
   const { defaultDeps } = await import('../adapters/default.js')
   let gitCalls = 0
   let readCalls = 0

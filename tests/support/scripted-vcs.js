@@ -1,4 +1,4 @@
-// Scripted in-memory VCS replacement for lib/git.js (#50): the git surface
+// Scripted in-memory VCS replacement for adapters/git.js (#50): the git surface
 // Tower calls through its own methods:
 //
 //   git(cwd, args)                  -> scripted command dispatch
@@ -125,15 +125,24 @@ export function createScriptedVcs(options = {}) {
 
   function mergeBaseCommand(cwd, args) {
     const rest = args.slice(1)
-    if (rest[0] !== '--is-ancestor') throw gitFailure(args, 'scripted vcs supports only merge-base --is-ancestor')
-    const ancestor = resolveRef(cwd, rest[1])
-    const descendant = resolveRef(cwd, rest[2])
-    if (!isAncestorCommit(ancestor, descendant)) {
-      const error = gitFailure(args, 'exit status 1')
-      error.exitCode = 1
-      throw error
+    if (rest[0] === '--is-ancestor') {
+      const ancestor = resolveRef(cwd, rest[1])
+      const descendant = resolveRef(cwd, rest[2])
+      if (!isAncestorCommit(ancestor, descendant)) {
+        const error = gitFailure(args, 'exit status 1')
+        error.exitCode = 1
+        throw error
+      }
+      return ''
     }
-    return ''
+    // Plain `merge-base A B`: the first shared commit on B's ancestry walk.
+    const left = resolveRef(cwd, rest[0])
+    const right = resolveRef(cwd, rest[1])
+    const leftReachable = reachableCommits(left)
+    for (const sha of reachableCommits(right)) {
+      if (leftReachable.has(sha)) return sha
+    }
+    throw gitFailure(args, 'no merge base')
   }
 
   function mergeCommand(cwd, args) {
@@ -267,6 +276,11 @@ export function createScriptedVcs(options = {}) {
     return ''
   }
 
+  /** Name-only/status diffs are empty: the scripted graph carries no file tree. */
+  function diffCommand(_cwd, _args) {
+    return ''
+  }
+
   const COMMANDS = {
     'rev-parse': revParseCommand,
     status: statusCommand,
@@ -281,6 +295,7 @@ export function createScriptedVcs(options = {}) {
     'for-each-ref': forEachRefCommand,
     'update-ref': updateRefCommand,
     'ls-files': () => '',
+    diff: diffCommand,
     reset: resetCommand,
   }
 
@@ -319,6 +334,28 @@ export function createScriptedVcs(options = {}) {
     return (await tryGit(cwd, ['merge-base', '--is-ancestor', ancestor, descendant])) !== null
   }
 
+  async function resolveRepo(repoRoot) {
+    const root = normalizePath(repoRoot)
+    if (root !== repoRoot) throw gitFailure([], `not a scripted repository: ${repoRoot}`)
+    return { root, commonDir: `${repoRoot}/.git`, branch: branchAt(root) }
+  }
+
+  async function currentBranchAt(cwd) {
+    return branchAt(cwd)
+  }
+
+  async function countCommits(cwd, fromRef) {
+    return Number(await git(cwd, ['rev-list', '--count', `${fromRef}..HEAD`]))
+  }
+
+  async function listWorktrees(_cwd) {
+    const entries = [{ path: repoRoot, branch: currentBranch, head: headAt(repoRoot) }]
+    for (const worktree of worktrees.values()) {
+      entries.push({ path: worktree.path, branch: worktree.branch, head: headAt(worktree.path) })
+    }
+    return entries
+  }
+
   // ---- test-only scripting helpers (not part of the vcs port) ----------------
 
   function seed(seedOptions = {}) {
@@ -345,6 +382,10 @@ export function createScriptedVcs(options = {}) {
     revParse,
     isClean,
     isAncestor,
+    resolveRepo,
+    currentBranch: currentBranchAt,
+    countCommits,
+    listWorktrees,
     // scripting/inspection helpers
     seed,
     commit,

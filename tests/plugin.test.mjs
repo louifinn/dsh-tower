@@ -19,7 +19,7 @@ process.env.DSH_HOME = home
 test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
-const { loadModes } = await import('../lib/modeStore.js')
+const { loadModes } = await import('../host/modeStore.js')
 const { validateJsonSchema } = await import('./schema-validator.mjs')
 
 function assertSchema(tool, value) {
@@ -422,7 +422,7 @@ test('individual operational flags gate one capability without hiding core tools
 })
 
 test('requireTests with tests/tool disabled is rejected at config resolution', async () => {
-  const { resolveTowerConfig } = await import('../lib/config.js')
+  const { resolveTowerConfig } = await import('../host/config.js')
   assert.throws(
     () => resolveTowerConfig({ gates: { requireTests: true }, tools: { exposeTests: false } }),
     /requireTests.*test discovery is disabled/,

@@ -4,14 +4,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { classifyError } from '../domain/errors.js'
-import { GitError } from '../lib/git.js'
+import { GitError } from '../adapters/git.js'
 
 test('classifyError: structured TowerToolError is passed through', async () => {
   const { TowerToolError } = await import('../domain/errors.js')
   for (const code of ['state-corrupt', 'invalid-transition', 'not-authorized', 'invalid-argument']) {
     const error = new TowerToolError(code, 'x')
     assert.equal(classifyError(error), error)
-    assert.equal(error.message, `[tower:${code}] x`)
+    assert.ok(error.message.startsWith(`[tower:${code}] x`), error.message)
   }
 })
 
@@ -39,7 +39,7 @@ test('classifyError: prose alone no longer classifies', () => {
 })
 
 test('spawn backoff: three retryable failures trigger cooldown and success restores budget', async () => {
-  const { __testSpawnBackoff: backoff } = await import('../lib/tool-registry.js')
+  const { __testSpawnBackoff: backoff } = await import('../host/tool-registry.js')
   const key = 'C:/tmp/backoff-test'
   backoff.spawnBackoffState(key, 4)
   for (let i = 0; i < 3; i += 1) backoff.recordSpawnThrottle(key, 4)
@@ -66,7 +66,14 @@ test('every TowerToolError literal uses a catalog code', async () => {
   const { fileURLToPath } = await import('node:url')
   const { isErrorCode } = await import('../domain/errors.js')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const files = ['index.js', ...fs.readdirSync(path.join(root, 'lib')).filter((name) => name.endsWith('.js')).map((name) => `lib/${name}`)]
+  // #70: the retired lib/ layer is gone; scan every source root instead.
+  const walk = (dir) =>
+    fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
+      const rel = `${dir}/${entry.name}`
+      if (entry.isDirectory()) return walk(rel)
+      return entry.name.endsWith('.js') ? [rel] : []
+    })
+  const files = ['index.js', ...['host', 'app', 'domain', 'tools', 'adapters', 'ports'].flatMap(walk)]
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), 'utf8')
     for (const match of text.matchAll(/new TowerToolError\('([^']+)'/g)) {
@@ -81,6 +88,64 @@ test('structured TowerToolError derives retryable from the catalog', async () =>
   assert.equal(new TowerToolError('stale-base', 'x').retryable, true)
   assert.equal(new TowerToolError('invalid-argument', 'x').retryable, false)
   assert.equal(new TowerToolError('invalid-argument', 'x', { retryable: true }).retryable, true)
+})
+
+// #74: the recovery metadata is not only computed, it reaches the model.
+test('every catalog entry with a nextAction renders it exactly once', async () => {
+  const { ERROR_CODES, TowerToolError } = await import('../domain/errors.js')
+  const entries = Object.entries(ERROR_CODES).filter(([, entry]) => entry.nextAction !== null)
+  assert.ok(entries.length > 0, 'the catalog must supply at least one recovery step')
+  for (const [code, entry] of entries) {
+    const message = new TowerToolError(code, 'boom').message
+    assert.ok(message.startsWith(`[tower:${code}] boom`), code)
+    assert.equal(message.split('— next:').length - 1, 1, `${code} must render one next segment`)
+    assert.equal(message.split(entry.nextAction).length - 1, 1, `${code} must render its action once`)
+  }
+})
+
+test('codes without a nextAction stay byte-identical to the pre-#74 snapshot', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const { ERROR_CODES, TowerToolError } = await import('../domain/errors.js')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  // Two real catalog entries with no recovery step, pinned byte-for-byte.
+  const snapshot = JSON.parse(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'error-messages.json'), 'utf8'))
+  for (const [code, expected] of Object.entries(snapshot)) {
+    assert.equal(ERROR_CODES[code].nextAction, null, code)
+    assert.equal(new TowerToolError(code, 'boom').message, expected, code)
+  }
+})
+
+test('a message that already contains its action is not suffixed twice', async () => {
+  const { ERROR_CODES, TowerToolError } = await import('../domain/errors.js')
+  const action = ERROR_CODES['worktree-dirty'].nextAction
+  const message = new TowerToolError('worktree-dirty', `worktree is dirty; ${action}`).message
+  assert.equal(message, `[tower:worktree-dirty] worktree is dirty; ${action}`)
+  assert.equal(message.split('— next:').length - 1, 0)
+  // An explicit call-site action (e.g. the report cap) wins over the catalog.
+  const custom = new TowerToolError('invalid-argument', 'over the cap', { nextAction: 'trim the report' }).message
+  assert.equal(custom, '[tower:invalid-argument] over the cap — next: trim the report')
+})
+
+test('retryable is visible on every retryable code and only there', async () => {
+  const { ERROR_CODES, TowerToolError } = await import('../domain/errors.js')
+  for (const [code, entry] of Object.entries(ERROR_CODES)) {
+    const message = new TowerToolError(code, 'boom').message
+    if (entry.retryable) {
+      assert.ok(entry.nextAction, `${code} is retryable and must document how to recover`)
+      assert.ok(message.endsWith(` — next: ${entry.nextAction} (retryable)`), code)
+    } else {
+      assert.equal(message.includes('(retryable)'), false, `${code} is not retryable`)
+    }
+  }
+})
+
+test('classifyError applies the catalog recovery metadata to promoted errors', async () => {
+  const { classifyError } = await import('../domain/errors.js')
+  const promoted = classifyError(Object.assign(new Error('writer busy'), { code: 'state-locked' }))
+  assert.equal(promoted.retryable, true)
+  assert.match(promoted.message, /— next: .* \(retryable\)$/)
 })
 
 test('pure domain validation throws structured errors', async () => {

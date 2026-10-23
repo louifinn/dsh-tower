@@ -200,7 +200,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | 路径 | 内容 |
 |---|---|
 | `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（单个 `tower-bundle` group，内含 Host、skills 与两个 preset） |
-| `index.js`、`lib/`、`worker.js` | Host 入口、协议实现、worker preset 策略 |
+| `index.js`、`host/`、`adapters/`、`app/`、`domain/`、`ports/`、`tools/`、`worker.js` | Host 入口；`domain/` 纯核心；`ports/` 契约；`adapters/` 唯一 I/O；`app/` 用例；`host/` 组合根与会话胶水；`tools/` 每工具一个 handler；worker preset 策略 |
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
 | `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
@@ -212,7 +212,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 npm test        # node --test tests/*.test.mjs
 ```
 
-热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `lib/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
+热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `host/`、`adapters/`、`app/`、`domain/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
 
 离线套件不需要 DSH 进程，只在系统临时目录创建一次性 Git 仓库。隔离 Web 运行时检查、模型驱动验收和会话诊断脚本见 `tests/README.md`。
 
@@ -222,7 +222,7 @@ npm test        # node --test tests/*.test.mjs
 
 | Job | 声明 | 证据 |
 |---|---|---|
-| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、三个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
+| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、四个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
 | `test (22, windows)`（`windows-latest`，非必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
 | `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
 | `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |

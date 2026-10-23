@@ -10,17 +10,18 @@
 // Pure normalization and DAG policy live in domain/missions.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_plan: create missions.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { assertPresetsAvailable } from '../lib/presets.js'
 import { PlanInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, assertPresetsAvailable: any }} deps
  */
 export function registerPlanTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  // #70: preset validation is injected by the composition root, so this tool
+  // never imports host/ or adapters/ directly.
+  // openTower is injected by the composition root (#69).
+  const { define, actorFor, requireTowerActor, assertPresetsAvailable } = deps
   define(ctx, {
     name: 'tower_plan',
     description:
@@ -29,7 +30,7 @@ export function registerPlanTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.plan),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'plan missions')
       await assertPresetsAvailable(ctx, tower.config)

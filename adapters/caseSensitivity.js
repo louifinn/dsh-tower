@@ -13,7 +13,7 @@
 //          stat failure). "Unknown" is deliberately not "case-sensitive": init
 //          keeps working and `tower_doctor` reports the safe default.
 import path from 'node:path'
-import { fsp } from '../adapters/store-fs.js'
+import { fsp } from './store-fs.js'
 
 /** Prefix is public so tests and support code can recognise a leaked probe. */
 export const CASE_PROBE_PREFIX = '.tower-case-probe-'

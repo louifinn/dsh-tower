@@ -58,7 +58,7 @@ Put the **host build in cell 0** and the **tag in cell 1**:
 | 0.2.1-rc.2 | v2.1.0-beta.1 | 2026-10-22 | `npm test`, `npm run docs:check`, mount smoke |
 ```
 
-`lib/compatibility.js#parseCompatibility` reads cells 0–3 only: never insert a column before
+`host/compatibility.js#parseCompatibility` reads cells 0–3 only: never insert a column before
 the tag and never add one before "what was run", or `tower_doctor` stops seeing the row. The
 host pin in `scripts/mount-smoke/host.json` must equal cell 0 of the newest row (a unit test
 enforces it).

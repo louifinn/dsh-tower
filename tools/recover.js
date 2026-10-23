@@ -1,19 +1,15 @@
 // tower_recover: explicit stale state-lock diagnostics/repair.
-import { Tower } from '../app/tower.js'
-import { readStateLock } from '../lib/store.js'
-import { lockTiming } from '../lib/persistence.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { fsp } from '../adapters/store-fs.js'
 import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
 import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, readStateLock: any, lockTiming: any }} deps
  */
 export function registerRecoverTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, readStateLock, lockTiming } = deps
   define(ctx, {
     name: 'tower_recover',
     description:
@@ -21,7 +17,7 @@ export function registerRecoverTool(ctx, deps) {
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'recover Tower state')
       const now = Date.now()
@@ -55,9 +51,12 @@ export function registerRecoverTool(ctx, deps) {
           `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive (last heartbeat ${timing.heartbeatAgeMs ?? 'unknown'}ms ago, stale after ${timing.staleAfterMs}ms); pass force:true with confirm:"CLEAR_STALE_LOCK" to move it to a backup after confirming no writer is active`,
         )
       }
-      // Always rename, never unlink: the recovered bytes stay auditable.
+      // Always rename, never unlink: the recovered bytes stay auditable. Use the
+      // plain port primitive, not `renameWithRetry`: the retrying helper has
+      // temp-file semantics and unlinks its source when the rename finally
+      // fails, which would destroy the record we are trying to preserve.
       const backup = `${tower.paths.lock}.recovered-${Date.now()}`
-      await fsp.rename(tower.paths.lock, backup)
+      await tower.deps.store.rename(tower.paths.lock, backup)
       return {
         ok: true,
         action: RECOVERY_ACTION.clearStaleLock,

@@ -1,12 +1,11 @@
 // tower_preflight: read-only merge gate digest.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { classifyError } from '../domain/errors.js'
 import { PreflightInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, observeActivity: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, observeActivity: any }} deps
  */
 export function registerPreflightTool(ctx, deps) {
   const { define, observeActivity } = deps
@@ -19,7 +18,7 @@ export function registerPreflightTool(ctx, deps) {
     requiresMissionId: true,
     output: output(SCHEMAS.preflight),
     async execute(args) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const { activity, parentStatus } = await observeActivity(ctx, tower)
       const gate = await tower.evaluateGate({ missionId: args.missionId, activity, parentStatus })
       return {

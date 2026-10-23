@@ -5,15 +5,15 @@ import {
   assignMissionIds,
   assertKnownDependencies,
   newMission,
+  applyPlan,
 } from '../domain/missions/plan.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
-import { withLock, writeJsonAtomic, appendJsonl } from '../lib/store.js'
 import { sweepArchive } from './archive.js'
 
 export async function plan(tower, input = {}) {
   const prepared = normalizePlanMissions(input)
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const now = Date.now()
     // Archived ids stay in the known set: a new mission must not reuse an id
@@ -28,18 +28,21 @@ export async function plan(tower, input = {}) {
     assertAcyclic([...known, ...assigned])
 
     const created = assigned.map((mission) => newMission(mission.id, mission, now))
-    state.missions.push(...created)
+    const applied = applyPlan(state, created)
     const swept = await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'plan',
       text: `created ${created.map((mission) => mission.id).join(', ')}`,
     })
+    // Persist first, then describe: the event carries the revision the caller
+    // can read back from state.json (#75).
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return {
       revision: state.revision,
       missions: created.map((mission) => fullMission(mission)),

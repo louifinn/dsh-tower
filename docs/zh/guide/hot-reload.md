@@ -82,7 +82,7 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 
 ## 编辑循环
 
-1. 编辑 `lib/*.js`、`index.js`、`worker.js`、`reviewer.js` 或 `skills.js`。
+1. 编辑 `host/*.js`、`adapters/*.js`、`app/*.js`、`domain/**/*.js`、`index.js`、`worker.js`、`reviewer.js` 或 `skills.js`。
 2. 保存文件。监视器会去抖（DSH 默认 100 ms）并对账 profile；变更的模块被替换，受影响的 Loader
    条目重启。
 3. 观察 DSH 日志中的 `reload plugin at <path>` / `restart required: …` 消息。

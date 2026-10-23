@@ -19,7 +19,7 @@ import {
   DEFAULT_DELAY_MS,
   DEFAULT_REQUIRED_IDS,
   createHmrBridge,
-} from '../lib/hmr.js'
+} from '../host/hmr.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
   MARKER,

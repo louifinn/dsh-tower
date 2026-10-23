@@ -8,17 +8,15 @@
 // Pure legacy validation lives in domain and never runs fs.
 // See docs/reference/tools.generated.md for the public shape.
 // tower_import_legacy: read-only legacy snapshot import.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { importLegacySnapshot } from '../lib/legacy.js'
 import { ImportLegacyInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, importLegacySnapshot: any }} deps
  */
 export function registerImportLegacyTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, importLegacySnapshot } = deps
   define(ctx, {
     name: 'tower_import_legacy',
     description:
@@ -27,7 +25,7 @@ export function registerImportLegacyTool(ctx, deps) {
     board: true,
     output: output(SCHEMAS.importLegacy),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'import a legacy snapshot')
       const imported = await importLegacySnapshot({

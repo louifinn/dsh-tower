@@ -1,5 +1,4 @@
 // tower_send: durable inbox message delivery.
-import { Tower } from '../app/tower.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { SendInput } from '../domain/contracts/tool-inputs/index.js'
@@ -17,6 +16,7 @@ import {
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
+ *   openTower: any,
  *   actorFor: any,
  *   checkSendRate: any,
  * }} deps
@@ -31,7 +31,7 @@ export function registerSendTool(ctx, deps) {
     aliases: { consentRef: ['consent_ref'] },
     output: output(SCHEMAS.send),
     async execute(args, exec) {
-      const tower = await Tower.open(args.repoRoot)
+      const tower = await deps.openTower(args.repoRoot)
       checkSendRate(tower.config, args.repoRoot)
       const actor = await actorFor(tower, exec)
       const view = await tower.rosterView()

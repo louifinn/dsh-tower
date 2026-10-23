@@ -6,8 +6,6 @@
 //             the repo-scoped git mutex, never under the state lock.
 //   commit  — one short state lock writes/claims/reanchors, revalidating the
 //             state revision captured by prepare.
-import { withLock, withGitLock, gitMutexOptions, exists, ensureDir, writeJsonAtomic, appendJsonl } from '../lib/store.js'
-import { detectCaseSensitivity } from '../lib/caseSensitivity.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import {
@@ -36,16 +34,13 @@ function fail(message, code = 'invalid-argument') {
 }
 
 /**
- * Probe the checkout's own filesystem through the injected seam. The default
- * composition uses the real probe; a composition that predates #90 keeps
- * working through the fallback.
+ * Probe the checkout's own filesystem through the injected case-sensitivity
+ * port. tower_init probes once and records the answer in state (#90).
  * @param {any} tower
  * @returns {Promise<boolean | null>}
  */
-async function detectCaseMode(tower) {
-  const detect = tower.deps?.caseSensitivity?.detect
-  if (typeof detect === 'function') return detect(tower.root)
-  return detectCaseSensitivity(tower.root)
+function detectCaseMode(tower) {
+  return tower.deps.caseSensitivity.detect(tower.root)
 }
 
 /** Phase 1 of `Tower.init` (#51). A read-only init returns its result here. */
@@ -68,7 +63,7 @@ async function prepareInit(tower, input) {
     return /** @type {{ base: string }} */ (fallback).base
   }
 
-  if (await exists(tower.paths.state)) {
+  if (await tower.deps.store.exists(tower.paths.state)) {
     const state = await tower.load()
     const owner = state.towerAgentId ? String(state.towerAgentId) : null
     const caller = input.towerAgentId ? String(input.towerAgentId) : null
@@ -108,8 +103,8 @@ async function prepareInit(tower, input) {
  * revalidated first so a concurrent init cannot leave an unreferenced snapshot.
  */
 async function actInitCreate(tower, prepared) {
-  return withGitLock(tower.paths, async () => {
-    if (await exists(tower.paths.state)) return { stale: true }
+  return tower.deps.store.withGitLock(tower.paths, async () => {
+    if (await tower.deps.store.exists(tower.paths.state)) return { stale: true }
     if (!prepared.snapshot) return { snapshotCommit: null, snapshotRef: null }
     const snapshotCommit = ((await tower.tryGit(tower.root, ['stash', 'create'])) ?? '').trim() || null
     if (!snapshotCommit) {
@@ -120,12 +115,12 @@ async function actInitCreate(tower, prepared) {
     const snapshotRef = snapshotRefFor(snapshotCommit)
     await tower.git(tower.root, ['update-ref', snapshotRef, snapshotCommit])
     return { snapshotCommit, snapshotRef }
-  }, gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Phase 2b of `Tower.init` (#51): snapshot-ref cleanup for a base reanchor. */
 async function actInitReanchor(tower, prepared) {
-  return withGitLock(tower.paths, async () => {
+  return tower.deps.store.withGitLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) return { staleRevision: state.revision }
     if (state.base === prepared.base) return { deleted: [] }
@@ -143,26 +138,26 @@ async function actInitReanchor(tower, prepared) {
       }
     }
     return { deleted }
-  }, gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Restore snapshot refs when the reanchor commit is rejected after phase 2. */
 async function restoreInitRefs(tower, deleted) {
   const entries = deleted.filter((entry) => typeof entry.sha === 'string' && entry.sha.length > 0)
   if (entries.length === 0) return
-  await withGitLock(tower.paths, async () => {
+  await tower.deps.store.withGitLock(tower.paths, async () => {
     for (const entry of entries) {
       await tower.git(tower.root, ['update-ref', entry.ref, entry.sha]).catch(() => {})
     }
-  }, gitMutexOptions(tower, { phase: 'init' }))
+  }, tower.gitMutexOptions({ phase: 'init' }))
 }
 
 /** Phase 3a of `Tower.init` (#51): write the initial state under a short lock. */
 async function commitInitCreate(tower, prepared, acted, input) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     // Revision revalidation for the create path: prepare saw "absent", so a
     // state file that appeared meanwhile must never be overwritten.
-    if (await exists(tower.paths.state)) {
+    if (await tower.deps.store.exists(tower.paths.state)) {
       throw new TowerToolError('stale-base', 'tower state appeared while init was being prepared; retry')
     }
     const now = Date.now()
@@ -178,8 +173,8 @@ async function commitInitCreate(tower, prepared, acted, input) {
       now,
     })
     validateState(state, tower.paths.state)
-    await writeJsonAtomic(tower.paths.state, state)
-    await appendJsonl(tower.paths.activity, {
+    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'init',
       text: initActivityText({
@@ -204,7 +199,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
 
 /** Phase 3b of `Tower.init` (#51): owner claim and reanchor writes under a short lock. */
 async function commitInitExisting(tower, prepared, input) {
-  return withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) {
       throw new TowerToolError(
@@ -224,8 +219,8 @@ async function commitInitExisting(tower, prepared, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'init',
         text: ownerClaimActivityText(claimant),
@@ -240,8 +235,8 @@ async function commitInitExisting(tower, prepared, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, {
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'init',
         text: caseProbeActivityText(prepared.caseInsensitive),
@@ -256,8 +251,8 @@ async function commitInitExisting(tower, prepared, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await writeJsonAtomic(tower.paths.state, state)
-      await appendJsonl(tower.paths.activity, { at: now, type: 'init', text: reanchorActivityText(prepared.base) })
+      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'init', text: reanchorActivityText(prepared.base) })
     }
     return existingInitWriteResult({ state, statePath: tower.paths.state, dirty: prepared.dirty, reanchored })
   })
@@ -265,7 +260,7 @@ async function commitInitExisting(tower, prepared, input) {
 
 /** #51 two-phase init: prepare/act/commit with stale-state retries. */
 export async function init(tower, input = {}) {
-  await ensureDir(tower.paths.dir)
+  await tower.deps.store.ensureDir(tower.paths.dir)
   const prepared = await prepareInit(tower, input)
   if (prepared.early) return prepared.early
   if (prepared.create) {

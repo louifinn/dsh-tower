@@ -5,6 +5,7 @@ is shipped in the npm package; doctor reads it locally and never contacts a regi
 
 | dsh version | tag / commit | verified on | what was run |
 |---|---|---|---|
+| 0.2.1-rc.2 | v2.2.0 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (536), `npm run docs:check`, four generated docs checks |
 | 0.2.1-rc.2 | v2.1.2 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (495), `npm run docs:check`, generated docs checks |
 | 0.2.1-rc.2 | v2.1.1 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (490), `npm run docs:check`, generated docs checks |
 | 0.2.1-rc.2 | v2.1.0 | 2026-10-23 | mount smoke (29 tower tools, `/tower`, 3 skills, 2 presets, single bundle row), `npm test` (479), `npm run docs:check`, generated docs checks |
@@ -27,7 +28,7 @@ Tower work. This is provenance, not a feature-detection mechanism.
 
 Add a row in the release PR, before tagging, after running the offline suite and docs check on the
 host build being shipped. Name the release tag in cell 1 and the host build in cell 0; the other
-columns are read positionally by `lib/compatibility.js`, so do not insert or reorder them. Do not
+columns are read positionally by `host/compatibility.js`, so do not insert or reorder them. Do not
 claim a live run that was not performed. The 2.1.0-beta.1 row is a pre-release: it becomes
 installable on the `next` dist-tag only after the checklist's publish step, and `latest` stays on
 2.0.4 until a stable release. The full six-step procedure is the

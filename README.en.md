@@ -202,7 +202,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 | Path | Contents |
 |---|---|
 | `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (one `tower-bundle` group containing the Host, skills, and both presets) |
-| `index.js`, `lib/`, `worker.js`, `reviewer.js` | Host entry, protocol/config implementation, worker and reviewer preset policies |
+| `index.js`, `host/`, `adapters/`, `app/`, `domain/`, `ports/`, `tools/`, `worker.js`, `reviewer.js` | Host entry; `domain/` pure core; `ports/` contracts; `adapters/` the only I/O; `app/` use cases; `host/` composition root and session glue; `tools/` one handler per tool; worker and reviewer preset policies |
 | `skills.js`, `skills/` | bundled agent skills (worker protocol, review checklist, recovery playbook) |
 | `docs/` | guides, reference, architecture, operations, FAQ and examples |
 | `locale/`, `icon.svg` | localization and icon |
@@ -217,7 +217,7 @@ npm test        # node --test tests/*.test.mjs
 ```
 
 Hot-reload development: `npm run dev:hmr` adds this checkout to the current profile's HMR watch roots
-(one DSH restart); afterwards `/tower reload` or the automatic watcher applies `lib/` edits. See
+(one DSH restart); afterwards `/tower reload` or the automatic watcher applies `host/`, `adapters/`, `app/` and `domain/` edits. See
 [docs/guide/hot-reload.md](docs/guide/hot-reload.md).
 
 The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.
@@ -228,7 +228,7 @@ Every push and PR runs the same set of jobs; each job backs one checkable claim 
 
 | Job | Claim | Evidence |
 |---|---|---|
-| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the three `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
+| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the four `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
 | `test (22, windows)` (`windows-latest`, not required) | the same offline suite and offline gates hold on a real Windows filesystem, so path casing, the `pwsh` shell, and the rename/unlink retries are measured instead of assumed | `npm test` plus the same offline gates as Ubuntu (no release/coverage) |
 | `test`'s `Coverage (Node 22)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
 | `test`'s `Release check` step (Node 22) | a tag is a claim: the version moved past the previous version tag, a pushed tag is `v<version>`, and the changelog carries release content | `npm run release:check` |

@@ -15,11 +15,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { isInside, win32Lower } from '../lib/legacy.js'
-import { shellSpec } from '../lib/tests.js'
-import { RENAME_ATTEMPTS, TRANSIENT_RENAME_ERRORS, renameWithRetry } from '../lib/persistence.js'
-import { UNLINK_ATTEMPTS, TRANSIENT_UNLINK_ERRORS, unlinkWithRetry } from '../lib/leases.js'
-import { compareKey } from '../lib/worktreeOwnership.js'
+import { isInside, win32Lower } from '../adapters/legacy.js'
+import { shellSpec } from '../adapters/tests.js'
+import { RENAME_ATTEMPTS, TRANSIENT_RENAME_ERRORS, renameWithRetry } from '../adapters/persistence.js'
+import { UNLINK_ATTEMPTS, TRANSIENT_UNLINK_ERRORS, unlinkWithRetry } from '../adapters/leases.js'
+import { compareKey } from '../adapters/worktreeOwnership.js'
 
 function tempDir(prefix = 'dsh-tower-platform-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -32,7 +32,7 @@ function errno(code) {
 }
 
 // ---------------------------------------------------------------------------
-// Path comparison (lib/legacy.js)
+// Path comparison (adapters/legacy.js)
 // ---------------------------------------------------------------------------
 
 test('isInside: win32 semantics fold case, every other platform does not', () => {
@@ -56,7 +56,7 @@ test('isInside: win32 semantics fold case, every other platform does not', () =>
 })
 
 // ---------------------------------------------------------------------------
-// Discovery shell (lib/tests.js)
+// Discovery shell (adapters/tests.js)
 // ---------------------------------------------------------------------------
 
 test('shellSpec: win32 selects pwsh with a powershell fallback, POSIX selects bash', () => {
@@ -75,7 +75,7 @@ test('shellSpec: win32 selects pwsh with a powershell fallback, POSIX selects ba
 })
 
 // ---------------------------------------------------------------------------
-// Transient rename retry (lib/persistence.js)
+// Transient rename retry (adapters/persistence.js)
 // ---------------------------------------------------------------------------
 
 test('renameWithRetry: every transient code retries and then succeeds', async () => {
@@ -193,7 +193,7 @@ test(
 )
 
 // ---------------------------------------------------------------------------
-// Transient unlink retry (lib/leases.js)
+// Transient unlink retry (adapters/leases.js)
 // ---------------------------------------------------------------------------
 
 test('unlinkWithRetry: every transient code retries and then succeeds', async () => {
@@ -271,7 +271,7 @@ test('unlinkWithRetry: removes a real file once and reports a missing file as fa
 })
 
 // ---------------------------------------------------------------------------
-// Worktree path identity (lib/worktreeOwnership.js)
+// Worktree path identity (adapters/worktreeOwnership.js)
 // ---------------------------------------------------------------------------
 
 test('compareKey: folds case only under win32 semantics', () => {

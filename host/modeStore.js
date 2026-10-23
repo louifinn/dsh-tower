@@ -6,7 +6,7 @@
 import { fs } from '../adapters/store-fs.js'
 import os from 'node:os'
 import path from 'node:path'
-import { acquireLockSync, readJsonSync, writeJsonAtomicSync } from './persistence.js'
+import { acquireLockSync, readJsonSync, writeJsonAtomicSync } from '../adapters/persistence.js'
 
 const DEFAULT_MAX_ENTRIES = 200
 

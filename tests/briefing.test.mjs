@@ -10,8 +10,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
-import { Tower } from '../app/tower.js'
+import { workerBriefing, reviewerBriefing } from '../app/briefing.js'
+import { Tower } from '../host/tower.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
