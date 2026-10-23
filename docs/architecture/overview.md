@@ -21,6 +21,49 @@ allowed to be switches is a table lookup in
 to a tool that is not on the recorded allowlist (empty since #122) and any
 `cordis.patch.yml` row that defaults a forbidden key off.
 
+### Row display metadata (#121)
+
+The Plugins page renders an optional row as `row.meta.title ?? row.moduleName`
+plus `row.meta.description`. The Host fills `row.meta` by resolving
+`<specifier>/locale/en.json` and then every sibling `<lang>.json` in that
+directory, reading `meta.title` / `meta.description`; title falls back to the full
+module specifier and description to empty when no resource resolves. That is why
+the mandatory `tower` card explains itself (the package root ships
+`locale/*.json`) while a bare subpath row would show only `dsh-tower/batch`.
+
+Each optional capability therefore ships its own resolvable subpath resource:
+`dsh-tower/skills/locale/{en,zh}.json` and the same for `batch`, `import`,
+`leases`, `tests` and `hmr`. `package.json` `exports` maps every
+`./<capability>/locale/*.json` to `./locale/<capability>/*.json`, and
+`files: ["locale/"]` ships the nested tree, so the lookup matches the installed
+package. The root `./locale/*.json` export stays so the Tower group keeps its own
+`meta`.
+
+The capability files are generated, never hand-written. `npm run
+docs:generate:locale` renders them from the `components` block of
+`locale/en.json` and `locale/zh.json` (the same source `docs:check:components`
+audits): `meta.title` is the component `title`, and `meta.description` joins the
+component `summary` (what the capability enables) with its `disables` text (what
+turning it off removes) behind a per-language "When off / 关闭后" label. The
+row is therefore decidable from the page alone. `npm run
+docs:check:generated:locale` fails on drift and is part of `npm run check`.
+
+To label a new capability row:
+
+1. Classify it in `scripts/component-surface.json`, ship it in
+   `cordis.patch.yml`, and add `title` / `summary` / `disables` to the
+   `components` block of both `locale/en.json` and `locale/zh.json`.
+2. Add `{ specifier, component }` to `CAPABILITY_LOCALES` in
+   `scripts/generate-capability-locale.mjs`, the matching
+   `./<specifier>/locale/*.json` export in `package.json`, and the row to the
+   coverage map in `tests/capability-locales.test.mjs`.
+3. Run `npm run docs:generate:locale`, then regenerate
+   `scripts/pack-manifest.txt` with `npm run pack:check -- --write`.
+
+The reviewer preset row is the one visible component that is not a package
+specifier: its label comes from the `cordis.patch.yml` preset `config.name` /
+`description`. The generated capability files never touch the root locale `meta`.
+
 ```
 Host plugin (index.js)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control)

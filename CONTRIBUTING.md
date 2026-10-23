@@ -122,7 +122,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (612 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (620 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
@@ -137,7 +137,10 @@ the push gates; CI schedules it nightly.
    same PR, and `npm run surface:check` passes. A visible component change also updates
    `scripts/surface-baseline.json` (`components`), `scripts/component-surface.json` and
    `docs/reference/component-surface.md` (`npm run docs:generate:components`), and must pass
-   `npm run docs:check:components`.
+   `npm run docs:check:components`. A new visible capability row also ships its own
+   `<specifier>/locale/*.json` row label via `npm run docs:generate:locale` and passes
+   `npm run docs:check:generated:locale` (see
+   [architecture/overview.md](docs/architecture/overview.md#row-display-metadata-121)).
 
 ## Mount smoke
 
