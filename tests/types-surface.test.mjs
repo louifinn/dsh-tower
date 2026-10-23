@@ -324,7 +324,7 @@ test('strict ratchet: the config must set noImplicitAny and stay explicit', () =
     removeTemp(dir)
   }
   assert.deepEqual(invalidEntries(['domain/**/*.js']), ['domain/**/*.js: the strict list must name explicit files, not a glob'])
-  assert.deepEqual(invalidEntries(['C:/abs/a.js']), ['C:/abs/a.js: use a repo-relative path with forward slashes'])
+  // Absolute on every platform: path.isAbsolute('C:/abs/a.js') is false on POSIX, so build the\n  // fixture with the platform's own path module instead of hard-coding a Windows drive path.\n  const absoluteFixture = path.resolve('abs/a.js')\n  assert.deepEqual(invalidEntries([absoluteFixture]), [${absoluteFixture}: use a repo-relative path with forward slashes])
   assert.deepEqual(compareLists({ include: ['a'], manifest: ['a', 'b'] }), { lost: ['b'], grew: [] })
   assert.deepEqual(compareLists({ include: ['a', 'b'], manifest: ['a'] }), { lost: [], grew: ['b'] })
 })
