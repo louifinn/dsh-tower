@@ -36,6 +36,16 @@ note for each niche key.
 - The numbers are three lines in `tower_doctor` output, not a new dashboard.
 - This does not remove any key in this release; it is a brake, not a clean-up.
 
+## Measurement correction (2026-10-23)
+
+The first baseline counted 27 tools because it recorded only the `define()`
+registration path. `tower_mode` and `tower_control` are registered directly by
+`index.js`, so the shipped surface was always 29 (#118). The baseline now carries
+an explicit correction decision (27 → 29) with a reason, a date and a reference
+to this ADR, and the recorder in `host/tool-registry.js` covers both registration
+paths. This is a measurement correction, not surface growth: a later count change
+still needs its own ADR or a provably matching deletion.
+
 ## Rejected alternatives
 
 - **A line-count or file-size rule** — the project already has those and the

@@ -5,13 +5,16 @@
 // The surface is three counts the user has to hold at once:
 //   config keys   leaf keys in domain/config/schema.js (one level deep)
 //   sections      object groups in that schema
-//   tools         tool definitions registered by host/tool-registry.js
+//   tools         every tool the Host entry registers, including the
+//                 tower_mode/tower_control pair that index.js registers
+//                 directly rather than through define() (#118)
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
-// docs/adr/ or deletions that no longer exist in the live surface. The same
-// file supplies the date and counts printed in the generated config/tools
-// reference headers, so growth is visible in a diff.
+// docs/adr/, deletions that no longer exist in the live surface, or an explicit
+// measurement-correction record (reason + date). The same file supplies the date
+// and counts printed in the generated config/tools reference headers, so growth
+// is visible in a diff.
 //
 // Usage:
 //   node scripts/surface-baseline.mjs [--root <dir>] [--json]
@@ -20,8 +23,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configSurface } from '../domain/config/schema.js'
 import { SURFACE_CLASSIFICATION_FILE, SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
-import { registerTowerTools } from '../tools/index.js'
-import { definedToolNames } from '../host/tool-registry.js'
+import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
@@ -33,35 +35,22 @@ const USAGE = `usage: node scripts/surface-baseline.mjs [--root <dir>] [--json]
   --help   print this text
 
 Growth is refused by default. To grow a count, update ${SURFACE_BASELINE_FILE}
-with a decision that names an existing docs/adr/ ADR or deletions that are no
-longer in the live surface. The classification table in
+with a decision that names an existing docs/adr/ ADR, deletions that are no
+longer in the live surface, or a measurement-correction record with a reason and
+date. The classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once.`
 
-/** Register the real tool surface against a minimal mock context. */
+/**
+ * The live tool names: apply the shipped Host entry so every registration path
+ * is included, then release the mock context's timers.
+ */
 function liveToolNames() {
-  const ctx = {
-    get() {
-      return undefined
-    },
-    effect(fn) {
-      const dispose = fn()
-      return typeof dispose === 'function' ? dispose : () => {}
-    },
-    systemPrompt: { section() {} },
-    tools: {
-      register() {
-        return () => {}
-      },
-      guard() {
-        return () => {}
-      },
-      restrict() {
-        return () => {}
-      },
-    },
+  const surface = loadShippedToolSurface()
+  try {
+    return surface.names
+  } finally {
+    surface.dispose()
   }
-  registerTowerTools(ctx)
-  return definedToolNames()
 }
 
 /**

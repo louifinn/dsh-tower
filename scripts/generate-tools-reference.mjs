@@ -1,38 +1,19 @@
 // Generate the tools overview from the registered tool definitions (#46).
+//
+// #118: use the shipped Host entry, not only the define() path, so the table and
+// its header count include tower_mode/tower_control as well.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { registerTowerTools } from '../tools/index.js'
 import { SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
+import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { readBaseline } from './lib/surface.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const target = path.join(root, 'docs', 'reference', 'tools.generated.md')
 const baseline = readBaseline(root)
-const tools = new Map()
-const ctx = {
-  get() {
-    return undefined
-  },
-  effect(fn) {
-    const dispose = fn()
-    return typeof dispose === 'function' ? dispose : () => {}
-  },
-  systemPrompt: { section() {} },
-  tools: {
-    register(definition) {
-      tools.set(definition.name, definition)
-      return () => {}
-    },
-    guard() {
-      return () => {}
-    },
-    restrict() {
-      return () => {}
-    },
-  },
-}
-registerTowerTools(ctx)
+const surface = loadShippedToolSurface()
+const tools = surface.definitions
 const rows = [...tools.values()]
   .sort((a, b) => a.name.localeCompare(b.name))
   .map((tool) => `| \`${tool.name}\` | ${String(tool.description ?? '').replace(/\s+/g, ' ').trim()} |`)
@@ -52,6 +33,7 @@ const expected = `# Tools overview (generated)
 |---|---|
 ${rows.join('\n')}
 `
+surface.dispose()
 if (process.argv.includes('--check')) {
   const actual = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : ''
   if (actual !== expected) {

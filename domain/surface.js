@@ -178,10 +178,57 @@ export function validateClassification(markdown, liveNames, options = {}) {
 }
 
 /**
+ * Validate an explicit measurement-correction decision (#118).
+ *
+ * A correction says the live surface did not grow: the earlier measurement
+ * missed a registration path. It is deliberately narrower than an ADR — it only
+ * authorizes the written `from`/`to` step it carries, needs a reason and a date,
+ * and (when it names a `ref`) that reference must resolve. A later count change
+ * still needs its own decision, so the brake stays strict.
+ *
+ * @returns {boolean} true when the correction is valid evidence for the growth
+ */
+function correctionEvidence(decision, where, record, exists) {
+  if (decision.correction === undefined) return false
+  if (!isPlainObject(decision.correction)) {
+    record('correction-invalid', `${where}.correction must be an object with a reason and a date`)
+    return false
+  }
+  const correction = decision.correction
+  const reason = typeof correction.reason === 'string' ? correction.reason.trim() : ''
+  if (!reason) {
+    record('correction-invalid', `${where}.correction needs a non-empty reason explaining why the measurement changed`)
+  }
+  const date = correction.date ?? decision.date
+  const dateOk = typeof date === 'string' && ISO_DATE.test(date)
+  if (!dateOk) {
+    record('correction-invalid', `${where}.correction needs a date (YYYY-MM-DD)`)
+  } else if (typeof decision.date === 'string' && date !== decision.date) {
+    record('correction-invalid', `${where}.correction.date ${date} does not match the decision date ${decision.date}`)
+  }
+  let refOk = true
+  if (correction.ref !== undefined) {
+    const ref = typeof correction.ref === 'string' ? correction.ref.trim().replace(/\\/g, '/') : ''
+    if (!ref) {
+      record('correction-invalid', `${where}.correction.ref must be a repository path when present`)
+      refOk = false
+    } else if (!ref.startsWith('docs/') || !ref.endsWith('.md')) {
+      record('correction-invalid', `${where}.correction.ref must name a docs/*.md record, got ${ref}`)
+      refOk = false
+    } else if (!exists(ref)) {
+      record('correction-invalid', `${where}.correction.ref ${ref} does not exist`)
+      refOk = false
+    }
+  }
+  return reason.length > 0 && dateOk && refOk
+}
+
+/**
  * Validate a committed baseline against the live counts and its own decision
  * chain. This is the brake: `current[surface] !== entry.value` fails, and every
- * decision that grows a count must name an existing ADR or deletions that are
- * provably absent from the live surface.
+ * decision that grows a count must name an existing ADR, deletions that are
+ * provably absent from the live surface, or a valid measurement-correction
+ * record.
  *
  * @param {ReturnType<typeof parseBaseline>} baseline
  * @param {{ configKeys: number, sections: number, tools: number, liveNames: { configKeys: string[], sections: string[], tools: string[] } }} current
@@ -226,13 +273,15 @@ export function validateBaseline(baseline, current, options = {}) {
         const liveNames = new Set(current.liveNames?.[key] ?? [])
         const stillLive = deletions.filter((name) => liveNames.has(name))
         const deletionEvidence = deletions.length >= growth && stillLive.length === 0
-        if (!adrExists && !deletionEvidence) {
+        const correction = correctionEvidence(decision, where, record, exists)
+        if (!adrExists && !deletionEvidence && !correction) {
           const reasons = []
           if (adr && !adrExists) reasons.push(`ADR ${adr} does not exist under docs/adr/`)
           if (deletions.length === 0) reasons.push('no deletions recorded')
           else if (stillLive.length > 0) reasons.push(`deleted name(s) are still in the live surface: ${stillLive.join(', ')}`)
           else if (deletions.length < growth) reasons.push(`only ${deletions.length} deletion(s) for a growth of ${growth}`)
-          record('growth-without-evidence', `${where} grows ${key} by ${growth} without an ADR or a matching deletion (${reasons.join('; ')})`)
+          if (decision.correction !== undefined && !correction) reasons.push('the correction record is invalid')
+          record('growth-without-evidence', `${where} grows ${key} by ${growth} without an ADR, a matching deletion or a valid correction (${reasons.join('; ')})`)
         }
       }
       running = decision.to

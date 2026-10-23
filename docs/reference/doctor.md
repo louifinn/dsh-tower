@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 64 · sections: 15 · tools: 27 (baseline 2026-10-23)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 64 · sections: 15 · tools: 29 (baseline 2026-10-23)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 3 is current" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
@@ -16,9 +16,9 @@ It returns:
   "surface": {
     "configKeys": 64,
     "sections": 15,
-    "tools": 27,
+    "tools": 29,
     "baselineDate": "2026-10-23",
-    "line": "config keys: 64 · sections: 15 · tools: 27"
+    "line": "config keys: 64 · sections: 15 · tools: 29"
   },
   "stateLock": {
     "held": true,
@@ -67,11 +67,13 @@ It returns:
 
 `surface` (and the `surface` check) reports the concept budget in the same format
 as the generated references: `config keys: N · sections: N · tools: N`, plus the
-committed baseline date from `scripts/surface-baseline.json`. The counts are live
-(the config schema and the defined tool surface, independent of the operational
-switches); `npm run surface:check` is what fails when a count grew without an ADR
-or a matching deletion. See
-[surface-budget.md](surface-budget.md) for the classification table.
+committed baseline date from `scripts/surface-baseline.json`. The counts are live:
+the config schema and every tool the build registers — `define()`-registered tools
+plus the `tower_mode`/`tower_control` pair the Host entry registers directly
+(#118) — independent of the operational switches. `npm run surface:check` is what
+fails when a count grew without an ADR, a matching deletion or a recorded
+measurement correction. See [surface-budget.md](surface-budget.md) for the
+classification table.
 
 `stateSchema` describes the file **on disk**, not the in-memory document: `currentVersion` is the
 `schemaVersion` doctor read, `supportedVersion` is the build's `SCHEMA_VERSION`, and `migrations` is
