@@ -162,7 +162,19 @@ host/tool-registry.js
 host/tower.js
 icon.svg
 index.js
+locale/batch/en.json
+locale/batch/zh.json
 locale/en.json
+locale/hmr/en.json
+locale/hmr/zh.json
+locale/import/en.json
+locale/import/zh.json
+locale/leases/en.json
+locale/leases/zh.json
+locale/skills/en.json
+locale/skills/zh.json
+locale/tests/en.json
+locale/tests/zh.json
 locale/zh.json
 package.json
 ports/archive.js
@@ -187,6 +199,7 @@ scripts/check-philosophy.mjs
 scripts/component-surface.json
 scripts/domain-metrics.mjs
 scripts/enable-dev-hmr.mjs
+scripts/generate-capability-locale.mjs
 scripts/generate-component-surface.mjs
 scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs

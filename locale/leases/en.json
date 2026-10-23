@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Advisory leases",
+    "description": "Coordinate heavy per-repository work with advisory resource leases. When off: tower_resource is not registered; nothing else depends on a lease."
+  }
+}
