@@ -302,14 +302,23 @@ export function configSurface(config = Config) {
   return { keys, sections, count: keys.length }
 }
 
+/** @param {any} value */
 export function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 export function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/**
+ * @param {any} base
+ * @param {any} override
+ */
 export function deepMerge(base, override) {
   if (override === undefined) return clone(base) ?? {}
   if (!isPlainObject(base) || !isPlainObject(override)) return clone(override)
@@ -338,6 +347,10 @@ export function normalizeLegacy(raw = {}) {
   return out
 }
 
+/**
+ * @param {any} value
+ * @param {string} label
+ */
 function assertModelKeys(value, label) {
   const bad = Object.keys(value).filter((key) => !MODEL_KEYS.includes(key))
   if (bad.length > 0) {
@@ -345,6 +358,10 @@ function assertModelKeys(value, label) {
   }
 }
 
+/**
+ * @param {any} raw
+ * @param {string} label
+ */
 export function assertKnownKeys(raw, label) {
   const unknown = Object.keys(raw).filter((key) => !LEGACY_KEYS.includes(key) && !GROUP_KEYS.includes(key))
   if (unknown.length > 0) {
@@ -375,7 +392,11 @@ export function assertKnownKeys(raw, label) {
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
-/** Reject prototype-pollution style keys anywhere in a repository config. */
+/**
+ * Reject prototype-pollution style keys anywhere in a repository config.
+ * @param {any} value
+ * @param {string} label
+ */
 export function assertSafeKeys(value, label) {
   if (Array.isArray(value)) {
     for (const item of value) assertSafeKeys(item, label)
@@ -390,6 +411,7 @@ export function assertSafeKeys(value, label) {
   }
 }
 
+/** @param {any} [rawConfig] */
 export function resolveTowerConfig(rawConfig) {
   const raw = rawConfig ?? {}
   if (raw !== null && typeof raw !== 'object') throw new TowerToolError('config-invalid', 'Tower config must be an object')

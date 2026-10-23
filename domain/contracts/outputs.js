@@ -4,7 +4,12 @@ const S = {
   str: { type: 'string' },
   int: { type: 'integer' },
   bool: { type: 'boolean' },
+  /** @param {any} items */
   arr: (items) => ({ type: 'array', items }),
+  /**
+   * @param {Record<string, any>} [properties]
+   * @param {string[]} [required]
+   */
   obj: (properties = {}, required = []) => ({ type: 'object', properties, required, additionalProperties: true }),
   any: {},
 }
@@ -298,10 +303,15 @@ const SCHEMAS = {
   legacyMap: S.obj({ ok: S.bool, map: S.obj(), maps: S.arr(S.obj()) }, ['ok']),
 }
 
+/**
+ * @param {any} _args
+ * @param {any} value
+ */
 function renderValue(_args, value) {
   return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
 }
 
+/** @param {any} schema */
 function output(schema) {
   return { schema, render: renderValue }
 }

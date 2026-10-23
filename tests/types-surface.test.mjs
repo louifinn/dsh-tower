@@ -1,10 +1,17 @@
 // Type-surface integrity (#115).
 //
-// `npm run types:coverage` must keep the checked program derived from the
-// shipped program, so a runtime file outside the tsc program is a red check
-// instead of an invisible gap. These tests prove both directions with real
-// fixtures: a shipped file outside the program fails, an extra program file
-// (tests, declarations) does not.
+// The checked program is derived from the shipped program:
+//
+//   * `npm run types:coverage` fails when a shipped runtime `.js` file is
+//     outside the tsc program (an extra program file such as a test or a
+//     declaration is expected and allowed);
+//   * `npm run docs:check:generated:types` fails when the generated
+//     vocabulary block in types/index.d.ts drifts from the runtime constants;
+//   * `npm run types:strict:check` fails when the noImplicitAny ratchet loses
+//     a pinned file, grows without recording it, or misses a seed-tier file.
+//
+// Each rule is proven with a fixture that seeds the failure, so the gate cannot
+// quietly become a no-op.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -28,6 +35,7 @@ import {
 } from '../scripts/generate-types.mjs'
 import { ERROR_CODES } from '../domain/errors.js'
 import { MISSION_STATUSES, REVIEW_STATUSES } from '../domain/mission.js'
+import { compareLists, invalidEntries } from '../scripts/types-strict.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -209,4 +217,114 @@ test('generated types: vocabulary aliases are derived from the runtime tables', 
 
 test('generated types: missing markers are a configuration error, not a no-op', () => {
   assert.throws(() => injectVocabulary('export type X = 1\n', 'export type X = 2'), /missing the .* markers/)
+})
+
+// ---------------------------------------------------------------------------
+// #115 step 4: the noImplicitAny ratchet is explicit and may only grow.
+// ---------------------------------------------------------------------------
+
+function runStrict(args) {
+  return spawnSync(process.execPath, [path.join(root, 'scripts', 'types-strict.mjs'), ...args], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+}
+
+function strictFixture({ include, manifest, files = [], noImplicitAny = true }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-types-strict-'))
+  const write = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+    fs.writeFileSync(path.join(dir, file), text)
+  }
+  write(
+    'tsconfig.strict.json',
+    JSON.stringify({ compilerOptions: { noImplicitAny }, include }, null, 2),
+  )
+  write('scripts/types-strict-manifest.txt', `${manifest.join('\n')}\n`)
+  for (const file of new Set([...include, ...files])) write(file, 'export {}\n')
+  return dir
+}
+
+test('strict ratchet: both configs typecheck and the real gate passes', () => {
+  const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')
+  const strict = spawnSync(process.execPath, [tsc, '-p', 'tsconfig.strict.json'], { cwd: root, encoding: 'utf8' })
+  assert.equal(strict.status, 0, strict.stdout || strict.stderr)
+  const result = runStrict([])
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /10 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
+})
+
+test('strict ratchet: the pinned list matches the explicit include list', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'tsconfig.strict.json'), 'utf8'))
+  assert.equal(config.compilerOptions.noImplicitAny, true)
+  const manifest = fs
+    .readFileSync(path.join(root, 'scripts', 'types-strict-manifest.txt'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+  assert.deepEqual(manifest, [...config.include].sort())
+})
+
+test('strict ratchet: losing a pinned file fails even when the list changes (fixture)', () => {
+  const dir = strictFixture({ include: ['domain/contracts/a.js'], manifest: ['domain/contracts/a.js', 'domain/contracts/b.js'] })
+  try {
+    const result = runStrict(['--root', dir])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /domain\/contracts\/b\.js: pinned in scripts\/types-strict-manifest\.txt but no longer checked/)
+    assert.match(result.stderr, /the ratchet must not shrink/)
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('strict ratchet: growing the list without recording it fails (fixture)', () => {
+  const dir = strictFixture({ include: ['domain/contracts/a.js', 'domain/contracts/b.js'], manifest: ['domain/contracts/a.js'] })
+  try {
+    const result = runStrict(['--root', dir])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /domain\/contracts\/b\.js: newly checked but not pinned/)
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('strict ratchet: a new seed-tier file must be listed (fixture)', () => {
+  const dir = strictFixture({ include: ['domain/contracts/a.js'], manifest: ['domain/contracts/a.js'], files: ['domain/contracts/new.js'] })
+  try {
+    const result = runStrict(['--root', dir])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /domain\/contracts\/new\.js: in the seed tier but not in tsconfig\.strict\.json include/)
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('strict ratchet: shrinking needs an explicit --allow-shrink (fixture)', () => {
+  const dir = strictFixture({ include: ['domain/contracts/a.js'], manifest: ['domain/contracts/a.js', 'domain/contracts/b.js'] })
+  try {
+    let result = runStrict(['--root', dir, '--write'])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /pass --allow-shrink to record a deliberate removal/)
+
+    result = runStrict(['--root', dir, '--write', '--allow-shrink'])
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    result = runStrict(['--root', dir])
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('strict ratchet: the config must set noImplicitAny and stay explicit', () => {
+  const dir = strictFixture({ include: ['domain/contracts/a.js'], manifest: ['domain/contracts/a.js'], noImplicitAny: false })
+  try {
+    const result = runStrict(['--root', dir])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must set compilerOptions\.noImplicitAny: true explicitly/)
+  } finally {
+    removeTemp(dir)
+  }
+  assert.deepEqual(invalidEntries(['domain/**/*.js']), ['domain/**/*.js: the strict list must name explicit files, not a glob'])
+  assert.deepEqual(invalidEntries(['C:/abs/a.js']), ['C:/abs/a.js: use a repo-relative path with forward slashes'])
+  assert.deepEqual(compareLists({ include: ['a'], manifest: ['a', 'b'] }), { lost: ['b'], grew: [] })
+  assert.deepEqual(compareLists({ include: ['a', 'b'], manifest: ['a'] }), { lost: [], grew: ['b'] })
 })

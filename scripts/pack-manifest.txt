@@ -192,6 +192,7 @@ scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
 scripts/generate-events-reference.mjs
 scripts/generate-tools-reference.mjs
+scripts/generate-types.mjs
 scripts/issue-audit.mjs
 scripts/lib/cli.mjs
 scripts/lib/surface.mjs
@@ -207,6 +208,9 @@ scripts/regression-audit.mjs
 scripts/release-check.mjs
 scripts/surface-baseline.json
 scripts/surface-baseline.mjs
+scripts/types-coverage.mjs
+scripts/types-strict-manifest.txt
+scripts/types-strict.mjs
 skills.js
 skills/tower-recovery.md
 skills/tower-review.md

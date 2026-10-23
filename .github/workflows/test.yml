@@ -116,6 +116,10 @@ jobs:
       # runtime .js file outside the tsc program is a red check.
       - name: Type coverage
         run: npm run types:coverage
+      # #115: the noImplicitAny ratchet may grow but never silently shrink.
+      - name: Strict type ratchet
+        run: npm run types:strict:check
+      # Both configs: the main checkJs program and tsconfig.strict.json.
       - name: Type declarations
         run: npm run types:check
       - name: Pure domain share
