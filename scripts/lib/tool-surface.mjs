@@ -8,7 +8,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { apply } from '../../index.js'
-import { definedToolNames } from '../../host/tool-registry.js'
+import { definedToolNames, registerAllCapabilities, __testResetToolSurface } from '../../host/tool-registry.js'
 
 /**
  * Apply the real Host entry against a recording mock context.
@@ -62,7 +62,12 @@ export function loadShippedToolSurface() {
   }
   // Keep the mode store out of the operator's real $DSH_HOME. The path is only
   // read (a missing modes.json is an empty mode set); nothing is written.
+  // #121: the host entry registers only the mandatory surface; the shipped
+  // profile mounts the optional capability rows. The concept budget measures the
+  // *build* surface, so the all-capabilities aggregate is applied on top.
+  __testResetToolSurface()
   apply(ctx, { mode: { storePath: path.join(os.tmpdir(), 'dsh-tower-surface-check') } })
+  registerAllCapabilities(ctx)
   const names = definedToolNames()
   return {
     names,

@@ -23,8 +23,9 @@ A second axis asks who may turn a key off. It is generated from
 component count is the fourth baselined surface, two-way: a contraction needs a
 dated decision just like growth does (`npm run docs:check:components`,
 [ADR 0005](../adr/0005-component-surface.md)). The same source of truth records
-the `gateableTools` allowlist, so a `tools.expose*` route to a tool that is not
-listed is refused before it can remove a review, merge or host tool.
+the `gateableTools` allowlist; it is empty since #122, so a future
+`tools.expose*` route to any tool is refused before it can remove a review,
+merge or host tool.
 
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` and `tower_control` are registered directly by `index.js`, so the
@@ -33,6 +34,11 @@ shipped surface was always 29. The 27 → 29 step is an explicit
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) (see
 [ADR 0004](../adr/0004-surface-budget.md)), not surface growth; a later count
 change still needs an ADR or a provably matching deletion.
+
+#121 also shrank the config surface: the seven capability `tools.expose*` keys
+and `dev.hotReload` became component rows, so config keys went 64 → 56 and
+sections 15 → 14. Those are recorded shrank values in the committed baseline,
+not free growth: a later increase still needs its own decision.
 
 ## Config keys
 
@@ -91,55 +97,49 @@ change still needs an ADR or a provably matching deletion.
 | `archive.enabled` | core | Controls whether terminal missions leave the hot state. |
 | `archive.afterDays` | tuning | Archive age threshold. |
 | `archive.maxMissions` | tuning | Hot terminal-mission cap. |
-| `tools.exposeOperational` | core | Master switch for the operational tool surface. |
-| `tools.exposeBatch` | core | Registers the evidence-batch tool. |
-| `tools.exposeImport` | core | Registers the legacy import tools. |
-| `tools.exposeLeases` | core | Registers advisory leases. |
-| `tools.exposeTests` | core | Registers test discovery; required when the test gate is on. |
-| `tools.exposeRecovery` | core | Registers the stale-lock escape hatch. |
-| `tools.exposeDoctor` | core | Registers the read-only health contract. |
 | `leases.ttlMs` | tuning | Default advisory lease lifetime. |
-| `dev.hotReload` | tuning | Registers the dev reload tool when HMR exists. |
 | `dev.reloadDelayMs` | tuning | Delay so a tool result is delivered before reload. |
 | `dev.reloadRequiredIds` | niche | Loader ids added for one linked-profile development setup. Removal note: derive the required ids from the bundle manifest in the next minor. |
 
 ## Tools
 
 Tools are `core` when the product does not work without them and `optional` when
-an operational switch (`tools.expose*`), `mode.allowAgentControl`, or the dev
-mode can legitimately remove them from the surface.
+a component row (`tower-batch`, `tower-import`, `tower-leases`, `tower-tests`,
+`tower-hmr`), `mode.allowAgentControl`, or the dev mode can legitimately remove
+them from the surface. `tower_doctor` and `tower_recover` are core: #122 made
+them mandatory for every configuration.
 
 | Tool | Class | Note |
 |---|---|---|
 | `tower_adopt` | core | Reconciles a restored roster with the durable catalog. |
-| `tower_batch` | optional | Evidence-batch workflow; `tools.exposeBatch`. |
+| `tower_batch` | optional | Evidence-batch workflow; component `tower-batch`. |
 | `tower_complete` | core | The only completion path for a worker. |
 | `tower_control` | optional | Model-initiated mode change; `mode.allowAgentControl:false` removes it (ADR 0003). |
 | `tower_diff` | core | The read-only review view. |
-| `tower_doctor` | optional | Read-only health contract; `tools.exposeDoctor`. |
+| `tower_doctor` | core | Read-only health contract; registered for every configuration (#122). |
 | `tower_finding` | core | Out-of-scope issue recording. |
 | `tower_findings` | core | Finding lifecycle. |
-| `tower_import_legacy` | optional | Legacy migration; `tools.exposeImport`. |
+| `tower_import_legacy` | optional | Legacy migration; component `tower-import`. |
 | `tower_inbox` | core | Message delivery and acknowledgement. |
 | `tower_init` | core | Creates the repository state. |
 | `tower_interrupt` | core | Stops a runaway worker. |
-| `tower_legacy_map` | optional | Legacy audit mapping; `tools.exposeImport`. |
+| `tower_legacy_map` | optional | Legacy audit mapping; component `tower-import`. |
 | `tower_merge` | core | The only merge path. |
 | `tower_mission` | core | Mission progress and blockers. |
 | `tower_mode` | core | Reports the session stance, workspace lock, HMR and plugin version; always registered. |
 | `tower_plan` | core | Mission planning. |
 | `tower_preflight` | core | The read-only merge gate. |
 | `tower_rebase` | core | Keeps a mission branch current. |
-| `tower_recover` | optional | Stale-lock recovery; `tools.exposeRecovery`. |
-| `tower_reload` | optional | Dev-only reload; registered while the HMR/dev mode is on. |
-| `tower_resource` | optional | Advisory leases; `tools.exposeLeases`. |
+| `tower_recover` | core | Stale-lock recovery; registered for every configuration (#122). |
+| `tower_reload` | optional | Dev-only reload; component `tower-hmr` (shipped off). |
+| `tower_resource` | optional | Advisory leases; component `tower-leases`. |
 | `tower_review` | core | Independent review verdicts. |
 | `tower_roster` | core | Roster and live activity. |
 | `tower_send` | core | Durable messages to agents. |
 | `tower_spawn` | core | Starts workers and reviewers. |
 | `tower_status` | core | The dashboard. |
 | `tower_teardown` | core | Worktree cleanup and archiving. |
-| `tower_test` | optional | Explicit discovery; `tools.exposeTests`. |
+| `tower_test` | optional | Explicit discovery; component `tower-tests`. |
 
 ## Non-goals
 

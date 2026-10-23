@@ -15,6 +15,7 @@ import {
   checkLocaleCoverage,
   parseComponentSurface,
   parseCordisPatch,
+  parseOperationalRegistry,
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
@@ -53,24 +54,32 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 64 keys', () => {
+test('the shipped component surface passes every rule and classifies all 56 keys', () => {
   const report = checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 64)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 64)
-  assert.deepEqual(report.live.patch.visible, ['tower-bundle'])
+  assert.equal(report.surface.keys.length, 56)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 56)
+  assert.deepEqual(report.live.patch.visible, [
+    'tower',
+    'tower-skills',
+    'tower-batch',
+    'tower-import',
+    'tower-leases',
+    'tower-tests',
+    'tower-hmr',
+    'preset-tower-reviewer',
+  ])
   for (const className of ['core', 'optional-component', 'optional-config', 'forbidden-to-disable']) {
     assert.ok(
       report.surface.keys.some((key) => key.class === className),
       `at least one key is classified ${className}`,
     )
   }
-  // The allowlist covers exactly the live OPERATIONAL_TOOLS routes.
-  const routes = new Map(report.surface.gateableTools.map((entry) => [entry.tool, entry.key]))
-  for (const [tool, flag] of Object.entries(report.live.registry)) {
-    assert.equal(routes.get(tool), `tools.${flag}`)
-  }
+  // #122: the shipped boolean-route table is empty — a review, merge or host
+  // tool is never a switch.
+  assert.deepEqual(report.live.registry, {})
+  assert.deepEqual(report.surface.gateableTools, [])
 })
 
 test('the generated reference is a rendering of the source of truth, not prose', () => {
@@ -86,16 +95,20 @@ test('the component count is baselined next to the other surfaces', () => {
   const baseline = readBaseline(root)
   const patch = parseCordisPatch(read('cordis.patch.yml'))
   assert.equal(baseline.surfaces.components.value, patch.visible.length)
-  assert.equal(baseline.surfaces.components.value, 1)
-  // The seed keeps the 2.0.4 history: the 4 -> 1 contraction is a recorded
-  // decision, not a quietly lowered value.
+  assert.equal(baseline.surfaces.components.value, 8)
+  // The seed keeps the 2.0.4 history: the 4 -> 1 contraction and the #121
+  // growth back to individually switchable optional rows are recorded decisions.
   assert.equal(baseline.surfaces.components.seed, 4)
   const decisions = baseline.surfaces.components.decisions
-  assert.equal(decisions.length, 1)
+  assert.equal(decisions.length, 2)
   assert.equal(decisions[0].from, 4)
   assert.equal(decisions[0].to, 1)
-  assert.match(decisions[0].date, /^\d{4}-\d{2}-\d{2}$/)
-  assert.equal(decisions[0].adr, 'docs/adr/0005-component-surface.md')
+  assert.equal(decisions[1].from, 1)
+  assert.equal(decisions[1].to, 8)
+  for (const decision of decisions) {
+    assert.match(decision.date, /^\d{4}-\d{2}-\d{2}$/)
+    assert.equal(decision.adr, 'docs/adr/0005-component-surface.md')
+  }
 })
 
 test('a component contraction without a decision fails, unlike the other surfaces', () => {
@@ -127,13 +140,34 @@ test('a component contraction without a decision fails, unlike the other surface
 
 test('parseCordisPatch separates visible rows, internal sections and plugin ids', () => {
   const patch = parseCordisPatch(read('cordis.patch.yml'))
-  assert.deepEqual(patch.visible, ['tower-bundle'])
+  assert.deepEqual(patch.visible, [
+    'tower',
+    'tower-skills',
+    'tower-batch',
+    'tower-import',
+    'tower-leases',
+    'tower-tests',
+    'tower-hmr',
+    'preset-tower-reviewer',
+  ])
   assert.deepEqual(
     patch.rows.map((row) => row.id),
-    ['tower-bundle', 'tower', 'tower-skills', 'preset-tower-worker', 'preset-tower-reviewer'],
+    [
+      'tower',
+      'tower-host',
+      'preset-tower-worker',
+      'tower-skills',
+      'tower-batch',
+      'tower-import',
+      'tower-leases',
+      'tower-tests',
+      'tower-hmr',
+      'preset-tower-reviewer',
+    ],
   )
-  assert.equal(patch.rows.find((row) => row.id === 'tower-bundle').kind, 'group')
-  assert.equal(patch.rows.find((row) => row.id === 'tower').scope, 'internal')
+  assert.equal(patch.rows.find((row) => row.id === 'tower').kind, 'group')
+  assert.equal(patch.rows.find((row) => row.id === 'tower-host').scope, 'internal')
+  assert.equal(patch.rows.find((row) => row.id === 'preset-tower-worker').scope, 'internal')
   assert.ok(!patch.rows.some((row) => row.id === 'tower-worker-policy'), 'plugin ids are not components')
 })
 
@@ -150,7 +184,7 @@ test('a shipped row or a live config key without a classification fails', () => 
     validateComponentSurface(missingRow, live).some((entry) => entry.code === 'component-unclassified'),
   )
 
-  const missingKey = { ...surface, keys: surface.keys.filter((key) => key.name !== 'dev.hotReload') }
+  const missingKey = { ...surface, keys: surface.keys.filter((key) => key.name !== 'dev.reloadDelayMs') }
   assert.ok(validateComponentSurface(missingKey, live).some((entry) => entry.code === 'key-unclassified'))
 })
 
@@ -324,16 +358,21 @@ test('a baseline without a components entry is refused', () => {
   assert.throws(() => parseBaseline(withoutComponents), /components/)
 })
 
-test('integration: a group row that defaults tools.exposeDoctor off fails the gate', () => {
+test('integration: a row that defaults review.requireReview off fails the gate', () => {
   const dir = gateRoot({
     'cordis.patch.yml': (text) =>
-      text.replace(/^(\s*)spawn:\s*$/m, (line, indent) => `${indent}tools:\n${indent}  exposeDoctor: false\n${indent}spawn:`),
+      text.replace(
+        /^(\s*)spawn:\s*$/m,
+        (line, indent) => `${indent}review:\n${indent}  requireReview: false\n${indent}spawn:`,
+      ),
   })
   try {
     const report = checkComponents(dir)
     assert.equal(report.ok, false)
     assert.ok(
-      report.findings.some((entry) => entry.code === 'forbidden-override' && /tools\.exposeDoctor/.test(entry.message)),
+      report.findings.some(
+        (entry) => entry.code === 'forbidden-override' && /review\.requireReview/.test(entry.message),
+      ),
       JSON.stringify(report.findings, null, 2),
     )
   } finally {
@@ -344,7 +383,10 @@ test('integration: a group row that defaults tools.exposeDoctor off fails the ga
 test('integration: a new OPERATIONAL_TOOLS route to tower_merge fails the gate', () => {
   const dir = gateRoot({
     'host/tool-registry.js': (text) =>
-      text.replace(/^(\s*)\['tower_test', 'exposeTests'\],/m, (line) => `${line}\n  ['tower_merge', 'exposeBatch'],`),
+      text.replace(
+        /^const OPERATIONAL_TOOLS = new Map\(\)$/m,
+        "const OPERATIONAL_TOOLS = new Map([['tower_merge', 'exposeBatch']])",
+      ),
   })
   try {
     const report = checkComponents(dir)
@@ -356,4 +398,30 @@ test('integration: a new OPERATIONAL_TOOLS route to tower_merge fails the gate',
   } finally {
     removeTemp(dir)
   }
+})
+
+// F11: the parser is the offline denylist's only view of the route table.
+// A reformatted table (trailing comma, one entry per line) or a rewritten
+// `Map.set(...)` route must still be detected, or a forbidden switch could be
+// added without the gate noticing.
+test('F11: the operational-registry parser accepts a trailing comma and Map.set routes', () => {
+  // The fixture is a registry-shaped source with both route syntaxes; a
+  // reformatted table must not fall out of the allowlist.
+  assert.deepEqual(parseOperationalRegistry(read('tests/fixtures/component-surface/registry-routes.txt')), {
+    tower_batch: 'exposeBatch',
+    tower_test: 'exposeTests',
+    tower_merge: 'exposeBatch',
+    tower_doctor: 'exposeDoctor',
+  })
+
+  // A `.set(...)` route to a review/merge tool is caught by the same allowlist
+  // as a tuple route.
+  const surface = parseComponentSurface(read('scripts/component-surface.json'))
+  const live = {
+    booleans: [],
+    registry: parseOperationalRegistry("OPERATIONAL_TOOLS.set('tower_merge', 'exposeBatch')"),
+    patch: parseCordisPatch(read('cordis.patch.yml')),
+  }
+  const errors = checkForbidden(surface, live).filter((entry) => entry.level === 'error')
+  assert.ok(errors.some((entry) => entry.code === 'forbidden-tool-gate' && /tower_merge/.test(entry.message)))
 })
