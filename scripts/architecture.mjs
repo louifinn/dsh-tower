@@ -93,6 +93,12 @@ const REGEX_ALLOWED_WORDS = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
   'case', 'do', 'else', 'yield', 'await', 'export', 'default',
 ])
+// A `/` after `)` is division unless that `)` closes the parenthesized
+// condition of a control statement: in `if (x) /{/.test(s)` the body is a new
+// statement, so the slash starts a regex literal. Without this the brace inside
+// the regex stays unbalanced and the scan would silently skip every following
+// top-level `let` (F3). `for await (...)` is the only two-word condition form.
+const CONTROL_CONDITION_WORDS = new Set(['if', 'while', 'for', 'with', 'switch', 'catch'])
 const PUNCT_OPERATORS = [
   '>>>=', '...', '===', '!==', '**=', '>>=', '<<=', '>>>', '=>', '==', '!=', '<=', '>=',
   '&&', '||', '??', '?.', '++', '--', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>',
@@ -208,6 +214,9 @@ function skipRegex(source, start) {
 
 function regexAllowed(previous) {
   if (!previous) return true
+  // F3: the `)` that closes a control-flow condition ends a statement, so the
+  // next token starts a statement and a slash there is a regex, not division.
+  if (previous.closesControl) return true
   if (previous.type === 'word') return REGEX_ALLOWED_WORDS.has(previous.value)
   if (previous.type === 'punct') return REGEX_ALLOWED_PUNCT.has(previous.value)
   return false
@@ -215,10 +224,12 @@ function regexAllowed(previous) {
 
 function tokenize(source) {
   const tokens = []
+  // One entry per open `(`: true when that group is a control-flow condition.
+  const parenStack = []
   let index = 0
   let newline = false
-  const push = (type, value) => {
-    tokens.push({ type, value, newlineBefore: newline })
+  const push = (type, value, extra) => {
+    tokens.push(extra ? { type, value, newlineBefore: newline, ...extra } : { type, value, newlineBefore: newline })
     newline = false
   }
   while (index < source.length) {
@@ -279,7 +290,23 @@ function tokenize(source) {
     for (const candidate of PUNCT_OPERATORS) {
       if (source.startsWith(candidate, index)) { operator = candidate; break }
     }
-    push('punct', operator)
+    let extra
+    if (operator === '(') {
+      const previous = tokens[tokens.length - 1]
+      const beforePrevious = tokens[tokens.length - 2]
+      const isMember = beforePrevious?.value === '.' || beforePrevious?.value === '?.'
+      // A reserved word can also be a property name (`helper.if(x)`); only a
+      // bare keyword introduces a control-flow condition.
+      const isControl =
+        !isMember &&
+        previous?.type === 'word' &&
+        (CONTROL_CONDITION_WORDS.has(previous.value) ||
+          (previous.value === 'await' && beforePrevious?.value === 'for'))
+      parenStack.push(isControl)
+    } else if (operator === ')') {
+      if (parenStack.pop() === true) extra = { closesControl: true }
+    }
+    push('punct', operator, extra)
     index += operator.length
   }
   return tokens

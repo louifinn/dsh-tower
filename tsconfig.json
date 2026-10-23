@@ -16,16 +16,13 @@
   },
   "include": [
     "types/**/*.d.ts",
-    "lib/errors.js",
-    "lib/config.js",
-    "lib/store.js",
-    "lib/git.js",
     "domain/**/*.js",
     "tests/type-contracts.ts",
     "app/*.js",
     "tools/plan.js",
     "tools/*.js",
     "adapters/*.js",
+    "host/config.js",
     "tests/tool-schema-types.ts"
   ],
   "exclude": [

@@ -205,6 +205,47 @@ test('host-scope records every binding and ignores nested lets', async () => {
   })
 })
 
+test('host-scope is not hidden by a statement-position regex with a brace', async () => {
+  // F3: a slash after `)` used to be treated as division, so the `{` inside a
+  // statement-position regex stayed unbalanced and every later top-level `let`
+  // was skipped. The control-flow `)` must start a new statement, while a plain
+  // call `)` still divides.
+  const source = [
+    'const read = (value) => value',
+    'const ratio = read(4) / 2',
+    'if (ratio) /{/.test(source)',
+    'let leaked = ratio',
+    '',
+  ].join('\n')
+  await withFixture({ 'app/ambient.js': source }, (fixture) => {
+    const result = evaluator(fixture, { waivers: [] })
+    assert.equal(result.ok, false)
+    const matches = result.violations
+      .filter((violation) => violation.rule === 'host-scope')
+      .map((violation) => violation.match)
+    assert.deepEqual(matches, ['leaked'])
+  })
+})
+
+test('host-scope keeps division after a member call even when the method is named if', async () => {
+  // The control-flow `)` heuristic must not fire for `helper.if(4)`: the slash
+  // after a member call is division, and a later slash on the same line must not
+  // be swallowed as the closing delimiter of a fake regex.
+  const source = [
+    'const helper = { if: (value) => value }',
+    'const ratio = helper.if(4) / 2; let leaked = ratio / 1',
+    '',
+  ].join('\n')
+  await withFixture({ 'app/ambient.js': source }, (fixture) => {
+    const result = evaluator(fixture, { waivers: [] })
+    assert.equal(result.ok, false)
+    const matches = result.violations
+      .filter((violation) => violation.rule === 'host-scope')
+      .map((violation) => violation.match)
+    assert.deepEqual(matches, ['leaked'])
+  })
+})
+
 test('host-scope cannot be waived even with a justification', async () => {
   await withFixture({ 'app/ambient.js': 'let appState = 1\n' }, (fixture) => {
     const result = evaluator(fixture, {

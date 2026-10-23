@@ -71,7 +71,7 @@ The Host guard returns a plain tool error like `tower mode: <tool> is disabled w
 
 While the displayed session is in Tower mode the bundle dynamically registers `tool.call.toolview` entries for:
 
-- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise `lib/config.js` `DEFAULT_DENY_TOOLS` (`create_goal`, `todo_write`, `team_task_create`, `team_task_update`, `team_task_reopen`, `team_task_list`, `spawn_teammate`, `wait_agent`, `workflow`, `ralph`, `subagent`, `subagent_fork`);
+- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise `host/config.js` `DEFAULT_DENY_TOOLS` (`create_goal`, `todo_write`, `team_task_create`, `team_task_update`, `team_task_reopen`, `team_task_list`, `spawn_teammate`, `wait_agent`, `workflow`, `ralph`, `subagent`, `subagent_fork`);
 - `update_goal` unconditionally, because the guard special-cases its `action: "resume"`.
 
 Those entries register with `priority: -10`. The slot core renders the lowest priority for a key, so this shadows the native keyed views without replacing them; disposing the entries (mode off) restores the native views exactly. A denial result renders as a distinct **`Tower mode · disabled`** row (warn marker, label, the preserved denial message, and the `/tower off` hint) — not the generic error text styling. `update_goal` resume denials get the same row. A non-denial result that lands in one of those slots while the mode is on renders a defensive generic row (there is no native view to delegate to while the registration shadows it); ordinary tool errors are not misclassified as Tower-mode denials.

@@ -11,6 +11,9 @@ tests/live/backup/
 tests/live/.dsh-tower-worktrees/
 *.jsonl.zstd
 
+# Root-level command output (`npm test > test-full.log`) is a local artifact
+/*.log
+
 # Tower test fixtures and worktrees
 .dsh-tower-worktrees/
 testrepo/
