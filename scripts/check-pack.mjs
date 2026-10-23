@@ -1,10 +1,11 @@
 // Fail when the published file list drifts from the reviewed snapshot.
-// Run: node scripts/check-pack.mjs [--write]
+// Run: node scripts/check-pack.mjs [--write] [--root <dir>]
 //
 // #71: the optional Web client ships inside the main package, so the required
 // list asserts the client package manifest and its bundle patch — not just the
 // directory's index.js. `requiredMissing` is exported so a fixture can prove
-// that removing one of them fails the check.
+// that removing one of them fails the check; `--root` lets that fixture run the
+// real gate against a temporary package.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,7 +28,8 @@ function requiredMissing(paths, required = REQUIRED_FILES) {
 }
 
 function main() {
-  const root = ROOT
+  const rootArg = process.argv.indexOf('--root')
+  const root = rootArg > 0 ? path.resolve(process.argv[rootArg + 1]) : ROOT
   const manifestFile = path.join(root, 'scripts', 'pack-manifest.txt')
   const write = process.argv.includes('--write')
 

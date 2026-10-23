@@ -1,9 +1,13 @@
-// Published file-list guard (#48) and compatibility provenance (#59).
+// Published file-list guard (#48), compatibility provenance (#59), and the
+// client-file assertion (#71).
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { removeTemp } from './helpers/cleanup.mjs'
 import { assessHostVersion, compareVersions, parseCompatibility, parseVersion } from '../host/compatibility.js'
 import { REQUIRED_FILES, requiredMissing } from '../scripts/check-pack.mjs'
 
@@ -39,6 +43,53 @@ test('packaging: removing a required ui-bundle file fails pack:check (fixture)',
   for (const file of ['ui-bundle/package.json', 'ui-bundle/cordis.patch.yml']) {
     const without = manifest.filter((entry) => entry !== file)
     assert.deepEqual(requiredMissing(without), [file], `removing ${file} must fail pack:check`)
+  }
+})
+
+test('packaging: the real pack gate fails when ui-bundle/cordis.patch.yml is removed (fixture)', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-pack-'))
+  try {
+    const write = (file, text) => {
+      fs.mkdirSync(path.dirname(path.join(fixture, file)), { recursive: true })
+      fs.writeFileSync(path.join(fixture, file), text)
+    }
+    write(
+      'package.json',
+      JSON.stringify(
+        {
+          name: 'tower-pack-fixture',
+          version: '0.0.0',
+          files: ['cordis.patch.yml', 'index.js', 'locale/*.json', 'ui-bundle/', 'COMPATIBILITY.md'],
+        },
+        null,
+        2,
+      ),
+    )
+    for (const file of REQUIRED_FILES) write(file, `${file}\n`)
+    // check-pack writes its reviewed snapshot next to the script under --root.
+    fs.mkdirSync(path.join(fixture, 'scripts'), { recursive: true })
+    const run = (...args) =>
+      spawnSync(process.execPath, [path.join(root, 'scripts', 'check-pack.mjs'), '--root', fixture, ...args], {
+        cwd: root,
+        encoding: 'utf8',
+      })
+
+    // Baseline: write the fixture manifest, then the gate passes.
+    let result = run('--write')
+    assert.equal(result.status, 0, result.stderr)
+    result = run()
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    // Remove one required client file, refresh the snapshot, and the gate fails
+    // for the required-file reason (not for a manifest diff).
+    fs.unlinkSync(path.join(fixture, 'ui-bundle', 'cordis.patch.yml'))
+    result = run('--write')
+    assert.equal(result.status, 0, result.stderr)
+    result = run()
+    assert.notEqual(result.status, 0, 'a missing ui-bundle/cordis.patch.yml must fail pack:check')
+    assert.match(result.stderr, /required runtime files missing: ui-bundle\/cordis\.patch\.yml/)
+  } finally {
+    removeTemp(fixture)
   }
 })
 
