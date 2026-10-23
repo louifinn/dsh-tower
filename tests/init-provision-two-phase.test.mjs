@@ -9,8 +9,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
-import { Tower } from '../lib/tower.js'
-import { shortHash } from '../lib/store.js'
+import { Tower } from '../host/tower.js'
+import { shortHash } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 
 function git(cwd, args) {

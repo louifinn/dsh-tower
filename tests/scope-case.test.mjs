@@ -17,11 +17,11 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower } from '../lib/tower.js'
+import { Tower } from '../host/tower.js'
 import { fileInScope, scopesOverlap } from '../domain/scope.js'
 import { outOfScopeBlocker } from '../domain/integration/gate.js'
-import { detectCaseSensitivity } from '../lib/caseSensitivity.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
+import { detectCaseSensitivity } from '../adapters/caseSensitivity.js'
+import { registerTowerTools } from '../host/tool-registry.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

@@ -1,7 +1,7 @@
 // Config port (#69).
 //
 // App use cases read the effective Tower config through this port. They do not
-// import lib/config.js, so the process-level config store stays a property of
+// import host/config.js, so the process-level config store stays a property of
 // the composition root rather than a module-global dependency of the app.
 import { assertPort, definePort } from './contract.js'
 

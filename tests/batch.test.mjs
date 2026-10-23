@@ -145,7 +145,7 @@ test('validateCreate: exclusions must be paused legacy mission ids', () => {
   state.legacySnapshots = [
     { hash: 'h2', snapshot: { missions: [{ id: 'L-nested', status: 'paused' }] } },
     { hash: 'h3', pausedIds: ['L-direct'] },
-    // lib/legacy.js snapshot record shape: no missions array, only ids.
+    // adapters/legacy.js snapshot record shape: no missions array, only ids.
     { sourceHash: 'h4', pausedMissionIds: ['T0007'], missionIds: ['T0007', 'T0008'] },
   ]
   const batch = validateCreate(state, { missionIds: ['M1'], exclusions: ['L-nested', 'L-direct', 'T0007'] })

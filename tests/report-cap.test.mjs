@@ -15,8 +15,8 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../lib/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
 import {
   DEFAULT_MAX_REPORT_BYTES,
   completionReport,

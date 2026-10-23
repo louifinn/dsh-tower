@@ -1,7 +1,7 @@
 // One persistence contract for state.json and modes.json (#56 P2b).
 //
-// Each case is exercised through both public surfaces (lib/store.js and
-// lib/modeStore.js) so the shared lib/persistence.js primitives cannot drift
+// Each case is exercised through both public surfaces (adapters/store.js and
+// host/modeStore.js) so the shared adapters/persistence.js primitives cannot drift
 // back into two implementations. Temp dirs only; no live profile is touched.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,9 +13,9 @@ import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { readLock, readLockSync, releaseLock, releaseLockSync } from '../lib/persistence.js'
-import { pathsFor, readStateLock, withLock, writeJsonAtomic } from '../lib/store.js'
-import { loadModes, saveModes, storePath } from '../lib/modeStore.js'
+import { readLock, readLockSync, releaseLock, releaseLockSync } from '../adapters/persistence.js'
+import { pathsFor, readStateLock, withLock, writeJsonAtomic } from '../adapters/store.js'
+import { loadModes, saveModes, storePath } from '../host/modeStore.js'
 
 const execFileAsync = promisify(execFile)
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -175,7 +175,7 @@ test('concurrent mode saves merge by timestamp without losing updates', async ()
 
     // Separate processes contend for modes.lock; each writes one new key. The
     // merge-under-lock must retain every child's key plus the baseline.
-    const storeUrl = pathToFileURL(path.join(ROOT, 'lib', 'modeStore.js')).href
+    const storeUrl = pathToFileURL(path.join(ROOT, 'host', 'modeStore.js')).href
     const children = Array.from({ length: 4 }, (_, index) => {
       const key = `worker-${index}`
       const script = [

@@ -17,10 +17,10 @@ import {
   gitLockTimeoutMs,
   pathsFor,
   withGitLock,
-} from '../lib/store.js'
-import { touchLock } from '../lib/persistence.js'
-import { Tower } from '../lib/tower.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
+} from '../adapters/store.js'
+import { touchLock } from '../adapters/persistence.js'
+import { Tower } from '../host/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

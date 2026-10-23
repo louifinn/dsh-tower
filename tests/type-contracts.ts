@@ -6,7 +6,7 @@
 //
 //   * every pure module under domain/ (now inside the checkJs program)
 //     keeps the exported signature the contract promises;
-//   * the git adapter under lib/git.js keeps its explicit nullability, and the
+//   * the git adapter under adapters/git.js keeps its explicit nullability, and the
 //     tower use-case modules under app/ still export the expected async
 //     use cases.
 //
@@ -132,8 +132,8 @@ export type CountFindingsContract = Expect<
   Extends<DomainSummary['countFindings'], (findings: Finding[]) => Record<string, number>>
 >
 
-// --- lib/git.js -------------------------------------------------------------
-type GitAdapter = typeof import('../lib/git.js')
+// --- adapters/git.js --------------------------------------------------------
+type GitAdapter = typeof import('../adapters/git.js')
 
 export type GitTryContract = Expect<
   Extends<
@@ -153,7 +153,7 @@ export type GitListWorktreesContract = Expect<
 >
 
 // --- app/ use cases ---------------------------------------------------
-// gate.js/read.js import lib/git.js and batch.js imports domain/batch.js; those
+// gate.js/read.js use the injected vcs port and batch.js imports domain/batch.js; those
 // dependencies are inside the checkJs program too, so importing the use cases
 // here also machine-checks the adapter surface above and batch validation.
 type UseCaseBatch = typeof import('../app/batch.js')

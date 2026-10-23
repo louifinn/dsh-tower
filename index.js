@@ -12,22 +12,22 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerTowerTools } from './lib/tool-registry.js'
+import { registerTowerTools } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
-import { loadModes, saveModes, storePath } from './lib/modeStore.js'
-import { ModeState } from './lib/modeState.js'
-import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './lib/config.js'
+import { loadModes, saveModes, storePath } from './host/modeStore.js'
+import { ModeState } from './host/modeState.js'
+import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './host/config.js'
 import { TowerToolError } from './domain/errors.js'
-import { resolveRepo } from './lib/git.js'
+import { resolveRepo } from './adapters/git.js'
 import {
   acquireWorkspaceLock,
   inspectWorkspaceLock,
   releaseWorkspaceLock,
   touchWorkspaceLock,
   workspaceLockToken,
-} from './lib/workspaceLock.js'
-import { createHmrBridge } from './lib/hmr.js'
-import { assertPresetsAvailable } from './lib/presets.js'
+} from './adapters/workspaceLock.js'
+import { createHmrBridge } from './host/hmr.js'
+import { assertPresetsAvailable } from './host/presets.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']

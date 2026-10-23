@@ -27,7 +27,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { compareVersions } from '../lib/compatibility.js'
+import { compareVersions } from '../host/compatibility.js'
 import { findingRecorder, parseArgs, runMain, UsageError } from './lib/cli.mjs'
 
 const USAGE = `usage: node scripts/release-check.mjs [--mode pr|tag] [--tag <name>] [--json] [--help]

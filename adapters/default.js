@@ -4,13 +4,13 @@
 // node:child_process) are turned into the plain deps object the app layer
 // takes. `createDefaultDeps()` is called once by the host entry (index.js); the
 // app never imports an adapter. Tests and embedders use the memoised
-// `defaultDeps` (or lib/tower.js) so the process has exactly one adapter set.
+// `defaultDeps` (or host/tower.js) so the process has exactly one adapter set.
 import crypto from 'node:crypto'
-import * as archive from '../lib/archive.js'
-import * as caseSensitivity from '../lib/caseSensitivity.js'
-import * as config from '../lib/config.js'
-import { loadStateFile } from '../lib/stateFile.js'
-import * as ownership from '../lib/worktreeOwnership.js'
+import * as archive from './archive.js'
+import * as caseSensitivity from './caseSensitivity.js'
+import * as config from '../host/config.js'
+import { loadStateFile } from './stateFile.js'
+import * as ownership from './worktreeOwnership.js'
 import { createStorePort } from './store-fs.js'
 import { createVcsPort } from './vcs-git.js'
 

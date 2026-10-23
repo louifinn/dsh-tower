@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { Tower } from '../lib/tower.js'
+import { Tower } from '../host/tower.js'
 import { FINDING_STATUSES, FINDING_TRANSITIONS } from '../app/tower.js'
 
 function git(cwd, args) {

@@ -10,16 +10,15 @@
 // tower_legacy_map: audit-only legacy snapshot mapping.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { validateLegacyMap } from '../lib/legacy.js'
 import { LegacyMapInput } from '../domain/contracts/tool-inputs/index.js'
 import { LEGACY_MAP_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, validateLegacyMap: any }} deps
  */
 export function registerLegacyMapTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, validateLegacyMap } = deps
   define(ctx, {
     name: 'tower_legacy_map',
     description:

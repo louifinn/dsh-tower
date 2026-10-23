@@ -9,15 +9,14 @@
 // See docs/reference/tools.generated.md for the public shape.
 // tower_import_legacy: read-only legacy snapshot import.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { importLegacySnapshot } from '../lib/legacy.js'
 import { ImportLegacyInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, importLegacySnapshot: any }} deps
  */
 export function registerImportLegacyTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, importLegacySnapshot } = deps
   define(ctx, {
     name: 'tower_import_legacy',
     description:

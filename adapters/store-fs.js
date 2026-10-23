@@ -3,12 +3,12 @@
 // Since #69 this is a real adapter, not a re-export shim: `createStorePort()`
 // returns a runtime implementation of StorePort (ports/store.js) that the
 // composition root injects into the app layer. The durable implementation still
-// lives in lib/store.js + lib/persistence.js; #70 retires that layer by moving
-// the code here. The raw `fs`/`fsp` exports remain for the infrastructure
-// modules that are not behind the port yet.
+// lives next door in adapters/store.js + adapters/persistence.js (#70). The
+// raw `fs`/`fsp` exports remain for the adapter modules that are not behind
+// the port yet.
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import * as store from '../lib/store.js'
+import * as store from './store.js'
 
 const { createWriteStream } = fs
 export { fs, fsp, createWriteStream }

@@ -3,17 +3,17 @@ import { execFile } from '../adapters/vcs-git.js'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
-import { git } from './git.js'
-import { readStateLock, readGitLock, gitLockView } from './store.js'
-import { lockTiming } from './persistence.js'
-import { inspectArchive } from './archive.js'
+import { git } from '../adapters/git.js'
+import { readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
+import { lockTiming } from '../adapters/persistence.js'
+import { inspectArchive } from '../adapters/archive.js'
 import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
-import { inspectWorkspaceLock } from './workspaceLock.js'
+import { inspectWorkspaceLock } from '../adapters/workspaceLock.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -396,7 +396,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   }
 
   try {
-    const { inspectLeases } = await import('./leases.js')
+    const { inspectLeases } = await import('../adapters/leases.js')
     const leases = await inspectLeases(tower.commonDir)
     checks.push(check('leases', leases.leases?.length ? 'warn' : 'pass', `${leases.leases?.length ?? 0} active lease(s)`))
   } catch (error) {

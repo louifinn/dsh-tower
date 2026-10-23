@@ -1,16 +1,15 @@
 // tower_resource: advisory resource leases.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { acquireLease, releaseLease, inspectLeases } from '../lib/leases.js'
 import { ResourceInput } from '../domain/contracts/tool-inputs/index.js'
 import { LEASE_ACTION } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, acquireLease: any, releaseLease: any, inspectLeases: any }} deps
  */
 export function registerResourceTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, acquireLease, releaseLease, inspectLeases } = deps
   define(ctx, {
     name: 'tower_resource',
     description:

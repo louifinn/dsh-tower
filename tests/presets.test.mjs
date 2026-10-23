@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import * as worker from '../worker.js'
 import * as reviewer from '../reviewer.js'
 import * as skills from '../skills.js'
-import { Config, resolveTowerConfig } from '../lib/config.js'
+import { Config, resolveTowerConfig } from '../host/config.js'
 
 function mockCtx() {
   const state = { allow: null, section: null, providers: [] }
@@ -103,7 +103,7 @@ test('config: defaults, legacy aliases and unknown-key rejection', () => {
 })
 
 test('preset validation fails closed before work starts (#64)', async () => {
-  const { assertPresetsAvailable } = await import('../lib/presets.js')
+  const { assertPresetsAvailable } = await import('../host/presets.js')
   const ctxWith = (ids) => ({ get: (name) => (name === 'agentPresets' ? { list: async () => ids.map((id) => ({ id })) } : undefined) })
   await assert.rejects(
     () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { requireReview: true } }),

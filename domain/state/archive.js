@@ -9,7 +9,7 @@
 // This module is pure: it declares the archive document contract, selects what
 // is eligible under the configured policy, and builds the records. Reading and
 // writing the files, and the lock that makes them atomic with state.json, live
-// in `lib/archive.js` and `app/archive.js`.
+// in `adapters/archive.js` and `app/archive.js`.
 // @ts-check
 import { isTerminal } from '../mission.js'
 

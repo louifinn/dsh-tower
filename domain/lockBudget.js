@@ -6,7 +6,7 @@
 // plan.timeoutMs and then runs a few cheap evidence/cleanup git calls before
 // releasing it (#93). The budget is pure policy over the resolved Tower config,
 // so it lives in the domain rather than in an adapter; app/tower.js and
-// lib/store.js both compute it from here.
+// adapters/store.js both compute it from here.
 export const GIT_LOCK_MARGIN_MS = 60000
 
 /** The default merge timeout when a caller passes a config without `merge`. */

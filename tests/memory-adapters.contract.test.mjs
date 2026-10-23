@@ -1,7 +1,7 @@
 // Contract tests for the no-disk/no-git doubles under tests/support (#50).
 //
 // The doubles exist so a future Tower lifecycle can inject a store and a vcs
-// instead of importing lib/store.js and lib/git.js. These tests pin the two
+// instead of importing adapters/store.js and adapters/git.js. These tests pin the two
 // properties that make that possible:
 //
 //   1. surface parity - the doubles expose what app/tower.js actually calls;
@@ -14,10 +14,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-import * as realStore from '../lib/store.js'
-import * as realGit from '../lib/git.js'
-import { Tower } from '../lib/tower.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
+import * as realStore from '../adapters/store.js'
+import * as realGit from '../adapters/git.js'
+import { Tower } from '../host/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
 import { PORTS } from '../ports/index.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -46,7 +46,7 @@ test('memory store exposes the state-store surface app/tower.js imports', () => 
 
   assert.deepEqual(Object.keys(paths).sort(), Object.keys(realPaths).sort())
   for (const name of [...STORE_SURFACE, ...STORE_EXTRA_SURFACE]) {
-    assert.equal(typeof store[name], typeof realStore[name], `store.${name} must match lib/store.js`)
+    assert.equal(typeof store[name], typeof realStore[name], `store.${name} must match adapters/store.js`)
   }
   for (const value of Object.values(paths)) {
     assert.ok(value.startsWith(MEMORY_SCHEME), `pathsFor values must be virtual, saw ${value}`)
@@ -57,7 +57,7 @@ test('memory store exposes the state-store surface app/tower.js imports', () => 
 test('scripted vcs exposes the git surface Tower calls', () => {
   const vcs = createScriptedVcs()
   for (const name of VCS_SURFACE) {
-    assert.equal(typeof realGit[name], 'function', `lib/git.js must export ${name}`)
+    assert.equal(typeof realGit[name], 'function', `adapters/git.js must export ${name}`)
     assert.equal(typeof Tower.prototype[name], 'function', `Tower must expose ${name}`)
     assert.equal(typeof vcs[name], 'function', `scripted vcs must expose ${name}`)
   }

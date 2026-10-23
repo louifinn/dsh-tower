@@ -1,4 +1,4 @@
-// Scripted in-memory VCS replacement for lib/git.js (#50): the git surface
+// Scripted in-memory VCS replacement for adapters/git.js (#50): the git surface
 // Tower calls through its own methods:
 //
 //   git(cwd, args)                  -> scripted command dispatch

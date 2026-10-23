@@ -95,7 +95,7 @@ function scratchRoot() {
 // repository, so HMR replaces a module; fall back to a plain probe file.
 function touchMarker(root) {
   const probe = `dsh-tower hmr probe ${new Date().toISOString()}`
-  const candidates = ['lib/hmr.js', 'lib/errors.js', 'index.js']
+  const candidates = ['host/hmr.js', 'domain/errors.js', 'index.js']
   for (const candidate of candidates) {
     const file = path.join(root, candidate)
     if (!fs.existsSync(file)) continue

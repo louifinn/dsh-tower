@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assessHostVersion, compareVersions, parseCompatibility, parseVersion } from '../lib/compatibility.js'
+import { assessHostVersion, compareVersions, parseCompatibility, parseVersion } from '../host/compatibility.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')

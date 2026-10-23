@@ -15,7 +15,7 @@ const toolModuleSources = fs.existsSync(path.join(root, 'tools'))
       .map((name) => read(`tools/${name}`))
       .join('\n')
   : ''
-const toolsSource = read('tools/index.js') + toolModuleSources + read('lib/tool-registry.js') + read('index.js')
+const toolsSource = read('tools/index.js') + toolModuleSources + read('host/tool-registry.js') + read('index.js')
 const documentedTools = read('docs/reference/tools.md')
 const toolNames = [...new Set([...toolsSource.matchAll(/name: '(tower_[a-z_]+)'/g)].map((match) => match[1]))]
   .filter((name) => name !== 'tower-control')

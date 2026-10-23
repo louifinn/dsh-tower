@@ -3,9 +3,9 @@
 // Since #69 this is a real adapter, not a re-export shim: `createVcsPort()`
 // returns a runtime implementation of VcsPort (ports/vcs.js) that the
 // composition root injects into the app layer. The bounded-command
-// implementation still lives in lib/git.js; #70 retires that layer.
+// implementation lives next door in adapters/git.js (#70).
 import { execFile, spawn } from 'node:child_process'
-import * as git from '../lib/git.js'
+import * as git from './git.js'
 
 export { execFile, spawn }
 

@@ -1,6 +1,6 @@
 // Shared durable-persistence contract (#56 P2b).
 //
-// state.json (lib/store.js) and modes.json (lib/modeStore.js) both persist a
+// state.json (adapters/store.js) and modes.json (host/modeStore.js) both persist a
 // whole JSON document behind a token-owned writer lock. They must agree on:
 //
 //   - atomic replacement: serialise completely, write a temp file, rename;
@@ -10,9 +10,9 @@
 //   - bounded waiting: a held lock is reported after a timeout, not stolen.
 //
 // Keeping the primitives here means a protocol fix applies to both contracts
-// at once. This module is the only lib/ file besides store.js that talks to
-// the fs adapter; it never imports node:fs directly (#50).
-import { fs, fsp } from '../adapters/store-fs.js'
+// at once. This module is the only adapter besides store.js that talks to the
+// fs adapter; it never imports node:fs directly (#50).
+import { fs, fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { TowerToolError } from '../domain/errors.js'

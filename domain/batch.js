@@ -120,7 +120,7 @@ function normalizeReceiptPathOrNull(value, where) {
   }
 }
 
-/** Legacy snapshots imported by lib/legacy.js; only paused missions may be excluded. */
+/** Legacy snapshots imported by adapters/legacy.js; only paused missions may be excluded. */
 function pausedLegacyIds(state) {
   const ids = new Set()
   const collectMission = (mission) => {
@@ -138,7 +138,7 @@ function pausedLegacyIds(state) {
     collectList(snapshot.missions)
     if (isPlainObject(snapshot.snapshot)) collectList(snapshot.snapshot.missions)
     if (isPlainObject(snapshot.payload)) collectList(snapshot.payload.missions)
-    // lib/legacy.js stores imported snapshots with `pausedMissionIds`; older,
+    // adapters/legacy.js stores imported snapshots with `pausedMissionIds`; older,
     // hand-written fixtures may use `pausedIds`.
     for (const key of ['pausedIds', 'pausedMissionIds']) {
       if (Array.isArray(snapshot[key])) {

@@ -6,7 +6,7 @@
 // and must still be the Git worktree of the recorded branch in the recorded
 // repository. Every mismatch is rejected with an actionable message; nothing
 // is repaired or recreated here.
-import { fs, fsp } from '../adapters/store-fs.js'
+import { fs, fsp } from './store-fs.js'
 import path from 'node:path'
 
 import { git } from './git.js'

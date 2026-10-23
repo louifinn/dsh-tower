@@ -9,9 +9,9 @@
 // - tools must not import node:fs or node:child_process directly.
 // 
 // Tests import this module for the public surface; they may also
-// import lib/tool-registry.js for low-level test hooks.
+// import host/tool-registry.js for low-level test hooks.
 // 
-// Packaging: package.json ships tools/*.js and lib/tool-registry.js.
+// Packaging: package.json ships tools/*.js and host/tool-registry.js.
 // The file intentionally stays tiny so handler modules remain the
 // only place where a tool is defined.
 // Keep this comment and the re-export list in sync when adding tools.
@@ -20,7 +20,7 @@
 // 
 // The registration aggregator, guards, rate limits, spawn backoff,
 // repository preparation, discovery helpers, and verb helpers live in
-// lib/tool-registry.js. This module only re-exports the public entry
+// host/tool-registry.js. This module only re-exports the public entry
 // points consumed by the Host plugin, tests, and docs generators.
 // 
 // Design rules:
@@ -30,10 +30,10 @@
 // - no business logic in this file;
 // - keep the surface stable for index.js and tests.
 // 
-// See docs/architecture/overview.md and lib/tool-registry.js.
+// See docs/architecture/overview.md and host/tool-registry.js.
 // Tower tool surface: thin public wiring (#56 P5).
-// Registration and shared machinery live in lib/tool-registry.js; one handler
+// Registration and shared machinery live in host/tool-registry.js; one handler
 // module per tool lives under tools/. This file only exposes the public entry
 // points consumed by the Host plugin, tests, and documentation generators.
-export { registerTowerTools, __testSpawnBackoff } from '../lib/tool-registry.js'
-export { workerBriefing, reviewerBriefing } from '../lib/briefing.js'
+export { registerTowerTools, __testSpawnBackoff } from '../host/tool-registry.js'
+export { workerBriefing, reviewerBriefing } from '../app/briefing.js'

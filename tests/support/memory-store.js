@@ -1,4 +1,4 @@
-// In-memory replacement for lib/store.js (#50): the same surface Tower uses,
+// In-memory replacement for adapters/store.js (#50): the same surface Tower uses,
 // with no filesystem access.
 //
 // The production store is a durable repo-scoped store: an exclusive writer lock,
@@ -50,7 +50,7 @@ function missingFile(file, syscall) {
   return error
 }
 
-/** Same key shape and join rule as lib/store.js pathsFor, but virtual. */
+/** Same key shape and join rule as adapters/store.js pathsFor, but virtual. */
 export function memoryPathsFor(commonDir) {
   const dir = `${MEMORY_SCHEME}${normalizePath(commonDir)}/dsh-tower`
   return {
