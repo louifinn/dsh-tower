@@ -3,8 +3,11 @@
 All tools take `repoRoot` (an absolute path inside the target Git repository) and return JSON.
 The build exposes up to 29 tools: 19 core repository tools below (including `tower_interrupt`),
 `tower_mode`, `tower_control` (registered by default; set `mode.allowAgentControl:false` to disable),
-`tower_reload` while `dev.hotReload` is on, and the 2.1 verification/ops tools `tower_doctor`,
-`tower_recover`, `tower_test`, `tower_batch`, `tower_resource`, `tower_import_legacy`, `tower_legacy_map`.
+the always-registered `tower_doctor` and `tower_recover` (#122), and the component-owned tools
+`tower_reload` (`tower-hmr`), `tower_test` (`tower-tests`), `tower_batch` (`tower-batch`),
+`tower_resource` (`tower-leases`), `tower_import_legacy` / `tower_legacy_map` (`tower-import`).
+A component row that is off removes exactly its tools; `tower_status` and `tower_doctor` report it
+as "disabled by component <id>".
 
 `tower_mission` uses `id` (alias `missionId`); every other mission-scoped tool uses `missionId`
 (alias `id`). Other input aliases: `task_done`/`taskDone`, `task_drop`/`taskDrop`,
@@ -52,7 +55,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_teardown` | `force?`, `exclude?`, `dry_run?` (alias `dryRun`) | Remove eligible merged/abandoned worktrees and branches; running agents are always kept. The final pass applies the `archive` policy: terminal missions whose worktree is gone are moved to `<git-common-dir>/dsh-tower/archive/` once `archive.afterDays`/`archive.maxMissions` says so, and `archived` lists their ids. Nothing is deleted; `archive.afterDays:0` archives a just-torn-down mission immediately. |
 | `tower_mode` | — | Report mode, last change, paused goal, denied tools, store path, plugin version, HMR availability, workspace-lock holder. |
 | `tower_control` | `action` (`enter`/`exit`), `reason` | Model-initiated mode change; registered by default; disable with `mode.allowAgentControl:false`; reason is mandatory. |
-| `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while `dev.hotReload` is on; scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
+| `tower_reload` | `repoRoot?` | Dev-only: ask DSH HMR to reconcile the profile and reload the Host plugin from disk. Registered while the `tower-hmr` component row is on (the row ships off); scheduled after the result (default 50 ms); fails with `reload-unavailable` without HMR. When `repoRoot` is supplied the caller must be the tower. |
 | `tower_doctor` | — (takes `repoRoot`) | Read-only health contract: the concept-budget surface (`config keys: N · sections: N · tools: N`), git, state schema, config, presets/subagents/HMR, the state lock's age and heartbeat freshness, the repo-scoped git lock holder, workspace lock, roster, worktree realpath/ownership, test config, leases and the terminal-mission archive. Returns `{ok, checks[{id,status,detail}], surface, stateLock, gitLock, stateSchema, archive, environmentContract}`; `surface` reports `{configKeys, sections, tools, baselineDate, line}` so growth against `scripts/surface-baseline.json` is visible in the output, `stateLock` reports `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}` so a stuck tower is diagnosable without reading the file, and `gitLock` reports `{held, pid, phase, heldMs}` (`{held:false}` when free) with a `git-lock` check. `archive` reports `{missions, archivedMissions, stateBytes, archiveBytes, years, files, unreadable, policy{enabled,afterDays,maxMissions}}`. A missing archive directory is healthy; a corrupt file is a `warn` with its diagnostic. Never writes. |
 | `tower_recover` | `action` (`status`/`clear-stale-lock`), `confirm?`, `force?` | Recovery diagnostics plus an explicit stale state-lock repair. `clear-stale-lock` requires `confirm:"CLEAR_STALE_LOCK"` and only moves a lock whose PID is provably dead to a `.recovered-<ts>` backup. `force:true` additionally clears a live-but-silent PID (a recycled PID): the output names `{pid, startedAt, ageMs, heartbeatAgeMs}` and the record is still renamed, never unlinked. It never resets state/worktrees. |
 | `tower_test` | `missionId` (alias `id`) | Run the worktree's `package.json` `tower.testDiscovery` and record a receipt; `ok:false` on failure. Use `tower_complete` for automatic admission checks. |

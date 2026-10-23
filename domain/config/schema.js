@@ -33,7 +33,10 @@ export const DEFAULT_DENY_TOOLS = [
 ]
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev', 'tools']
+// #121: the `tools` group is gone. Every capability that used to be a
+// `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
+// component row is the switch. What remains here is genuine tuning policy.
+const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
 
 const SECTION_KEYS = {
   init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
@@ -75,9 +78,8 @@ const SECTION_KEYS = {
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
   docs: ['board', 'boardLocation'],
   archive: ['enabled', 'afterDays', 'maxMissions'],
-  tools: ['exposeOperational', 'exposeBatch', 'exposeImport', 'exposeLeases', 'exposeTests', 'exposeRecovery', 'exposeDoctor'],
   leases: ['ttlMs'],
-  dev: ['hotReload', 'reloadDelayMs', 'reloadRequiredIds'],
+  dev: ['reloadDelayMs', 'reloadRequiredIds'],
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
@@ -261,30 +263,16 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Terminal-mission archival policy. Archived missions are moved, never deleted.'),
-  tools: Schema.object({
-    exposeOperational: Schema.boolean()
-      .default(true)
-      .description('Master switch for batch/resource/import/legacy/recover/test/doctor tools.'),
-    exposeBatch: Schema.boolean().default(true).description('Register tower_batch.'),
-    exposeImport: Schema.boolean().default(true).description('Register tower_import_legacy/tower_legacy_map.'),
-    exposeLeases: Schema.boolean().default(true).description('Register tower_resource advisory leases.'),
-    exposeTests: Schema.boolean().default(true).description('Register tower_test; gates.requireTests requires it.'),
-    exposeRecovery: Schema.boolean().default(true).description('Register tower_recover (stale state-lock escape).'),
-    exposeDoctor: Schema.boolean().default(true).description('Register tower_doctor (read-only health contract).'),
-  })
-    .default({})
-    .description('Tool-surface policy.'),
   leases: Schema.object({
     ttlMs: Schema.natural().min(1000).max(86400000).default(900000).description('Default advisory lease lifetime; expiry never auto-releases.'),
   })
     .default({})
     .description('Advisory resource leases.'),
   dev: Schema.object({
-    hotReload: Schema.boolean().default(true).description('Register tower_reload and /tower reload when the DSH HMR service is available.'),
     reloadDelayMs: Schema.natural().min(1).max(5000).default(50).description('Delay before a scheduled reload, so the tool result is delivered first.'),
     reloadRequiredIds: Schema.array(Schema.string())
-      .default(['tower-bundle', 'tower', 'tower-skills', 'preset-tower-worker', 'preset-tower-reviewer'])
-      .description('Loader entry ids passed to reconcileProfile as required.'),
+      .default(['tower', 'tower-host', 'preset-tower-worker'])
+      .description('Loader entry ids passed to reconcileProfile as required. Optional component rows are deliberately not required, so a row switched off is not a reload failure.'),
   })
     .default({})
     .description('Development and hot-reload behavior.'),
@@ -362,7 +350,7 @@ export function assertKnownKeys(raw, label) {
   if (unknown.length > 0) {
     throw new TowerToolError(
       'config-unknown-key',
-      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, archive?, leases?, dev?, tools? }`,
+      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, archive?, leases?, dev? }`,
     )
   }
   for (const [group, allowed] of Object.entries(SECTION_KEYS)) {
@@ -413,11 +401,12 @@ export function resolveTowerConfig(rawConfig) {
     throw new TowerToolError('config-invalid', `Tower config is invalid: ${String(error?.message ?? error)}`)
   }
   const mode = clone(parsed.mode ?? {})
-  if (parsed.gates?.requireTests === true) {
-    const testsAvailable = parsed.tests?.enabled !== false && parsed.tools?.exposeOperational !== false && parsed.tools?.exposeTests !== false
-    if (!testsAvailable) {
-      throw new TowerToolError('config-invalid', 'Tower config is invalid: gates.requireTests is true but test discovery is disabled (tests.enabled/tools.exposeTests)')
-    }
+  if (parsed.gates?.requireTests === true && parsed.tests?.enabled === false) {
+    // #121: the tower-tests *component row* is the capability switch now; a
+    // repository that turns the row off cannot satisfy gates.requireTests. The
+    // component-level half of this invariant is enforced at plan/mode entry,
+    // where the mounted rows are known (host/presets.js).
+    throw new TowerToolError('config-invalid', 'Tower config is invalid: gates.requireTests is true but test discovery is disabled (tests.enabled:false)')
   }
   // Canonical keys win; the legacy top-level aliases only fill gaps.
   const rawMode = raw.mode ?? {}
@@ -444,7 +433,6 @@ export function resolveTowerConfig(rawConfig) {
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),
     archive: clone(parsed.archive ?? {}),
-    tools: clone(parsed.tools ?? {}),
     leases: clone(parsed.leases ?? {}),
     dev: clone(parsed.dev ?? {}),
   }

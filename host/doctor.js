@@ -17,6 +17,7 @@ import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/sur
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
 import { inspectWorkspaceLock } from '../adapters/workspaceLock.js'
+import { componentReport, componentSummary } from './capability-registry.js'
 
 const execFileAsync = promisify(execFile)
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -287,22 +288,48 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         ),
   )
   const presets = ctx.get?.('agentPresets')
+  const reviewerRequired = config.review?.requireReview === true
   if (presets && typeof presets.list === 'function') {
     try {
       const available = (await presets.list()).map((entry) => String(entry.id))
-      const missing = [config.spawn?.workerPreset ?? 'tower-worker', config.spawn?.reviewerPreset ?? 'tower-reviewer']
-        .filter((id) => !available.includes(id))
-      checks.push(
-        missing.length === 0
-          ? check('presets', 'pass', `worker=${config.spawn?.workerPreset ?? 'tower-worker'} reviewer=${config.spawn?.reviewerPreset ?? 'tower-reviewer'}`)
-          : check('presets', 'fail', `missing preset(s): ${missing.join(', ')}`, 'enable the Tower preset bundle and retry'),
-      )
+      const worker = config.spawn?.workerPreset ?? 'tower-worker'
+      const reviewer = config.spawn?.reviewerPreset ?? 'tower-reviewer'
+      const required = reviewerRequired ? [worker, reviewer] : [worker]
+      const missing = required.filter((id) => !available.includes(id))
+      // #121: `preset-tower-reviewer` is a conditional component. Its off state
+      // is supported while review.requireReview is false; with the gate on it is
+      // a fail, because no independent review can be dispatched.
+      if (missing.length === 0) {
+        const reviewerNote = available.includes(reviewer)
+          ? `reviewer=${reviewer}`
+          : `reviewer=${reviewer} (disabled by component preset-tower-reviewer)`
+        checks.push(check('presets', 'pass', `worker=${worker} ${reviewerNote}`))
+      } else {
+        checks.push(
+          check(
+            'presets',
+            'fail',
+            `missing preset(s): ${missing.join(', ')}${reviewerRequired && missing.includes(reviewer) ? ' (review.requireReview is true, so preset-tower-reviewer may not be off)' : ''}`,
+            'enable the Tower preset component and retry',
+          ),
+        )
+      }
     } catch (error) {
       checks.push(check('presets', 'warn', `preset registry unavailable: ${String(error?.message ?? error)}`))
     }
   } else {
     checks.push(check('presets', 'warn', 'agentPresets service is unavailable'))
   }
+
+  // #121: the optional component rows are a diagnostic fact. A disabled row is
+  // reported with the exact "disabled by component <id>" reason rather than
+  // disappearing silently from the tool surface.
+  const components = await componentReport(ctx)
+  checks.push(
+    components.disabled.length > 0
+      ? check('components', 'warn', componentSummary(components), 'enable the reported row in the plugin page and restart DSH')
+      : check('components', 'pass', componentSummary(components)),
+  )
 
   const subagents = ctx.get?.('subagents')
   checks.push(subagents ? check('subagents', 'pass', 'service mounted') : check('subagents', 'fail', 'subagents service is unavailable', 'enable the subagent bundle'))
@@ -399,11 +426,15 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     )
 
     const testConfigured = state.missions?.some((mission) => mission.testRuns !== undefined)
+    const testsDisabled =
+      config.tests?.enabled === false || components.disabled.some((entry) => entry.id === 'tower-tests')
     checks.push(
       check(
         'tests',
-        config.tests?.enabled === false ? 'warn' : 'pass',
-        config.tests?.enabled === false ? 'test discovery disabled' : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
+        testsDisabled ? 'warn' : 'pass',
+        testsDisabled
+          ? `test discovery disabled${config.tests?.enabled === false ? ' (tests.enabled:false)' : ' (disabled by component tower-tests)'}`
+          : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
     )
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
@@ -520,6 +551,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
 // reports (from #89) and archive (from #73) are both kept
     reports: reportsReport,
     surface: surfaceReport,
+    components,
     archive: {
       missions: state ? state.missions.length : null,
       archivedMissions: archiveInventory.missions,

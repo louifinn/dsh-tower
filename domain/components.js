@@ -135,6 +135,35 @@ function normalizeGateableTools(value) {
 }
 
 /**
+ * Parse the static `host/tool-registry.js` route table that lets a boolean
+ * remove a tool. This is the denylist's live input, so it is deliberately
+ * tolerant about formatting (F11): it accepts a tuple with a trailing comma and
+ * a `Map.set(...)` route, so a reformatted or rewritten table cannot fall out of
+ * the allowlist and silently legalise a forbidden switch.
+ *
+ * @param {string} source the registry module text
+ * @returns {Record<string, string>} tool name -> expose flag (without `tools.`)
+ */
+export function parseOperationalRegistry(source) {
+  const text = String(source ?? '')
+  /** @type {Record<string, string>} */
+  const registry = {}
+  // Tuple form: ['tower_batch', 'exposeBatch'] with an optional trailing comma.
+  for (const match of text.matchAll(
+    /\[\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*,?\s*\]/g,
+  )) {
+    registry[match[1]] = match[2]
+  }
+  // Map form: OPERATIONAL_TOOLS.set('tower_batch', 'exposeBatch').
+  for (const match of text.matchAll(
+    /OPERATIONAL_TOOLS\s*\.\s*set\(\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*\)/g,
+  )) {
+    registry[match[1]] = match[2]
+  }
+  return registry
+}
+
+/**
  * Parse and validate the single source of truth. Structural problems throw with
  * an actionable message; semantic problems are findings from the validators
  * below, so one run can report all of them.
@@ -370,8 +399,9 @@ export function checkLocaleCoverage(surface, locales) {
  * boolean key.
  *
  * The live disablers are derived statically:
- *   - `host/tool-registry.js` maps a tool to the `tools.expose*` boolean that
- *     skips registering it (and `tools.exposeOperational` skips them all);
+ *   - `host/tool-registry.js` may map a tool to a `tools.expose*` boolean that
+ *     skips registering it (#122 removed the shipped table; the parser keeps the
+ *     allowlist ready if one ever returns);
  *   - `cordis.patch.yml` rows may set a forbidden-to-disable key to `false`, or
  *     expose a forbidden capability as its own switchable row.
  *
@@ -478,7 +508,6 @@ export function checkForbidden(surface, live) {
       const flag = registry[tool]
       if (!flag) continue
       liveSwitches.add(`tools.${flag}`)
-      liveSwitches.add('tools.exposeOperational')
     }
     const accepted = capability.acceptedSwitches?.keys ?? []
     const acceptedSet = new Set(accepted)
@@ -533,7 +562,7 @@ export function renderComponentSurface(surface, options = {}) {
     .join('\n')
   const gateableRows = (surface.gateableTools ?? [])
     .map((entry) => `| \`${entry.tool}\` | \`${entry.key}\` |`)
-    .join('\n')
+    .join('\n') || '| _(none)_ | — |'
   const visibleIds = visible.map((component) => `\`${component.id}\``).join(', ')
   return `# Component surface (generated)
 
@@ -573,11 +602,12 @@ ${forbiddenRows}
 
 ## Gateable tools
 
-Every \`tools.expose*\` route in \`host/tool-registry.js\` must match this table.
-A route to a tool that is not listed here is refused, so no boolean key can
-quietly remove a review, merge or host tool; only \`tower_doctor\` and
-\`tower_recover\` may gate a forbidden capability, and only until #122 deletes
-their recorded debt.
+The allowlist of boolean routes in \`host/tool-registry.js\`. Every shipped
+\`tools.expose*\` route must match this table. A route to a tool that is not listed
+here is refused, so no boolean key can quietly remove a review, merge or host
+tool. Since #122 the shipped table is empty: \`tower_doctor\` and \`tower_recover\`
+are registered for every configuration and no other capability may become a
+boolean switch.
 
 | Tool | Switch key |
 |---|---|

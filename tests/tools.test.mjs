@@ -250,10 +250,12 @@ test('findings tool: file, list, read and transition through the tool surface', 
   }
 })
 
-test('tower_plan refuses before creating missions when a preset is missing (#64)', async () => {
+test('tower_plan refuses before creating missions when a required preset is missing (#64)', async () => {
   const { root, repo } = makeRepo('dsh-tower-plan-preset-')
   const exec = { agent: { id: 'agent-plan-preset' } }
-  const { ctx, tools } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  // #121: the worker preset is mandatory; the reviewer preset is conditional on
+  // review.requireReview, so a composition with only the reviewer still fails.
+  const { ctx, tools } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-reviewer' }] } })
   registerTowerTools(ctx)
   try {
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)

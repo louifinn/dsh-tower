@@ -2,29 +2,34 @@
 
 ## Components
 
-The bundle is all-or-nothing: `cordis.patch.yml` inserts one `tower-bundle` `cordis:group` row whose
-internal sections are the Host plugin, the skills provider, and the worker/reviewer presets. The
-group is the only user-facing component; disabling it disables every section together, so no preset
-or skill can remain mounted while the `tower_*` tools are gone.
+Since #121 the bundle ships a mandatory host anchor plus individually switchable
+optional rows: `cordis.patch.yml` declares top-level `tower` (a `cordis:group`
+that mounts the Host plugin and the mandatory worker preset), then
+`tower-skills`, `tower-batch`, `tower-import`, `tower-leases`, `tower-tests`,
+`tower-hmr` (shipped off) and `preset-tower-reviewer`. Turning one optional row
+off removes exactly that capability; the host, the diagnostics and the recovery
+escape keep working.
 
-That is the shipped shape, not the policy. [Principle 11](../../PRINCIPLES.md) and
-[ADR 0005](../adr/0005-component-surface.md) say a component may exist only for a capability whose
-off state leaves the rest intact, and that the host, health, recovery, review and merge-gate
-capabilities are never switches. Which keys are allowed to be switches is a table lookup in
+[Principle 11](../../PRINCIPLES.md) and
+[ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
+a capability whose off state leaves the rest intact, and that the host, health,
+recovery, review and merge-gate capabilities are never switches. Which keys are
+allowed to be switches is a table lookup in
 [component-surface.md](../reference/component-surface.md), generated from
 `scripts/component-surface.json`; the component count is baselined and checked by
 `npm run docs:check:components`. That gate also refuses a `tools.expose*` route
-to a tool that is not on the recorded allowlist and any `cordis.patch.yml` row
-that defaults a forbidden key off. #121 grows this shape with individually
-toggleable optional rows and #122 removes the safety-net switches.
+to a tool that is not on the recorded allowlist (empty since #122) and any
+`cordis.patch.yml` row that defaults a forbidden key off.
 
 ```
 Host plugin (index.js)
- ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control, /tower reload)
+ ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control)
  ├─ host/tool-registry.js -> registration aggregator, actor guards, shared helpers
- │                    (+ 27 define()-registered tools)
- │                    (+ tower_mode/tower_control registered by the Host entry, 29 total)
- │                    (+ tower_reload while dev.hotReload is on; fails reload-unavailable without HMR)
+ │                    (+ 21 define()-registered host tools)
+ │                    (+ tower_mode/tower_control registered by the Host entry, 29 total
+ │                       once every optional capability row is on)
+ │                    (tower_doctor/tower_recover are host tools, never switches)
+ ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)
  ├─ tools/index.js  -> thin public wiring (re-exports the registry + briefings)
  └─ app/tower.js   -> orchestration surface; delegates to use-case modules
        ├─ app/init.js, provision.js, merge.js, rebase.js, teardown.js
@@ -36,6 +41,7 @@ Host plugin (index.js)
        host/tool-registry.js   registration aggregator + shared guards/helpers
        host/config.js          profile/repo config layers over the pure schema
        host/doctor.js          read-only environment contract and health checks
+       host/capability-registry.js  mounted-component report for status/doctor
        host/hmr.js             optional DSH HMR bridge (tower_reload / /tower reload)
        host/modeStore.js       per-agent Tower mode persistence
        host/modeState.js       owned in-memory mode state

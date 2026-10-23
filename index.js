@@ -12,7 +12,7 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerTowerTools, recordToolRegistration } from './host/tool-registry.js'
+import { registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
 import { loadModes, saveModes, storePath } from './host/modeStore.js'
 import { ModeState } from './host/modeState.js'
@@ -26,8 +26,8 @@ import {
   touchWorkspaceLock,
   workspaceLockToken,
 } from './adapters/workspaceLock.js'
-import { createHmrBridge } from './host/hmr.js'
-import { assertPresetsAvailable } from './host/presets.js'
+import { assertRuntimePreconditions } from './host/presets.js'
+import { currentHmrBridge } from './host/capability-registry.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
@@ -256,14 +256,6 @@ export function apply(ctx, rawConfig) {
   modeState.replace(loadModes(config.mode.storePath || undefined))
   if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
   denyTools = new Set(config.mode.denyTools)
-  const hotReloadEnabled = config.dev?.hotReload !== false
-  const hmrBridge = hotReloadEnabled
-    ? createHmrBridge(ctx, {
-        requiredIds: config.dev?.reloadRequiredIds,
-        delayMs: config.dev?.reloadDelayMs,
-        logger: ctx.logger ?? console,
-      })
-    : null
 
   const workspace = {
     /** Lazily acquire the advisory workspace lock on the first repo-scoped tool. */
@@ -346,20 +338,24 @@ export function apply(ctx, rawConfig) {
 
   // #69: the host entry is the composition root — the adapters are constructed
   // once here and injected into the tool layer and every Tower instance.
-  registerTowerTools(ctx, { workspace, hmrBridge, deps: createDefaultDeps() })
+  // #121: only the mandatory host surface is registered here. The optional
+  // capability rows (batch/import/leases/tests/hmr) are separate loader entries
+  // and register their own tools, so a disabled row removes exactly one
+  // capability.
+  registerCoreTowerTools(ctx, { workspace, deps: createDefaultDeps() })
 
-  // #118: tower_mode/tower_control are registered directly here instead of
+  // #118/#121: tower_mode/tower_control are registered directly here instead of
   // through define(), so record them through the same recorder the registry
   // uses. tower_control is recorded before the allowAgentControl gate: the
   // concept budget measures the surface this build can register, not only the
-  // tools one profile exposes (#84). Both paths together are the shipped 29.
+  // tools one profile exposes (#84). Together with the capability-tool names the
+  // registry records before row gating, these are the shipped 29.
   recordToolRegistration('tower_mode')
   recordToolRegistration('tower_control')
 
   // On dispose (including an HMR reload) release advisory workspace locks this
   // process still owns; a reloaded plugin restores the entries from modes.json.
   ctx.effect(() => () => {
-    if (hmrBridge) hmrBridge.dispose?.()
     for (const entry of modeState.values()) {
       if (entry?.lock) {
         releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
@@ -459,7 +455,12 @@ export function apply(ctx, rawConfig) {
           deniedWhileActive: [...denyTools],
           persistedAt: storePath(config.mode.storePath || undefined),
           pluginVersion: readPluginVersion(),
-          hotReload: hmrBridge ? hmrBridge.status() : { available: false, disabled: true },
+          hotReload: (() => {
+            // #121/#122: the tower-hmr component row owns the bridge. When the
+            // row is off the capability is reported, never silently absent.
+            const bridge = currentHmrBridge()
+            return bridge ? bridge.status() : { available: false, disabled: true, component: 'tower-hmr' }
+          })(),
           planMode: (() => {
             const state = planModeState(ctx, exec.agent)
             return { available: state.available, active: state.active, pending: state.pending }
@@ -515,7 +516,7 @@ export function apply(ctx, rawConfig) {
           }
           const reason = args.reason.trim()
           if (args.action === 'enter' && !modeOn(key)) {
-            await assertPresetsAvailable(ctx, config)
+            await assertRuntimePreconditions(ctx, config)
           }
           const outcome =
             args.action === 'enter'
@@ -566,20 +567,23 @@ export function apply(ctx, rawConfig) {
         }
         const parsed = parseTowerInput(rawInput)
         if (parsed.action === 'reload') {
-          if (!hotReloadEnabled) {
-            return { kind: 'error', text: 'Tower reload is disabled by dev.hotReload:false; restart DSH instead.' }
+          // #121: /tower reload is the tower-hmr component. The row is shipped
+          // off, so the error names the component instead of an invisible key.
+          const bridge = currentHmrBridge()
+          if (!bridge) {
+            return { kind: 'error', text: 'Tower reload is disabled by component tower-hmr; enable the tower-hmr row in the plugin page and restart DSH.' }
           }
-          if (!hmrBridge || !hmrBridge.available) {
+          if (!bridge.available) {
             return { kind: 'error', text: 'Tower reload is unavailable: this DSH profile has no HMR service. Restart DSH instead.' }
           }
-          const outcome = hmrBridge.schedule()
+          const outcome = bridge.schedule()
           return {
             kind: 'success',
             text: `Tower reload scheduled in ${outcome.delayMs}ms (required entries: ${outcome.requiredIds.join(', ')}). If the new code does not appear, restart DSH.`,
           }
         }
         const { active, message } = parsed
-        if (active) await assertPresetsAvailable(ctx, config)
+        if (active) await assertRuntimePreconditions(ctx, config)
         const outcome = active
           ? enterMode(ctx, key, agent, 'user', message || null)
           : await exitMode(key, 'user', message || null)

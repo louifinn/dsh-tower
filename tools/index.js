@@ -4,7 +4,8 @@
 // - define(ctx, definition) accepts a TypeBox parameters schema;
 // - execute(args) is typed from that schema by Static<>;
 // - aliases and requiresMissionId are honored by the registry;
-// - operational switches decide whether a tool is registered;
+// - capability ownership decides whether a tool is registered; the component
+//   rows in cordis.patch.yml are the switches (#121);
 // - errors are classified to stable [tower:code] values;
 // - tools must not import node:fs or node:child_process directly.
 // 

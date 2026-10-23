@@ -10,45 +10,67 @@
   },
   "components": [
     {
-      "id": "tower-bundle",
+      "id": "tower",
       "scope": "visible",
       "kind": "group",
-      "fallback": "Off equals uninstalling: no Tower tools, presets or skills remain. That is the accepted all-off boundary, not a state below it."
+      "fallback": "Off equals uninstalling Tower: no tools, presets or skills remain. That is the accepted all-off boundary of the mandatory host anchor, not an optional capability."
     },
     {
-      "id": "tower",
+      "id": "tower-host",
       "scope": "internal",
       "kind": "row",
-      "fallback": "No Tower host: nothing works. Mandatory dependency, never a switch."
+      "fallback": "The Host plugin itself, nested under the mandatory tower anchor. A mandatory dependency, never its own switch."
     },
     {
       "id": "tower-skills",
-      "scope": "internal",
+      "scope": "visible",
       "kind": "row",
-      "fallback": "The 3 skills leave the catalog; worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost. Qualifies as an optional component (#121)."
+      "fallback": "The 3 skills leave the catalog; the worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost."
+    },
+    {
+      "id": "tower-batch",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "tower_batch is not registered; missions, gates and merges are unaffected because no state depends on a batch."
+    },
+    {
+      "id": "tower-import",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "tower_import_legacy and tower_legacy_map are not registered; new repository state is unaffected."
+    },
+    {
+      "id": "tower-leases",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "tower_resource is not registered; advisory leases are coordination only, so nothing else depends on them."
+    },
+    {
+      "id": "tower-tests",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing."
+    },
+    {
+      "id": "tower-hmr",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "tower_reload and /tower reload are unavailable; a profile without HMR behaves exactly as before. Shipped disabled: enable the row for a linked dev profile."
     },
     {
       "id": "preset-tower-worker",
       "scope": "internal",
       "kind": "row",
-      "fallback": "tower_spawn fails without the worker preset. A dependency, not a feature, never a switch."
+      "fallback": "tower_spawn fails without the worker preset. A mandatory dependency, never a switch."
     },
     {
       "id": "preset-tower-reviewer",
-      "scope": "internal",
+      "scope": "visible",
       "kind": "row",
-      "fallback": "The reviewer cannot be dispatched; with review.requireReview false merge is unaffected. Qualifies as a conditional optional component (#121)."
+      "fallback": "The reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error."
     }
   ],
-  "gateableTools": {
-    "tower_batch": "tools.exposeBatch",
-    "tower_doctor": "tools.exposeDoctor",
-    "tower_import_legacy": "tools.exposeImport",
-    "tower_legacy_map": "tools.exposeImport",
-    "tower_recover": "tools.exposeRecovery",
-    "tower_resource": "tools.exposeLeases",
-    "tower_test": "tools.exposeTests"
-  },
+  "gateableTools": {},
   "keys": [
     {
       "name": "section",
@@ -153,7 +175,7 @@
     {
       "name": "review.requireReview",
       "class": "forbidden-to-disable",
-      "note": "Turns independent review into a merge blocker; no component may switch it off."
+      "note": "Turns independent review into a merge blocker; no component may switch it off. With it on, the preset-tower-reviewer row may not be off (planning/mode entry refuse the combination)."
     },
     {
       "name": "review.maxRoundsPerReviewer",
@@ -243,7 +265,7 @@
     {
       "name": "tests.enabled",
       "class": "optional-component",
-      "note": "Test discovery is an optional capability (component tower-tests, #121). Off leaves mission gates intact; gates.requireTests refuses the combination."
+      "note": "Tuning inside the optional tower-tests component: it decides whether discovery runs when the row is on. Off with gates.requireTests:true is rejected at config resolution."
     },
     {
       "name": "tests.admission",
@@ -278,7 +300,7 @@
     {
       "name": "gates.requireTests",
       "class": "forbidden-to-disable",
-      "note": "Requires a test receipt before merge; a merge gate."
+      "note": "Requires a test receipt before merge; a merge gate. With the tower-tests row off, planning/mode entry refuse the combination."
     },
     {
       "name": "gates.allowReviewExemption",
@@ -316,105 +338,47 @@
       "note": "Hot terminal-mission cap."
     },
     {
-      "name": "tools.exposeOperational",
-      "class": "forbidden-to-disable",
-      "note": "A master switch that spans the health contract and the recovery escape; it may not exist as a user switch (#122). Recorded as debt below until #122 deletes it."
-    },
-    {
-      "name": "tools.exposeBatch",
-      "class": "optional-component",
-      "note": "Evidence batches; component tower-batch (#121)."
-    },
-    {
-      "name": "tools.exposeImport",
-      "class": "optional-component",
-      "note": "Legacy import; component tower-import (#121)."
-    },
-    {
-      "name": "tools.exposeLeases",
-      "class": "optional-component",
-      "note": "Advisory leases; component tower-leases (#121)."
-    },
-    {
-      "name": "tools.exposeTests",
-      "class": "optional-component",
-      "note": "Test discovery; component tower-tests (#121)."
-    },
-    {
-      "name": "tools.exposeRecovery",
-      "class": "forbidden-to-disable",
-      "note": "Removes tower_recover, the stale-lock escape (#122). Recorded as debt below until #122 deletes it."
-    },
-    {
-      "name": "tools.exposeDoctor",
-      "class": "forbidden-to-disable",
-      "note": "Removes tower_doctor, the health contract (#122). Recorded as debt below until #122 deletes it."
-    },
-    {
       "name": "leases.ttlMs",
       "class": "optional-config",
-      "note": "Tuning inside the optional leases capability."
-    },
-    {
-      "name": "dev.hotReload",
-      "class": "optional-component",
-      "note": "Registers tower_reload when HMR exists; component tower-hmr, default off once #121 lands."
+      "note": "Tuning inside the optional tower-leases component."
     },
     {
       "name": "dev.reloadDelayMs",
       "class": "optional-config",
-      "note": "Delay so a tool result is delivered before a scheduled reload."
+      "note": "Delay so a tool result is delivered before a scheduled reload inside the optional tower-hmr component."
     },
     {
       "name": "dev.reloadRequiredIds",
       "class": "optional-config",
-      "note": "Loader ids passed to reconcileProfile as required."
+      "note": "Loader ids passed to reconcileProfile as required by the tower-hmr component."
     }
   ],
   "forbidden": [
     {
       "id": "host",
       "capability": "the Tower host",
-      "reason": "Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it.",
+      "reason": "Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it. The visible `tower` anchor is the all-off boundary, and the host section nested under it may never become its own switch.",
       "tools": [],
       "rowIds": ["tower-host"]
     },
     {
       "id": "health",
       "capability": "tower_doctor (read-only health contract)",
-      "reason": "Diagnosis must always exist so a failure message can point at it.",
+      "reason": "Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the tool is registered for every configuration.",
       "tools": ["tower_doctor"],
-      "rowIds": ["tower-doctor"],
-      "acceptedSwitches": {
-        "keys": ["tools.exposeDoctor", "tools.exposeOperational"],
-        "decision": {
-          "date": "2026-10-23",
-          "ref": "docs/adr/0005-component-surface.md",
-          "issue": "#122",
-          "reason": "2.3.0 ships exposeDoctor and the exposeOperational master switch as user-settable booleans; #122 deletes them. Recorded here so a new switch fails the gate before #122 lands."
-        }
-      }
+      "rowIds": ["tower-doctor"]
     },
     {
       "id": "recovery",
       "capability": "tower_recover (stale state-lock escape)",
-      "reason": "The escape hatch must exist whenever the lock it repairs can be left behind.",
+      "reason": "The escape hatch must exist whenever the lock it repairs can be left behind. #122 removed exposeRecovery and the exposeOperational master switch; the tool is registered for every configuration.",
       "tools": ["tower_recover"],
-      "rowIds": ["tower-recover"],
-      "acceptedSwitches": {
-        "keys": ["tools.exposeRecovery", "tools.exposeOperational"],
-        "decision": {
-          "date": "2026-10-23",
-          "ref": "docs/adr/0005-component-surface.md",
-          "issue": "#122",
-          "reason": "2.3.0 ships exposeRecovery and the exposeOperational master switch as user-settable booleans; #122 deletes them. Recorded here so a new switch fails the gate before #122 lands."
-        }
-      }
+      "rowIds": ["tower-recover"]
     },
     {
       "id": "review",
       "capability": "the review contract",
-      "reason": "review.requireReview is a merge blocker, not a component; a row may not switch it off.",
+      "reason": "review.requireReview is a merge blocker, not a component; a row may not switch it off. The reviewer row is conditional, not a way to weaken the gate.",
       "tools": ["tower_diff", "tower_preflight", "tower_review"],
       "rowIds": ["tower-review"],
       "gatedBy": ["review.requireReview", "review.maxRoundsPerReviewer"]

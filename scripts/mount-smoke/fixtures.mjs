@@ -67,19 +67,19 @@ const fixtures = [
   },
   {
     name: 'dropped-skills-section',
-    what: 'the tower-skills row is removed from the bundle patch',
+    what: 'the optional tower-skills row is removed from the bundle patch',
     seed(root) {
       const file = path.join(root, 'cordis.patch.yml')
       const text = fs.readFileSync(file, 'utf8')
       const next = replaceOnce(
         text,
-        /\n {8}- id: tower-skills\n {10}name: 'dsh-tower\/skills'/,
+        /\n {4}- id: tower-skills\n {6}name: 'dsh-tower\/skills'/,
         '',
         'cordis.patch.yml tower-skills row',
       )
       fs.writeFileSync(file, next)
     },
-    expect: ['skill: missing tower-worker-protocol', 'bundle: tower-bundle is missing child tower-skills'],
+    expect: ['skill: missing tower-worker-protocol', 'bundle: missing optional top-level row tower-skills'],
   },
 ]
 

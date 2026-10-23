@@ -21,6 +21,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   BUNDLE_ID,
+  DEFAULT_OFF_ROW_IDS,
   INDEX_TOOL_IDS,
   PRESET_IDS,
   checkBundleRow,
@@ -175,12 +176,13 @@ function verifySurface(surface, root) {
 
 function summarize(surface, root) {
   const modules = toolModuleNames(root).filter((name) => name !== 'index.js').length
+  const expected = expectedToolIds(toolModuleNames(root)).length
   const tools = Array.isArray(surface?.tools?.value) ? surface.tools.value.filter((name) => name.startsWith('tower_')).length : '?'
   const skills = Array.isArray(surface?.skills?.value?.tower) ? surface.skills.value.tower.length : '?'
   const presets = Array.isArray(surface?.presets?.value) ? surface.presets.value.length : '?'
   const commands = Array.isArray(surface?.commands?.value) ? surface.commands.value.filter((name) => name === 'tower').length : '?'
   const rows = Array.isArray(surface?.tree?.value?.top) ? surface.tree.value.top.filter((row) => row.id === BUNDLE_ID).length : '?'
-  return `${tools} tower tools (${modules} modules + ${INDEX_TOOL_IDS.length} entry tools), ${skills} skills, ${presets} presets, /tower ${commands === 1 ? 'present' : 'missing'}, ${rows} top-level bundle row`
+  return `${tools} of ${expected} tower tools (${modules} modules + ${INDEX_TOOL_IDS.length} entry tools; ${DEFAULT_OFF_ROW_IDS.join(', ')} off), ${skills} skills, ${presets} presets, /tower ${commands === 1 ? 'present' : 'missing'}, ${rows} top-level bundle row`
 }
 
 function reportFailure(state, pin, options, error) {

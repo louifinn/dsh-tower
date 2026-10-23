@@ -73,14 +73,14 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `spawn.requireLease` | `''` | worker spawn 前必须持有的可选租约名。 |
 | `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
 | `send.interruptDefault` | `false`（随包 patch：`true`） | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
-| `tests.enabled` | `true` | worktree 的 `package.json` 配置了测试发现时运行它。 |
+| `tests.enabled` | `true` | worktree 的 `package.json` 配置了测试发现时运行它。它只调整可选的 `tower-tests` 组件：该行关闭时既没有 `tower_test` 工具也无法记录回执，`gates.requireTests:true` 会被拒绝而不是静默失效。 |
 | `tests.admission` | `off` | `spawn` 在启动 worker 前运行发现（fail-closed，不启动子代理）；`complete` 在 `tower_complete` 时运行；`off` 只在显式 `tower_test` 时运行（默认；不会自动执行仓库代码）。 |
 | `tests.timeoutMs` | `60000` | 每条发现命令的超时。 |
 | `tests.maxBytes` | `16777216`（16 MiB） | 每条命令捕获的 stdout 上限。 |
 | `tests.autoChecks` | `true` | 向完成报告附加自动 `tests` 检查。 |
 | `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
-| `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。 |
+| `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。`tower-tests` 组件行关闭时，规划/进入模式会带解释拒绝该组合。 |
 | `gates.allowReviewExemption` | `false` | 在 `review.requireReview:true` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；全局审查关闭时无影响。 |
 | `gates.maxReportBytes` | `32768`（32 KiB） | `tower_complete.report` 的 UTF-8 字节硬上限。超出时以 `invalid-argument` 拒绝并给出可执行的 `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。已存在的超限报告仍可读取。 |
 | `docs.board` | `true` | 变更后写入 `MISSIONS.md`。 |
@@ -88,16 +88,14 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `archive.enabled` | `true` | 在变更边界把 worktree 已移除的终态（`merged`/`abandoned`）任务移入 `<git-common-dir>/dsh-tower/archive/`。归档任务保留 tasks、reviews、findings 与完成报告；这是移动，不是删除。 |
 | `archive.afterDays` | `30` | 年龄触发：终态任务超过这么多天未更新，会在下次变更时归档（`0` 表示立即归档）。 |
 | `archive.maxMissions` | `100` | 数量触发：热状态中的终态任务超过此数时，从最旧的开始归档直到满足上限（`0` 表示归档所有符合条件的终态任务）。worktree 仍存在的任务永不归档。 |
-| `tools.exposeOperational` | `true` | 注册 batch/resource/import/legacy/recover/test/doctor 工具；`false` 可缩小固定工具 schema 上下文。 |
 | `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |
-| `dev.hotReload` | `true` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用。无 HMR 服务时调用返回 `reload-unavailable`。 |
-| `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。 |
-| `dev.reloadRequiredIds` | 五个 Tower loader id | 作为 required 传给 `reconcileProfile` 的条目 id。 |
+| `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。属于可选的 `tower-hmr` 组件。 |
+| `dev.reloadRequiredIds` | 三个 Tower loader id | `tower-hmr` 组件作为 required 传给 `reconcileProfile` 的条目 id。可选组件行刻意不在 required 中。 |
 
 ## 示例
 
 ```yaml
-- id: tower
+- id: tower-host
   name: 'dsh-tower'
   config:
     mode:
@@ -112,9 +110,11 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
       reviewerModel:
         provider: deepseek-account
         model: deepseek-flash
-    dev:
-      hotReload: true
 ```
+
+可选能力（`tower-skills`、`tower-batch`、`tower-import`、`tower-leases`、
+`tower-tests`、`tower-hmr`、`preset-tower-reviewer`）在插件页切换，而不是用配置键。
+原先用于切换它们的键（`tools.expose*`、`dev.hotReload`）已在 2.4.0 移除，会作为未知键被拒绝。
 
 ## 查看实际生效的 schema
 

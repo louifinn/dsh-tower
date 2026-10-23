@@ -4,25 +4,45 @@
     "description": "Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges."
   },
   "components": {
-    "tower-bundle": {
-      "title": "Tower",
-      "summary": "Mission planning, isolated worktrees, worker/reviewer agents, and merge gates.",
-      "disables": "Turns off the whole Tower bundle; no orphan preset or skill is left behind."
+    "tower": {
+      "title": "Tower host",
+      "summary": "Mission planning, worktree isolation, the mode guard, the health contract and the recovery escape.",
+      "disables": "Turns off the mandatory host; this equals uninstalling Tower: no tools, presets or skills remain."
     },
     "tower-skills": {
       "title": "Tower skills",
       "summary": "Playbooks for worker/reviewer agents and recovery after a blocked merge.",
-      "disables": "Internal section; toggled with the Tower bundle."
+      "disables": "The three Tower skills leave the catalog; the worker/reviewer protocol sections and every mission tool keep working."
     },
-    "preset-tower-worker": {
-      "title": "Tower worker",
-      "summary": "Writes code, runs verification, and commits only the files assigned to its mission.",
-      "disables": "Internal section; a missing preset is rejected before planning/mode entry."
+    "tower-batch": {
+      "title": "Evidence batches",
+      "summary": "Group missions into finite evidence batches and close them against required checks and receipts.",
+      "disables": "tower_batch is not registered; missions, gates and merges are unaffected."
+    },
+    "tower-import": {
+      "title": "Legacy import",
+      "summary": "Import a Tower Codex legacy state file and audit its snapshot-to-mission mapping.",
+      "disables": "tower_import_legacy and tower_legacy_map are not registered; new state is unaffected."
+    },
+    "tower-leases": {
+      "title": "Advisory leases",
+      "summary": "Coordinate heavy per-repository work with advisory resource leases.",
+      "disables": "tower_resource is not registered; nothing else depends on a lease."
+    },
+    "tower-tests": {
+      "title": "Test discovery",
+      "summary": "Run the worktree's declared test discovery and record a receipt for the mission tip.",
+      "disables": "tower_test is not registered and no receipt can be recorded; with gates.requireTests:true planning/mode entry is rejected with an explanation."
+    },
+    "tower-hmr": {
+      "title": "Dev hot reload",
+      "summary": "Register tower_reload and /tower reload for linked-profile development.",
+      "disables": "tower_reload and /tower reload are unavailable; a non-HMR profile behaves exactly as before. Shipped off."
     },
     "preset-tower-reviewer": {
       "title": "Tower reviewer",
-      "summary": "Read-only checks for scope and acceptance, returning a clean verdict or findings.",
-      "disables": "Internal section; a missing preset is rejected before planning/mode entry when review is required."
+      "summary": "Read-only independent review: inspect the mission diff, verify scope and acceptance, return a verdict.",
+      "disables": "The reviewer cannot be dispatched. Supported while review.requireReview is false; with the gate on planning/mode entry is locked with an explanatory error."
     }
   }
 }

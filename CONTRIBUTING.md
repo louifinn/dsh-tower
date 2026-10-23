@@ -27,9 +27,9 @@ The component axis — who may be switched off — is principle 11 and
 [docs/reference/component-surface.md](docs/reference/component-surface.md) and
 enforced by `npm run docs:check:components`: every visible component needs
 `title`/`summary`/`disables` in both locales, the host/health/recovery/review/
-merge-gate capabilities may not be gated by any row or boolean key (its
-`gateableTools` allowlist is the only set of `tools.expose*` routes), and the
-component count is the fourth baselined surface.
+merge-gate capabilities may not be gated by any row or boolean key (the
+`gateableTools` allowlist is empty since #122), and the component count — 8
+visible rows in 2.4.0 — is the fourth baselined surface.
 
 ## Landing changes
 
@@ -121,7 +121,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (587 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (594 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.

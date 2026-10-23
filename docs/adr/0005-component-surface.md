@@ -63,13 +63,33 @@ Adopt this shape and record it as principle 11:
   count that moved without one. That is what makes the next contraction — or the
   coming growth — visible in a diff.
 
-This ADR records the policy and the current surface, not the migration. The
-individual instance fixes follow it: #121 turns the qualifying capabilities into
-optional rows, and #122 deletes `tools.exposeDoctor` / `tools.exposeRecovery` and
-narrows the `exposeOperational` master switch. The two `tools.expose*` keys that
-gate the health and recovery contracts today are recorded as dated debt in
-`scripts/component-surface.json` so a *new* switch fails the gate immediately,
-even before #122 lands.
+This ADR records the policy. The individual instance fixes follow it: #121 turns
+the qualifying capabilities into optional rows, and #122 deletes
+`tools.exposeDoctor` / `tools.exposeRecovery`, removes the `exposeOperational`
+master switch and the whole `tools` config group. While that migration was in
+flight the two `tools.expose*` keys that gated the health and recovery contracts
+were recorded as dated debt in `scripts/component-surface.json`, so a *new*
+switch failed the gate immediately even before #122 landed.
+
+## Migration (2.4.0): the #65 policy is restored from the carrier
+
+- Date: 2026-10-23
+- Status: implemented by #121 and #122
+
+The one `tower-bundle` group is gone. `cordis.patch.yml` now ships the mandatory
+`tower` host anchor (the Host plugin and the worker preset are its internal
+sections) plus the individually switchable top-level rows `tower-skills`,
+`tower-batch`, `tower-import`, `tower-leases`, `tower-tests`, `tower-hmr`
+(shipped off) and `preset-tower-reviewer` (conditional on
+`review.requireReview`). The visible component count moved 1 → 8 and is recorded
+as a dated decision in `scripts/surface-baseline.json`.
+
+The capability switches became rows: the seven `tools.expose*` keys and
+`dev.hotReload` were deleted from the schema and are now rejected as unknown
+keys. `tower_doctor` and `tower_recover` are registered for every configuration
+and have no switch; the `gateableTools` allowlist is empty. This is the
+carrier's promised instance fix, not a new policy: #120 wrote the rule down, and
+this wave makes the shipped surface obey it instead of carrying debt.
 
 ## Consequences
 
@@ -78,14 +98,15 @@ even before #122 lands.
 - The host, the diagnostics and the lock escape are always registered; a failure
   message may safely point at `tower_recover`.
 - A component count change now needs a written decision, so the 2.3.0 4 → 1
-  contraction can never recur silently.
-- Two pieces of debt are written down rather than hidden: `tools.exposeDoctor`
-  and `tools.exposeRecovery` (plus the `exposeOperational` master) still remove a
-  forbidden capability until #122 deletes them. The gate accepts them only
-  because the source of truth carries a dated decision naming #122.
+  contraction can never recur silently; the 1 → 8 restoration is recorded the
+  same way.
+- The 2.3.0 debt is paid: `tools.exposeDoctor`, `tools.exposeRecovery` and the
+  `exposeOperational` master switch are gone, so no configuration can remove the
+  health contract or the lock escape. The `gateableTools` allowlist stays in the
+  source of truth, empty, so the next `tools.expose*` route is refused rather
+  than legalised by default.
 - Adding a component costs a locale row in two languages and a fallback sentence
   in the source of truth; that is the intended marginal cost.
-- This ADR does not add, remove or rename a config key or tool.
 
 ## Rejected alternatives
 

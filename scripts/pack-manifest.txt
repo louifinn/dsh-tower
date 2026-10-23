@@ -145,6 +145,12 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/capability-batch.js
+host/capability-hmr.js
+host/capability-import.js
+host/capability-leases.js
+host/capability-registry.js
+host/capability-tests.js
 host/compatibility.js
 host/config.js
 host/doctor.js

@@ -42,6 +42,16 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   `tower_doctor` 会把未知模式报告为 `warn`（`case-mode`）。在大小写不敏感的检出上，
   `src/Api/**` 与 `src/api/**` 从此视为重叠，仅大小写不同的改动不再被 out-of-scope 门禁拒绝。
   存储的 scope 文本永远不会被改写：看板仍显示操作者输入的原样。
+- **2.3.0 → 2.4.0（未发布）**：所有能力合一的 `tower-bundle` 组行已移除。`cordis.patch.yml`
+  现在随包提供强制的 `tower` host 锚点（Host 插件与 worker preset 是它的内部 section），以及可单独
+  开关的顶层行：`tower-skills`、`tower-batch`、`tower-import`、`tower-leases`、`tower-tests`、
+  `tower-hmr`（随包关闭）与 `preset-tower-reviewer`（受 `review.requireReview` 条件约束）。
+  `tools` 配置组与 `dev.hotReload` 已删除：仍带这些键的 profile 现在会作为未知键被拒绝
+  （`config-unknown-key`），在删除它们之前 host 不会挂载，因此不再存在静默无效的开关。请改为在插件页
+  使用对应的组件行；`tower-hmr` 随包关闭，因此在为联动开发 profile 开启它之前，`tower_reload` 与
+  `/tower reload` 会报告为 “disabled by component tower-hmr”。`tower_doctor` 与 `tower_recover`
+  在任何配置下都会注册，无需配置键。仅当 `review.requireReview` 为 false 时 reviewer 行才可关闭；
+  该门禁开启时，规划与模式进入会以带解释的错误拒绝该组合。不需要迁移 state。
 - **2.0.4 → 2.1.0-beta.1**：不需要迁移 config；state 会按上述说明自动迁移（v1/v2 → v3）。
   这是发布到 `next` dist-tag 的**预发布**，
   `latest` 仍指向 2.0.4——请用 `dsh plugin --profile web add dsh-tower@next`（或精确版本号）安装。

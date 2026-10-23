@@ -31,6 +31,11 @@
     "./worker": "./worker.js",
     "./reviewer": "./reviewer.js",
     "./skills": "./skills.js",
+    "./batch": "./host/capability-batch.js",
+    "./import": "./host/capability-import.js",
+    "./leases": "./host/capability-leases.js",
+    "./tests": "./host/capability-tests.js",
+    "./hmr": "./host/capability-hmr.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./package.json": "./package.json"

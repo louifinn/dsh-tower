@@ -33,6 +33,7 @@ import {
   checkLocaleCoverage,
   parseComponentSurface,
   parseCordisPatch,
+  parseOperationalRegistry,
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
@@ -78,17 +79,14 @@ function liveBooleanKeys() {
 /**
  * The static wiring that lets a boolean key remove a tool: the OPERATIONAL_TOOLS
  * table in host/tool-registry.js. Parsing it (rather than importing the runtime)
- * keeps the denylist check offline and free of a booted Host. Both quote styles
- * are accepted so a reformatted entry cannot fall out of the allowlist.
+ * keeps the denylist check offline and free of a booted Host. The parser accepts
+ * both the tuple and the `Map.set(...)` forms, and a trailing comma (F11), so a
+ * reformatted table cannot fall out of the allowlist.
  */
 function operationalRegistry(root) {
   const file = path.join(root, REGISTRY_FILE)
   const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
-  const registry = {}
-  for (const match of text.matchAll(/\[\s*['"](tower_[a-z_]+)['"]\s*,\s*['"](expose[A-Za-z]+)['"]\s*\]/g)) {
-    registry[match[1]] = match[2]
-  }
-  return registry
+  return parseOperationalRegistry(text)
 }
 
 /** Read the live inputs the pure checks need: schema, patch, locales, registry. */
@@ -145,23 +143,10 @@ export function checkComponents(root) {
   findings.push(...checkLocaleCoverage(surface, live.locales))
   findings.push(...checkForbidden(surface, { booleans: live.booleans, registry: live.registry, patch: live.patch }))
 
-  // The denylist derives its switches from the registry table; a mapping to a
-  // key the schema does not declare is unenforceable, so it fails here.
-  const booleanSet = new Set(live.booleans)
-  for (const [tool, flag] of Object.entries(live.registry)) {
-    if (!booleanSet.has(`tools.${flag}`)) {
-      findings.push(
-        finding(
-          'registry-flag',
-          'error',
-          `${REGISTRY_FILE} maps ${tool} to tools.${flag}, which is not a live boolean config key`,
-        ),
-      )
-    }
-  }
-  if (Object.keys(live.registry).length === 0) {
-    findings.push(finding('registry-unreadable', 'error', `${REGISTRY_FILE} has no OPERATIONAL_TOOLS entries; the denylist cannot derive disablers`))
-  }
+  // #122: an empty OPERATIONAL_TOOLS table is the expected state. Every route
+  // that does exist must still match the `gateableTools` allowlist, which
+  // checkForbidden enforces above; there is no "unreadable registry" failure to
+  // raise when the correct count is zero.
 
   // The decision record must exist: the ADR is where the policy is argued.
   if (!fs.existsSync(path.join(root, surface.adr))) {

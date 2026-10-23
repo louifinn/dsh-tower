@@ -13,10 +13,11 @@ import { archiveView } from '../app/archive.js'
  *   workspaceHook: any,
  *   spawnBackoffView: any,
  *   observeActivity: any,
+ *   componentReport: (ctx: any) => Promise<{ enabled: string[], disabled: Array<{ id: string, reason: string }> }>,
  * }} deps
  */
 export function registerStatusTool(ctx, deps) {
-  const { define, workspaceHook, spawnBackoffView, observeActivity } = deps
+  const { define, workspaceHook, spawnBackoffView, observeActivity, componentReport } = deps
   define(ctx, {
     name: 'tower_status',
     description:
@@ -26,6 +27,10 @@ export function registerStatusTool(ctx, deps) {
     output: output(SCHEMAS.status),
     async execute(args, exec) {
       const tower = await deps.openTower(args.repoRoot)
+      // #121: report the mounted optional components, including the exact
+      // "disabled by component <id>" reason. A capability that is off must be a
+      // visible fact of the dashboard, never a silent absence from the tools.
+      const components = await componentReport(ctx)
       const boardPath = tower.boardFile()
       const mode = workspaceHook?.modeInfo?.(exec) ?? null
       const statusState = await tower.load()
@@ -46,6 +51,7 @@ export function registerStatusTool(ctx, deps) {
           boardPath,
           mode,
           spawn,
+          components,
         }
       }
       const state = await tower.load()
@@ -90,6 +96,7 @@ export function registerStatusTool(ctx, deps) {
         boardPath,
         mode,
         spawn,
+        components,
       }
       if (isMarkdownFormat(args.format)) {
         const state = await tower.load()
