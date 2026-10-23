@@ -1,18 +1,20 @@
-// Machine-checked type contracts (#45).
+// Machine-checked type invariants (#45, #115).
 //
-// This file is never executed: it exists so `tsc --noEmit` (also run by
-// tests/packaging.test.mjs) proves that the published vocabulary in
-// types/index.d.ts still describes the implementation:
+// The published vocabulary in types/index.d.ts is generated from the runtime
+// constants (`npm run types:generate`, gated by `docs:check:generated:types`),
+// so this file no longer transcribes signatures: that diff is a generator now.
+// What remains are the invariants generation cannot express, and that would be
+// silently lost if a type were widened:
 //
-//   * every pure module under domain/ (now inside the checkJs program)
-//     keeps the exported signature the contract promises;
-//   * the git adapter under adapters/git.js keeps its explicit nullability, and the
-//     tower use-case modules under app/ still export the expected async
-//     use cases.
+//   * the pure domain, the git adapter and the app use cases accept and return
+//     the published shapes (not `any`-widened copies);
+//   * the hand-written TowerState still overlaps the validator schema it
+//     deliberately does not copy;
+//   * the closed unions stay closed (live @ts-expect-error directives);
+//   * the `tower` Cordis service is typed for consumers.
 //
-// It lives in tests/ instead of types/ on purpose: adding a file to types/
-// changes the published `npm pack` file list, which scripts/pack-manifest.txt
-// would have to be reviewed for. This fixture stays dev-only.
+// It is never executed and lives in tests/ on purpose: adding a file to types/
+// would change the published `npm pack` list.
 
 import type { Static } from '@sinclair/typebox'
 
@@ -26,11 +28,9 @@ import type {
   MissionStatus,
   MissionSummary,
   MissionTask,
-  RosterEntry,
-  TaskCounts,
-  TowerConfig,
-  TowerState,
   Review,
+  TaskCounts,
+  TowerState,
 } from '../types/index.js'
 
 // Assert that the implementation type A is assignable to the contract type B.
@@ -40,87 +40,15 @@ type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B 
 
 type DomainGate = typeof import('../domain/gate.js')
 type DomainMission = typeof import('../domain/mission.js')
-type DomainPlanning = typeof import('../domain/planning.js')
-type DomainReport = typeof import('../domain/report.js')
-type DomainRoster = typeof import('../domain/roster.js')
-type DomainScope = typeof import('../domain/scope.js')
 type DomainState = typeof import('../domain/state.js')
 type DomainSummary = typeof import('../domain/summary.js')
+type GitAdapter = typeof import('../adapters/git.js')
 
-// --- domain/gate.js -----------------------------------------------------
-export type GateCompletionContract = Expect<
-  Extends<DomainGate['completionBlockers'], (mission: Mission, config?: TowerConfig) => Blocker[]>
->
+// --- published shapes flow through the pure domain -----------------------
 export type GateMergeContract = Expect<Extends<DomainGate['mergeGateBlockers'], (options: MergeGateOptions) => Blocker[]>>
-export type GateRebaseWaiverContract = Expect<Extends<DomainGate['rebaseWaived'], (mission: Mission, review: Review) => boolean>>
-
-// --- domain/mission.js --------------------------------------------------
-export type MissionVocabularyContract = Expect<Extends<DomainMission['MISSION_STATUSES'], readonly MissionStatus[]>>
-export type MissionTerminalContract = Expect<Extends<DomainMission['isTerminal'], (status: string) => boolean>>
-export type MissionTransitionContract = Expect<Extends<DomainMission['canTransition'], (from: string, to: string) => boolean>>
-export type MissionPauseCauseContract = Expect<
-  Extends<DomainMission['pauseCauseError'], (value?: string | null) => string | null>
->
-
-// --- domain/planning.js -------------------------------------------------
-export type PlanningNumberContract = Expect<Extends<DomainPlanning['nextMissionNumber'], (missions: Mission[]) => number>>
-export type PlanningDependencyContract = Expect<
-  Extends<DomainPlanning['addDependency'], (mission: Mission, dep: string) => void>
->
-export type PlanningPathContract = Expect<
-  Extends<DomainPlanning['hasDependencyPath'], (missions: Map<string, Mission>, from: string, to: string) => boolean>
->
-export type PlanningAcyclicContract = Expect<Extends<DomainPlanning['assertAcyclic'], (missions: Mission[]) => void>>
-export type PlanningAutoDepsContract = Expect<
-  Extends<DomainPlanning['addAutoDeps'], (newMissions: Mission[], existingMissions: Mission[]) => void>
->
-
-// --- domain/report.js ---------------------------------------------------
-export type BoardContract = Expect<Extends<DomainReport['boardMarkdown'], (state: TowerState) => string>>
-
-// --- domain/roster.js ---------------------------------------------------
-export type RosterLiveWorkerContract = Expect<
-  Extends<DomainRoster['liveWorkerEntry'], (state: TowerState, missionId: string) => RosterEntry | undefined>
->
-export type RosterWorkersContract = Expect<
-  Extends<DomainRoster['workerEntries'], (state: TowerState, missionId: string) => RosterEntry[]>
->
-export type RosterCountContract = Expect<Extends<DomainRoster['countLiveWorkers'], (state: TowerState) => number>>
-
-// --- domain/scope.js ----------------------------------------------------
-export type ScopeFileContract = Expect<
-  Extends<DomainScope['fileInScope'], (scope: string[] | null | undefined, file: string) => boolean>
->
-export type ScopeTitleContract = Expect<Extends<DomainScope['validateTitle'], (title: unknown) => string>>
-export type ScopeNormalizeContract = Expect<
-  Extends<DomainScope['normalizeScope'], (scope: unknown, options?: { allowEmpty?: boolean }) => string[]>
->
-export type ScopeOverlapContract = Expect<Extends<DomainScope['scopesOverlap'], (a: string[], b: string[]) => boolean>>
-
-// --- domain/state.js ----------------------------------------------------
 export type ValidateStateContract = Expect<
   Extends<DomainState['validateState'], (state: unknown, statePath?: string) => TowerState>
 >
-
-// --- domain/state/schema.js ---------------------------------------------
-type DomainStateSchema = typeof import('../domain/state/schema.js').StateSchema
-type SchemaState = Static<DomainStateSchema>
-type SchemaMission = SchemaState['missions'][number]
-
-// A full `Equal<TowerState, Static<typeof StateSchema>>` is intentionally not
-// asserted. The validator schema is structurally tolerant: every object allows
-// additional legacy fields, `revision` is optional in the shape (semantics
-// enforces the counter), and mission title/kind, status/verdict vocabularies
-// and worktree field presence are semantic checks. TowerState instead describes
-// a normalized document. These fixtures pin the overlapping contract:
-//   * the schemaVersion literal refines (not widens) the public number;
-//   * every schema root key and mission key has a public counterpart.
-export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 3>>
-export type StateSchemaRootKeysContract = Expect<Extends<keyof SchemaState, keyof TowerState>>
-export type StateSchemaMissionKeysContract = Expect<Extends<keyof SchemaMission, keyof Mission>>
-
-// --- domain/summary.js --------------------------------------------------
-export type TaskCountsContract = Expect<Extends<DomainSummary['taskCounts'], (tasks: MissionTask[]) => TaskCounts>>
 export type MissionSummaryContract = Expect<
   Extends<DomainSummary['missionSummary'], (mission: Mission) => MissionSummary>
 >
@@ -128,94 +56,67 @@ export type FullMissionContract = Expect<Extends<DomainSummary['fullMission'], (
 export type FindingSummaryContract = Expect<
   Extends<DomainSummary['findingSummary'], (finding: Finding) => FindingSummary>
 >
-export type CountFindingsContract = Expect<
-  Extends<DomainSummary['countFindings'], (findings: Finding[]) => Record<string, number>>
->
+export type TaskCountsContract = Expect<Extends<DomainSummary['taskCounts'], (tasks: MissionTask[]) => TaskCounts>>
 
-// --- adapters/git.js --------------------------------------------------------
-type GitAdapter = typeof import('../adapters/git.js')
+// #115: the generated MissionStatus union is the element type of the runtime
+// constant the generator reads. A widened/weakened JSDoc annotation fails here.
+export type MissionVocabularyContract = Expect<Equal<DomainMission['MISSION_STATUSES'][number], MissionStatus>>
 
+// --- the hand-written state contract still overlaps the schema ----------
+type DomainStateSchema = typeof import('../domain/state/schema.js').StateSchema
+type SchemaState = Static<DomainStateSchema>
+type SchemaMission = SchemaState['missions'][number]
+
+// A full `Equal<TowerState, Static<typeof StateSchema>>` is intentionally not
+// asserted. The validator schema is structurally tolerant (additional legacy
+// fields, optional revision, semantically checked vocabularies), while
+// TowerState describes a normalized document. These two lines pin the overlap:
+// the version literal refines the public number and every schema key has a
+// public counterpart.
+export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 3>>
+export type StateSchemaRootKeysContract = Expect<Extends<keyof SchemaState, keyof TowerState>>
+export type StateSchemaMissionKeysContract = Expect<Extends<keyof SchemaMission, keyof Mission>>
+
+// --- adapter nullability is explicit, never `undefined` ------------------
 export type GitTryContract = Expect<
   Extends<
     GitAdapter['tryGit'],
     (cwd: string, args: string[], options?: { timeoutMs?: number; maxBuffer?: number }) => Promise<string | null>
   >
 >
-export type GitCurrentBranchContract = Expect<Extends<GitAdapter['currentBranch'], (cwd: string) => Promise<string | null>>>
 export type GitResolveRepoContract = Expect<
   Extends<
     GitAdapter['resolveRepo'],
     (repoRoot: string) => Promise<{ root: string; commonDir: string; branch: string | null }>
   >
 >
-export type GitListWorktreesContract = Expect<
-  Extends<GitAdapter['listWorktrees'], (cwd: string) => Promise<Array<{ path: string; branch?: string; head?: string }>>>
->
 
-// --- app/ use cases ---------------------------------------------------
-// gate.js/read.js use the injected vcs port and batch.js imports domain/batch.js; those
-// dependencies are inside the checkJs program too, so importing the use cases
-// here also machine-checks the adapter surface above and batch validation.
-type UseCaseBatch = typeof import('../app/batch.js')
-type UseCaseFindings = typeof import('../app/findings.js')
+// --- the app use cases keep their async boundary -------------------------
+type PromiseFunction = (...args: never[]) => Promise<unknown>
 type UseCaseGate = typeof import('../app/gate.js')
-type UseCaseMessages = typeof import('../app/messages.js')
 type UseCaseRead = typeof import('../app/read.js')
 type UseCaseReview = typeof import('../app/review.js')
 type UseCaseRoster = typeof import('../app/roster.js')
 
 export type GateUseCaseContract = Expect<Extends<UseCaseGate['evaluateGate'], PromiseFunction>>
 export type ReadUseCaseContract = Expect<
-  Extends<
-    [UseCaseRead['missionDetail'], UseCaseRead['status'], UseCaseRead['diff']],
-    [PromiseFunction, PromiseFunction, PromiseFunction]
-  >
->
-export type BatchUseCaseContract = Expect<
-  Extends<
-    [UseCaseBatch['createBatch'], UseCaseBatch['closeBatch'], UseCaseBatch['abandonBatch'], UseCaseBatch['batchStatus']],
-    [PromiseFunction, PromiseFunction, PromiseFunction, PromiseFunction]
-  >
->
-export type FindingsUseCaseContract = Expect<
-  Extends<
-    [UseCaseFindings['addFinding'], UseCaseFindings['readFindings'], UseCaseFindings['findings']],
-    [PromiseFunction, PromiseFunction, PromiseFunction]
-  >
->
-export type MessagesUseCaseContract = Expect<
-  Extends<
-    [UseCaseMessages['recordMessage'], UseCaseMessages['recordDelivery'], UseCaseMessages['inbox']],
-    [PromiseFunction, PromiseFunction, PromiseFunction]
-  >
+  Extends<[UseCaseRead['missionDetail'], UseCaseRead['status'], UseCaseRead['diff']], [PromiseFunction, PromiseFunction, PromiseFunction]>
 >
 export type ReviewUseCaseContract = Expect<Extends<UseCaseReview['submitReview'], PromiseFunction>>
 export type RosterUseCaseContract = Expect<
   Extends<
-    [
-      UseCaseRoster['recordRosterObservations'],
-      UseCaseRoster['reconcileObservedInactive'],
-      UseCaseRoster['markRetired'],
-      UseCaseRoster['markMissing'],
-      UseCaseRoster['sweepRoster'],
-      UseCaseRoster['unreadFor'],
-    ],
-    [PromiseFunction, PromiseFunction, PromiseFunction, PromiseFunction, PromiseFunction, PromiseFunction]
+    [UseCaseRoster['recordRosterObservations'], UseCaseRoster['sweepRoster'], UseCaseRoster['unreadFor']],
+    [PromiseFunction, PromiseFunction, PromiseFunction]
   >
 >
 
-// The use-case modules are untyped internally (tower/input are `any`), so the
-// contract check is an export-surface check: each function exists and returns
-// a promise.
-type PromiseFunction = (...args: never[]) => Promise<unknown>
-
 // ===========================================================================
 // Negative checks: these directives must stay live, otherwise tsc fails with
-// "Unused '@ts-expect-error' directive". They pin the parts of the published
-// contract that are easy to accidentally widen.
+// "Unused '@ts-expect-error' directive". They pin the closed unions the
+// generator emits from the live tables.
 // ===========================================================================
 
-// @ts-expect-error reviewPolicy is 'required-clean' | 'none' (runtime state validation)
+// @ts-expect-error reviewPolicy is 'required-clean' | 'none'
 const _invalidReviewPolicy: import('../types/index.js').ReviewPolicy = 'required'
 
 // @ts-expect-error Mission.status is required

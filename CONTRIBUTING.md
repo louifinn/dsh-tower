@@ -118,10 +118,11 @@ the push gates; CI schedules it nightly.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; live-runtime scripts are documented in `tests/README.md`.
 - `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, The three layering rules that keep the core pure — `domain-pure`, `host-scope`, and `no-lib-from-core` — cannot be waived at all. The `let` scan behind `host-scope` is statement-aware: every binding of every top-level declaration is recorded, and only `host/**` may hold ambient state.
+- `types/` — the published declaration surface (`package.json` `types` is `types/index.d.ts`). The vocabulary block in that file is generated from the runtime constants by `npm run types:generate` and gated by `npm run docs:check:generated:types`; never edit it by hand. `tsconfig.strict.json` turns `noImplicitAny` on for an explicit file list that may grow but never silently shrink: add a file, then record it with `npm run types:strict:write` (a removal also needs `--allow-shrink`). `npm run types:coverage` fails when a shipped runtime `.js` file is outside the `tsc` program.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (594 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (612 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.

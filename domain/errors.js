@@ -24,6 +24,12 @@
 
 /** Neutral error type shared by the git adapter and the domain classifier. */
 export class GitError extends Error {
+  /**
+   * @param {string[]} args
+   * @param {string} detail
+   * @param {number | undefined} code the child-process errno, not a Tower code
+   * @param {{ timedOut?: boolean, bufferOverflow?: boolean, stdout?: string }} [meta]
+   */
   constructor(args, detail, code, meta = {}) {
     super(`git ${args.join(' ')} failed: ${detail}`)
     this.name = 'GitError'
@@ -327,11 +333,15 @@ export class TowerToolError extends Error {
   }
 }
 
+/** @param {any} error */
 function originalMessage(error) {
   return String(error?.message ?? error)
 }
 
-/** Wrap any thrown value into a TowerToolError with a stable code. */
+/**
+ * Wrap any thrown value into a TowerToolError with a stable code.
+ * @param {any} error
+ */
 export function classifyError(error) {
   if (error instanceof TowerToolError) return error
   if (error && typeof error.code === 'string' && ERROR_CODES[error.code]) {

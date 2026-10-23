@@ -88,6 +88,11 @@ jobs:
         run: npm run docs:check:generated:config
       - name: Generated events reference
         run: npm run docs:check:generated:events
+      # #115: the published type vocabulary (ErrorCode, MissionStatus,
+      # ReviewStatus, ...) is generated from the runtime constants, so a catalog
+      # change without regenerating types/index.d.ts is a red check.
+      - name: Generated type vocabulary
+        run: npm run docs:check:generated:types
       # #120: the component table is generated from scripts/component-surface.json,
       # so "should this be a component?" is a table lookup rather than prose.
       - name: Generated component surface
@@ -107,6 +112,14 @@ jobs:
         run: npm run pack:check
       - name: Architecture fitness
         run: npm run architecture:check
+      # #115: the checked program is derived from the shipped program, so a
+      # runtime .js file outside the tsc program is a red check.
+      - name: Type coverage
+        run: npm run types:coverage
+      # #115: the noImplicitAny ratchet may grow but never silently shrink.
+      - name: Strict type ratchet
+        run: npm run types:strict:check
+      # Both configs: the main checkJs program and tsconfig.strict.json.
       - name: Type declarations
         run: npm run types:check
       - name: Pure domain share
