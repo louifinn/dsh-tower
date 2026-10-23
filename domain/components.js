@@ -111,6 +111,30 @@ function normalizeForbidden(entry, index) {
 }
 
 /**
+ * The allowlist of boolean routes: which tool a `tools.expose*` key may skip.
+ *
+ * `host/tool-registry.js` is the only place a `tools.expose*` boolean removes a
+ * tool, so the shipped routes are data here. A registry route that is not listed
+ * is a forbidden switch, even when the affected capability lists no tools of its
+ * own (the review contract and the merge gates register their tools through the
+ * same `define()` path as everything else).
+ */
+function normalizeGateableTools(value) {
+  if (value === undefined) return []
+  if (!isPlainObject(value)) {
+    throw componentError('component surface "gateableTools" must be an object mapping a tool to a tools.* config key')
+  }
+  return Object.entries(value).map(([tool, key]) => {
+    const name = text(tool, 'gateableTools tool')
+    const configKey = text(key, `gateableTools.${tool}`)
+    if (!/^tools\.[A-Za-z][A-Za-z0-9]*$/.test(configKey)) {
+      throw componentError(`gateableTools.${tool} must name a tools.* config key, got ${configKey}`)
+    }
+    return { tool: name, key: configKey }
+  })
+}
+
+/**
  * Parse and validate the single source of truth. Structural problems throw with
  * an actionable message; semantic problems are findings from the validators
  * below, so one run can report all of them.
@@ -149,6 +173,7 @@ export function parseComponentSurface(source) {
   }
   const keys = value.keys.map(normalizeKey)
   const forbidden = Array.isArray(value.forbidden) ? value.forbidden.map(normalizeForbidden) : []
+  const gateableTools = normalizeGateableTools(value.gateableTools)
   const seen = (list, label) => {
     const names = new Set()
     for (const entry of list) {
@@ -166,7 +191,7 @@ export function parseComponentSurface(source) {
   if (!components.some((component) => component.scope === 'visible')) {
     throw componentError('component surface needs at least one visible component')
   }
-  return { schema: COMPONENT_SCHEMA_VERSION, date, adr, classes, components, keys, forbidden }
+  return { schema: COMPONENT_SCHEMA_VERSION, date, adr, classes, components, keys, gateableTools, forbidden }
 }
 
 /**
@@ -347,8 +372,15 @@ export function checkLocaleCoverage(surface, locales) {
  * The live disablers are derived statically:
  *   - `host/tool-registry.js` maps a tool to the `tools.expose*` boolean that
  *     skips registering it (and `tools.exposeOperational` skips them all);
- *   - `cordis.patch.yml` rows may set a contract key to `false`, or expose a
- *     forbidden capability as its own switchable row.
+ *   - `cordis.patch.yml` rows may set a forbidden-to-disable key to `false`, or
+ *     expose a forbidden capability as its own switchable row.
+ *
+ * Two routes are checked, not one. A row override is refused when its leaf names
+ * *any* key classified `forbidden-to-disable`, not only a capability's `gatedBy`
+ * keys. And every registry route must match the `gateableTools` allowlist in the
+ * source of truth, so adding `['tower_merge', 'exposeBatch']` to
+ * `host/tool-registry.js` fails even though the merge-gate capability lists no
+ * tools that a switch could remove.
  *
  * @param {ReturnType<typeof parseComponentSurface>} surface
  * @param {{ booleans: string[], registry: Record<string, string>, patch: ReturnType<typeof parseCordisPatch> }} live
@@ -360,23 +392,86 @@ export function checkForbidden(surface, live) {
   const registry = live.registry ?? {}
   const rows = live.patch?.rows ?? []
   const forbiddenRowIds = new Set(surface.forbidden.flatMap((capability) => capability.rowIds ?? []))
-  const gatedLeaves = new Set(
-    surface.forbidden.flatMap((capability) => (capability.gatedBy ?? []).map((key) => key.split('.').pop())),
-  )
+
+  // Row route: every key classified forbidden-to-disable is unreachable from a
+  // row, whatever capability owns it. `gatedBy` is folded in so a contract key
+  // recorded only on the capability still resolves to its full name.
+  const forbiddenLeaves = new Map()
+  for (const key of surface.keys) {
+    if (key.class !== 'forbidden-to-disable') continue
+    forbiddenLeaves.set(key.name.split('.').pop(), key.name)
+  }
+  for (const capability of surface.forbidden) {
+    for (const key of capability.gatedBy ?? []) {
+      const leaf = key.split('.').pop()
+      if (!forbiddenLeaves.has(leaf)) forbiddenLeaves.set(leaf, key)
+    }
+  }
   for (const row of rows) {
     if (row.scope === 'visible' && forbiddenRowIds.has(row.id)) {
       record('forbidden-component', 'error', `component "${row.id}" exposes a forbidden-to-disable capability as a switch`)
     }
     for (const leaf of row.overrides ?? []) {
-      if (gatedLeaves.has(leaf)) {
+      const key = forbiddenLeaves.get(leaf)
+      if (!key) continue
+      record(
+        'forbidden-override',
+        'error',
+        `row "${row.id}" sets ${key}:false in cordis.patch.yml; a component may not switch off a forbidden-to-disable key`,
+      )
+    }
+  }
+
+  // Boolean route: the allowlist is the shipped set of tool -> switch mappings.
+  // Anything else in OPERATIONAL_TOOLS is a new way to remove a tool, and a
+  // review, merge or host tool must never gain one.
+  const gateable = new Map((surface.gateableTools ?? []).map((entry) => [entry.tool, entry.key]))
+  for (const [tool, flag] of Object.entries(registry)) {
+    const route = `tools.${flag}`
+    const declared = gateable.get(tool)
+    if (declared === route) continue
+    record(
+      'forbidden-tool-gate',
+      'error',
+      declared
+        ? `${tool} is gated by ${route} in host/tool-registry.js, but the source of truth records ${declared}; a tool route may not move to another switch`
+        : `${tool} is gated by ${route} in host/tool-registry.js but is not a recorded gateable tool; a review, merge or host tool may not become a switch`,
+    )
+  }
+  for (const entry of surface.gateableTools ?? []) {
+    if (registry[entry.tool] === undefined) {
+      record(
+        'gateable-stale',
+        'warn',
+        `${entry.tool} is recorded as gateable by ${entry.key} but host/tool-registry.js no longer gates it; remove the allowlist entry`,
+      )
+      continue
+    }
+    const keyEntry = surface.keys.find((candidate) => candidate.name === entry.key)
+    if (!keyEntry) {
+      record('gateable-class', 'error', `${entry.tool} is recorded gateable by ${entry.key}, which has no component-axis class`)
+      continue
+    }
+    if (!['optional-component', 'forbidden-to-disable'].includes(keyEntry.class)) {
+      record(
+        'gateable-class',
+        'error',
+        `${entry.key} gates ${entry.tool} but is classified "${keyEntry.class}"; only an optional component or recorded forbidden debt may gate a tool`,
+      )
+    }
+    for (const capability of surface.forbidden) {
+      if (!(capability.tools ?? []).includes(entry.tool)) continue
+      const accepted = new Set(capability.acceptedSwitches?.keys ?? [])
+      if (!accepted.has(entry.key)) {
         record(
-          'forbidden-override',
+          'forbidden-tool-gate',
           'error',
-          `row "${row.id}" sets ${leaf}:false in cordis.patch.yml; a component may not switch off a contract key`,
+          `${entry.tool} belongs to ${capability.capability} but ${entry.key} is not a recorded disabler; the allowlist may not legalise a forbidden switch`,
         )
       }
     }
   }
+
   for (const capability of surface.forbidden) {
     const liveSwitches = new Set()
     for (const tool of capability.tools ?? []) {
@@ -436,6 +531,9 @@ export function renderComponentSurface(surface, options = {}) {
       return `| ${capability.capability} | ${capability.reason} | ${accepted} | ${evidence} |`
     })
     .join('\n')
+  const gateableRows = (surface.gateableTools ?? [])
+    .map((entry) => `| \`${entry.tool}\` | \`${entry.key}\` |`)
+    .join('\n')
   const visibleIds = visible.map((component) => `\`${component.id}\``).join(', ')
   return `# Component surface (generated)
 
@@ -472,6 +570,18 @@ and \`cordis.patch.yml\`; a disabler that is not recorded here fails the gate.
 | Capability | Why it may not be disabled | Recorded disablers | Decision |
 |---|---|---|---|
 ${forbiddenRows}
+
+## Gateable tools
+
+Every \`tools.expose*\` route in \`host/tool-registry.js\` must match this table.
+A route to a tool that is not listed here is refused, so no boolean key can
+quietly remove a review, merge or host tool; only \`tower_doctor\` and
+\`tower_recover\` may gate a forbidden capability, and only until #122 deletes
+their recorded debt.
+
+| Tool | Switch key |
+|---|---|
+${gateableRows}
 
 ## Config keys
 

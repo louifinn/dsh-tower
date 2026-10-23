@@ -46,6 +46,16 @@ to this ADR, and the recorder in `host/tool-registry.js` covers both registratio
 paths. This is a measurement correction, not surface growth: a later count change
 still needs its own ADR or a provably matching deletion.
 
+## Amended by ADR 0005 (2026-10-23)
+
+The decision above counts three surfaces. [ADR 0005](0005-component-surface.md)
+extends the budget with a fourth — the number of user-visible component rows in
+`cordis.patch.yml` — and records it as its own `components` baseline entry with a
+two-way decision rule (a contraction needs a decision just like growth). The
+three original counts are still measured by `npm run surface:check`; the
+component count is validated by `npm run docs:check:components`. The historical
+decision above is unchanged: "three surfaces" describes the 2.3.0 rule.
+
 ## Rejected alternatives
 
 - **A line-count or file-size rule** — the project already has those and the

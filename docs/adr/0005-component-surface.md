@@ -44,7 +44,12 @@ Adopt this shape and record it as principle 11:
   worse than uninstalling.
 - **The safety nets are never switches.** The health contract, the recovery
   escape, the review contract and the merge gates are configuration or code; no
-  group, row or boolean key may gate them.
+  group, row or boolean key may gate them. Enforcement covers both routes: a
+  `cordis.patch.yml` row that defaults any key classified `forbidden-to-disable`
+  to `false` is refused, and every `tools.expose*` route in
+  `host/tool-registry.js` must match the `gateableTools` allowlist in the source
+  of truth, so a new route to a review, merge or host tool fails even when that
+  capability lists no tools of its own.
 - **Config keys stay on the component axis.** Every config key is classified
   `core`, `optional-component`, `optional-config` or `forbidden-to-disable` in
   `docs/reference/component-surface.md`, generated from the single source of

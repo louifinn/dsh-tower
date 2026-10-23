@@ -45,6 +45,24 @@ and `cordis.patch.yml`; a disabler that is not recorded here fails the gate.
 | the review contract | review.requireReview is a merge blocker, not a component; a row may not switch it off. | none | none may exist |
 | the merge gates | gates.* decides delivery; a component may not bypass it. | none | none may exist |
 
+## Gateable tools
+
+Every `tools.expose*` route in `host/tool-registry.js` must match this table.
+A route to a tool that is not listed here is refused, so no boolean key can
+quietly remove a review, merge or host tool; only `tower_doctor` and
+`tower_recover` may gate a forbidden capability, and only until #122 deletes
+their recorded debt.
+
+| Tool | Switch key |
+|---|---|
+| `tower_batch` | `tools.exposeBatch` |
+| `tower_doctor` | `tools.exposeDoctor` |
+| `tower_import_legacy` | `tools.exposeImport` |
+| `tower_legacy_map` | `tools.exposeImport` |
+| `tower_recover` | `tools.exposeRecovery` |
+| `tower_resource` | `tools.exposeLeases` |
+| `tower_test` | `tools.exposeTests` |
+
 ## Config keys
 
 All keys from `domain/config/schema.js`, classified on the component axis.

@@ -1,0 +1,58 @@
+{
+  "surface": {
+    "schema": 1,
+    "date": "2026-10-23",
+    "adr": "docs/adr/0005-component-surface.md",
+    "classes": {
+      "core": "Removing it breaks the Tower contract. It is never a switch.",
+      "optional-component": "A capability whose off state leaves the rest of Tower intact.",
+      "optional-config": "A tuning knob, not a capability.",
+      "forbidden-to-disable": "The host, health, recovery, review contract and merge gates."
+    },
+    "components": [
+      {
+        "id": "tower-bundle",
+        "scope": "visible",
+        "kind": "group",
+        "fallback": "Off equals uninstalling."
+      }
+    ],
+    "keys": [
+      {
+        "name": "tools.exposeDoctor",
+        "class": "forbidden-to-disable",
+        "note": "Removes tower_doctor, the health contract."
+      },
+      {
+        "name": "review.requireReview",
+        "class": "forbidden-to-disable",
+        "note": "Review is a merge blocker, not a component."
+      }
+    ],
+    "forbidden": [
+      {
+        "id": "health",
+        "capability": "tower_doctor (read-only health contract)",
+        "reason": "Diagnosis must always exist so a failure message can point at it.",
+        "tools": ["tower_doctor"],
+        "rowIds": ["tower-doctor"]
+      }
+    ]
+  },
+  "live": {
+    "booleans": [],
+    "registry": {},
+    "patch": {
+      "rows": [
+        {
+          "id": "tower-bundle",
+          "scope": "visible",
+          "kind": "group",
+          "group": true,
+          "overrides": ["exposeDoctor"]
+        }
+      ],
+      "visible": ["tower-bundle"]
+    }
+  }
+}

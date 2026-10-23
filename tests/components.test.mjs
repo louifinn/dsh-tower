@@ -6,6 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -21,11 +22,36 @@ import { configSurface } from '../domain/config/schema.js'
 import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
 import { checkComponents } from '../scripts/check-components.mjs'
+import { removeTemp } from './helpers/cleanup.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8')
 const fixture = (name) => JSON.parse(read(`tests/fixtures/component-surface/${name}`))
 const realSurface = () => parseComponentSurface(read('scripts/component-surface.json'))
+
+// The files `checkComponents` reads from a root, so the integration proofs below
+// can tamper with a throwaway copy instead of the worktree.
+const GATE_FILES = [
+  'cordis.patch.yml',
+  'scripts/component-surface.json',
+  'scripts/surface-baseline.json',
+  'docs/reference/component-surface.md',
+  'docs/adr/0005-component-surface.md',
+  'host/tool-registry.js',
+  'locale/en.json',
+  'locale/zh.json',
+]
+
+function gateRoot(transforms = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-components-'))
+  for (const relative of GATE_FILES) {
+    const target = path.join(dir, relative)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    const source = read(relative)
+    fs.writeFileSync(target, transforms[relative] ? transforms[relative](source) : source)
+  }
+  return dir
+}
 
 test('the shipped component surface passes every rule and classifies all 64 keys', () => {
   const report = checkComponents(root)
@@ -39,6 +65,11 @@ test('the shipped component surface passes every rule and classifies all 64 keys
       report.surface.keys.some((key) => key.class === className),
       `at least one key is classified ${className}`,
     )
+  }
+  // The allowlist covers exactly the live OPERATIONAL_TOOLS routes.
+  const routes = new Map(report.surface.gateableTools.map((entry) => [entry.tool, entry.key]))
+  for (const [tool, flag] of Object.entries(report.live.registry)) {
+    assert.equal(routes.get(tool), `tools.${flag}`)
   }
 })
 
@@ -203,6 +234,44 @@ test('fixture: a boolean key that disables a forbidden capability fails (#120 ch
   assert.ok(checkForbidden(surface, exposed).some((entry) => entry.code === 'forbidden-component'))
 })
 
+test('fixture: a group row that defaults a forbidden boolean off fails (#120 check 2, row route)', () => {
+  const data = fixture('forbidden-row-override.json')
+  const surface = parseComponentSurface(data.surface)
+  const errors = checkForbidden(surface, data.live).filter((entry) => entry.level === 'error')
+  const overrides = errors.filter((entry) => entry.code === 'forbidden-override')
+  assert.equal(overrides.length, 1)
+  assert.match(overrides[0].message, /tower-bundle/)
+  assert.match(overrides[0].message, /tools\.exposeDoctor:false/)
+  assert.match(overrides[0].message, /forbidden-to-disable/)
+
+  // A leaf that is not classified forbidden-to-disable is not an override.
+  const tuning = {
+    ...data.live,
+    patch: {
+      ...data.live.patch,
+      rows: [{ ...data.live.patch.rows[0], overrides: ['exposeBatch'] }],
+    },
+  }
+  assert.deepEqual(checkForbidden(surface, tuning).filter((entry) => entry.level === 'error'), [])
+})
+
+test('fixture: a new boolean route to a review or merge tool fails (#120 check 2, allowlist)', () => {
+  const data = fixture('forbidden-tool-route.json')
+  const surface = parseComponentSurface(data.surface)
+  const errors = checkForbidden(surface, data.live).filter((entry) => entry.level === 'error')
+  const routed = errors.filter((entry) => entry.code === 'forbidden-tool-gate' && /tower_merge/.test(entry.message))
+  // The merge-gate capability lists no tools of its own; the allowlist is what
+  // catches the route, so the finding cannot depend on `capability.tools`.
+  assert.equal(routed.length, 1)
+  assert.match(routed[0].message, /tools\.exposeBatch/)
+  assert.match(routed[0].message, /not a recorded gateable tool/)
+  assert.ok(!errors.some((entry) => entry.code === 'forbidden-tool-gate' && /tower_batch/.test(entry.message)))
+
+  // Dropping the undeclared route clears the finding.
+  const clean = { ...data.live, registry: { tower_batch: 'exposeBatch', tower_doctor: 'exposeDoctor' } }
+  assert.deepEqual(checkForbidden(surface, clean).filter((entry) => entry.level === 'error'), [])
+})
+
 test('fixture: a component count that moved without a decision fails (#120 check 3)', () => {
   const data = fixture('count-moved.json')
   const live = { components: data.live.length, liveNames: { components: data.live } }
@@ -253,4 +322,38 @@ test('a baseline without a components entry is refused', () => {
     },
   }
   assert.throws(() => parseBaseline(withoutComponents), /components/)
+})
+
+test('integration: a group row that defaults tools.exposeDoctor off fails the gate', () => {
+  const dir = gateRoot({
+    'cordis.patch.yml': (text) =>
+      text.replace(/^(\s*)spawn:\s*$/m, (line, indent) => `${indent}tools:\n${indent}  exposeDoctor: false\n${indent}spawn:`),
+  })
+  try {
+    const report = checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'forbidden-override' && /tools\.exposeDoctor/.test(entry.message)),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a new OPERATIONAL_TOOLS route to tower_merge fails the gate', () => {
+  const dir = gateRoot({
+    'host/tool-registry.js': (text) =>
+      text.replace(/^(\s*)\['tower_test', 'exposeTests'\],/m, (line) => `${line}\n  ['tower_merge', 'exposeBatch'],`),
+  })
+  try {
+    const report = checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'forbidden-tool-gate' && /tower_merge/.test(entry.message)),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
 })

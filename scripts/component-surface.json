@@ -40,6 +40,15 @@
       "fallback": "The reviewer cannot be dispatched; with review.requireReview false merge is unaffected. Qualifies as a conditional optional component (#121)."
     }
   ],
+  "gateableTools": {
+    "tower_batch": "tools.exposeBatch",
+    "tower_doctor": "tools.exposeDoctor",
+    "tower_import_legacy": "tools.exposeImport",
+    "tower_legacy_map": "tools.exposeImport",
+    "tower_recover": "tools.exposeRecovery",
+    "tower_resource": "tools.exposeLeases",
+    "tower_test": "tools.exposeTests"
+  },
   "keys": [
     {
       "name": "section",
@@ -406,7 +415,7 @@
       "id": "review",
       "capability": "the review contract",
       "reason": "review.requireReview is a merge blocker, not a component; a row may not switch it off.",
-      "tools": [],
+      "tools": ["tower_diff", "tower_preflight", "tower_review"],
       "rowIds": ["tower-review"],
       "gatedBy": ["review.requireReview", "review.maxRoundsPerReviewer"]
     },
@@ -414,7 +423,7 @@
       "id": "merge-gates",
       "capability": "the merge gates",
       "reason": "gates.* decides delivery; a component may not bypass it.",
-      "tools": [],
+      "tools": ["tower_complete", "tower_merge"],
       "rowIds": ["tower-gates", "tower-merge-gates"],
       "gatedBy": ["gates.requireChecks", "gates.requireTests", "gates.allowReviewExemption", "gates.maxReportBytes"]
     }

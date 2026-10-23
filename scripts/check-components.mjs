@@ -78,13 +78,14 @@ function liveBooleanKeys() {
 /**
  * The static wiring that lets a boolean key remove a tool: the OPERATIONAL_TOOLS
  * table in host/tool-registry.js. Parsing it (rather than importing the runtime)
- * keeps the denylist check offline and free of a booted Host.
+ * keeps the denylist check offline and free of a booted Host. Both quote styles
+ * are accepted so a reformatted entry cannot fall out of the allowlist.
  */
 function operationalRegistry(root) {
   const file = path.join(root, REGISTRY_FILE)
   const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
   const registry = {}
-  for (const match of text.matchAll(/\[\s*'(tower_[a-z_]+)'\s*,\s*'(expose[A-Za-z]+)'\s*\]/g)) {
+  for (const match of text.matchAll(/\[\s*['"](tower_[a-z_]+)['"]\s*,\s*['"](expose[A-Za-z]+)['"]\s*\]/g)) {
     registry[match[1]] = match[2]
   }
   return registry

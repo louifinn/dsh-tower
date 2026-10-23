@@ -17,6 +17,9 @@
         "fallback": "Off equals uninstalling."
       }
     ],
+    "gateableTools": {
+      "tower_doctor": "tools.exposeDoctor"
+    },
     "keys": [
       {
         "name": "tools.exposeDoctor",

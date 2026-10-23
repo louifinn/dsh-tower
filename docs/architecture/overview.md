@@ -13,8 +13,10 @@ off state leaves the rest intact, and that the host, health, recovery, review an
 capabilities are never switches. Which keys are allowed to be switches is a table lookup in
 [component-surface.md](../reference/component-surface.md), generated from
 `scripts/component-surface.json`; the component count is baselined and checked by
-`npm run docs:check:components`. #121 grows this shape with individually toggleable optional rows
-and #122 removes the safety-net switches.
+`npm run docs:check:components`. That gate also refuses a `tools.expose*` route
+to a tool that is not on the recorded allowlist and any `cordis.patch.yml` row
+that defaults a forbidden key off. #121 grows this shape with individually
+toggleable optional rows and #122 removes the safety-net switches.
 
 ```
 Host plugin (index.js)
