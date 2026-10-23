@@ -39,29 +39,31 @@ test('architecture fitness functions report a clean baseline', () => {
 test('every architecture rule can fail on a seeded fixture', async () => {
   const fixtureFiles = {
     'domain/bad.js': "import fs from 'node:fs'\n",
-    'lib/spawn.js': "import { spawn } from 'node:child_process'\n",
-    'lib/io.js': "import fs from 'node:fs'\n",
-    'lib/state.js': 'let ambient = 1\n',
-    'lib/big.js': '// x\n'.repeat(801),
+    'app/bad-lib.js': "import * as store from '../lib/store.js'\nexport const LEAK = store\n",
+    'host/spawn.js': "import { spawn } from 'node:child_process'\n",
+    'host/io.js': "import fs from 'node:fs'\n",
+    'app/state.js': 'let ambient = 1\n',
+    'host/big.js': '// x\n'.repeat(801),
     'tools/bad.js': "import fs from 'node:fs'\nenum: ['planned']\n",
     // #69 rules: an app module that reaches an adapter, a tools module that
     // bypasses the composition root, and a port that is not a runtime contract.
     'app/bad-adapter.js': "import { createStorePort } from '../adapters/store-fs.js'\nexport const x = 1\n",
     'tools/bad-adapter.js': "import fsp from '../adapters/store-fs.js'\nexport const x = 1\n",
     'ports/empty.js': 'export {}\n',
-    'ports/leaky.js': "import * as store from '../lib/store.js'\nexport const LEAK = store\n",
+    'ports/leaky.js': "import * as store from '../adapters/store.js'\nexport const LEAK = store\n",
   }
   await withFixture(fixtureFiles, (fixture) => {
     const result = evaluator(fixture, { waivers: [] })
     const rules = new Set(result.violations.map((violation) => violation.rule))
     for (const rule of [
       'domain-pure',
+      'no-lib-from-core',
       'child-process-surface',
       'fs-surface',
       'tools-thin',
       'tools-vocabulary',
       'aggregate-size',
-      'ambient-state',
+      'host-scope',
       'app-ports-only',
       'composition-root',
       'port-shape',
@@ -85,7 +87,7 @@ test('the green gate output reports how many waivers were applied', () => {
 
 test('every repository waiver is justified and targeted', () => {
   const waivers = loadWaivers()
-  assert.ok(waivers.length > 0, 'the repository still needs its four documented waivers')
+  assert.ok(waivers.length > 0, 'the two I/O adapter boundaries still need their documented waivers')
   for (const waiver of waivers) {
     assert.ok(typeof waiver.reason === 'string' && waiver.reason.trim().length > 0, `${waiver.path}: reason`)
     assert.ok(
@@ -93,25 +95,29 @@ test('every repository waiver is justified and targeted', () => {
         (typeof waiver.ref === 'string' && waiver.ref.trim().length > 0),
       `${waiver.path}: owner or ref`,
     )
-    if (waiver.rule === 'ambient-state') {
-      assert.ok(typeof waiver.match === 'string' && waiver.match.trim().length > 0, `${waiver.path}: match`)
-    }
   }
+  // #70: ambient state is a host privilege and the retired lib/ layer has no
+  // exemptions left; the only waivers are the two I/O adapter boundaries.
+  assert.ok(waivers.every((waiver) => !waiver.path.startsWith('lib/')), 'the retired lib/ layer has no waivers')
+  assert.ok(
+    waivers.every((waiver) => waiver.rule !== 'ambient-state' && waiver.rule !== 'host-scope'),
+    'ambient state is governed by host-scope, not a waiver',
+  )
 })
 
 test('an exemption without a reason fails the gate and names the file and rule', async () => {
-  await withFixture({ 'lib/ambient.js': 'let profileRaw = {}\n' }, (fixture) => {
+  await withFixture({ 'adapters/store-fs.js': "import fs from 'node:fs'\n" }, (fixture) => {
     const result = evaluator(fixture, {
-      waivers: [{ rule: 'ambient-state', path: 'lib/ambient.js', match: 'profileRaw', owner: 'louifinn', ref: '#80' }],
+      waivers: [{ rule: 'fs-surface', path: 'adapters/store-fs.js', owner: 'louifinn', ref: '#80' }],
     })
     assert.equal(result.ok, false)
     const contract = result.violations.find((violation) => violation.rule === 'waiver-contract')
     assert.ok(contract, 'an unexplained waiver must be reported as a contract violation')
-    assert.equal(contract.file, 'lib/ambient.js')
-    assert.match(contract.detail, /ambient-state/)
+    assert.equal(contract.file, 'adapters/store-fs.js')
+    assert.match(contract.detail, /fs-surface/)
     assert.match(contract.detail, /no reason/)
     assert.ok(
-      result.violations.some((violation) => violation.rule === 'ambient-state' && violation.file === 'lib/ambient.js'),
+      result.violations.some((violation) => violation.rule === 'fs-surface' && violation.file === 'adapters/store-fs.js'),
       'an invalid waiver must not suppress the rule it was meant to waive',
     )
     assert.equal(result.waived, 0)
@@ -119,14 +125,13 @@ test('an exemption without a reason fails the gate and names the file and rule',
 })
 
 test('a justified exemption passes and suppresses exactly its violation', async () => {
-  await withFixture({ 'lib/ambient.js': 'let profileRaw = {}\n' }, (fixture) => {
+  await withFixture({ 'adapters/store-fs.js': "import fs from 'node:fs'\n" }, (fixture) => {
     const result = evaluator(fixture, {
       waivers: [
         {
-          rule: 'ambient-state',
-          path: 'lib/ambient.js',
-          match: 'profileRaw',
-          reason: 'process-local profile snapshot owned by the config layer',
+          rule: 'fs-surface',
+          path: 'adapters/store-fs.js',
+          reason: 'the filesystem adapter is the single node:fs boundary',
           owner: 'louifinn',
           ref: '#80',
         },
@@ -139,83 +144,34 @@ test('a justified exemption passes and suppresses exactly its violation', async 
   })
 })
 
-test('a new violation in a previously exempt file is caught', async () => {
-  const waivers = loadWaivers()
-  for (const file of ['lib/config.js', 'lib/git.js']) {
-    const text = fs.readFileSync(path.join(root, file), 'utf8')
-    const baseline = await withFixture({ [file]: text }, (fixture) => evaluator(fixture, { waivers }))
-    assert.equal(baseline.ok, true, `${file}: the documented binding stays waived`)
-    assert.equal(baseline.waived, 1, `${file}: exactly one binding is waived`)
-
-    const injected = await withFixture(
-      { [file]: `${text}\nlet newlyInjected = 1\n` },
-      (fixture) => evaluator(fixture, { waivers }),
-    )
-    assert.equal(injected.ok, false, `${file}: a new top-level let must fail`)
-    const violation = injected.violations.find(
-      (candidate) => candidate.rule === 'ambient-state' && candidate.file === file,
-    )
-    assert.ok(violation, `${file}: ambient-state violation is missing`)
-    assert.equal(violation.match, 'newlyInjected')
-  }
-})
-
-test('a waivered binding cannot hide a second top-level let on the same line', async () => {
-  const waivers = [
+test('host-scope allows ambient state under host/** and rejects it in app/ and domain/', async () => {
+  await withFixture(
     {
-      rule: 'ambient-state',
-      path: 'lib/ambient.js',
-      match: 'profileRaw',
-      reason: 'process-local profile snapshot owned by the config layer',
-      owner: 'louifinn',
-      ref: '#80',
+      'host/ambient.js': 'let profileRaw = {}\n',
+      'app/ambient.js': 'let appState = 1\n',
+      'domain/ambient.js': 'let domainState = 2\n',
     },
-  ]
-  for (const text of ['let profileRaw = {}; let evil = 1\n', 'let profileRaw = {}, evil = 1\n']) {
-    await withFixture({ 'lib/ambient.js': text }, (fixture) => {
-      const result = evaluator(fixture, { waivers })
-      const label = JSON.stringify(text)
-      assert.equal(result.ok, false, `${label}: the second binding must fail`)
-      const violation = result.violations.find(
-        (candidate) => candidate.rule === 'ambient-state' && candidate.file === 'lib/ambient.js',
+    (fixture) => {
+      const result = evaluator(fixture, { waivers: [] })
+      const scope = result.violations.filter((violation) => violation.rule === 'host-scope')
+      assert.deepEqual(
+        scope.map((violation) => [violation.file, violation.match]).sort(),
+        [
+          ['app/ambient.js', 'appState'],
+          ['domain/ambient.js', 'domainState'],
+        ],
+        'host/** is the only ambient-state home',
       )
-      assert.ok(violation, `${label}: ambient-state violation is missing`)
-      assert.equal(violation.match, 'evil', `${label}: only the new binding fails`)
-      assert.equal(result.waived, 1, `${label}: the justified binding stays waived`)
-    })
-  }
+      assert.equal(
+        result.violations.some((violation) => violation.file === 'host/ambient.js'),
+        false,
+        'host/ambient.js is allowed to hold process state',
+      )
+    },
+  )
 })
 
-test('a justified multi-binding declaration passes when every binding is named', async () => {
-  await withFixture({ 'lib/ambient.js': 'let profileRaw = {}, other = 1\n' }, (fixture) => {
-    const result = evaluator(fixture, {
-      waivers: [
-        {
-          rule: 'ambient-state',
-          path: 'lib/ambient.js',
-          match: 'profileRaw',
-          reason: 'process-local profile snapshot owned by the config layer',
-          owner: 'louifinn',
-          ref: '#80',
-        },
-        {
-          rule: 'ambient-state',
-          path: 'lib/ambient.js',
-          match: 'other',
-          reason: 'the second documented process-local binding',
-          owner: 'louifinn',
-          ref: '#80',
-        },
-      ],
-    })
-    assert.equal(result.ok, true)
-    assert.deepEqual(result.violations, [])
-    assert.equal(result.waivers, 2)
-    assert.equal(result.waived, 2, 'each named binding is waived exactly once')
-  })
-})
-
-test('only real module-level bindings are recorded', async () => {
+test('host-scope records every binding and ignores nested lets', async () => {
   const source = [
     'const brace = /\\{[^}]*\\}/',
     "const quoted = /['\"]/",
@@ -232,33 +188,39 @@ test('only real module-level bindings are recorded', async () => {
     'let alsoReal = 2, third = 3; let fourth = 4',
     '',
   ].join('\n')
-  await withFixture({ 'lib/ambient.js': source }, (fixture) => {
+  await withFixture({ 'app/ambient.js': source }, (fixture) => {
     const result = evaluator(fixture, { waivers: [] })
     assert.equal(result.ok, false)
     const matches = result.violations
-      .filter((violation) => violation.rule === 'ambient-state')
+      .filter((violation) => violation.rule === 'host-scope')
       .map((violation) => violation.match)
     assert.deepEqual(matches.sort(), ['alsoReal', 'fourth', 'real', 'third'])
   })
 })
 
-test('an ambient-state waiver must name the exact binding', async () => {
-  await withFixture({ 'lib/ambient.js': 'let profileRaw = {}\n' }, (fixture) => {
+test('host-scope cannot be waived even with a justification', async () => {
+  await withFixture({ 'app/ambient.js': 'let appState = 1\n' }, (fixture) => {
     const result = evaluator(fixture, {
       waivers: [
         {
-          rule: 'ambient-state',
-          path: 'lib/ambient.js',
-          reason: 'process-local profile snapshot',
+          rule: 'host-scope',
+          path: 'app/ambient.js',
+          match: 'appState',
+          reason: 'this would defeat the host-only ambient-state rule',
           owner: 'louifinn',
+          ref: '#70',
         },
       ],
     })
     assert.equal(result.ok, false)
     const contract = result.violations.find((violation) => violation.rule === 'waiver-contract')
-    assert.ok(contract, 'a file-wide ambient waiver must be rejected')
-    assert.match(contract.detail, /match/)
-    assert.ok(result.violations.some((violation) => violation.rule === 'ambient-state'))
+    assert.ok(contract, 'a host-scope waiver must be rejected as a contract violation')
+    assert.match(contract.detail, /host-scope/)
+    assert.match(contract.detail, /cannot be waived/)
+    assert.ok(
+      result.violations.some((violation) => violation.rule === 'host-scope' && violation.file === 'app/ambient.js'),
+      'the rejected waiver must not suppress host-scope',
+    )
   })
 })
 
@@ -272,6 +234,31 @@ test('an exemption without an owner or reference fails the gate', async () => {
     assert.ok(contract)
     assert.match(contract.detail, /owner or reference/)
     assert.match(contract.detail, /fs-surface/)
+  })
+})
+
+test('no-lib-from-core cannot be waived even with a justification', async () => {
+  await withFixture({ 'app/bad-lib.js': "import * as store from '../lib/store.js'\nexport const LEAK = store\n" }, (fixture) => {
+    const result = evaluator(fixture, {
+      waivers: [
+        {
+          rule: 'no-lib-from-core',
+          path: 'app/bad-lib.js',
+          reason: 'this would reintroduce the retired layer',
+          owner: 'louifinn',
+          ref: '#70',
+        },
+      ],
+    })
+    assert.equal(result.ok, false)
+    const contract = result.violations.find((violation) => violation.rule === 'waiver-contract')
+    assert.ok(contract, 'a no-lib-from-core waiver must be rejected as a contract violation')
+    assert.match(contract.detail, /no-lib-from-core/)
+    assert.match(contract.detail, /cannot be waived/)
+    assert.ok(
+      result.violations.some((violation) => violation.rule === 'no-lib-from-core' && violation.file === 'app/bad-lib.js'),
+      'the rejected waiver must not suppress no-lib-from-core',
+    )
   })
 })
 
@@ -327,7 +314,7 @@ test('node fs and child_process are confined to the waived adapters', () => {
       }
     }
   }
-  for (const dir of ['lib', 'app', 'domain', 'tools', 'adapters']) walk(path.join(root, dir))
+  for (const dir of ['host', 'app', 'domain', 'tools', 'adapters', 'ports']) walk(path.join(root, dir))
   assert.deepEqual(offenders, [])
 })
 
