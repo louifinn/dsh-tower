@@ -4,6 +4,35 @@
 
 ## 未发布（Unreleased）
 
+## 2.2.0（2026-10-23）
+
+### 新增
+
+- **#74 恢复动作到达模型**：`ERROR_CODES` 统一为 35 条目录（description/trigger/retryable/nextAction）；
+  `renderErrorMessage()` 在消息尾部追加恰好一个 `— next: …` 片段，retryable 条目附加 `(retryable)`；
+  无 nextAction 的条目保持字节不变；`TowerToolError`/`classifyError()` 均从目录解析字段；
+  `errors.generated.md` 与 errors.md 的 Code/Retryable/Next action 表由同一目录生成。
+- **#75 领域事件**：域转换返回 `{ state, events }`；app 持久化后发出稳定事件
+  `tower.mission.planned|completed|reviewed|merged|abandoned`（携带 missionId/revision/at，merged 另有 commit），
+  `tower/<tool>` 作为弃用别名保留一个 minor；`ports/events.js` 新增 `EventPort`（no-op 默认，Cordis `ctx.emit` 绑定）；
+  `docs/reference/events.md` 由事件表生成并纳入 `--check`。
+- **#71 ui-bundle 纳入 fitness gate**：`client-no-node`/`client-size`/`client-ambient` 三条阻塞规则；
+  `client.js` 从 1,980 行拆为 entry + 9 个按渲染面切分的 chunk（每个 ≤400 行，总行数 +9.95%）；
+  `domain:metrics` 打印 ui-bundle 行；`pack:check` 额外要求 ui-bundle/package.json 与 cordis.patch.yml。
+
+### 变更
+
+- **#69 app 依赖 ports 而非 adapters**：9 个运行时 Port 契约 + `assertPorts`；组合根一次性构造 adapter 并注入；
+  `app-ports-only`/`composition-root`/`port-shape` 三条 fitness 规则；内存 adapter 全生命周期测试。
+- **#70 退役 lib/**：23 个文件 `git mv` 到 adapters/host/app；新增 `no-lib-from-core`、`host-scope` 阻塞规则；
+  ambient 豁免降为 2 条 I/O 边界；`lib/` 不再存在。
+- **#80 fitness 豁免有据**：硬编码 allow-list 改为 `scripts/architecture-waivers.json` 中带 reason/owner/ref 的豁免；
+  新增阻塞 `waiver-contract`，无理由豁免/未知规则/ambient 无 match/domain 豁免一律失败；statement-aware ambient 扫描。
+
+### 修复
+
+- **发布前 hygiene（F2–F5）**：根级 `*.log` 忽略规则；控制流 `)` 后正则的 scanner 加固；
+  `tsconfig` 移除已删除 lib 路径；COMPATIBILITY/ui-bundle 文档中的旧 lib 路径更新。
 ## 2.1.2（2026-10-23）
 
 ### 修复
