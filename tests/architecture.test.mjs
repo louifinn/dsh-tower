@@ -51,6 +51,10 @@ test('every architecture rule can fail on a seeded fixture', async () => {
     'tools/bad-adapter.js': "import fsp from '../adapters/store-fs.js'\nexport const x = 1\n",
     'ports/empty.js': 'export {}\n',
     'ports/leaky.js': "import * as store from '../adapters/store.js'\nexport const LEAK = store\n",
+    // #71: the Web client tier. One seeded violation per client rule.
+    'ui-bundle/client.js': "import fs from 'node:fs'\n",
+    'ui-bundle/big.js': '// x\n'.repeat(801),
+    'ui-bundle/ambient.js': 'let clientState = 1\n',
   }
   await withFixture(fixtureFiles, (fixture) => {
     const result = evaluator(fixture, { waivers: [] })
@@ -67,6 +71,9 @@ test('every architecture rule can fail on a seeded fixture', async () => {
       'app-ports-only',
       'composition-root',
       'port-shape',
+      'client-no-node',
+      'client-size',
+      'client-ambient',
     ]) {
       assert.ok(rules.has(rule), `${rule} must be able to fail`)
     }
@@ -307,6 +314,69 @@ test('domain-pure and domain/** cannot be waived even with a justification', asy
   })
 })
 
+test('client rules form their own tier and a clean ui-bundle passes', async () => {
+  await withFixture(
+    {
+      'ui-bundle/client.js': "window.__ModuleLoader__.load({ id: 'dsh-tower-ui', factory() { return {} } })\n",
+      'ui-bundle/client.dock.js': "window.__ModuleLoader__.load({ id: 'dsh-tower-ui', chunk: 'client.dock.js', factory() { return {} } })\n",
+      'ui-bundle/index.js': 'export function apply() {}\n',
+    },
+    (fixture) => {
+      const result = evaluator(fixture, { waivers: [] })
+      assert.deepEqual(result.violations, [])
+    },
+  )
+})
+
+test('client-no-node rejects every Host capability import in ui-bundle/', async () => {
+  const specs = ['node:fs', 'node:fs/promises', 'node:child_process', 'node:os', 'node:process']
+  const files = {}
+  for (const spec of specs) {
+    files['ui-bundle/' + spec.replace(/[:/]/g, '-') + '.js'] = `import value from '${spec}'\nexport const V = value\n`
+  }
+  await withFixture(files, (fixture) => {
+    const result = evaluator(fixture, { waivers: [] })
+    const noNode = result.violations.filter((violation) => violation.rule === 'client-no-node')
+    assert.equal(noNode.length, specs.length)
+    assert.ok(noNode.every((violation) => violation.level === 'error'))
+    assert.ok(noNode.every((violation) => violation.file.startsWith('ui-bundle/') && /node:/.test(violation.detail)))
+  })
+})
+
+test('client-size caps a client file at 800 lines and client-ambient is statement-aware', async () => {
+  await withFixture(
+    {
+      'ui-bundle/ok.js': '// x\n'.repeat(799),
+      'ui-bundle/too-big.js': '// x\n'.repeat(800),
+      'ui-bundle/ambient.js': 'let first = 1, second = 2; let third = 3\n',
+    },
+    (fixture) => {
+      const result = evaluator(fixture, { waivers: [] })
+      assert.deepEqual(
+        result.violations.filter((violation) => violation.rule === 'client-size').map((violation) => violation.file),
+        ['ui-bundle/too-big.js'],
+      )
+      assert.deepEqual(
+        result.violations
+          .filter((violation) => violation.rule === 'client-ambient')
+          .map((violation) => violation.match)
+          .sort(),
+        ['first', 'second', 'third'],
+      )
+      assert.ok(result.violations.every((violation) => violation.level === 'error'))
+    },
+  )
+})
+
+test('domain metrics prints the ui-bundle client tier next to the pure-domain share', () => {
+  const output = execFileSync(process.execPath, ['scripts/domain-metrics.mjs'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.match(output, /domain-metrics: pure domain share \d+\.\d+% \(\d+\/\d+\)/)
+  assert.match(output, /domain-metrics: ui-bundle \d+ lines/)
+})
+
 test('domain vocabulary is the single source for tool schema enums', async () => {
   const { Tower } = await import('../app/tower.js')
   assert.ok(MISSION_STATUSES.length > 0)
@@ -334,7 +404,7 @@ test('node fs and child_process are confined to the waived adapters', () => {
       }
     }
   }
-  for (const dir of ['host', 'app', 'domain', 'tools', 'adapters', 'ports']) walk(path.join(root, dir))
+  for (const dir of ['host', 'app', 'domain', 'tools', 'adapters', 'ports', 'ui-bundle']) walk(path.join(root, dir))
   assert.deepEqual(offenders, [])
 })
 

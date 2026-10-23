@@ -15,6 +15,12 @@
 // top-level `let` declaration, so a new top-level `let` in app/ or domain/ is
 // a violation even as a second declarator or a second statement on one line.
 // The green summary prints the number of waivers applied.
+//
+// Since #71 the optional Web client (`ui-bundle/`) is its own tier, not host
+// code: `client-no-node` keeps Host capabilities behind the plugin's own
+// registration surface, `client-size` caps any single client file at 800
+// lines, and `client-ambient` applies the app/ top-level-`let` rule to the
+// browser half (its mutable state must live in a create* closure).
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,7 +29,7 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = path.resolve(MODULE_DIR, '..')
 const WAIVER_FILE = path.join(MODULE_DIR, 'architecture-waivers.json')
 const WAIVER_LABEL = 'scripts/architecture-waivers.json'
-const ROOTS = ['host', 'app', 'domain', 'tools', 'adapters', 'ports']
+const ROOTS = ['host', 'app', 'domain', 'tools', 'adapters', 'ports', 'ui-bundle']
 const RULES = new Set([
   'domain-pure',
   'no-lib-from-core',
@@ -36,7 +42,20 @@ const RULES = new Set([
   'tools-vocabulary',
   'aggregate-size',
   'host-scope',
+  'client-no-node',
+  'client-size',
+  'client-ambient',
 ])
+// #71: the Web client is a browser artifact. It may not reach a Host
+// capability (fs, child_process, os, process) through a `node:` import; DOM
+// globals are not Host capabilities, and the only module request a client
+// bundle may make is a browser module-table word such as `react`.
+const CLIENT_ROOT = 'ui-bundle/'
+const CLIENT_NODE_SPEC = /^node:/
+// #71: 800-line ceiling for any single client file. The split already keeps
+// every surface well below it; a documented waiver is still possible through
+// scripts/architecture-waivers.json if a single file ever has to carry more.
+const CLIENT_SIZE_CEILING = 800
 // #69: the app layer may import only these. App siblings (`./x.js`), the pure
 // domain, and the explicit ports are the whole dependency surface.
 const APP_ALLOWED_PREFIXES = ['./', '../domain/', '../ports/']
@@ -571,7 +590,7 @@ function evaluator(root, options = {}) {
       if (lines.length < 40 || lines.length > 200) {
         record('aggregate-size', file, `${lines.length} lines outside 40-200`, 'error')
       }
-    } else if (lines.length > 800) {
+    } else if (!file.startsWith(CLIENT_ROOT) && lines.length > 800) {
       record('aggregate-size', file, `${lines.length} lines exceeds 800`, 'error')
     }
     // #70 host-scope: process/session state is a host privilege. The app and
@@ -580,6 +599,35 @@ function evaluator(root, options = {}) {
     if (file.startsWith('app/') || file.startsWith('domain/')) {
       for (const binding of scanAmbientBindings(text)) {
         record('host-scope', file, `top-level let '${binding}' is only allowed under host/**`, 'error', binding)
+      }
+    }
+    // #71: the client tier. A browser bundle has no Host capability and no
+    // module-level mutable state; its state lives in the create* closure the
+    // entry hands each surface chunk. The ambient scan is the same statement-
+    // aware one app/ uses, so a second declarator or same-line statement is
+    // caught too.
+    if (file.startsWith(CLIENT_ROOT)) {
+      for (const spec of imports) {
+        if (CLIENT_NODE_SPEC.test(spec)) {
+          record(
+            'client-no-node',
+            file,
+            `imports ${spec}; client bundles may not import node:* (fs, fs/promises, child_process, os, process)`,
+            'error',
+          )
+        }
+      }
+      if (lines.length > CLIENT_SIZE_CEILING) {
+        record('client-size', file, `${lines.length} lines exceeds ${CLIENT_SIZE_CEILING}`, 'error')
+      }
+      for (const binding of scanAmbientBindings(text)) {
+        record(
+          'client-ambient',
+          file,
+          `top-level let '${binding}' under ui-bundle/**; keep client state inside its create* closure`,
+          'error',
+          binding,
+        )
       }
     }
   }

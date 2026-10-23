@@ -192,6 +192,7 @@ its own lock.
   The rule is enforced over the source roots — `host/`, `app/`, `domain/`, `tools/`,
   `adapters/`, `ports/` — and does not cover `scripts/**`, which holds maintenance
   entry points (release check, mount smoke, docs generators) that may spawn git or npm.
+  The optional Web client (`ui-bundle/`) is its own tier with its own rules.
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
   `tools/index.js` is the thin public wiring module (it imports `host/tool-registry.js`, not a
   `node:` module), while registration/shared machinery lives in `host/tool-registry.js`.
@@ -210,6 +211,13 @@ its own lock.
   may import an adapter (`composition-root`); `app/`, `tools/`, `domain/` and `ports/` never may.
 - Every `ports/**` module must export a runtime contract (`const`/`function`/`class`) and must not
   import an implementation (`port-shape`); a typedef plus `export {}` is no longer accepted.
+- `ui-bundle/**` is a browser tier, not host code (#71): no `node:*` import
+  (`client-no-node` — DOM globals are fine; host capabilities must come through the
+  plugin's registration surface), every client file stays at or below 800 lines
+  (`client-size`), and module-level mutable state is banned exactly as it is for
+  `app/**` (`client-ambient`); the split surfaces keep their state inside the
+  `create*` closure the entry composes. `ui-bundle/` is also excluded from
+  `aggregate-size`, which it would otherwise duplicate.
 
 ### Exemptions are justified data
 
@@ -256,14 +264,17 @@ probe adjustments in the same change.
 
 All epic DoD items now have an executable gate:
 
-- Pure domain share: **37.8%** (6,927 / 18,339 source lines), enforced by
-  `npm run domain:check` (threshold 35%).
+- Pure domain share: **39.5%** (7,475 / 18,936 host source lines), enforced by
+  `npm run domain:check` (threshold 35%). `npm run domain:metrics` also prints a
+  separate `ui-bundle` line, so Web-client growth is visible in CI output while the
+  share itself still measures the Host architecture.
 - `domain/**` imports no fs, child_process, adapters, app, tools, or host infrastructure;
   `domain-pure` is a blocking architecture rule.
 - Inside the source roots, only `adapters/vcs-git.js` imports `node:child_process`; only
   `adapters/store-fs.js` imports `node:fs`; both are blocking rules whose files are the only
   `child-process-surface`/`fs-surface` entries in `scripts/architecture-waivers.json`.
-- `host`, `app`, and `domain` files stay <= 800 lines; every `tools/**` file stays
+- `host`, `app`, and `domain` files stay <= 800 lines; the same ceiling applies to
+  `ui-bundle/**` (`client-size`); every `tools/**` file stays
   40-200 lines (one handler module per tool; `tools/index.js` is 40-line wiring).
 - No `withLock` scope starts a process; the two-phase tests instrument every git call.
 - `tools/**` has no status/type/enum literal; vocabulary is owned by
@@ -275,8 +286,9 @@ All epic DoD items now have an executable gate:
 - The in-memory lifecycle runs the real app use cases (init → plan → provision → spawn → complete →
   review → gate → merge → teardown) on an in-memory store and scripted vcs supplied through the
   composition root, with no disk, no git and no `defaultDeps` (#69).
-- The eleven fitness rules are errors, each with a seeded failing fixture; the `waiver-contract` rule
-  makes an unjustified exemption blocking as well.
+- The eleven host fitness rules are errors, each with a seeded failing fixture; the
+  three `client-*` rules form the Web-client tier with one fixture each, and the
+  `waiver-contract` rule makes an unjustified exemption blocking as well.
 
 
 

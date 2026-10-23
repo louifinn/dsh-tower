@@ -43,7 +43,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `leases.test.mjs` / `legacy.test.mjs` / `worktree-ownership.test.mjs` — advisory leases, Tower Codex/DSH legacy import + audit mapping, and realpath/worktree ownership checks.
 - `integration-2.1.test.mjs` — end-to-end 2.1: references/review exemption, discovery admission/auto checks, failing admission without a child, batch close, leases/requireLease, legacy import/map, doctor, stale watchdog gate, board location, delivery ack, `gates.requireTests`.
 - `plan-mode.test.mjs` — Tower entry clears/refuses plan mode and the pre-step keeps them mutually exclusive.
-- `ui-bundle.test.mjs` — plain-JS UI module syntax, toolview/dock/overlay registrations, locale parity, theme tokens and defensive rendering.
+- `ui-bundle.test.mjs` — plain-JS UI chunk format/syntax, the 400-line split budget, toolview/dock/overlay registrations, locale parity, theme tokens and defensive rendering.
 
 All temporary repositories and state are created under the OS temp directory and cleaned up automatically. Teardown goes through `tests/helpers/cleanup.mjs`: it retries transient `EPERM`/`EBUSY`/`EACCES` failures with bounded backoff, moves the tree to a fresh sibling name after the first one, and refuses any target that is not a strict child of `os.tmpdir()`. Do not delete a test-owned tree directly — Windows can still hold a handle after the test that created it has finished, and a bare recursive delete turns a green suite red at random. The retry path is proven by `tests/cleanup.test.mjs`, including a real Windows handle.
 
