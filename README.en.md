@@ -202,7 +202,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 | Path | Contents |
 |---|---|
 | `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (one `tower-bundle` group containing the Host, skills, and both presets) |
-| `index.js`, `lib/`, `worker.js`, `reviewer.js` | Host entry, protocol/config implementation, worker and reviewer preset policies |
+| `index.js`, `host/`, `adapters/`, `app/`, `domain/`, `ports/`, `tools/`, `worker.js`, `reviewer.js` | Host entry; `domain/` pure core; `ports/` contracts; `adapters/` the only I/O; `app/` use cases; `host/` composition root and session glue; `tools/` one handler per tool; worker and reviewer preset policies |
 | `skills.js`, `skills/` | bundled agent skills (worker protocol, review checklist, recovery playbook) |
 | `docs/` | guides, reference, architecture, operations, FAQ and examples |
 | `locale/`, `icon.svg` | localization and icon |
@@ -217,7 +217,7 @@ npm test        # node --test tests/*.test.mjs
 ```
 
 Hot-reload development: `npm run dev:hmr` adds this checkout to the current profile's HMR watch roots
-(one DSH restart); afterwards `/tower reload` or the automatic watcher applies `lib/` edits. See
+(one DSH restart); afterwards `/tower reload` or the automatic watcher applies `host/`, `adapters/`, `app/` and `domain/` edits. See
 [docs/guide/hot-reload.md](docs/guide/hot-reload.md).
 
 The offline suite needs no DSH process and creates throwaway Git repositories in the OS temp directory. `tests/README.md` documents the isolated Web-runtime checks, model-driven acceptance, and the session-diagnostic scripts used while hardening the plugin.

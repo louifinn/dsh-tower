@@ -200,7 +200,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | 路径 | 内容 |
 |---|---|
 | `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（单个 `tower-bundle` group，内含 Host、skills 与两个 preset） |
-| `index.js`、`lib/`、`worker.js` | Host 入口、协议实现、worker preset 策略 |
+| `index.js`、`host/`、`adapters/`、`app/`、`domain/`、`ports/`、`tools/`、`worker.js` | Host 入口；`domain/` 纯核心；`ports/` 契约；`adapters/` 唯一 I/O；`app/` 用例；`host/` 组合根与会话胶水；`tools/` 每工具一个 handler；worker preset 策略 |
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
 | `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
@@ -212,7 +212,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 npm test        # node --test tests/*.test.mjs
 ```
 
-热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `lib/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
+热重载开发：`npm run dev:hmr` 把本仓库加入当前 profile 的 HMR watch root（需重启 DSH 一次），之后编辑 `host/`、`adapters/`、`app/`、`domain/` 代码可用 `/tower reload` 或自动 watch 生效；详见 [docs/guide/hot-reload.md](docs/guide/hot-reload.md)。
 
 离线套件不需要 DSH 进程，只在系统临时目录创建一次性 Git 仓库。隔离 Web 运行时检查、模型驱动验收和会话诊断脚本见 `tests/README.md`。
 

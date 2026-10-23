@@ -39,7 +39,7 @@ four-line body, in this order:
 
 - `domain/**`
 - `app/**`
-- `lib/store.js`, `lib/persistence.js`, `lib/*lock*.js`
+- `adapters/store.js`, `adapters/persistence.js`, `adapters/*lock*.js`
 - `scripts/architecture.mjs`, `scripts/architecture-waivers.json`
 - `cordis.patch.yml`
 
@@ -75,14 +75,14 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 ## What to change
 
 - `index.js` — Host entry: `/tower` command, mode guard, dynamic prompt section, `tower_control`.
-- `lib/` — the Tower domain (`tower.js`), tool definitions (`tools.js`), persistence (`store.js`, `modeStore.js`), Git helpers (`git.js`).
+- `host/` — the composition root and session/process glue (`tool-registry.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; live-runtime scripts are documented in `tests/README.md`.
-- `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, and an `ambient-state` entry must also name the exact binding in `match`. The scan is statement-aware and records every binding of every top-level `let`, so a second declarator or a second statement on the waived binding's line is still a violation that needs its own entry.
+- `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, The three layering rules that keep the core pure — `domain-pure`, `host-scope`, and `no-lib-from-core` — cannot be waived at all. The `let` scan behind `host-scope` is statement-aware: every binding of every top-level declaration is recorded, and only `host/**` may hold ambient state.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (511 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (513 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
