@@ -228,8 +228,11 @@ npm test        # node --test tests/*.test.mjs
 | `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |
 | `mount`（Node 22） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
 | `mount-fixtures`（Node 22，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
+| `live (<固定 host 版本>)`（nightly/手动，非必需检查） | 浏览器 live suite 在固定 host 版本矩阵上仍能驱动真实 Web 运行时；push/PR 只做无浏览器的环境与解析检查 | nightly 跑 `npm run test:live -- --script nightly`；push 跑 `npm run test:live -- --check` |
 
 `test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与新增的 `test (22, windows)`。前两条是 `main` 的必需检查，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。它目前不是必需 context：让它变绿是本 issue 的验收，把它加入保护设置是 #94 的人工步骤。
+
+live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，改为 nightly `schedule`（另支持 `workflow_dispatch`），在固定 host 版本矩阵上运行；它的输出第一行打印解析后的 `DSH_HOME` 与 host 版本。push 上只保留 `--check`（环境 + Playwright 解析，无浏览器）。Playwright 由 `tests/live/package-lock.json` 固定，root 的 `npm ci` 不下载浏览器。
 
 `tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 

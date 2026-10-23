@@ -7,13 +7,16 @@
 // the isolated profile watches, it appends a probe comment to one loaded file
 // of that copy so the watcher has something to reload.
 //
-// Usage (PowerShell):
+// Usage (PowerShell), after the setup in tests/README.md:
+//   $env:DSH_LIVE='1'
+//   $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live").FullName
 //   $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
 //   # optional, for the automatic marker edit (must be under $env:TEMP):
 //   $env:DSH_TEST_HMR_ROOT="$env:TEMP\dsh-tower-hmr-copy"
-//   node tests/live/hmr.cjs
+//   npm run test:live -- --script hmr
 //
-// Missing Playwright or DSH_TEST_URL prints SKIP and exits 0. Progress,
+// Missing DSH_TEST_URL prints SKIP and exits 0. Missing Playwright prints the
+// two setup commands and exits 2 (never a MODULE_NOT_FOUND stack). Progress,
 // screenshots and the observed page text are written under tests/live/
 // (hmr.log, hmr-*.png), which are gitignored.
 const fs = require('node:fs')
@@ -21,6 +24,8 @@ const os = require('node:os')
 const path = require('node:path')
 
 const env = require('./_env.cjs')
+
+env.announce()
 
 const OUT = __dirname
 const LOG = `${OUT}/hmr.log`
@@ -42,13 +47,7 @@ function skip(reason) {
 
 if (!DSH_TEST_URL) skip('DSH_TEST_URL is not set')
 
-let playwright
-try {
-  playwright = require('playwright')
-} catch (error) {
-  skip(`Playwright is not installed (${error && error.code ? error.code : error})`)
-}
-const { chromium } = playwright
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 function realOrNull(value) {
   try {

@@ -71,6 +71,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:watch": "node --test --watch tests/*.test.mjs",
     "test:coverage": "node --test --experimental-test-coverage tests/*.test.mjs",
+    "test:live": "node tests/live/run.cjs",
     "smoke:mount": "node scripts/mount-smoke.mjs",
     "smoke:fixtures": "node scripts/mount-smoke/fixtures.mjs",
     "release:check": "node scripts/release-check.mjs",

@@ -1,8 +1,13 @@
 // Desktop command check: exercises `/tower` (bare, repeated, off) in the real
 // desktop profile through the live Web UI, with no model turn triggered.
-// Run: node tests/live/desktop-command.cjs  (needs DSH_TEST_URL and Playwright)
+// Run: npm run test:live -- --script desktop-command  (needs DSH_TEST_URL and Playwright)
 const fs = require('node:fs')
-const { chromium } = require('playwright')
+
+const env = require('./_env.cjs')
+
+env.announce()
+
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 const URL = process.env.DSH_TEST_URL
 if (!URL) {

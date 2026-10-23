@@ -16,7 +16,7 @@ const zlib = require('node:zlib')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 
-const ROOT = require('./_env.cjs').sessionRoot()
+const ROOT = require('./_diagnostic-env.cjs').sessionRoot()
 const SUFFIX = process.argv[2] || 'af615845'
 const BACKUP_DIR = path.join(__dirname, 'backup')
 

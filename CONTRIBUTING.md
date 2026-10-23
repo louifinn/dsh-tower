@@ -18,7 +18,9 @@ The context names come from the workflow job id and matrix values. Renaming a jo
 changes the required context; update the protection setting in the same PR, or the check never reports
 and every PR stays unmergeable. The setting and its verification command are in
 [SECURITY.md](SECURITY.md#repository-protection-on-main). The `mount-fixtures` job runs the seeded
-smoke failures for evidence but is deliberately **not** a required context.
+smoke failures for evidence but is deliberately **not** a required context. The `live` job is nightly
+(and manual-dispatch) only, runs on a pinned host matrix, and is evidence as well: it is never part of
+a push or a PR gate.
 
 The offline `test` matrix also has a `test (22, windows)` leg on `windows-latest` (Node 22). It runs the
 offline suite and the offline gates, not the release/coverage steps, so the platform branches are
@@ -72,6 +74,14 @@ npm test        # no dependencies to install; Node's built-in test runner only
 
 Requirements: Node.js 22+, Git. No package installation is needed for the offline suite.
 
+The opt-in live suite is the exception: install it once with
+`npm ci --prefix tests/live && npx playwright install chromium`, then run it with `npm run test:live`
+against a disposable `DSH_HOME` under the OS temp directory and a booted isolated profile. The guard
+refuses the operator's real `DSH_HOME` and any profile under `DSH_HOME/profiles`. `npm run test:live --
+--check` validates the environment and Playwright resolution without a browser. See
+[tests/README.md](tests/README.md#2-real-web-runtime-isolated-profile). The live suite is not part of
+the push gates; CI schedules it nightly.
+
 ## What to change
 
 - `index.js` — Host entry: `/tower` command, mode guard, dynamic prompt section, `tower_control`.
@@ -82,7 +92,7 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 
 ## Pull request checklist
 
-1. `npm test` passes locally (536 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (546 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.

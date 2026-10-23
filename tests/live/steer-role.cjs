@@ -3,7 +3,12 @@
 // failed with 422 "messages[N]: missing field `role`". After the fix the same
 // command must produce a successful model turn.
 const fs = require('node:fs')
-const { chromium } = require('playwright')
+
+const env = require('./_env.cjs')
+
+env.announce()
+
+const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
 
 const URL = process.env.DSH_TEST_URL
 if (!URL) {
