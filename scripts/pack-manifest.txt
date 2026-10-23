@@ -2,6 +2,7 @@ CHANGELOG.md
 COMPATIBILITY.md
 CONTRIBUTING.md
 LICENSE
+PRINCIPLES.md
 README.en.md
 README.md
 SECURITY.md
@@ -46,6 +47,11 @@ app/teardown.js
 app/tower.js
 cordis.patch.yml
 docs/README.md
+docs/adr/0001-ports-adapters-as-data.md
+docs/adr/0002-single-state-json.md
+docs/adr/0003-allow-agent-control-default-true.md
+docs/adr/0004-surface-budget.md
+docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
 docs/agents/triage-labels.md
@@ -59,6 +65,7 @@ docs/guide/install-upgrade-migration.md
 docs/guide/quickstart.md
 docs/guide/release.md
 docs/guide/scenarios-and-philosophy.md
+docs/operations/incident.md
 docs/operations/runbook.md
 docs/operations/security.md
 docs/reference/blockers.md
@@ -69,6 +76,7 @@ docs/reference/errors.generated.md
 docs/reference/errors.md
 docs/reference/events.md
 docs/reference/operations.md
+docs/reference/surface-budget.md
 docs/reference/testing.md
 docs/reference/tools.generated.md
 docs/reference/tools.md
@@ -132,6 +140,7 @@ domain/state/migrations.js
 domain/state/schema.js
 domain/state/semantics.js
 domain/summary.js
+domain/surface.js
 domain/vocabulary.js
 host/compatibility.js
 host/config.js
@@ -164,6 +173,7 @@ scripts/architecture-waivers.json
 scripts/architecture.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
+scripts/check-philosophy.mjs
 scripts/domain-metrics.mjs
 scripts/enable-dev-hmr.mjs
 scripts/generate-config-reference.mjs
@@ -172,6 +182,7 @@ scripts/generate-events-reference.mjs
 scripts/generate-tools-reference.mjs
 scripts/issue-audit.mjs
 scripts/lib/cli.mjs
+scripts/lib/surface.mjs
 scripts/lib/tmp.mjs
 scripts/mount-smoke.mjs
 scripts/mount-smoke/fixtures.mjs
@@ -179,7 +190,10 @@ scripts/mount-smoke/host.json
 scripts/mount-smoke/probe.mjs
 scripts/mount-smoke/surface.mjs
 scripts/pack-manifest.txt
+scripts/regression-audit.mjs
 scripts/release-check.mjs
+scripts/surface-baseline.json
+scripts/surface-baseline.mjs
 skills.js
 skills/tower-recovery.md
 skills/tower-review.md

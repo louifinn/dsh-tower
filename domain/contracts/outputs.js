@@ -253,6 +253,7 @@ const SCHEMAS = {
         status: S.str,
       }),
       reports: S.any,
+      surface: S.any,
       archive: S.obj({
         missions: S.any,
         archivedMissions: S.int,

@@ -290,5 +290,14 @@ All epic DoD items now have an executable gate:
   three `client-*` rules form the Web-client tier with one fixture each, and the
   `waiver-contract` rule makes an unjustified exemption blocking as well.
 
+## Non-goals
+
+This layer map is not a dependency-injection container, a service locator, or a
+place to register classes by reflection. Ports stay runtime contracts and the
+composition root stays the only place that assembles implementations.
+
+Enforced by: `scripts/architecture.mjs` and `ports/index.js`; tests in
+`tests/architecture.test.mjs`; gate: `npm run architecture:check`.
+
 
 

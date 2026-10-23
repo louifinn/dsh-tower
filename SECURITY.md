@@ -42,6 +42,12 @@ gh api repos/louifinn/dsh-tower/branches/main/protection \
 
 Please do **not** publish exploit details in a public issue. Open a minimal issue titled `security: request private contact` describing only the impact category (for example “merge gate bypass”), and a maintainer will arrange a private channel. Include the affected version and, if possible, a minimal reproduction in the private follow-up.
 
+A security fix that shipped and then stopped working is a regression, not an
+ordinary bug. Use the six-field record in
+[docs/operations/incident.md](docs/operations/incident.md) (including the
+`Regression test:` path) once the private report is resolved; the public closure
+still carries no exploit detail.
+
 ## Supported versions
 
 Security fixes target the latest released `2.x` line (currently `2.0.4`). Older pre-release snapshots
