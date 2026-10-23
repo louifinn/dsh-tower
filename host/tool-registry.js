@@ -67,6 +67,21 @@ const runtimeState = {
   // fallback is for tests/embedders that call registerTowerTools() directly;
   // it is still built once per process.
   deps: null,
+  // #84: the defined tool names are recorded before the exposure switches run,
+  // so the concept budget measures the full surface rather than one profile's
+  // subset. The number is reported by tower_doctor and compared with the
+  // committed scripts/surface-baseline.json.
+  definedTools: new Set(),
+}
+
+/** The full defined tool surface (names, sorted), independent of exposure flags. */
+export function definedToolNames() {
+  return [...runtimeState.definedTools].sort()
+}
+
+/** The number of tools defined by this build, used by the concept budget (#84). */
+export function definedToolCount() {
+  return runtimeState.definedTools.size
 }
 
 /** The injected port set for the app layer (built once per process). */
@@ -353,6 +368,9 @@ function plainSchema(value) {
  */
 function define(ctx, definition) {
   const { aliases, requiresMissionId, board, execute, ...rest } = definition
+  // Record the definition before the exposure gate: the concept budget counts
+  // the tools this build can register, not only the ones a profile exposes.
+  runtimeState.definedTools.add(rest.name)
   const toolsConfig = runtimeConfig().tools ?? {}
   const flag = OPERATIONAL_TOOLS.get(rest.name)
   if (flag && (toolsConfig.exposeOperational === false || toolsConfig[flag] === false)) return
@@ -566,7 +584,17 @@ export function registerTowerTools(ctx, options = {}) {
 
   registerTeardownTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
-  registerDoctorTool(ctx, { openTower, define, createTower, resolveRepo, runtimeConfig, runDoctor })
+  registerDoctorTool(ctx, {
+    openTower,
+    define,
+    createTower,
+    resolveRepo,
+    runtimeConfig,
+    runDoctor,
+    // #84: the doctor reports the live surface; the count is the full defined
+    // tool surface, independent of which operational switches this profile uses.
+    surface: () => ({ tools: definedToolCount() }),
+  })
 
   registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
 

@@ -1,0 +1,13 @@
+{
+  "issues": [
+    {
+      "number": 68,
+      "title": "example: a shipped regression with evidence",
+      "state": "CLOSED",
+      "labels": [{ "name": "regression" }],
+      "closedAt": "2026-10-23T10:00:00Z",
+      "body": "Symptom: the tool returned unknown\nIntroduced in: 2.0.3\nBlast radius: restored sessions\nRoot cause: the restore path lost the owner id; the fix rebinds it\nRegression test: tests/unit.test.mjs\nReleased in: 2.0.4, verified by npm test",
+      "comments": []
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "number": 68,
+      "title": "seeded: regression closed without its test",
+      "state": "CLOSED",
+      "labels": [{ "name": "regression" }],
+      "closedAt": "2026-10-23T10:00:00Z",
+      "body": "Symptom: the tool returned unknown\nIntroduced in: 2.0.3\nBlast radius: restored sessions\nRoot cause: restore lost the owner id\nRegression test: tests/does-not-exist.test.mjs\nReleased in: 2.0.4",
+      "comments": []
+    },
+    {
+      "number": 69,
+      "title": "seeded: ordinary bug, not a regression",
+      "state": "CLOSED",
+      "labels": [{ "name": "bug" }],
+      "closedAt": "2026-10-23T10:00:00Z",
+      "body": "No regression fields here.",
+      "comments": []
+    }
+  ]
+}
