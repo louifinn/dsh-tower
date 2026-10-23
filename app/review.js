@@ -11,6 +11,7 @@ import {
   reviewRound,
   reviewOutcome,
   reviewRecord,
+  applyReviewOutcome,
 } from '../domain/missions/review.js'
 
 function fail(message, code = 'invalid-argument') {
@@ -121,9 +122,7 @@ export async function submitReview(tower, input) {
       reviewerName: prepared.reviewerName,
       appended: prepared.appended,
     })
-    if (outcome.returnToActive) mission.status = 'active'
-    mission.notes.push(outcome.note)
-    mission.updatedAt = now
+    const applied = applyReviewOutcome({ mission, outcome, now })
     await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
@@ -136,6 +135,7 @@ export async function submitReview(tower, input) {
       missionId: mission.id,
       text: `round ${prepared.round} ${prepared.reviewerName}: ${prepared.status} / ${prepared.merge} @ ${prepared.tip.slice(0, 12)}`,
     })
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return {
       review,
       branchTip: prepared.tip,

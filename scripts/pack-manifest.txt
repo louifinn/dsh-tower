@@ -102,6 +102,7 @@ domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
 domain/errors.js
+domain/events.js
 domain/gate.js
 domain/integration/gate.js
 domain/integration/init.js
@@ -151,6 +152,7 @@ ports/caseSensitivity.js
 ports/clock.js
 ports/config.js
 ports/contract.js
+ports/events.js
 ports/ids.js
 ports/index.js
 ports/ownership.js
@@ -166,6 +168,7 @@ scripts/domain-metrics.mjs
 scripts/enable-dev-hmr.mjs
 scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
+scripts/generate-events-reference.mjs
 scripts/generate-tools-reference.mjs
 scripts/issue-audit.mjs
 scripts/lib/cli.mjs

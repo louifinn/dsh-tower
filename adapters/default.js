@@ -13,10 +13,11 @@ import { loadStateFile } from './stateFile.js'
 import * as ownership from './worktreeOwnership.js'
 import { createStorePort } from './store-fs.js'
 import { createVcsPort } from './vcs-git.js'
+import { NOOP_EVENT_PORT } from '../ports/events.js'
 
 /**
  * Assemble a dependency object implementing every port in ports/.
- * @param {Partial<Record<'store'|'vcs'|'config'|'state'|'archive'|'ownership'|'caseSensitivity'|'clock'|'ids', any>>} [overrides]
+ * @param {Partial<Record<'store'|'vcs'|'config'|'state'|'archive'|'ownership'|'caseSensitivity'|'clock'|'ids'|'events', any>>} [overrides]
  * @returns {Record<string, any>}
  */
 export function createDefaultDeps(overrides = {}) {
@@ -41,6 +42,9 @@ export function createDefaultDeps(overrides = {}) {
     caseSensitivity: { detect: caseSensitivity.detectCaseSensitivity },
     clock: { now: () => Date.now() },
     ids: { uuid: () => crypto.randomUUID(), shortHash: store.shortHash },
+    // The host entry replaces this with the Cordis emitter; default deps (and
+    // tests/embedders) keep the no-op channel so events never fail a tool.
+    events: NOOP_EVENT_PORT,
     ...overrides,
   }
 }

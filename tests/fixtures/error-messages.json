@@ -1,0 +1,4 @@
+{
+  "invalid-argument": "[tower:invalid-argument] boom",
+  "tool-internal": "[tower:tool-internal] boom"
+}

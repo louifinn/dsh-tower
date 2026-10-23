@@ -3,6 +3,7 @@
 // writes, the state lock, and persistence stay in app/merge.js.
 // @ts-check
 import { isReviewExempt, latestReview, reviewsForBranch } from './review.js'
+import { mergedEvent } from '../events.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Review} Review */
@@ -180,6 +181,40 @@ export function mergeShapeDetail(parents, baseTip, branchTip) {
  */
 export function mergeSuccessNote(branchTip, base, newTip) {
   return `merged ${branchTip.slice(0, 7)} into ${base} as ${newTip.slice(0, 7)}`
+}
+
+/**
+ * Apply a successful two-phase merge to the mission draft and describe the
+ * domain fact, including the commit that landed. Persistence stays in
+ * app/merge.js at the commit phase.
+ * @param {{ mission: Mission, branchTip: string, base: string, newTip: string, now: number }} params
+ * @returns {{ state: Mission, events: Array<{ type: string, missionId: string, commit: string }> }}
+ */
+export function applyMergeSuccess({ mission, branchTip, base, newTip, now }) {
+  mission.status = 'merged'
+  mission.mergedAt = now
+  mission.mergedCommit = newTip
+  mission.updatedAt = now
+  mission.notes = mission.notes ?? []
+  mission.notes.push(mergeSuccessNote(branchTip, base, newTip))
+  return { state: mission, events: [mergedEvent(mission, newTip)] }
+}
+
+/**
+ * Apply an already-landed merge reconciliation to the mission draft. `note` is
+ * the evidence line the caller built from the observed commit and parents.
+ * @param {{ mission: Mission, mergedCommit: string, note: string, now: number }} params
+ * @returns {{ state: Mission, events: Array<{ type: string, missionId: string, commit: string }> }}
+ */
+export function applyLandedMerge({ mission, mergedCommit, note, now }) {
+  mission.status = 'merged'
+  mission.mergedAt = now
+  mission.mergedCommit = mergedCommit
+  mission.blockers = []
+  mission.notes = mission.notes ?? []
+  mission.notes.push(note)
+  mission.updatedAt = now
+  return { state: mission, events: [mergedEvent(mission, mergedCommit)] }
 }
 
 /**

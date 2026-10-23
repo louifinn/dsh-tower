@@ -5,6 +5,7 @@ import {
   assignMissionIds,
   assertKnownDependencies,
   newMission,
+  applyPlan,
 } from '../domain/missions/plan.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
@@ -27,7 +28,7 @@ export async function plan(tower, input = {}) {
     assertAcyclic([...known, ...assigned])
 
     const created = assigned.map((mission) => newMission(mission.id, mission, now))
-    state.missions.push(...created)
+    const applied = applyPlan(state, created)
     const swept = await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
@@ -39,6 +40,9 @@ export async function plan(tower, input = {}) {
       type: 'plan',
       text: `created ${created.map((mission) => mission.id).join(', ')}`,
     })
+    // Persist first, then describe: the event carries the revision the caller
+    // can read back from state.json (#75).
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return {
       revision: state.revision,
       missions: created.map((mission) => fullMission(mission)),

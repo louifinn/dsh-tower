@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { EVENT_COUNT, LEGACY_TOOL_EVENT_NAMES } from '../domain/events.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
@@ -62,37 +63,9 @@ for (const code of [
 ]) blockerCodes.add(code)
 const missingBlockers = [...blockerCodes].filter((code) => !blockersSource.includes(`\`${code}\``)).sort()
 
-const eventNames = [
-  'init',
-  'plan',
-  'mission',
-  'spawn',
-  'complete',
-  'review',
-  'merge',
-  'rebase',
-  'teardown',
-  'finding',
-  'findings',
-  'send',
-  'inbox',
-  'interrupt',
-  'diff',
-  'adopt',
-  'roster',
-  'status',
-  'preflight',
-  'doctor',
-  'recover',
-  'test',
-  'batch',
-  'resource',
-  'import_legacy',
-  'legacy_map',
-  'mode',
-  'control',
-  'reload',
-]
+// #75: the legacy alias list comes from the same event table the generated
+// reference and the runtime use, so a renamed alias fails here first.
+const eventNames = LEGACY_TOOL_EVENT_NAMES.map((name) => name.replace(/^tower\//, ''))
 const documentedEvents = read('docs/reference/events.md')
 const missingEvents = eventNames.filter((name) => !documentedEvents.includes(`\`tower/${name}\``))
 
@@ -128,8 +101,8 @@ if (!blockersDoc.includes(`${blockerCodes.size} stable blocker/failure codes`)) 
 if (!errorsDoc.includes(`${errorCodes.length} tool error codes`)) {
   problems.push(`docs/reference/errors.md must state ${errorCodes.length} tool error codes`)
 }
-if (!eventsDoc.includes(`${eventNames.length} process-local events`)) {
-  problems.push(`docs/reference/events.md must state ${eventNames.length} process-local events`)
+if (!eventsDoc.includes(`${EVENT_COUNT} process-local events`)) {
+  problems.push(`docs/reference/events.md must state ${EVENT_COUNT} process-local events`)
 }
 for (const required of [
   '| `tests.admission` | `off` |',
@@ -172,5 +145,5 @@ if (problems.length > 0) {
   process.exit(1)
 }
 console.log(
-  `docs ok: ${toolNames.length} tools, ${blockerCodes.size} blocker codes, ${errorCodes.length} error codes, ${eventNames.length} events, version ${packageJson.version}`,
+  `docs ok: ${toolNames.length} tools, ${blockerCodes.size} blocker codes, ${errorCodes.length} error codes, ${EVENT_COUNT} events, version ${packageJson.version}`,
 )

@@ -84,6 +84,7 @@ function createInMemoryDeps() {
     },
     clock,
     ids: { uuid: () => `uuid-${(uuidSeq += 1)}`, shortHash: (text) => String(text).slice(-8) },
+    events: { emit() {} },
   }
   return { deps, store, vcs }
 }
