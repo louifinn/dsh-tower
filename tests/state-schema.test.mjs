@@ -6,6 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { validateState } from '../domain/state.js'
+import { ERROR_CODES } from '../domain/errors.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { StateSchema, stateShapeError } from '../domain/state/schema.js'
 
@@ -195,7 +196,13 @@ test('key structural and semantic failures keep historical state-corrupt message
   for (const [label, state, expected] of cases) {
     const result = stateError(state)
     assert.equal(result.code, 'state-corrupt', label)
-    assert.equal(result.message, `[tower:state-corrupt] ${expected}`, label)
+    // #74: the historical prose is preserved; the catalog recovery step is the
+    // only allowed addition, rendered exactly once.
+    assert.equal(
+      result.message,
+      `[tower:state-corrupt] ${expected} — next: ${ERROR_CODES['state-corrupt'].nextAction}`,
+      label,
+    )
   }
 })
 
