@@ -215,7 +215,16 @@ tools/test.js
 types/cordis.d.ts
 types/index.d.ts
 ui-bundle/README.md
+ui-bundle/client.cards.js
+ui-bundle/client.denied.js
+ui-bundle/client.dock.js
+ui-bundle/client.helpers.js
 ui-bundle/client.js
+ui-bundle/client.locales.js
+ui-bundle/client.mode.js
+ui-bundle/client.overlay.js
+ui-bundle/client.styles.js
+ui-bundle/client.toolview.js
 ui-bundle/cordis.patch.yml
 ui-bundle/icon.svg
 ui-bundle/index.js

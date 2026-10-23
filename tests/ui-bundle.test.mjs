@@ -15,11 +15,19 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
-const CLIENT_PATH = path.join(ROOT, 'ui-bundle', 'client.js')
-const PACKAGE_PATH = path.join(ROOT, 'ui-bundle', 'package.json')
-const EN_PATH = path.join(ROOT, 'ui-bundle', 'locale', 'en.json')
-const ZH_PATH = path.join(ROOT, 'ui-bundle', 'locale', 'zh.json')
+const CLIENT_DIR = path.join(ROOT, 'ui-bundle')
+const CLIENT_PATH = path.join(CLIENT_DIR, 'client.js')
+const PACKAGE_PATH = path.join(CLIENT_DIR, 'package.json')
+const EN_PATH = path.join(CLIENT_DIR, 'locale', 'en.json')
+const ZH_PATH = path.join(CLIENT_DIR, 'locale', 'zh.json')
 const SOURCE = fs.readFileSync(CLIENT_PATH, 'utf8')
+// The bundle is split into an entry plus package-local chunks (#71); the
+// loader-format, theme-token and no-DOM checks cover every client source file.
+const CLIENT_FILES = fs
+  .readdirSync(CLIENT_DIR)
+  .filter((name) => /^client(\.[A-Za-z0-9._-]+)?\.js$/.test(name))
+  .sort()
+const ALL_SOURCE = CLIENT_FILES.map((name) => fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')).join('\n')
 
 const TOOL_NAMES = [
   'tower_status',
@@ -69,9 +77,16 @@ function createFakeReact() {
 
 function loadBundle(react) {
   let loaded = null
+  const chunkDefinitions = new Map()
   const window = {
     __ModuleLoader__: {
       load(definition) {
+        // A package-local split chunk registers with { id, chunk, factory },
+        // exactly like the compiled DSH sibling chunks; the entry has no chunk.
+        if (definition && typeof definition.chunk === 'string') {
+          chunkDefinitions.set(definition.chunk, definition)
+          return
+        }
         loaded = definition
       },
     },
@@ -80,13 +95,32 @@ function loadBundle(react) {
   new Function('window', SOURCE)(window)
   assert.ok(loaded, 'client.js must call window.__ModuleLoader__.load')
   const required = []
+  const asyncRequired = []
   const fakeRequire = (id) => {
     required.push(id)
     if (id === 'react') return react
     throw new Error(`unexpected require("${id}") — plugin bundles may only require react`)
   }
+  const materialized = new Map()
+  // Real DSH `require.async("./client.<name>.js")` fetches and registers the
+  // sibling chunk script, then materializes its factory once.
+  fakeRequire.async = async (spec) => {
+    asyncRequired.push(spec)
+    assert.match(spec, /^\.\/client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/, `invalid chunk request ${spec}`)
+    const file = spec.slice(2)
+    if (!chunkDefinitions.has(file)) {
+      // eslint-disable-next-line no-new-func -- the chunk is a plain browser script
+      new Function('window', fs.readFileSync(path.join(CLIENT_DIR, file), 'utf8'))(window)
+    }
+    const definition = chunkDefinitions.get(file)
+    assert.ok(definition, `${file} must register through window.__ModuleLoader__.load`)
+    assert.equal(definition.id, 'dsh-tower-ui', `${file} must register for the bundle id`)
+    assert.equal(definition.chunk, file)
+    if (!materialized.has(file)) materialized.set(file, definition.factory(fakeRequire))
+    return materialized.get(file)
+  }
   const plugin = loaded.factory(fakeRequire)
-  return { loaded, plugin, window, required }
+  return { loaded, plugin, window, required, asyncRequired, chunkDefinitions, materialized }
 }
 
 function createFakeContext() {
@@ -216,15 +250,19 @@ after(() => {
 // ---------------------------------------------------------------------------
 // 1. Loader + manifest contract.
 // ---------------------------------------------------------------------------
-test('client.js is a plain-JS __ModuleLoader__ module and syntax-checks', () => {
+test('client chunks are plain-JS __ModuleLoader__ modules and syntax-check', () => {
+  assert.ok(CLIENT_FILES.length > 1, 'the entry must be split into package-local chunks')
+  for (const name of CLIENT_FILES) {
+    const text = fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')
+    assert.match(text, /window\.__ModuleLoader__\.load\(/, `${name} must register through the loader`)
+    assert.match(text, /id:\s*'dsh-tower-ui'/, `${name} must register for the same bundle id`)
+    assert.doesNotMatch(text, /^\s*(import|export)\s/m, `${name}: plain browser artifact, not an ES module`)
+    const check = spawnSync(process.execPath, ['--check', path.join(CLIENT_DIR, name)], { encoding: 'utf8' })
+    assert.equal(check.status, 0, `node --check failed for ${name}: ${check.stderr}`)
+    assert.doesNotThrow(() => new Function('window', text))
+  }
   assert.match(SOURCE, /window\.__ModuleLoader__\.load\(/)
-  assert.match(SOURCE, /id:\s*'dsh-tower-ui'/)
-  assert.doesNotMatch(SOURCE, /^\s*(import|export)\s/m, 'plain browser artifact, not an ES module')
-
-  // node --check does the full parse (new Function is the no-browser fallback).
-  const check = spawnSync(process.execPath, ['--check', CLIENT_PATH], { encoding: 'utf8' })
-  assert.equal(check.status, 0, `node --check failed: ${check.stderr}`)
-  assert.doesNotThrow(() => new Function('window', SOURCE))
+  assert.doesNotMatch(SOURCE, /\bchunk:/, 'the entry is not a package-local chunk')
 
   const { loaded, plugin, required } = loadBundle(createFakeReact())
   assert.equal(loaded.id, 'dsh-tower-ui')
@@ -234,6 +272,44 @@ test('client.js is a plain-JS __ModuleLoader__ module and syntax-checks', () => 
   assert.equal(typeof plugin.apply, 'function')
 })
 
+test('client surfaces are split into files of at most 400 lines within 10% of 1980', () => {
+  // #71: the pre-split client.js was 1,980 lines. Every surface file must stay
+  // under the 400-line split target and the total must stay within 10%, so a
+  // future addition cannot quietly rebuild one large file.
+  const BASELINE = 1980
+  const files = fs
+    .readdirSync(CLIENT_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+    .map((entry) => entry.name)
+  const sizes = files.map((name) => ({
+    name,
+    lines: fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8').split('\n').length,
+  }))
+  for (const file of sizes) {
+    assert.ok(file.lines <= 400, `${file.name} is ${file.lines} lines (split target: <= 400)`)
+  }
+  const total = sizes.reduce((sum, file) => sum + file.lines, 0)
+  assert.ok(total >= BASELINE * 0.9, `client total ${total} lines fell below 90% of ${BASELINE}`)
+  assert.ok(total <= BASELINE * 1.1, `client total ${total} lines exceeds 110% of ${BASELINE}`)
+  // The chunk list is the shipped surface list; every client.<surface>.js file
+  // is a real chunk the entry loads exactly once.
+  const chunks = CLIENT_FILES.filter((name) => name !== 'client.js')
+  assert.deepEqual(chunks, [
+    'client.cards.js',
+    'client.denied.js',
+    'client.dock.js',
+    'client.helpers.js',
+    'client.locales.js',
+    'client.mode.js',
+    'client.overlay.js',
+    'client.styles.js',
+    'client.toolview.js',
+  ])
+  for (const name of chunks) {
+    assert.ok(SOURCE.includes(`'./${name}'`), `${name} must be loaded by the entry`)
+  }
+})
+
 test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'))
   assert.equal(pkg.name, 'dsh-tower-ui')
@@ -241,6 +317,7 @@ test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
   assert.equal(pkg.private, true)
   assert.equal(pkg.exports['./client'], './client.js')
   assert.ok(pkg.files.includes('client.js'))
+  assert.ok(pkg.files.includes('client.*.js'), 'the split chunks must ship with the bundle')
   assert.ok(pkg.files.includes('cordis.patch.yml'))
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(pkg.dsh.client.platform, 'web')
@@ -263,7 +340,7 @@ test('locale metadata is present in en/zh', () => {
 })
 
 test('theme references are limited to --dsw-alias-* tokens', () => {
-  const tokens = SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
+  const tokens = ALL_SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
   assert.ok(tokens.length > 0, 'the cards must use DSH theme tokens')
   for (const token of tokens) {
     assert.match(token, /^--dsw-alias-/, `non-alias theme token: ${token}`)
@@ -271,11 +348,11 @@ test('theme references are limited to --dsw-alias-* tokens', () => {
 })
 
 test('client code contains no DOM writes, iframe, host.call, or client package imports', () => {
-  assert.doesNotMatch(SOURCE, /\bdocument\./)
-  assert.doesNotMatch(SOURCE, /\bhost\.call\b/)
-  assert.doesNotMatch(SOURCE, /<iframe|createElement\(\s*'iframe'/i)
-  assert.doesNotMatch(SOURCE, /require\(\s*'@deepseek-ai\//)
-  assert.doesNotMatch(SOURCE, /from\s*'@deepseek-ai\//)
+  assert.doesNotMatch(ALL_SOURCE, /\bdocument\./)
+  assert.doesNotMatch(ALL_SOURCE, /\bhost\.call\b/)
+  assert.doesNotMatch(ALL_SOURCE, /<iframe|createElement\(\s*'iframe'/i)
+  assert.doesNotMatch(ALL_SOURCE, /require\(\s*'@deepseek-ai\//)
+  assert.doesNotMatch(ALL_SOURCE, /from\s*'@deepseek-ai\//)
   assert.match(SOURCE, /ctx\.locale\.register/)
   assert.match(SOURCE, /ctx\.effect/)
 })
@@ -283,18 +360,20 @@ test('client code contains no DOM writes, iframe, host.call, or client package i
 // ---------------------------------------------------------------------------
 // 2. Slot registrations and locale dictionaries.
 // ---------------------------------------------------------------------------
-function registerAll() {
+async function registerAll() {
   const react = createFakeReact()
-  const { plugin, window } = loadBundle(react)
+  const bundle = loadBundle(react)
   const fakeCtx = createFakeContext()
   CLEANUPS.push(fakeCtx)
-  plugin.apply(fakeCtx.ctx)
+  // The split client loads its surface chunks before registering, so apply
+  // settles as a promise in the real loader as well.
+  await bundle.plugin.apply(fakeCtx.ctx)
   fakeCtx.runInjections()
-  return { react, plugin, window, ...fakeCtx }
+  return { react, ...bundle, ...fakeCtx }
 }
 
-test('registers the twelve keyed tool.call.toolview entries', () => {
-  const { registrations } = registerAll()
+test('registers the twelve keyed tool.call.toolview entries', async () => {
+  const { registrations } = await registerAll()
   const toolviews = registrations.filter((entry) => entry.options.name === 'tool.call.toolview')
   assert.equal(toolviews.length, TOOL_NAMES.length)
   assert.deepEqual(toolviews.map((entry) => entry.options.key).sort(), TOOL_NAMES)
@@ -306,8 +385,8 @@ test('registers the twelve keyed tool.call.toolview entries', () => {
   assert.ok(registrations.some((entry) => entry.options.key === 'tower_batch'))
 })
 
-test('registers the composer dock hint/summary entry', () => {
-  const { registrations } = registerAll()
+test('registers the composer dock hint/summary entry', async () => {
+  const { registrations } = await registerAll()
   const dock = registrations.filter((entry) => entry.options.name === 'conversation.composer.dock')
   assert.equal(dock.length, 1)
   assert.equal(dock[0].options.id, 'tower-hint')
@@ -316,8 +395,8 @@ test('registers the composer dock hint/summary entry', () => {
   assert.equal(typeof dock[0].component, 'function')
 })
 
-test('registers the shell.overlay status strip with an injected notice hook', () => {
-  const { registrations } = registerAll()
+test('registers the shell.overlay status strip with an injected notice hook', async () => {
+  const { registrations } = await registerAll()
   const overlay = registrations.filter((entry) => entry.options.name === 'shell.overlay')
   assert.equal(overlay.length, 1)
   assert.equal(overlay[0].options.id, 'tower-status-strip')
@@ -330,8 +409,8 @@ test('registers the shell.overlay status strip with an injected notice hook', ()
   assert.equal(injected.hooks.towerNotice.getSnapshot(), null)
 })
 
-test('locale dictionaries registered for tower-ui are complete in en/zh', () => {
-  const { localeRegistrations } = registerAll()
+test('locale dictionaries registered for tower-ui are complete in en/zh', async () => {
+  const { localeRegistrations } = await registerAll()
   assert.equal(localeRegistrations.length, 1)
   const { namespace, dictionaries } = localeRegistrations[0]
   assert.equal(namespace, 'tower-ui')
@@ -348,8 +427,8 @@ test('locale dictionaries registered for tower-ui are complete in en/zh', () => 
   }
 })
 
-test('diagnostics record every registration and no guarded failure', () => {
-  const { window } = registerAll()
+test('diagnostics record every registration and no guarded failure', async () => {
+  const { window } = await registerAll()
   const diagnostics = window.__TOWER_UI_DIAG__
   assert.ok(diagnostics && typeof diagnostics === 'object')
   assert.equal(diagnostics.plugin, 'dsh-tower-ui')
@@ -363,11 +442,24 @@ test('diagnostics record every registration and no guarded failure', () => {
   assert.ok(slots.includes('shell.overlay'))
 })
 
+test('the entry loads every split chunk through the module system exactly once', async () => {
+  const { asyncRequired, chunkDefinitions } = await registerAll()
+  assert.deepEqual(asyncRequired.slice().sort(), CLIENT_FILES.filter((name) => name !== 'client.js').map((name) => './' + name))
+  assert.deepEqual(
+    [...chunkDefinitions.keys()].sort(),
+    CLIENT_FILES.filter((name) => name !== 'client.js'),
+  )
+  for (const definition of chunkDefinitions.values()) {
+    assert.equal(definition.id, 'dsh-tower-ui')
+    assert.equal(typeof definition.factory, 'function')
+  }
+})
+
 // ---------------------------------------------------------------------------
 // 3. Component behaviour (fake hooks, no browser).
 // ---------------------------------------------------------------------------
-function components() {
-  const bundle = registerAll()
+async function components() {
+  const bundle = await registerAll()
   const toolviews = new Map()
   for (const entry of bundle.registrations) {
     if (entry.options.name === 'tool.call.toolview') toolviews.set(entry.options.key, entry.component)
@@ -384,8 +476,8 @@ function t(key, params) {
   return key + ':' + Object.keys(params).sort().map((name) => `${name}=${params[name]}`).join(',')
 }
 
-test('toolview renders a compact card and publishes start/result notices', () => {
-  const { react, toolviews, noticeSource } = components()
+test('toolview renders a compact card and publishes start/result notices', async () => {
+  const { react, toolviews, noticeSource } = await components()
   const Card = toolviews.get('tower_status')
 
   const startElement = render(react, Card, {
@@ -435,8 +527,8 @@ test('toolview renders a compact card and publishes start/result notices', () =>
   assert.equal(notice.ok, true)
 })
 
-test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', () => {
-  const { react, toolviews } = components()
+test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', async () => {
+  const { react, toolviews } = await components()
   const cases = [
     ['tower_review', { review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: 'two problems', decision: 'fix first', checks: ['tests'] }, round: 2, branchTip: 'abcdef1234567' }],
     ['tower_preflight', { ok: false, blockers: [{ code: 'no-review', detail: 'review missing' }], changedFiles: ['a.js'] }],
@@ -464,8 +556,8 @@ test('toolview cards render review, preflight, merge, roster, complete and block
   }
 })
 
-test('toolview stays defensive for errors, plain text, and partial/absent blocks', () => {
-  const { react, toolviews } = components()
+test('toolview stays defensive for errors, plain text, and partial/absent blocks', async () => {
+  const { react, toolviews } = await components()
   for (const tool of TOOL_NAMES) {
     const Card = toolviews.get(tool)
     for (const props of [
@@ -480,8 +572,8 @@ test('toolview stays defensive for errors, plain text, and partial/absent blocks
   }
 })
 
-test('composer dock keeps the static hint without tower results and marks unknown history explicitly', () => {
-  const { react, dock } = components()
+test('composer dock keeps the static hint without tower results and marks unknown history explicitly', async () => {
+  const { react, dock } = await components()
 
   const noHook = render(react, dock, { t })
   assert.equal(findNode(noHook, (node) => node.props['data-tower-ui'] === 'dock-hint') !== null, true)
@@ -522,7 +614,7 @@ test('composer dock keeps the static hint without tower results and marks unknow
   assert.match(textOf(running), /dock\.running/)
 })
 
-test('dock persists last-known mode per session when the history window loses it', () => {
+test('dock persists last-known mode per session when the history window loses it', async () => {
   const store = new Map()
   globalThis.localStorage = {
     getItem: (key) => (store.has(key) ? store.get(key) : null),
@@ -530,7 +622,7 @@ test('dock persists last-known mode per session when the history window loses it
     removeItem: (key) => store.delete(key),
   }
   try {
-    const first = components()
+    const first = await components()
     const on = render(first.react, first.dock, {
       t,
       sessionId: 'session-persist',
@@ -538,7 +630,7 @@ test('dock persists last-known mode per session when the history window loses it
     })
     assert.equal(on.props['data-tower-mode'], 'on')
 
-    const second = components()
+    const second = await components()
     const restored = render(second.react, second.dock, {
       t,
       sessionId: 'session-persist',
@@ -552,8 +644,8 @@ test('dock persists last-known mode per session when the history window loses it
   }
 })
 
-test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss is owned by ctx.effect', () => {
-  const { react, overlay, noticeSource, effects, toolviews } = components()
+test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss is owned by ctx.effect', async () => {
+  const { react, overlay, noticeSource, effects, toolviews } = await components()
   const useTowerNotice = (selector) => selector(noticeSource.getSnapshot())
 
   const empty = render(react, overlay, { t, useTowerNotice })
@@ -615,10 +707,10 @@ function deniedRegistrations(registrations) {
   )
 }
 
-test('dock shows a persistent Tower-mode chip derived from durable command history', () => {
+test('dock shows a persistent Tower-mode chip derived from durable command history', async () => {
   const nodes = [commandNode('on')]
 
-  const first = components()
+  const first = await components()
   const chip = render(first.react, first.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
   assert.equal(chip.props['data-tower-ui'], 'dock-mode')
   assert.equal(chip.props['data-tower-mode'], 'on')
@@ -630,14 +722,14 @@ test('dock shows a persistent Tower-mode chip derived from durable command histo
   assert.match(chip.props.title, /dock\.mode\.tooltip/)
 
   // A page refresh re-derives the same stance from the same history.
-  const refreshed = components()
+  const refreshed = await components()
   const again = render(refreshed.react, refreshed.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
   assert.equal(again.props['data-tower-ui'], 'dock-mode')
   assert.equal(again.props['data-tower-mode'], 'on')
 })
 
-test('dock surfaces mode unknown when history has Tower activity but no mode event', () => {
-  const bundle = components()
+test('dock surfaces mode unknown when history has Tower activity but no mode event', async () => {
+  const bundle = await components()
   const dock = render(bundle.react, bundle.dock, {
     t,
     useChat: chatUse(chatSnapshot([toolResultNode('tower_status', { ok: true, repoRoot: 'C:/repo' })])),
@@ -648,7 +740,7 @@ test('dock surfaces mode unknown when history has Tower activity but no mode eve
   assert.match(dock.props.title, /dock\.mode\.unknownTooltip/)
 })
 
-test('dock mode inference follows /tower commands, tower_mode, and tower_control results', () => {
+test('dock mode inference follows /tower commands, tower_mode, and tower_control results', async () => {
   const cases = [
     ['on command', [commandNode('on')], 'dock-mode'],
     ['bare command means on', [commandNode('')], 'dock-mode'],
@@ -669,14 +761,14 @@ test('dock mode inference follows /tower commands, tower_mode, and tower_control
     ['failed tower_control is ignored', [commandNode('on'), toolResultNode('tower_control', { ok: false, error: 'nope' })], 'dock-mode'],
   ]
   for (const [name, nodes, expected] of cases) {
-    const bundle = components()
+    const bundle = await components()
     const element = render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
     assert.equal(element.props['data-tower-ui'], expected, name)
   }
 })
 
-test('Tower mode dynamically registers the denied toolviews and disposes them off-mode', () => {
-  const bundle = components()
+test('Tower mode dynamically registers the denied toolviews and disposes them off-mode', async () => {
+  const bundle = await components()
   const { react, dock, registrations } = bundle
   const modeNode = toolResultNode('tower_mode', {
     mode: 'on',
@@ -716,8 +808,8 @@ test('Tower mode dynamically registers the denied toolviews and disposes them of
   assert.deepEqual(diagnostics.denied.keys, [])
 })
 
-test('mode on without tower_mode uses the default deny list plus update_goal', () => {
-  const bundle = components()
+test('mode on without tower_mode uses the default deny list plus update_goal', async () => {
+  const bundle = await components()
   render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
   const keys = deniedRegistrations(bundle.registrations).map((entry) => entry.options.key).sort()
   const expected = [
@@ -738,7 +830,7 @@ test('mode on without tower_mode uses the default deny list plus update_goal', (
   assert.deepEqual(keys, expected)
 
   // An empty deniedWhileActive list also falls back to the defaults.
-  const emptyList = components()
+  const emptyList = await components()
   render(emptyList.react, emptyList.dock, {
     t,
     useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'on', deniedWhileActive: [] })])),
@@ -751,8 +843,8 @@ test('mode on without tower_mode uses the default deny list plus update_goal', (
   )
 })
 
-test('denied rows render the Tower mode disabled treatment and keep ordinary results generic', () => {
-  const bundle = components()
+test('denied rows render the Tower mode disabled treatment and keep ordinary results generic', async () => {
+  const bundle = await components()
   const { react, dock, registrations } = bundle
   render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
   const todo = deniedRegistrations(registrations).find((entry) => entry.options.key === 'todo_write')
@@ -828,8 +920,8 @@ test('denied rows render the Tower mode disabled treatment and keep ordinary res
   assert.equal(running.props['data-tower-denied-view'], 'running')
 })
 
-test('mode off keeps the native priority-0 registrations and no dynamic entries', () => {
-  const bundle = components()
+test('mode off keeps the native priority-0 registrations and no dynamic entries', async () => {
+  const bundle = await components()
   const element = render(bundle.react, bundle.dock, {
     t,
     useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'off' })])),

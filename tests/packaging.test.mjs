@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assessHostVersion, compareVersions, parseCompatibility, parseVersion } from '../host/compatibility.js'
+import { REQUIRED_FILES, requiredMissing } from '../scripts/check-pack.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
@@ -18,6 +19,8 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
     'locale/en.json',
     'locale/zh.json',
     'ui-bundle/index.js',
+    'ui-bundle/package.json',
+    'ui-bundle/cordis.patch.yml',
     'COMPATIBILITY.md',
     'types/index.d.ts',
   ]) {
@@ -26,6 +29,17 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
   const pkg = JSON.parse(read('package.json'))
   assert.ok(pkg.files.includes('ui-bundle/'))
   assert.ok(pkg.files.includes('COMPATIBILITY.md'))
+})
+
+test('packaging: removing a required ui-bundle file fails pack:check (fixture)', () => {
+  const manifest = read('scripts/pack-manifest.txt').split('\n').filter(Boolean)
+  assert.deepEqual(requiredMissing(manifest), [], 'the reviewed snapshot must contain every required file')
+  assert.ok(REQUIRED_FILES.includes('ui-bundle/package.json'))
+  assert.ok(REQUIRED_FILES.includes('ui-bundle/cordis.patch.yml'))
+  for (const file of ['ui-bundle/package.json', 'ui-bundle/cordis.patch.yml']) {
+    const without = manifest.filter((entry) => entry !== file)
+    assert.deepEqual(requiredMissing(without), [file], `removing ${file} must fail pack:check`)
+  }
 })
 
 test('compatibility: version comparison handles prereleases', () => {
