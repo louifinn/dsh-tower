@@ -160,6 +160,88 @@ test('a new violation in a previously exempt file is caught', async () => {
   }
 })
 
+test('a waivered binding cannot hide a second top-level let on the same line', async () => {
+  const waivers = [
+    {
+      rule: 'ambient-state',
+      path: 'lib/ambient.js',
+      match: 'profileRaw',
+      reason: 'process-local profile snapshot owned by the config layer',
+      owner: 'louifinn',
+      ref: '#80',
+    },
+  ]
+  for (const text of ['let profileRaw = {}; let evil = 1\n', 'let profileRaw = {}, evil = 1\n']) {
+    await withFixture({ 'lib/ambient.js': text }, (fixture) => {
+      const result = evaluator(fixture, { waivers })
+      const label = JSON.stringify(text)
+      assert.equal(result.ok, false, `${label}: the second binding must fail`)
+      const violation = result.violations.find(
+        (candidate) => candidate.rule === 'ambient-state' && candidate.file === 'lib/ambient.js',
+      )
+      assert.ok(violation, `${label}: ambient-state violation is missing`)
+      assert.equal(violation.match, 'evil', `${label}: only the new binding fails`)
+      assert.equal(result.waived, 1, `${label}: the justified binding stays waived`)
+    })
+  }
+})
+
+test('a justified multi-binding declaration passes when every binding is named', async () => {
+  await withFixture({ 'lib/ambient.js': 'let profileRaw = {}, other = 1\n' }, (fixture) => {
+    const result = evaluator(fixture, {
+      waivers: [
+        {
+          rule: 'ambient-state',
+          path: 'lib/ambient.js',
+          match: 'profileRaw',
+          reason: 'process-local profile snapshot owned by the config layer',
+          owner: 'louifinn',
+          ref: '#80',
+        },
+        {
+          rule: 'ambient-state',
+          path: 'lib/ambient.js',
+          match: 'other',
+          reason: 'the second documented process-local binding',
+          owner: 'louifinn',
+          ref: '#80',
+        },
+      ],
+    })
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.violations, [])
+    assert.equal(result.waivers, 2)
+    assert.equal(result.waived, 2, 'each named binding is waived exactly once')
+  })
+})
+
+test('only real module-level bindings are recorded', async () => {
+  const source = [
+    'const brace = /\\{[^}]*\\}/',
+    "const quoted = /['\"]/",
+    'const template = `let fake = 1; } ${`nested ${name}`}`',
+    '// let commented = 1',
+    '/* let blocked = 1 */',
+    'function nested() {',
+    '  let inner = 1',
+    '}',
+    'for (let i = 0; i < 1; i += 1) {',
+    '  void i',
+    '}',
+    'let real = 1',
+    'let alsoReal = 2, third = 3; let fourth = 4',
+    '',
+  ].join('\n')
+  await withFixture({ 'lib/ambient.js': source }, (fixture) => {
+    const result = evaluator(fixture, { waivers: [] })
+    assert.equal(result.ok, false)
+    const matches = result.violations
+      .filter((violation) => violation.rule === 'ambient-state')
+      .map((violation) => violation.match)
+    assert.deepEqual(matches.sort(), ['alsoReal', 'fourth', 'real', 'third'])
+  })
+})
+
 test('an ambient-state waiver must name the exact binding', async () => {
   await withFixture({ 'lib/ambient.js': 'let profileRaw = {}\n' }, (fixture) => {
     const result = evaluator(fixture, {

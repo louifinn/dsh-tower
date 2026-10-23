@@ -200,18 +200,25 @@ green. The waiver file is a two-key path in `CONTRIBUTING.md`; there is no `revi
 this release, so the reason and the owner are the reviewed decision.
 
 `ambient-state` waivers are narrower than file waivers: they additionally require `match`, the exact
-top-level binding (for example `profileRaw`). The rule still scans every line of the file, so a new
-top-level `let` in a previously exempt file is a violation that needs its own justified entry. That is
-why the two process-wide `let`s in `lib/config.js` and `lib/git.js` are no longer vacuously exempt.
+top-level binding (for example `profileRaw`). The scan is statement-aware rather than line-based: it
+walks the module's token stream and records every binding of every top-level `let` declaration. A
+second declarator (`let profileRaw = {}, evil = 1`), a second statement on the waived binding's line
+(`let profileRaw = {}; let evil = 1`), and any new top-level `let` in a previously exempt file are
+each their own violation and need their own justified entry. That is why the two process-wide `let`s
+in `lib/config.js` and `lib/git.js` are no longer vacuously exempt. Strings, comments, template
+literals and regex literals are skipped, and `let` inside a function, block, class or `for (…)`
+header is not module-level state.
 
 `domain-pure` and anything under `domain/**` are load-bearing: no waiver may target them, even a
 justified one. A `waiver-contract` violation rejects that entry and the underlying rule still fails.
 
 A green run prints `architecture: ok (waivers: N)`; N is the number of entries that actually
 suppressed a violation, so a stale waiver is visible in the output and in the tests. The fixture
-suite seeds an unjustified waiver (it fails), a justified one (it passes), and a new violation inside
-each previously exempt file (it fails). A separate fixture seeds one violation per rule, so a rule
-that cannot fail is itself a test failure.
+suite seeds an unjustified waiver (it fails), a justified one (it passes), both same-line bypass
+forms — a second declarator and a second statement on the waived binding's line (they fail) — a
+justified multi-binding declaration (it passes only when every binding is named), and a new violation
+inside each previously exempt file (it fails). A separate fixture seeds one violation per rule, so a
+rule that cannot fail is itself a test failure.
 
 ## Mount smoke and host internals
 

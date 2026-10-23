@@ -9,9 +9,11 @@
 // reference; an unexplained waiver is itself a blocking `waiver-contract`
 // violation, so a bare path can no longer turn the gate green. The
 // ambient-state waivers must also name the exact top-level binding, which
-// exempts one variable rather than the whole file: a new top-level `let` in a
-// previously exempt file is still a violation. The green summary prints the
-// number of waivers actually applied.
+// exempts one variable rather than the whole file. The scan is
+// statement-aware: it records every binding of every top-level `let`
+// declaration, so a new top-level `let` in a previously exempt file — even a
+// second declarator or a second statement on the waived binding's line — is
+// still a violation. The green summary prints the number of waivers applied.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -49,9 +51,351 @@ const RUNTIME_PORT_EXPORT = /^export\s+(?:const|function|class)\s/m
 const PORT_IMPLEMENTATION_IMPORT = /^(?:\.\.\/)?(?:adapters|lib|app|tools)(?:\/|$)/
 const LITERAL_PATTERN = /enum:\s*\[\s*'(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix)'/
 const TOOL_LITERAL_PATTERN = /(?:===|!==|==|!=|\.includes\(|case\s+)'?(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix|create|abandon|close|status|merge|fix-then-merge|hold|acquire|release|map|user|failure|resource|dependency|json|markdown)'/
-// A waived ambient-state violation is per binding, so the waiver can match the
-// variable name while a second top-level `let` in the same file still fails.
-const TOP_LEVEL_LET = /^(?:export\s+)?let\s+(.+?)(?:\s*=|\s*$)/gm
+// #80: ambient-state is per binding, and the scan is statement-aware rather
+// than line-based. A top-level `let` is a declaration only at module top level
+// (brace, bracket and paren depths all zero) when it starts a statement: the
+// first token of a line, the start of the file, or a token after `;`, `}` or
+// `export`. Every declarator is recorded, so both `let a = 1, b = 2` and
+// `let a = 1; let b = 2` need a waiver for `b`; only the named binding is
+// exempt. Strings, comments, template literals and regex literals are skipped so
+// their contents can neither hide nor fake a binding.
+const REGEX_ALLOWED_PUNCT = new Set([
+  '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '/', '%',
+  '<', '>', '^', '~', '=>', '...', '==', '===', '!=', '!==', '<=', '>=', '&&', '||', '??',
+  '?.', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>', '>>>', '**=', '<<=', '>>=', '>>>=',
+])
+const REGEX_ALLOWED_WORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
+  'case', 'do', 'else', 'yield', 'await', 'export', 'default',
+])
+const PUNCT_OPERATORS = [
+  '>>>=', '...', '===', '!==', '**=', '>>=', '<<=', '>>>', '=>', '==', '!=', '<=', '>=',
+  '&&', '||', '??', '?.', '++', '--', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>',
+]
+// A `let` initializer ends at `;`, at a top-level `,`, or at automatic semicolon
+// insertion: a newline before a token that cannot continue the expression.
+// Without that stop a single-declarator initializer would run on into the next
+// statement and duplicate or invent bindings.
+const CONTINUATION_PUNCT = new Set([
+  '.', '?.', '(', '[', '+', '-', '*', '/', '%', '**', '&&', '||', '??', '?', ':', '=', '=>',
+  '==', '===', '!=', '!==', '<', '>', '<=', '>=', '&', '|', '^', '<<', '>>', '>>>',
+  '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**=', '<<=', '>>=', '>>>=',
+])
+const CONTINUATION_WORDS = new Set(['instanceof', 'in', 'of'])
+
+function endsExpression(token) {
+  if (!token) return false
+  if (token.type === 'word') return !REGEX_ALLOWED_WORDS.has(token.value)
+  if (token.type === 'punct') {
+    return token.value === ')' || token.value === ']' || token.value === '}' || token.value === '++' || token.value === '--'
+  }
+  return true // string, number, template or regex literal
+}
+
+function continuesExpression(token) {
+  if (!token) return false
+  if (token.type === 'punct') return CONTINUATION_PUNCT.has(token.value)
+  if (token.type === 'word') return CONTINUATION_WORDS.has(token.value)
+  return token.type === 'template' // tagged template
+}
+
+function isIdentifierStart(code) {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95 || code === 36
+}
+
+function isIdentifierPart(code) {
+  return isIdentifierStart(code) || (code >= 48 && code <= 57)
+}
+
+function isDigit(code) {
+  return code >= 48 && code <= 57
+}
+
+function skipLineComment(source, start) {
+  let index = start
+  while (index < source.length && source[index] !== '\n') index += 1
+  return index
+}
+
+function skipBlockComment(source, start) {
+  const end = source.indexOf('*/', start + 2)
+  return end === -1 ? source.length : end + 2
+}
+
+function skipQuoted(source, start, quote) {
+  let index = start + 1
+  while (index < source.length) {
+    if (source[index] === '\\') index += 2
+    else if (source[index] === quote) return index + 1
+    else index += 1
+  }
+  return source.length
+}
+
+function skipTemplate(source, start) {
+  let index = start + 1
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '\\') index += 2
+    else if (char === '`') return index + 1
+    else if (char === '$' && source[index + 1] === '{') index = skipInterpolation(source, index + 2)
+    else index += 1
+  }
+  return source.length
+}
+
+function skipInterpolation(source, start) {
+  let depth = 1
+  let index = start
+  while (index < source.length) {
+    const char = source[index]
+    if (char === "'" || char === '"') index = skipQuoted(source, index, char)
+    else if (char === '`') index = skipTemplate(source, index)
+    else if (char === '/' && source[index + 1] === '/') index = skipLineComment(source, index)
+    else if (char === '/' && source[index + 1] === '*') index = skipBlockComment(source, index)
+    else if (char === '{') { depth += 1; index += 1 }
+    else if (char === '}') {
+      depth -= 1
+      index += 1
+      if (depth === 0) return index
+    } else index += 1
+  }
+  return source.length
+}
+
+function skipRegex(source, start) {
+  let index = start + 1
+  let inClass = false
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '\\') index += 2
+    else if (char === '\n') return -1
+    else if (char === '[') { inClass = true; index += 1 }
+    else if (char === ']') { inClass = false; index += 1 }
+    else if (char === '/' && !inClass) {
+      index += 1
+      while (index < source.length && /[a-z]/i.test(source[index])) index += 1
+      return index
+    } else index += 1
+  }
+  return -1
+}
+
+function regexAllowed(previous) {
+  if (!previous) return true
+  if (previous.type === 'word') return REGEX_ALLOWED_WORDS.has(previous.value)
+  if (previous.type === 'punct') return REGEX_ALLOWED_PUNCT.has(previous.value)
+  return false
+}
+
+function tokenize(source) {
+  const tokens = []
+  let index = 0
+  let newline = false
+  const push = (type, value) => {
+    tokens.push({ type, value, newlineBefore: newline })
+    newline = false
+  }
+  while (index < source.length) {
+    const code = source.charCodeAt(index)
+    if (code === 10) { newline = true; index += 1; continue }
+    if (code === 13 || code === 32 || code === 9 || code === 11 || code === 12 || code === 0xa0 || code === 0xfeff) { index += 1; continue }
+    const char = source[index]
+    if (char === '#' && source[index + 1] === '!') {
+      index = skipLineComment(source, index)
+      newline = true
+      continue
+    }
+    if (char === '/' && source[index + 1] === '/') {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (char === '/' && source[index + 1] === '*') {
+      const end = skipBlockComment(source, index)
+      if (source.slice(index, end).includes('\n')) newline = true
+      index = end
+      continue
+    }
+    if (char === "'" || char === '"') {
+      const end = skipQuoted(source, index, char)
+      push('string', source.slice(index, end))
+      index = end
+      continue
+    }
+    if (char === '`') {
+      const end = skipTemplate(source, index)
+      push('template', source.slice(index, end))
+      index = end
+      continue
+    }
+    if (char === '/' && regexAllowed(tokens[tokens.length - 1])) {
+      const end = skipRegex(source, index)
+      if (end !== -1) {
+        push('regex', source.slice(index, end))
+        index = end
+        continue
+      }
+    }
+    if (isIdentifierStart(code)) {
+      let end = index + 1
+      while (end < source.length && isIdentifierPart(source.charCodeAt(end))) end += 1
+      push('word', source.slice(index, end))
+      index = end
+      continue
+    }
+    if (isDigit(code)) {
+      let end = index + 1
+      while (end < source.length && (isIdentifierPart(source.charCodeAt(end)) || source[end] === '.')) end += 1
+      push('number', source.slice(index, end))
+      index = end
+      continue
+    }
+    let operator = char
+    for (const candidate of PUNCT_OPERATORS) {
+      if (source.startsWith(candidate, index)) { operator = candidate; break }
+    }
+    push('punct', operator)
+    index += operator.length
+  }
+  return tokens
+}
+
+function skipBalanced(tokens, start) {
+  const open = tokens[start].value
+  const close = open === '{' ? '}' : open === '[' ? ']' : ')'
+  let depth = 0
+  for (let index = start; index < tokens.length; index += 1) {
+    if (tokens[index].value === open) depth += 1
+    else if (tokens[index].value === close) {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+  }
+  return -1
+}
+
+function skipExpression(tokens, start, stops) {
+  let depth = 0
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    const value = token.value
+    if (depth === 0) {
+      if (stops.has(value)) return index
+      if (token.newlineBefore && endsExpression(tokens[index - 1]) && !continuesExpression(token)) {
+        // Automatic semicolon insertion ends the declaration here.
+        return index
+      }
+    }
+    if (value === '(' || value === '[' || value === '{') depth += 1
+    else if (value === ')' || value === ']' || value === '}') {
+      if (depth === 0) return index
+      depth -= 1
+    }
+  }
+  return tokens.length
+}
+
+function readPattern(tokens, start) {
+  const isObject = tokens[start].value === '{'
+  const close = isObject ? '}' : ']'
+  const names = []
+  let index = start + 1
+  while (index < tokens.length) {
+    const token = tokens[index]
+    if (token.value === close) return { names, next: index + 1 }
+    if (token.value === ',') { index += 1; continue }
+    if (token.value === '...') {
+      const target = readBindingTarget(tokens, index + 1)
+      if (!target) return { names, next: index + 1 }
+      names.push(...target.names)
+      index = target.next
+    } else if (!isObject) {
+      const target = readBindingTarget(tokens, index)
+      if (!target) { index += 1; continue }
+      names.push(...target.names)
+      index = target.next
+    } else if (token.value === '[') {
+      // A computed key is an expression, not a binding.
+      const next = skipBalanced(tokens, index)
+      if (next === -1) return { names, next: index + 1 }
+      index = next
+      if (tokens[index]?.value !== ':') continue
+      index += 1
+      const target = readBindingTarget(tokens, index)
+      if (!target) return { names, next: index }
+      names.push(...target.names)
+      index = target.next
+    } else if (token.type === 'word' && tokens[index + 1]?.value === ':') {
+      index += 2
+      const target = readBindingTarget(tokens, index)
+      if (!target) return { names, next: index }
+      names.push(...target.names)
+      index = target.next
+    } else if (token.type === 'word') {
+      names.push(token.value) // shorthand `{ name }`
+      index += 1
+    } else {
+      index += 1
+      continue
+    }
+    if (tokens[index]?.value === '=') index = skipExpression(tokens, index + 1, new Set([',', close]))
+  }
+  return { names, next: index }
+}
+
+function readBindingTarget(tokens, index) {
+  const token = tokens[index]
+  if (!token) return null
+  if (token.type === 'word') return { names: [token.value], next: index + 1 }
+  if (token.value === '{' || token.value === '[') return readPattern(tokens, index)
+  return null
+}
+
+function readLetBindings(tokens, start) {
+  const names = []
+  let index = start + 1
+  while (index < tokens.length) {
+    const target = readBindingTarget(tokens, index)
+    if (!target) break
+    names.push(...target.names)
+    index = target.next
+    if (tokens[index]?.value === '=') index = skipExpression(tokens, index + 1, new Set([',', ';']))
+    if (tokens[index]?.value !== ',') break
+    index += 1
+  }
+  return names
+}
+
+function scanAmbientBindings(source) {
+  const tokens = tokenize(source)
+  const bindings = []
+  let braces = 0
+  let brackets = 0
+  let parens = 0
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token.type === 'punct') {
+      if (token.value === '{') braces += 1
+      else if (token.value === '}') braces = Math.max(0, braces - 1)
+      else if (token.value === '[') brackets += 1
+      else if (token.value === ']') brackets = Math.max(0, brackets - 1)
+      else if (token.value === '(') parens += 1
+      else if (token.value === ')') parens = Math.max(0, parens - 1)
+    }
+    if (braces !== 0 || brackets !== 0 || parens !== 0) continue
+    if (token.type !== 'word' || token.value !== 'let') continue
+    const previous = tokens[index - 1]
+    const startsStatement =
+      !previous ||
+      token.newlineBefore ||
+      previous.value === ';' ||
+      previous.value === '}' ||
+      (previous.type === 'word' && previous.value === 'export')
+    if (!startsStatement) continue
+    bindings.push(...readLetBindings(tokens, index))
+  }
+  return bindings
+}
 
 function walk(root, relative = '') {
   const dir = path.join(root, relative)
@@ -227,8 +571,7 @@ function evaluator(root, options = {}) {
       record('aggregate-size', file, `${lines.length} lines exceeds 800`, 'error')
     }
     if (file.startsWith('lib/') || file.startsWith('app/') || file.startsWith('domain/')) {
-      for (const declaration of text.matchAll(TOP_LEVEL_LET)) {
-        const binding = declaration[1].trim()
+      for (const binding of scanAmbientBindings(text)) {
         record('ambient-state', file, `top-level let '${binding}' has no justified waiver`, 'error', binding)
       }
     }

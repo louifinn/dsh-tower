@@ -78,7 +78,7 @@ Requirements: Node.js 22+, Git. No package installation is needed for the offlin
 - `lib/` — the Tower domain (`tower.js`), tool definitions (`tools.js`), persistence (`store.js`, `modeStore.js`), Git helpers (`git.js`).
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; live-runtime scripts are documented in `tests/README.md`.
-- `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, and an `ambient-state` entry must also name the exact binding in `match` so a new top-level `let` in the same file is still a violation.
+- `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, and an `ambient-state` entry must also name the exact binding in `match`. The scan is statement-aware and records every binding of every top-level `let`, so a second declarator or a second statement on the waived binding's line is still a violation that needs its own entry.
 
 ## Pull request checklist
 
