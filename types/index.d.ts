@@ -6,16 +6,35 @@
 // `tsc --noEmit` (checkJs). Keep this file free of value imports so consumers
 // can load it without `allowJs`.
 
+// ---------------------------------------------------------------------------
+// Generated vocabulary (#115): one declaration per runtime constant family.
+// `npm run types:generate` rewrites the marked block from ERROR_CODES,
+// MISSION_STATUSES, REVIEW_STATUSES, MERGE_VERDICTS, MISSION_KINDS,
+// REVIEW_POLICIES, FINDING_*, ROLES and PAUSE_CAUSES; the generated-types gate
+// (`npm run docs:check:generated:types`) fails when the block drifts. Do not
+// edit the block by hand.
+// generated:vocabulary:start
 export type MissionStatus = 'planned' | 'active' | 'completed' | 'blocked' | 'paused' | 'merged' | 'abandoned'
 export type MissionKind = 'build' | 'survey'
-export type ReviewStatus = 'clean' | 'p1-1items' | 'p1-2items' | 'p1-3items' | 'p1-4items' | 'p1-5items' | 'p2-1items' | 'p2-2items' | 'p2-3items' | 'p2-4items' | 'p2-5items'
+export type ReviewStatus =
+  | 'clean'
+  | 'p1-1items'
+  | 'p1-2items'
+  | 'p1-3items'
+  | 'p1-4items'
+  | 'p1-5items'
+  | 'p2-1items'
+  | 'p2-2items'
+  | 'p2-3items'
+  | 'p2-4items'
+  | 'p2-5items'
 export type MergeVerdict = 'merge' | 'fix-then-merge' | 'hold'
 export type ReviewPolicy = 'required-clean' | 'none'
 export type FindingType = 'bug' | 'improve' | 'vuln' | 'idea'
 export type FindingSeverity = 'low' | 'medium' | 'high' | 'critical'
 export type FindingStatus = 'open' | 'triaged' | 'fixed' | 'wontfix'
 export type Role = 'worker' | 'reviewer'
-
+export type PauseCause = 'user' | 'failure' | 'resource' | 'dependency'
 export type ErrorCode =
   | 'invalid-argument'
   | 'repo-invalid'
@@ -23,26 +42,22 @@ export type ErrorCode =
   | 'mission-not-found'
   | 'finding-not-found'
   | 'invalid-transition'
+  | 'stale-base'
   | 'state-locked'
   | 'state-corrupt'
+  | 'state-version-unsupported'
+  | 'state-migration-failed'
   | 'config-invalid'
   | 'config-unknown-key'
+  | 'git-failed'
   | 'git-timeout'
-  | 'merge-conflict'
-  | 'merge-hook-failed'
-  | 'merge-intent-pending'
-  | 'base-dirty'
-  | 'stale-base'
-  | 'tip-moved'
-  | 'out-of-scope'
-  | 'worker-busy'
-  | 'worker-stale'
+  | 'worktree-dirty'
   | 'spawn-unavailable'
   | 'provider-missing'
   | 'provider-cooldown'
   | 'preset-missing'
   | 'reviewer-prerequisite'
-  | 'worktree-dirty'
+  | 'not-authorized'
   | 'workspace-busy'
   | 'worker-limit'
   | 'rate-limited'
@@ -56,6 +71,7 @@ export type ErrorCode =
   | 'batch-invalid'
   | 'legacy-invalid'
   | 'tool-internal'
+// generated:vocabulary:end
 
 /** One machine-readable gate/completion blocker: a stable code plus a detail. */
 export interface Blocker {

@@ -19,6 +19,15 @@ import {
   globToRegExp,
   runtimeJavaScript,
 } from '../scripts/types-coverage.mjs'
+import {
+  END,
+  START,
+  injectVocabulary,
+  vocabularyBlock,
+  vocabularyData,
+} from '../scripts/generate-types.mjs'
+import { ERROR_CODES } from '../domain/errors.js'
+import { MISSION_STATUSES, REVIEW_STATUSES } from '../domain/mission.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -152,4 +161,52 @@ test('types coverage: evaluateCoverage fails only for a shipped file outside the
     checked: 1,
     total: 1,
   })
+})
+
+// ---------------------------------------------------------------------------
+// #115 step 3: the published vocabulary is generated from the runtime tables.
+// ---------------------------------------------------------------------------
+
+function runGenerator(args) {
+  return spawnSync(process.execPath, [path.join(root, 'scripts', 'generate-types.mjs'), ...args], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+}
+
+test('generated types: the real gate matches the runtime constants', () => {
+  const result = runGenerator(['--check'])
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /type vocabulary: 11 aliases \(\d+ error codes\) in sync/)
+})
+
+test('generated types: a new ERROR_CODES entry makes the block stale (fixture)', () => {
+  const source = fs.readFileSync(path.join(root, 'types', 'index.d.ts'), 'utf8')
+  const base = vocabularyData()
+  const current = injectVocabulary(source, vocabularyBlock(base))
+  assert.equal(current, source, 'the shipped block must match the current catalogs')
+
+  const grown = { ...base, errorCodes: [...base.errorCodes, 'brand-new-code'] }
+  const stale = injectVocabulary(source, vocabularyBlock(grown))
+  assert.notEqual(stale, source, 'adding an error code must change the generated block')
+  assert.match(stale, /'brand-new-code'/)
+  // Every runtime code is present in the generated union, not a hand-picked subset.
+  for (const code of Object.keys(ERROR_CODES)) assert.ok(stale.includes(`'${code}'`), `${code} must be generated`)
+})
+
+test('generated types: vocabulary aliases are derived from the runtime tables', () => {
+  const data = vocabularyData()
+  const block = vocabularyBlock(data)
+  assert.ok(block.includes(START) === false && block.includes(END) === false)
+  for (const status of MISSION_STATUSES) assert.ok(block.includes(`'${status}'`), `${status} must be generated`)
+  for (const status of REVIEW_STATUSES) assert.ok(block.includes(`'${status}'`), `${status} must be generated`)
+  assert.match(block, /export type MissionStatus = /)
+  assert.match(block, /export type ReviewStatus =\n {2}\| 'clean'/)
+  // Only ERROR_CODES are tool error codes; a blocker code such as
+  // `merge-intent-pending` lives in Blocker.code (string), not in ErrorCode.
+  assert.ok(!block.includes("'merge-intent-pending'"))
+})
+
+test('generated types: missing markers are a configuration error, not a no-op', () => {
+  assert.throws(() => injectVocabulary('export type X = 1\n', 'export type X = 2'), /missing the .* markers/)
 })

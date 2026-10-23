@@ -88,6 +88,11 @@ jobs:
         run: npm run docs:check:generated:config
       - name: Generated events reference
         run: npm run docs:check:generated:events
+      # #115: the published type vocabulary (ErrorCode, MissionStatus,
+      # ReviewStatus, ...) is generated from the runtime constants, so a catalog
+      # change without regenerating types/index.d.ts is a red check.
+      - name: Generated type vocabulary
+        run: npm run docs:check:generated:types
       # #120: the component table is generated from scripts/component-surface.json,
       # so "should this be a component?" is a table lookup rather than prose.
       - name: Generated component surface
