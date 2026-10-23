@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
       'tower_batch',
     ]
     const TOOL_SET = new Set(TOOL_NAMES)
-    // Mirrors lib/config.js DEFAULT_DENY_TOOLS; overridden by the
+    // Mirrors host/config.js DEFAULT_DENY_TOOLS; overridden by the
     // `deniedWhileActive` list of the latest `tower_mode` output when present.
     const DEFAULT_DENIED_TOOLS = [
       'create_goal',
