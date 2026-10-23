@@ -27,9 +27,9 @@ The component axis — who may be switched off — is principle 11 and
 [docs/reference/component-surface.md](docs/reference/component-surface.md) and
 enforced by `npm run docs:check:components`: every visible component needs
 `title`/`summary`/`disables` in both locales, the host/health/recovery/review/
-merge-gate capabilities may not be gated by any row or boolean key (its
-`gateableTools` allowlist is the only set of `tools.expose*` routes), and the
-component count is the fourth baselined surface.
+merge-gate capabilities may not be gated by any row or boolean key (the
+`gateableTools` allowlist is empty since #122), and the component count — 8
+visible rows in 2.4.0 — is the fourth baselined surface.
 
 ## Landing changes
 

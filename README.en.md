@@ -128,26 +128,33 @@ Image and file attachments are forwarded together with the instruction as one co
 
 ## Component model
 
-This bundle is **all-or-nothing**: `cordis.patch.yml` inserts one `tower-bundle`
-`cordis:group` row, and the Host plugin, skills, and worker/reviewer presets are internal sections
-of it. The plugin page should treat that group as one component; disabling it disables all sections
-together, so no orphan preset or skill points at missing `tower_*` tools. Do not enable/disable the
-child rows independently.
+The bundle ships a **mandatory host anchor plus individually switchable optional
+rows** (#121): `cordis.patch.yml` inserts a top-level `tower` group that mounts
+the Host plugin and the mandatory `preset-tower-worker`, then the optional
+components `tower-skills`, `tower-batch`, `tower-import`, `tower-leases`,
+`tower-tests`, `tower-hmr` (shipped off) and `preset-tower-reviewer`. Turn a row
+off from the Plugins page and exactly that capability goes away; the mode, the
+planning tools, `tower_status`, and the remaining tools keep working.
 
-Mode entry and `tower_plan` validate both presets before work starts. A missing preset is refused
-with `preset-missing` and names `preset-tower-worker` / `preset-tower-reviewer`, instead of planning
-or spawning first and dead-ending at review/merge.
+Mode entry and `tower_plan` validate the required presets before work starts. The
+worker preset is mandatory; the reviewer preset is required only when
+`review.requireReview` is true, so the reviewer row may be off while review is
+optional and is locked with an explanatory `preset-missing` error when the gate
+is on. `tower-tests` off with `gates.requireTests:true` is refused the same way.
+`tower_doctor` and `tower_recover` are not components and have no config key: they
+are registered for every configuration (#122).
 
-That single row is the accepted all-off boundary, not the target shape. [Principle 11](PRINCIPLES.md)
-and [ADR 0005](docs/adr/0005-component-surface.md) say a component may exist only for a capability
-whose off state leaves the rest intact; the host, health, recovery, review and merge-gate
-capabilities are never switches. The per-key answer is the generated
-[component surface](docs/reference/component-surface.md), enforced by `npm run docs:check:components`.
+[Principle 11](PRINCIPLES.md) and
+[ADR 0005](docs/adr/0005-component-surface.md) say a component may exist only for
+a capability whose off state leaves the rest intact; the host, health, recovery,
+review and merge-gate capabilities are never switches. The per-key answer is the
+generated [component surface](docs/reference/component-surface.md), enforced by
+`npm run docs:check:components`.
 
 ## Configuration
 
 ```yaml
-- id: tower
+- id: tower-host
   name: 'dsh-tower'
   config:
     section: 'Optional legacy alias replacing the Tower-mode prompt text'
@@ -172,13 +179,13 @@ capabilities are never switches. The per-key answer is the generated
 - `mode.allowAgentControl` defaults to `true` in code; the bundled `cordis.patch.yml` also sets it explicitly to `true` so the model may enter/leave when the user intent or task state warrants it, always stating a reason. Set it to `false` for human-only control. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
 - `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
-- Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown top-level keys are rejected so typos cannot silently disable security-relevant settings, while unknown keys inside a group are ignored. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
+- Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected (top-level and inside a group) so typos cannot silently disable security-relevant settings. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
-## Tools (29: 20 core + 9 optional)
+## Tools (29: 22 core + 7 optional)
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-The list above is the 20 core tools plus 7 of the optional verification/ops tools. `tower_control` is the eighth optional tool, registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is the ninth, registered while `dev.hotReload` is on (default true) and returns `reload-unavailable` without an HMR service (so up to 29 tools: 20 core + 9 optional). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+The list above is the 22 core tools plus 5 of the component-owned optional tools. `tower_control` is the sixth optional tool, registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is the seventh, registered only while the `tower-hmr` component row is on (shipped off) and returning `reload-unavailable` without an HMR service (so up to 29 tools: 22 core + 7 optional). `tower_doctor` and `tower_recover` are core: they are registered for every configuration (#122). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
@@ -207,7 +214,7 @@ Workers use the bundled `tower-worker` preset (writable worktree surface); revie
 
 | Path | Contents |
 |---|---|
-| `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (one `tower-bundle` group containing the Host, skills, and both presets) |
+| `package.json`, `cordis.patch.yml` | bundle manifest and loader patch (a mandatory `tower` host group plus the optional capability rows) |
 | `index.js`, `host/`, `adapters/`, `app/`, `domain/`, `ports/`, `tools/`, `worker.js`, `reviewer.js` | Host entry; `domain/` pure core; `ports/` contracts; `adapters/` the only I/O; `app/` use cases; `host/` composition root and session glue; `tools/` one handler per tool; worker and reviewer preset policies |
 | `skills.js`, `skills/` | bundled agent skills (worker protocol, review checklist, recovery playbook) |
 | `docs/` | guides, reference, architecture, operations, FAQ and examples |
@@ -248,7 +255,7 @@ The live suite downloads a browser and boots a real host, so it is out of push/P
 
 `tests/platform.test.mjs` injects `platform`/`rename`/`unlink` so both the win32 and POSIX branches are asserted on any OS; the only case that needs a real Windows filesystem (renaming over an open destination) is counted as `# SKIP` on Linux (`tests 11`, `skipped 1`), never silently absent. There is no macOS runner: macOS follows the same POSIX branch as Linux, which is a #86 non-goal.
 
-`mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 29 `tower_*` tools (27 `tools/*.js` modules plus `tower_mode` / `tower_control`), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, and exactly one top-level `tower-bundle` group row (the #66 invariant). It calls no model and opens no browser. Measured on the maintainer's Windows machine: about 100 seconds on a cold host (install included) and about 85 seconds with a cached host; the CI step allows 3 minutes (`timeout-minutes: 3`) inside the 5-minute `mount` job. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
+`mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 29 `tower_*` tools (27 `tools/*.js` modules plus `tower_mode` / `tower_control`, with the optional capability rows on), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, one top-level `tower` host group, and the optional top-level rows (`tower-hmr` is shipped off). It calls no model and opens no browser. Measured on the maintainer's Windows machine: about 100 seconds on a cold host (install included) and about 85 seconds with a cached host; the CI step allows 3 minutes (`timeout-minutes: 3`) inside the 5-minute `mount` job. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
 
 The host build is pinned in exactly one place, `scripts/mount-smoke/host.json`; a unit test keeps the newest `COMPATIBILITY.md` row equal to it, so a release never retypes it. `npm run smoke:fixtures` proves the smoke still fails for the right seeded reasons (a renamed tool id, a removed skills section). CI runs it as the non-required `mount-fixtures` job, where the control and both seeds share one cached host install through `--host-dir` (about 2 minutes warm here).
 

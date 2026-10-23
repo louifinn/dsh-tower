@@ -70,7 +70,7 @@ OS 级隔离运行 host。
 - **测试发现是仓库代码。** `tests.admission` 默认 `off`，只有显式 `tower_test` 才会执行仓库
   `package.json` 的 `tower.testDiscovery` 命令；该命令以 DSH 的 OS 权限运行，不是沙箱。不可信仓库应
   设 `tests.allowPackageDiscovery:false`。
-- **HMR 重载。** 开启 `dev.hotReload` 时，`/tower reload`/`tower_reload` 会让 DSH 从磁盘重新导入
+- **HMR 重载。** 开启 `tower-hmr` 组件行时，`/tower reload`/`tower_reload` 会让 DSH 从磁盘重新导入
   插件。只为你信任的检出配置 HMR 监视 root；重载会执行这些文件当前的代码。
 - **提示注入。** reviewer 会读取不受信任的分支内容（diff/评论）。只读 preset 限制了影响面，但模型侧
   没有绝对防护。
