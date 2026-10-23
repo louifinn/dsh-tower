@@ -2,7 +2,6 @@
 // service/provider/lease validation. Split out of tools/spawn.js; no I/O.
 import { TowerToolError } from '../domain/errors.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
-import { inspectLeases } from './leases.js'
 
 /**
  * Pick a unique roster name before any activation.
@@ -132,9 +131,11 @@ export async function precheckWorkerOwnership({
 
 /**
  * Service/provider/preset/lease checks, run before provisioning.
- * @param {{ tower: any, ctx: any, config: any, preset: string, actor: any, exec: any }} input
+ * `inspectLeases` is injected by the composition root so the app layer never
+ * imports the lease adapter (#69).
+ * @param {{ tower: any, ctx: any, config: any, preset: string, actor: any, exec: any, inspectLeases: any }} input
  */
-export async function precheckSpawnServices({ tower, ctx, config, preset, actor, exec }) {
+export async function precheckSpawnServices({ tower, ctx, config, preset, actor, exec, inspectLeases }) {
   const subagents = ctx.get('subagents')
   if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot spawn')
   const providers = subagents.list()

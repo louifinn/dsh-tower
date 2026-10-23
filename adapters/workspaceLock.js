@@ -2,7 +2,7 @@
 // `mode.workspaceLock` is enabled. Same-user trusted model, like the rest of
 // the Tower store: it prevents accidental double control, not a malicious
 // writer.
-import { fsp } from '../adapters/store-fs.js'
+import { fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
 

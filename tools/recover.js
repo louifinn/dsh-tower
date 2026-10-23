@@ -1,6 +1,4 @@
 // tower_recover: explicit stale state-lock diagnostics/repair.
-import { readStateLock } from '../lib/store.js'
-import { lockTiming } from '../lib/persistence.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
@@ -8,10 +6,10 @@ import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, readStateLock: any, lockTiming: any }} deps
  */
 export function registerRecoverTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, readStateLock, lockTiming } = deps
   define(ctx, {
     name: 'tower_recover',
     description:

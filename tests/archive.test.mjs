@@ -23,13 +23,13 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Tower } from '../lib/tower.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { writeJsonAtomic } from '../lib/store.js'
+import { Tower } from '../host/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { writeJsonAtomic } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { Config, resolveTowerConfig } from '../domain/config/schema.js'
-import { archivePaths, readArchiveIndex, writeArchiveEntries } from '../lib/archive.js'
+import { archivePaths, readArchiveIndex, writeArchiveEntries } from '../adapters/archive.js'
 import {
   ARCHIVE_VERSION,
   archivedEntry,

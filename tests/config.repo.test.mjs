@@ -9,8 +9,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { Tower } from '../lib/tower.js'
-import { configureRuntime, repoConfigPath } from '../lib/config.js'
+import { Tower } from '../host/tower.js'
+import { configureRuntime, repoConfigPath } from '../host/config.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -162,7 +162,7 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
 })
 
 test('runtimeConfig does not cache the first resolved config across configureRuntime calls', async () => {
-  const { configureRuntime, runtimeConfig } = await import('../lib/config.js')
+  const { configureRuntime, runtimeConfig } = await import('../host/config.js')
   try {
     configureRuntime({ git: { timeoutMs: 1111 } })
     assert.equal(runtimeConfig().git.timeoutMs, 1111)

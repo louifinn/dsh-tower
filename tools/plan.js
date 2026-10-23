@@ -11,16 +11,17 @@
 // See docs/reference/tools.generated.md for the public shape.
 // tower_plan: create missions.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { assertPresetsAvailable } from '../lib/presets.js'
 import { PlanInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, assertPresetsAvailable: any }} deps
  */
 export function registerPlanTool(ctx, deps) {
+  // #70: preset validation is injected by the composition root, so this tool
+  // never imports host/ or adapters/ directly.
   // openTower is injected by the composition root (#69).
-  const { define, actorFor, requireTowerActor } = deps
+  const { define, actorFor, requireTowerActor, assertPresetsAvailable } = deps
   define(ctx, {
     name: 'tower_plan',
     description:

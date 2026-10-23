@@ -7,13 +7,14 @@
 // Exemptions are justified data, not bare sets (#80). Every waiver lives in
 // scripts/architecture-waivers.json and carries a reason plus an owner or
 // reference; an unexplained waiver is itself a blocking `waiver-contract`
-// violation, so a bare path can no longer turn the gate green. The
-// ambient-state waivers must also name the exact top-level binding, which
-// exempts one variable rather than the whole file. The scan is
-// statement-aware: it records every binding of every top-level `let`
-// declaration, so a new top-level `let` in a previously exempt file — even a
-// second declarator or a second statement on the waived binding's line — is
-// still a violation. The green summary prints the number of waivers applied.
+// violation, so a bare path can no longer turn the gate green. Two rules are
+// load-bearing and cannot be waived at all: `domain-pure` and, since #70,
+// `host-scope` (ambient state is a host-only privilege) and
+// `no-lib-from-core` (the retired lib/ layer may never be imported by app/
+// or domain/). The scan is statement-aware: it records every binding of every
+// top-level `let` declaration, so a new top-level `let` in app/ or domain/ is
+// a violation even as a second declarator or a second statement on one line.
+// The green summary prints the number of waivers applied.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,9 +23,10 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = path.resolve(MODULE_DIR, '..')
 const WAIVER_FILE = path.join(MODULE_DIR, 'architecture-waivers.json')
 const WAIVER_LABEL = 'scripts/architecture-waivers.json'
-const ROOTS = ['lib', 'app', 'domain', 'tools', 'adapters', 'ports']
+const ROOTS = ['host', 'app', 'domain', 'tools', 'adapters', 'ports']
 const RULES = new Set([
   'domain-pure',
+  'no-lib-from-core',
   'child-process-surface',
   'fs-surface',
   'app-ports-only',
@@ -33,17 +35,21 @@ const RULES = new Set([
   'tools-thin',
   'tools-vocabulary',
   'aggregate-size',
-  'ambient-state',
+  'host-scope',
 ])
 // #69: the app layer may import only these. App siblings (`./x.js`), the pure
 // domain, and the explicit ports are the whole dependency surface.
 const APP_ALLOWED_PREFIXES = ['./', '../domain/', '../ports/']
 const APP_ALLOWED_EXACT = new Set(['node:path'])
-// #69: only the host entries (index.js/worker.js/reviewer.js, outside this scan
-// set) and the adapters may import adapters. lib/ is the infrastructure layer
-// below the ports and is retired by #70; until then it is the one documented
-// importer exemption, and app/tools/domain/ports never may.
-const COMPOSITION_ROOT_EXEMPT_PREFIXES = ['lib/']
+// #70: app/ and domain/ may never reach back into the retired lib/ layer. A
+// seeded fixture proves the rule: `import ... from '../lib/store.js'` fails
+// even if a future change accidentally recreates the directory.
+const LIB_IMPORT = /^(?:\.{1,2}\/)*lib(?:\/|$)/
+// #69: the host layer is the composition root: it may assemble adapters and
+// hold the process/session state the app and domain are denied. The host
+// entries (index.js/worker.js/reviewer.js, outside this scan set) and the
+// adapters may import adapters; nothing in app/domain/tools/ports may.
+const COMPOSITION_ROOT_EXEMPT_PREFIXES = ['host/']
 const ADAPTER_IMPORT = /^(?:\.\.\/)?adapters(?:\/|$)/
 // #69: a port must be a runtime contract, not a comment plus `export {}`.
 const RUNTIME_PORT_EXPORT = /^export\s+(?:const|function|class)\s/m
@@ -51,7 +57,7 @@ const RUNTIME_PORT_EXPORT = /^export\s+(?:const|function|class)\s/m
 const PORT_IMPLEMENTATION_IMPORT = /^(?:\.\.\/)?(?:adapters|lib|app|tools)(?:\/|$)/
 const LITERAL_PATTERN = /enum:\s*\[\s*'(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix)'/
 const TOOL_LITERAL_PATTERN = /(?:===|!==|==|!=|\.includes\(|case\s+)'?(?:planned|active|completed|blocked|paused|abandoned|worker|reviewer|bug|improve|vuln|idea|low|medium|high|critical|open|triaged|fixed|wontfix|create|abandon|close|status|merge|fix-then-merge|hold|acquire|release|map|user|failure|resource|dependency|json|markdown)'/
-// #80: ambient-state is per binding, and the scan is statement-aware rather
+// #80/#70: host-scope is per binding, and the scan is statement-aware rather
 // than line-based. A top-level `let` is a declaration only at module top level
 // (brace, bracket and paren depths all zero) when it starts a statement: the
 // first token of a line, the start of the file, or a token after `;`, `}` or
@@ -484,19 +490,10 @@ function evaluator(root, options = {}) {
       record('waiver-contract', where, `${label} for rule "${rule}" on ${where} has no owner or reference`, 'error')
       valid = false
     }
-    if (rule === 'ambient-state' && !match) {
-      record(
-        'waiver-contract',
-        where,
-        `${label} for rule "ambient-state" on ${where} must name the exact binding with "match"`,
-        'error',
-      )
-      valid = false
-    }
-    // domain-pure and domain/** are load-bearing: there is no exemption path
-    // for them, not even a justified one (#80).
-    if (rule === 'domain-pure') {
-      record('waiver-contract', where, `${label} for rule "domain-pure" on ${where} cannot be waived`, 'error')
+    // domain-pure, host-scope and no-lib-from-core are load-bearing: there is
+    // no exemption path for them, not even a justified one (#80, #70).
+    if (rule === 'domain-pure' || rule === 'host-scope' || rule === 'no-lib-from-core') {
+      record('waiver-contract', where, `${label} for rule "${rule}" on ${where} cannot be waived`, 'error')
       valid = false
     }
     if (file.startsWith('domain/')) {
@@ -513,6 +510,14 @@ function evaluator(root, options = {}) {
     if (file.startsWith('domain/') && imports.some((spec) => /^(node:fs|node:fs\/promises|node:child_process|\.\.\/adapters|adapters\/)/.test(spec))) {
       record('domain-pure', file, 'domain imports I/O or adapters', 'error')
     }
+    // #70: the retired lib/ layer is not a dependency surface for the core.
+    if (file.startsWith('domain/') || file.startsWith('app/')) {
+      for (const spec of imports) {
+        if (LIB_IMPORT.test(spec)) {
+          record('no-lib-from-core', file, `imports ${spec}; app/** and domain/** may not import lib/**`, 'error')
+        }
+      }
+    }
     if (imports.includes('node:child_process')) {
       record('child-process-surface', file, 'only adapters/** may spawn processes', 'error')
     }
@@ -520,7 +525,7 @@ function evaluator(root, options = {}) {
       record('fs-surface', file, 'only adapters/** may use fs', 'error')
     }
     // #69 app-ports-only: the app depends on ports, the pure domain, and Node's
-    // path module. Adapters and lib/ infrastructure are reached through deps.
+    // path module. Adapters and host/ infrastructure are reached through deps.
     if (file.startsWith('app/')) {
       for (const spec of imports) {
         const allowed =
@@ -536,12 +541,11 @@ function evaluator(root, options = {}) {
         }
       }
     }
-    // #69 composition-root: only the host entries and the adapters may import an
-    // adapter; lib/ is the documented infrastructure lapse until #70.
+    // #69 composition-root: only host/** and the adapters may import an adapter.
     if (!COMPOSITION_ROOT_EXEMPT_PREFIXES.some((prefix) => file.startsWith(prefix)) && !file.startsWith('adapters/')) {
       for (const spec of imports) {
         if (ADAPTER_IMPORT.test(spec)) {
-          record('composition-root', file, `imports ${spec}; adapters are composed once in the host entry`, 'error')
+          record('composition-root', file, `imports ${spec}; adapters are composed once in host/**`, 'error')
         }
       }
     }
@@ -570,15 +574,18 @@ function evaluator(root, options = {}) {
     } else if (lines.length > 800) {
       record('aggregate-size', file, `${lines.length} lines exceeds 800`, 'error')
     }
-    if (file.startsWith('lib/') || file.startsWith('app/') || file.startsWith('domain/')) {
+    // #70 host-scope: process/session state is a host privilege. The app and
+    // domain layers must stay stateless at module scope; host/** may hold the
+    // ambient bindings the composition root owns. The scan is statement-aware.
+    if (file.startsWith('app/') || file.startsWith('domain/')) {
       for (const binding of scanAmbientBindings(text)) {
-        record('ambient-state', file, `top-level let '${binding}' has no justified waiver`, 'error', binding)
+        record('host-scope', file, `top-level let '${binding}' is only allowed under host/**`, 'error', binding)
       }
     }
   }
 
   // A waiver only suppresses the violation it names. Path-only waivers cover
-  // per-file rules; ambient-state waivers must also match the binding.
+  // per-file rules; `match` narrows one to a single violation when present.
   const remaining = []
   let waived = 0
   for (const violation of violations) {

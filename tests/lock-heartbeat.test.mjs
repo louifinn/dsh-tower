@@ -24,10 +24,10 @@ import {
   lockStaleAfterMs,
   reclaimDeadLock,
   touchLock,
-} from '../lib/persistence.js'
-import { pathsFor, withLock } from '../lib/store.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../lib/tower.js'
+} from '../adapters/persistence.js'
+import { pathsFor, withLock } from '../adapters/store.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
 
 const DEAD_PID = 999999
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

@@ -8,7 +8,7 @@
 // `validateState` proves a document matches the *current* schema.
 // `prepareState` is the load-path decision: it inspects the version, applies the
 // ordered migration registry, then validates the target schema. Both are pure;
-// the side effects (backup, write, activity) live in `lib/stateFile.js`.
+// the side effects (backup, write, activity) live in `adapters/stateFile.js`.
 // @ts-check
 import { TowerToolError } from './errors.js'
 import { SCHEMA_VERSION } from './mission.js'

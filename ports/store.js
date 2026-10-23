@@ -1,6 +1,6 @@
 // Store port (#69). Implementation: adapters/store-fs.js.
 //
-// App use cases depend on this contract, not on lib/store.js: they receive the
+// App use cases depend on this contract, not on adapters/store.js: they receive the
 // implementation through the composition root and never import the adapter.
 // The contract lists every method app/** and tools/** call, so an implementation
 // that is missing one fails `assertPorts` at construction instead of mid-mission.

@@ -17,7 +17,7 @@ import {
   touchWorkspaceLock,
   workspaceLockPath,
   workspaceLockToken,
-} from '../lib/workspaceLock.js'
+} from '../adapters/workspaceLock.js'
 
 // index.js reads its mode store through $DSH_HOME unless mode.storePath is set;
 // isolate it before the dynamic import so a test never writes the real store.

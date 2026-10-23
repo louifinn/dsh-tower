@@ -8,8 +8,8 @@ import {
   precheckSpawnServices,
   precheckWorkerOwnership,
   resolveRosterName,
-} from '../lib/spawn-prechecks.js'
-import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../lib/spawn-support.js'
+} from '../app/spawn-prechecks.js'
+import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../app/spawn-support.js'
 
 /**
  * @param {any} ctx
@@ -25,6 +25,7 @@ import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../li
  *   recordSpawnSuccess: any,
  *   runMissionDiscovery: any,
  *   textOf: any,
+ *   inspectLeases: any,
  * }} deps
  */
 export function registerSpawnTool(ctx, deps) {
@@ -68,7 +69,9 @@ export function registerSpawnTool(ctx, deps) {
           role, tower, ctx, view, missionId: args.missionId, takeover: args.takeover,
           maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity,
         })
-        const { subagents, provider } = await precheckSpawnServices({ tower, ctx, config, preset, actor, exec })
+        const { subagents, provider } = await precheckSpawnServices({
+          tower, ctx, config, preset, actor, exec, inspectLeases: deps.inspectLeases,
+        })
 
         const provisioned = await tower.provision({
           missionId: args.missionId,

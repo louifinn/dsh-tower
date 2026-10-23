@@ -21,7 +21,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-spawn-home-'))
 process.env.DSH_HOME = home
 
 const { apply } = await import('../index.js')
-const { Tower } = await import('../lib/tower.js')
+const { Tower } = await import('../host/tower.js')
 
 after(() => removeTemp(home))
 

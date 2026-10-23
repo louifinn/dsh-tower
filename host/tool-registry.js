@@ -14,8 +14,15 @@ import {
   isTowerRole,
   isUnknownRole,
 } from '../domain/vocabulary.js'
-import { git, resolveRepo, hasAnyCommit } from './git.js'
+import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { runtimeConfig } from './config.js'
+import { runDoctor } from './doctor.js'
+import { createHmrBridge } from './hmr.js'
+import { assertPresetsAvailable } from './presets.js'
+import { readStateLock } from '../adapters/store.js'
+import { lockTiming } from '../adapters/persistence.js'
+import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js'
+import { importLegacySnapshot, validateLegacyMap } from '../adapters/legacy.js'
 import { registerDoctorTool } from '../tools/doctor.js'
 import { registerRecoverTool } from '../tools/recover.js'
 import { registerTestTool } from '../tools/test.js'
@@ -43,7 +50,7 @@ import { registerSpawnTool } from '../tools/spawn.js'
 import { registerCompleteTool } from '../tools/complete.js'
 import { registerFindingTool } from '../tools/finding.js'
 import { registerFindingsTool } from '../tools/findings.js'
-import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from './tests.js'
+import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
 import path from 'node:path'
@@ -507,15 +514,15 @@ export function registerTowerTools(ctx, options = {}) {
   }, watchMs)
   timer.unref?.()
   ctx.effect(() => () => clearInterval(timer))
-  registerInitTool(ctx, { openTower, define, actorFor, requireTowerActor, workspaceHook: runtimeState.workspaceHook, ensureRepository })
+  registerInitTool(ctx, { openTower, define, actorFor, requireTowerActor, workspaceHook: runtimeState.workspaceHook, ensureRepository, resolveRepo, runtimeConfig })
 
-  registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor, assertPresetsAvailable })
 
   registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
   registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity })
 
-  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf })
+  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, spawnBackoffView, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
 
   registerRosterTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, observeActivity, actorFor, requireTowerActor, interruptRosterAgent })
 
@@ -545,21 +552,21 @@ export function registerTowerTools(ctx, options = {}) {
 
   registerTeardownTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
-  registerDoctorTool(ctx, { openTower, define, createTower })
+  registerDoctorTool(ctx, { openTower, define, createTower, resolveRepo, runtimeConfig, runDoctor })
 
-  registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
 
   registerTestTool(ctx, { openTower, define, actorFor, requireKnownActor, runMissionDiscovery })
 
   registerBatchTool(ctx, { openTower, define, actorFor, requireTowerActor, summarizeBatch, verifyBatchReceiptFiles })
 
-  registerResourceTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerResourceTool(ctx, { openTower, define, actorFor, requireTowerActor, acquireLease, releaseLease, inspectLeases })
 
-  registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot })
 
-  registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor })
+  registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor, validateLegacyMap })
 
-  registerReloadTool(ctx, { openTower, define, actorFor, requireTowerActor, sharedHmrBridge: runtimeState.hmrBridge })
+  registerReloadTool(ctx, { openTower, define, actorFor, requireTowerActor, sharedHmrBridge: runtimeState.hmrBridge, runtimeConfig, createHmrBridge })
 }
 
 export const __testSpawnBackoff = {

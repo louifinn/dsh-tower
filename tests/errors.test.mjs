@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { classifyError } from '../domain/errors.js'
-import { GitError } from '../lib/git.js'
+import { GitError } from '../adapters/git.js'
 
 test('classifyError: structured TowerToolError is passed through', async () => {
   const { TowerToolError } = await import('../domain/errors.js')
@@ -39,7 +39,7 @@ test('classifyError: prose alone no longer classifies', () => {
 })
 
 test('spawn backoff: three retryable failures trigger cooldown and success restores budget', async () => {
-  const { __testSpawnBackoff: backoff } = await import('../lib/tool-registry.js')
+  const { __testSpawnBackoff: backoff } = await import('../host/tool-registry.js')
   const key = 'C:/tmp/backoff-test'
   backoff.spawnBackoffState(key, 4)
   for (let i = 0; i < 3; i += 1) backoff.recordSpawnThrottle(key, 4)
@@ -66,7 +66,14 @@ test('every TowerToolError literal uses a catalog code', async () => {
   const { fileURLToPath } = await import('node:url')
   const { isErrorCode } = await import('../domain/errors.js')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const files = ['index.js', ...fs.readdirSync(path.join(root, 'lib')).filter((name) => name.endsWith('.js')).map((name) => `lib/${name}`)]
+  // #70: the retired lib/ layer is gone; scan every source root instead.
+  const walk = (dir) =>
+    fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
+      const rel = `${dir}/${entry.name}`
+      if (entry.isDirectory()) return walk(rel)
+      return entry.name.endsWith('.js') ? [rel] : []
+    })
+  const files = ['index.js', ...['host', 'app', 'domain', 'tools', 'adapters', 'ports'].flatMap(walk)]
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), 'utf8')
     for (const match of text.matchAll(/new TowerToolError\('([^']+)'/g)) {

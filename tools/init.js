@@ -1,17 +1,15 @@
 // tower_init: repository initialization.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { resolveRepo } from '../lib/git.js'
-import { runtimeConfig } from '../lib/config.js'
 import { InitInput } from '../domain/contracts/tool-inputs/index.js'
 import { isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, workspaceHook: any, ensureRepository: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, workspaceHook: any, ensureRepository: any, resolveRepo: any, runtimeConfig: any }} deps
  */
 export function registerInitTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor, workspaceHook, ensureRepository } = deps
+  const { define, actorFor, requireTowerActor, workspaceHook, ensureRepository, resolveRepo, runtimeConfig } = deps
   define(ctx, {
     name: 'tower_init',
     description:

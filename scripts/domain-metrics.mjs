@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const SOURCE_ROOTS = ['domain', 'app', 'tools', 'adapters', 'lib']
+const SOURCE_ROOTS = ['domain', 'app', 'tools', 'adapters', 'host']
 const ENTRY_FILES = ['index.js', 'worker.js', 'reviewer.js', 'skills.js']
 const PURE_ROOTS = ['domain']
 

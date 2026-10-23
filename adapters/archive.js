@@ -12,7 +12,7 @@
 // mission id, so a crash between the two files is recoverable on the next
 // mutation instead of losing a mission.
 import path from 'node:path'
-import { fsp } from '../adapters/store-fs.js'
+import { fsp } from './store-fs.js'
 import {
   ARCHIVE_VERSION,
   archiveDocumentError,

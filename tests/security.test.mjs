@@ -7,10 +7,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../lib/tool-registry.js'
-import { Tower } from '../lib/tower.js'
-import { testProcessEnv } from '../lib/tests.js'
-import { gitEnv } from '../lib/git.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { Tower } from '../host/tower.js'
+import { testProcessEnv } from '../adapters/tests.js'
+import { gitEnv } from '../adapters/git.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

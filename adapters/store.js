@@ -1,7 +1,7 @@
 import { TowerToolError } from '../domain/errors.js'
 // Durable repo-scoped store: exclusive lock + atomic JSON + append-only activity.
 // The atomic/lock/JSON primitives are shared with the mode store (#56 P2b).
-import { fsp } from '../adapters/store-fs.js'
+import { fsp } from './store-fs.js'
 import {
   PROCESS_STARTED_AT,
   acquireLock,

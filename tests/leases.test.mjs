@@ -14,7 +14,7 @@ import {
   leasesLockPath,
   leasesPath,
   releaseLease,
-} from '../lib/leases.js'
+} from '../adapters/leases.js'
 
 function tempCommonDir(prefix = 'dsh-tower-leases-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))

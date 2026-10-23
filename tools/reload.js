@@ -1,16 +1,14 @@
 // tower_reload: dev-only HMR reload request.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
-import { runtimeConfig } from '../lib/config.js'
-import { createHmrBridge } from '../lib/hmr.js'
 import { ReloadInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, sharedHmrBridge: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, sharedHmrBridge: any, runtimeConfig: any, createHmrBridge: any }} deps
  */
 export function registerReloadTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor, sharedHmrBridge } = deps
+  const { define, actorFor, requireTowerActor, sharedHmrBridge, runtimeConfig, createHmrBridge } = deps
   // Dev-only hot reload. The tool is registered whenever dev.hotReload is on;
   // it reports reload-unavailable when the profile has no HMR service. When the
   // Host passed a shared bridge, its status() reflects the command's reloads too.

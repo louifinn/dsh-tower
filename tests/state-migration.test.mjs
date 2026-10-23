@@ -16,13 +16,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { Tower } from '../lib/tower.js'
+import { Tower } from '../host/tower.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { inspectStateVersion, prepareState, validateState } from '../domain/state.js'
 import { STATE_MIGRATIONS } from '../domain/state/migrations.js'
-import { registerTowerTools } from '../lib/tool-registry.js'
-import * as store from '../lib/store.js'
-import { loadStateFile } from '../lib/stateFile.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import * as store from '../adapters/store.js'
+import { loadStateFile } from '../adapters/stateFile.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()

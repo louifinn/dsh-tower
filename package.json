@@ -41,7 +41,7 @@
     "reviewer.js",
     "skills.js",
     "skills/",
-    "lib/*.js",
+    "host/*.js",
     "domain/**/*.js",
     "app/*.js",
     "tools/*.js",

@@ -23,8 +23,8 @@ test('no child row can be toggled independently of the group', () => {
 })
 
 test('reload required ids include the bundle group', async () => {
-  const { DEFAULT_REQUIRED_IDS } = await import('../lib/hmr.js')
+  const { DEFAULT_REQUIRED_IDS } = await import('../host/hmr.js')
   assert.ok(DEFAULT_REQUIRED_IDS.includes('tower-bundle'))
-  const { runtimeConfig } = await import('../lib/config.js')
+  const { runtimeConfig } = await import('../host/config.js')
   assert.ok(runtimeConfig().dev.reloadRequiredIds.includes('tower-bundle'))
 })

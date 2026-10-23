@@ -19,10 +19,10 @@ import { TowerToolError } from '../domain/errors.js'
 //   minCount/required shortfall) returns `ok: false` in the receipt;
 // - an invalid discovery configuration (or invalid call arguments) throws a
 //   plain `Error`, which the tool layer wraps as `tower:invalid-argument`.
-import { spawn } from '../adapters/vcs-git.js'
-import { createWriteStream } from '../adapters/store-fs.js'
+import { spawn } from './vcs-git.js'
+import { createWriteStream } from './store-fs.js'
 import crypto from 'node:crypto'
-import { fsp } from '../adapters/store-fs.js'
+import { fsp } from './store-fs.js'
 import path from 'node:path'
 
 import { tryGit } from './git.js'
@@ -279,7 +279,9 @@ const TEST_ENV_ALLOW = new Set([
   'NODE_PATH',
 ])
 
+/** @returns {NodeJS.ProcessEnv} */
 export function testProcessEnv(source = process.env) {
+  /** @type {NodeJS.ProcessEnv} */
   const env = {}
   for (const [key, value] of Object.entries(source)) {
     if (!TEST_ENV_ALLOW.has(key)) continue
@@ -340,7 +342,8 @@ function closeStreams(streams) {
   return Promise.all(
     streams.map(
       (stream) =>
-        new Promise((resolve) => {
+        /** @type {Promise<void>} */
+        (new Promise((resolve) => {
           if (stream.closed || stream.destroyed) {
             resolve()
             return
@@ -348,7 +351,7 @@ function closeStreams(streams) {
           stream.once('close', resolve)
           stream.once('error', resolve)
           stream.end()
-        }),
+        })),
     ),
   )
 }
@@ -367,6 +370,7 @@ function spawnToFiles({ command, cwd, timeoutMs, maxBytes, stdoutPath, stderrPat
 
   return new Promise((resolve) => {
     let settled = false
+    /** @type {import('node:child_process').ChildProcess | null} */
     let child = null
     let timer = null
     let stdoutBytes = 0

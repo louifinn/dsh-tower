@@ -1,17 +1,14 @@
 // tower_doctor: read-only health check.
-import { resolveRepo } from '../lib/git.js'
-import { runtimeConfig } from '../lib/config.js'
-import { runDoctor } from '../lib/doctor.js'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { DoctorInput } from '../domain/contracts/tool-inputs/index.js'
 import { DOCTOR_STATUS } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, createTower: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, createTower: any, resolveRepo: any, runtimeConfig: any, runDoctor: any }} deps
  */
 export function registerDoctorTool(ctx, deps) {
-  const { define, createTower } = deps
+  const { define, createTower, resolveRepo, runtimeConfig, runDoctor } = deps
   define(ctx, {
     name: 'tower_doctor',
     description:

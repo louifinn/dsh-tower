@@ -12,8 +12,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { Tower } from '../app/tower.js'
-import * as archive from '../lib/archive.js'
-import { loadStateFile } from '../lib/stateFile.js'
+import * as archive from '../adapters/archive.js'
+import { loadStateFile } from '../adapters/stateFile.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
 
