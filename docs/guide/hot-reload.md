@@ -26,8 +26,8 @@ This page covers the development loop. It is not required to use Tower.
   `plugin_manager`); it compares already-loaded modules with disk and replaces the changed ones even
   with `root: []`. Watching only makes that happen automatically after a save.
 - HMR is only mounted for profile boots (`disabled` when there is no `profileContext`). A process
-  booted without a profile reports reload as unavailable (`tower_reload` stays registered while
-  `dev.hotReload` is on, so the tool returns `reload-unavailable` instead of disappearing).
+  booted without a profile reports reload as unavailable (`tower_reload` stays registered while the
+  `tower-hmr` component row is on, so the tool returns `reload-unavailable` instead of disappearing).
 - The profile patch layer is loaded when DSH boots. Editing it — in practice the hmr `root` list —
   takes effect after **one DSH restart**. Nothing in the running process re-reads the HMR row's own
   configuration.
@@ -99,9 +99,9 @@ The bridge behind the tool follows the `dev` config group:
 
 | Config key | Meaning |
 |---|---|
-| `dev.hotReload` | Register `tower_reload`; `/tower reload` is disabled when off (default `true`). Without the HMR service the tool is still registered so it can return `reload-unavailable`. |
+| `tower-hmr` (component row) | The switch: on registers `tower_reload` and `/tower reload`, off reports "disabled by component tower-hmr". The row ships off; enable it from the plugin page for a linked dev profile. `dev.hotReload` was removed in 2.4.0 and is now an unknown key. |
 | `dev.reloadDelayMs` | Delay before the scheduled reconciliation runs, in milliseconds (default `50`), so the tool/command result reaches the model before the plugin is replaced. |
-| `dev.reloadRequiredIds` | Loader entry ids the profile must keep active (default `tower-bundle`, `tower`, `tower-skills`, `preset-tower-worker`, `preset-tower-reviewer`). An inactive required entry is reported as a reload failure even if it was already inactive. |
+| `dev.reloadRequiredIds` | Loader entry ids the profile must keep active (default `tower`, `tower-host`, `preset-tower-worker`). An inactive required entry is reported as a reload failure even if it was already inactive. Optional capability rows are deliberately not required, so a row switched off is not a reload failure. |
 
 A reload is **scheduled, not awaited**: `/tower reload` and `tower_reload` return immediately with
 `scheduled`, `delayMs`, `requiredIds` (and the current `lastError` when one is pending), then HMR

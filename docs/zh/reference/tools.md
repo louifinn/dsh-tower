@@ -4,9 +4,11 @@
 
 所有工具都接受 `repoRoot`（目标 Git 仓库内的绝对路径）并返回 JSON。
 本构建最多 29 个工具：下列 19 个核心仓库工具（含 `tower_interrupt`）、`tower_mode`、默认注册的
-`tower_control`（设 `mode.allowAgentControl:false` 可禁用）、`dev.hotReload` 开启时注册的
-`tower_reload`，以及 2.1 的验证/运维工具 `tower_doctor`、`tower_recover`、`tower_test`、`tower_batch`、
-`tower_resource`、`tower_import_legacy`、`tower_legacy_map`。
+`tower_control`（设 `mode.allowAgentControl:false` 可禁用）、始终注册的 `tower_doctor` 与
+`tower_recover`（#122），以及由组件行拥有的 `tower_reload`（`tower-hmr`）、`tower_test`
+（`tower-tests`）、`tower_batch`（`tower-batch`）、`tower_resource`（`tower-leases`）、
+`tower_import_legacy` / `tower_legacy_map`（`tower-import`）。关闭某个组件行只会移除它的工具；
+`tower_status` 与 `tower_doctor` 会以 “disabled by component <id>” 报告。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、
@@ -52,7 +54,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
 | `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
 | `tower_control` | `action`（`enter`/`exit`）、`reason` | 模型主动切换模式；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
-| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`dev.hotReload` 开启时注册；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
+| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
 | `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。从不写状态。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |

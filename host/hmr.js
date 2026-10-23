@@ -20,13 +20,11 @@
 //   one, so a tool-triggered reload is safe.
 import { TowerToolError } from '../domain/errors.js'
 
-/** Entry ids Tower expects to be active after a reconciliation. */
+/** Entry ids Tower expects to be active after a reconciliation (#121 rows). */
 export const DEFAULT_REQUIRED_IDS = Object.freeze([
-  'tower-bundle',
   'tower',
-  'tower-skills',
+  'tower-host',
   'preset-tower-worker',
-  'preset-tower-reviewer',
 ])
 
 /** Debounce window for the dev hot-reload hook (milliseconds). */

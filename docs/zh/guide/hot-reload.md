@@ -26,7 +26,7 @@ Tower 是 Host 插件：它的工具与提示段落在 DSH 启动时加载。DSH
 - 仍然可以显式请求对账（`/tower reload`、`tower_reload` 或 `plugin_manager`）；即使 `root: []`，
   它也会比较已加载模块与磁盘，并替换发生变化的模块。监视只是让保存后自动触发这次对账。
 - HMR 只为 profile 启动挂载（没有 `profileContext` 时 `disabled`）。没有 profile 启动的进程会报告
-  reload 不可用（`dev.hotReload` 开启时 `tower_reload` 仍注册，因此返回 `reload-unavailable`，
+  reload 不可用（`tower-hmr` 组件行开启时 `tower_reload` 仍注册，因此返回 `reload-unavailable`，
   而不是消失）。
 - profile patch 层在 DSH 启动时加载。编辑它——实际就是 hmr 的 `root` 列表——需要**重启一次 DSH**
   才生效。运行中的进程不会重新读取 HMR 行自身的配置。
@@ -95,9 +95,9 @@ Windows 上通常是 `C:\Users\<you>\.dsh`）：
 
 | 配置键 | 含义 |
 |---|---|
-| `dev.hotReload` | 注册 `tower_reload`；关闭时 `/tower reload` 也被禁用（默认 `true`）。无 HMR 服务时工具仍注册，以便返回 `reload-unavailable`。 |
+| `tower-hmr`（组件行） | 开关本体：开启时注册 `tower_reload` 与 `/tower reload`，关闭时报告“disabled by component tower-hmr”。该行随包关闭；联动开发 profile 在插件页启用它。`dev.hotReload` 已在 2.4.0 移除，现在会作为未知键被拒绝。 |
 | `dev.reloadDelayMs` | 计划中的对账运行前的延迟，单位毫秒（默认 `50`），让工具/命令结果先送达模型，再替换插件。 |
-| `dev.reloadRequiredIds` | profile 必须保持活跃的 Loader 条目 id（默认 `tower-bundle`、`tower`、`tower-skills`、`preset-tower-worker`、`preset-tower-reviewer`）。即使某个 required 条目早已处于非活跃状态，也会被报告为重载失败。 |
+| `dev.reloadRequiredIds` | profile 必须保持活跃的 Loader 条目 id（默认 `tower`、`tower-host`、`preset-tower-worker`）。即使某个 required 条目早已处于非活跃状态，也会被报告为重载失败。可选能力行刻意不在 required 中，因此关闭某一行不会被误报为 reload 失败。 |
 
 重载是**调度而非等待**：`/tower reload` 与 `tower_reload` 立即返回 `scheduled`、`delayMs`、
 `requiredIds`（以及存在待处理错误时的 `lastError`），随后 HMR 在延迟后对账 profile。这是有意为之——

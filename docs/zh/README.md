@@ -19,7 +19,7 @@
   时如何处理活跃的 plan mode。
 - **可观察性**：成功的工具调用发出进程内 [Tower 事件](reference/events.md)；稳定
   [工具错误码](reference/errors.md) 与 [blocker code](reference/blockers.md) 可被程序匹配。
-- **工具面**：本构建最多 28 个工具（含可选的 `tower_control` 与 `tower_reload`）；详见
+- **工具面**：本构建最多 29 个工具（含可选的 `tower_control` 与 `tower_reload`）；详见
   [工具参考](reference/tools.md)。
 
 ## 选择阅读路径

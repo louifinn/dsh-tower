@@ -3,9 +3,12 @@
 // the short system-prompt sections stay authoritative for safety rules.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { holdComponent } from './host/capability-registry.js'
 
 export const name = 'dsh-tower/skills'
-export const inject = ['skills']
+// #121: an optional capability row still depends on the host service, so a
+// composition with the host group off cannot leave an orphan skill provider.
+export const inject = ['skills', 'tower']
 
 const ASSETS = fileURLToPath(new URL('./skills/', import.meta.url))
 
@@ -59,5 +62,9 @@ const provider = {
 }
 
 export function apply(ctx) {
+  // #121: tower-skills is an optional component row. Registering here is what
+  // lets tower_status/tower_doctor report "disabled by component tower-skills"
+  // when the row is off instead of leaving the missing catalog unexplained.
+  holdComponent(ctx, 'tower-skills')
   ctx.skills.registerProvider(() => provider)
 }

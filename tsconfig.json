@@ -16,16 +16,17 @@
   },
   "include": [
     "types/**/*.d.ts",
+    "host/**/*.js",
+    "tools/**/*.js",
+    "adapters/**/*.js",
+    "app/**/*.js",
     "domain/**/*.js",
+    "ports/**/*.js",
+    "index.js",
+    "worker.js",
+    "reviewer.js",
+    "skills.js",
     "tests/type-contracts.ts",
-    "app/*.js",
-    "tools/plan.js",
-    "tools/*.js",
-    "adapters/*.js",
-    "host/config.js",
     "tests/tool-schema-types.ts"
-  ],
-  "exclude": [
-    "tools/index.js"
   ]
 }

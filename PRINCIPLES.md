@@ -135,6 +135,24 @@ without a test path, and a postmortem that names the cause but not the proof.
 Enforced by: `docs/operations/incident.md`, `scripts/regression-audit.mjs`, and
 `tests/regression-audit.test.mjs`; gate: `npm run audit:regressions`.
 
+## 11. Optional capabilities are switches; the core is not
+
+A component may exist only for a capability whose off state leaves the rest of the
+product intact. Every capability that qualifies gets a component, so the user can
+control it. Every capability that does not — the host, the health contract, the
+recovery escape, the review contract, the merge gates — is configuration or code,
+never a switch: not as a row, and not as a boolean that removes it.
+
+Refused because of this: a single all-or-nothing switch offered as "simpler"; a
+disableable `tower_doctor`/`tower_recover`; a core feature exposed as a toggle; a
+component whose off state is worse than uninstalling the plugin.
+
+Enforced by: `scripts/check-components.mjs` (locale coverage, the
+forbidden-to-disable denylist and the generated component reference),
+`scripts/surface-baseline.mjs` (the component count is a baselined surface),
+`docs/adr/0005-component-surface.md`, and `tests/components.test.mjs`; gate:
+`npm run docs:check:components`.
+
 ## Non-goals
 
 This file is not a governance process: there is no RFC queue, no architecture

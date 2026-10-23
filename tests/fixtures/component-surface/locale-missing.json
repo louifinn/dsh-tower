@@ -1,0 +1,47 @@
+{
+  "surface": {
+    "schema": 1,
+    "date": "2026-10-23",
+    "adr": "docs/adr/0005-component-surface.md",
+    "classes": {
+      "core": "Removing it breaks the Tower contract. It is never a switch.",
+      "optional-component": "A capability whose off state leaves the rest of Tower intact.",
+      "optional-config": "A tuning knob, not a capability.",
+      "forbidden-to-disable": "The host, health, recovery, review contract and merge gates."
+    },
+    "components": [
+      {
+        "id": "tower-bundle",
+        "scope": "visible",
+        "kind": "group",
+        "fallback": "Off equals uninstalling."
+      }
+    ],
+    "keys": [
+      {
+        "name": "mode.workspaceLock",
+        "class": "core",
+        "note": "Safety contract; never a switch."
+      }
+    ]
+  },
+  "locales": {
+    "locale/en.json": {
+      "components": {
+        "tower-bundle": {
+          "title": "Tower",
+          "summary": "Mission planning and merge gates.",
+          "disables": "Turns off the whole Tower bundle."
+        }
+      }
+    },
+    "locale/zh.json": {
+      "components": {
+        "tower-bundle": {
+          "title": "Tower 控制塔",
+          "summary": "任务规划与合并门禁。"
+        }
+      }
+    }
+  }
+}

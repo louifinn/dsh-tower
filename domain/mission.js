@@ -12,7 +12,18 @@ export const MISSION_STATUSES = ['planned', 'active', 'completed', 'blocked', 'p
 export const SCHEMA_VERSION = 3
 /** @type {readonly MergeVerdict[]} */
 export const MERGE_VERDICTS = ['merge', 'fix-then-merge', 'hold']
-export const REVIEW_STATUS_RE = /^(clean|p1-\d+items|p2-\d+items)$/
+// #115: the review status vocabulary is one runtime source. The validator
+// accepts any positive item count (`p1-7items`), while the published
+// `ReviewStatus` type is generated from REVIEW_STATUS_ITEMS, which fixes the
+// documented 1..5 range so a consumer sees a closed union.
+export const REVIEW_STATUS_PRIORITIES = ['p1', 'p2']
+export const REVIEW_STATUS_ITEMS = [1, 2, 3, 4, 5]
+/** @type {readonly string[]} */
+export const REVIEW_STATUSES = [
+  'clean',
+  ...REVIEW_STATUS_PRIORITIES.flatMap((priority) => REVIEW_STATUS_ITEMS.map((count) => `${priority}-${count}items`)),
+]
+export const REVIEW_STATUS_RE = new RegExp(`^(?:clean|(?:${REVIEW_STATUS_PRIORITIES.join('|')})-\\d+items)$`)
 /** @type {ReadonlySet<string>} */
 export const TERMINAL_STATUSES = new Set(['merged', 'abandoned'])
 /** @type {readonly FindingType[]} */

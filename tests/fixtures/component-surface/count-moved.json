@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "schema": 1,
+    "date": "2026-10-23",
+    "surfaces": {
+      "configKeys": {
+        "seed": 64,
+        "value": 64,
+        "decisions": []
+      },
+      "sections": {
+        "seed": 15,
+        "value": 15,
+        "decisions": []
+      },
+      "tools": {
+        "seed": 29,
+        "value": 29,
+        "decisions": []
+      },
+      "components": {
+        "seed": 1,
+        "value": 1,
+        "decisions": []
+      }
+    }
+  },
+  "live": ["tower-bundle", "tower-skills"]
+}

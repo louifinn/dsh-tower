@@ -127,19 +127,26 @@ tower_teardown  repoRoot=D:\work\repo
 
 ## 组件模型
 
-本 bundle 采用 **all-or-nothing**：`cordis.patch.yml` 只插入一个 `tower-bundle`
-`cordis:group` 行，Host 插件、skills、worker/reviewer preset 都是它的内部 section。插件页只应把
-这个 group 当作一个组件；关闭它时四个 section 一起关闭，不会留下指向已消失 `tower_*` 工具的
-orphan preset/skill。不要再把子行单独启停。
+本 bundle 采用 **强制 host 锚点 + 可单独启停的可选行**（#121）：`cordis.patch.yml` 插入顶层
+`tower` group（挂载 Host 插件与强制的 `preset-tower-worker`），随后是可选组件 `tower-skills`、
+`tower-batch`、`tower-import`、`tower-leases`、`tower-tests`、`tower-hmr`（随包关闭）与
+`preset-tower-reviewer`。在插件页关闭某一行，只会移除该能力；模式、规划工具、`tower_status`
+与其余工具继续工作。
 
-进入 Tower 模式与 `tower_plan` 前会校验两个 preset 是否已注册；缺失时直接以 `preset-missing`
-拒绝（并在消息中点名 `preset-tower-worker` / `preset-tower-reviewer`），不会先完成规划/派发再在
-review/merge 阶段死锁。
+进入 Tower 模式与 `tower_plan` 前会校验必需的 preset。worker preset 是强制依赖；reviewer
+preset 只在 `review.requireReview` 为 true 时必需，因此审查可选时允许关闭 reviewer 行，强制审查
+开启时会以带解释的 `preset-missing` 锁定。`tower-tests` 关闭且 `gates.requireTests:true` 时同样
+拒绝。`tower_doctor` 与 `tower_recover` 不是组件、也没有配置键：任何配置都会注册它们（#122）。
+
+原则 11（[PRINCIPLES.md](PRINCIPLES.md)）与
+[ADR 0005](docs/adr/0005-component-surface.md) 要求：只有关闭后仍不破坏其余能力的 capability
+才能成为组件；host、健康检查、恢复通道、审查契约与合并门禁永远不是开关。逐键答案见生成的
+[组件表面](docs/reference/component-surface.md)，由 `npm run docs:check:components` 强制。
 
 ## 配置
 
 ```yaml
-- id: tower
+- id: tower-host
   name: 'dsh-tower'
   config:
     section: '（可选，兼容别名）覆盖 Tower 模式系统提示文案'
@@ -164,13 +171,13 @@ review/merge 阶段死锁。
 - 代码中 `mode.allowAgentControl` 默认 `true`；随包 `cordis.patch.yml` 也显式设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 15s。
 - `/tower base <branch>` 可设置会话级 init base 偏好；`/tower on` 会清除活跃 plan mode（`mode.planModePolicy:"refuse"` 则拒绝进入），保证 plan/tower 互斥。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
-- 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知顶层键会被拒绝（防止拼写错误静默失效），嵌套分组内的未知键会被忽略。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
+- 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（27 个核心）
+## 工具（29 个：22 个核心 + 7 个可选）
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
 
-`tower_control` 默认注册（`allowAgentControl:true`）；设为 `false` 可禁用；`tower_reload` 在 `dev.hotReload`（默认 true）时注册，无 HMR 服务调用会返回 `reload-unavailable`（因此最多 29 个工具）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+上面列出的是 22 个核心工具加 5 个由组件行拥有的可选工具。`tower_control` 是第 6 个可选工具，默认注册（`allowAgentControl:true`）；设为 `false` 可禁用。`tower_reload` 是第 7 个，仅在 `tower-hmr` 组件行开启时注册（随包关闭），无 HMR 服务调用会返回 `reload-unavailable`（因此最多 29 个工具：22 个核心 + 7 个可选）。`tower_doctor` 与 `tower_recover` 属于核心：任何配置都会注册它们（#122）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
@@ -199,7 +206,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 
 | 路径 | 内容 |
 |---|---|
-| `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（单个 `tower-bundle` group，内含 Host、skills 与两个 preset） |
+| `package.json`、`cordis.patch.yml` | bundle 清单与 loader patch（强制 `tower` host group + 可选能力行） |
 | `index.js`、`host/`、`adapters/`、`app/`、`domain/`、`ports/`、`tools/`、`worker.js` | Host 入口；`domain/` 纯核心；`ports/` 契约；`adapters/` 唯一 I/O；`app/` 用例；`host/` 组合根与会话胶水；`tools/` 每工具一个 handler；worker preset 策略 |
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
@@ -222,7 +229,7 @@ npm test        # node --test tests/*.test.mjs
 
 | Job | 声明 | 证据 |
 |---|---|---|
-| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、四个 `docs:check:generated*`、`pack:check`、`architecture:check`、`types:check`、`domain:check` |
+| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、五个 `docs:check:generated*`（含生成的类型词汇表）、`pack:check`、`architecture:check`、`types:coverage`、`types:strict:check`、`types:check`、`domain:check` |
 | `test (22, windows)`（`windows-latest`，非必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
 | `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
 | `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |
@@ -236,7 +243,7 @@ live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，�
 
 `tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 
-`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：29 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令，以及唯一一个顶层 `tower-bundle` group 行（#66）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
+`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 28 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`，减去因 `tower-hmr` 随包关闭而不注册的 `tower_reload`；所有可选能力行全开时为 29 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
 host build 只固定在一个地方：`scripts/mount-smoke/host.json`，`COMPATIBILITY.md` 最新一行由单元测试强制与它一致，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
 

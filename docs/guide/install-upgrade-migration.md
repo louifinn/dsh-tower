@@ -45,6 +45,19 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   overlapping and case-only mismatches are no longer refused by the out-of-scope gate. Stored scope
   strings are never rewritten: the board keeps showing what the operator typed.
 
+- **2.3.0 → 2.4.0 (unreleased)**: the single `tower-bundle` group row is gone. `cordis.patch.yml`
+  now ships the mandatory `tower` host anchor (the Host plugin and the worker preset are its internal
+  sections) plus individually switchable top-level rows: `tower-skills`, `tower-batch`, `tower-import`,
+  `tower-leases`, `tower-tests`, `tower-hmr` (shipped off) and `preset-tower-reviewer` (conditional on
+  `review.requireReview`). The `tools` config group and `dev.hotReload` were removed: a profile that
+  still carries them is now rejected as an unknown key (`config-unknown-key`) and the host stops
+  mounting until they are deleted, so no silent no-op switch remains. Move each capability to its row
+  in the plugin page instead; `tower-hmr` ships off, so `tower_reload` and `/tower reload` are reported
+  as "disabled by component tower-hmr" until you enable it for a linked dev profile. `tower_doctor` and
+  `tower_recover` are registered for every configuration and need no key. The reviewer row may be off
+  only while `review.requireReview` is false; with the gate on, planning and mode entry refuse the
+  combination with an explanatory error. No state migration is needed.
+
 - **2.0.4 → 2.1.0-beta.1**: no config migration; the state file migrates automatically (v1/v2 → v3) as
   described above. This is a **pre-release** published on the
   `next` dist-tag, so `latest` still resolves to 2.0.4 — install it with

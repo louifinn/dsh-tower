@@ -1,0 +1,11 @@
+// F11 fixture: the operational-registry parser must tolerate a trailing comma
+// in the tuple form and must detect routes written with `OPERATIONAL_TOOLS.set`.
+const OPERATIONAL_TOOLS = new Map([
+  ['tower_batch', 'exposeBatch',],
+  [
+    'tower_test',
+    'exposeTests',
+  ],
+])
+OPERATIONAL_TOOLS.set('tower_merge', 'exposeBatch')
+OPERATIONAL_TOOLS.set("tower_doctor", "exposeDoctor")

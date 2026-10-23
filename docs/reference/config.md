@@ -74,14 +74,14 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `spawn.requireLease` | `''` | Optional lease name that must be held before a worker can spawn. |
 | `send.maxPerMinute` | `120` | Per-repository `tower_send` rate limit (0 disables); exceeding it returns `rate-limited`. |
 | `send.interruptDefault` | `false` (bundled patch: `true`) | Default for `tower_send.interrupt` (interrupt the running turn before delivering). |
-| `tests.enabled` | `true` | Run declared test discovery when the worktree `package.json` configures it. |
+| `tests.enabled` | `true` | Run declared test discovery when the worktree `package.json` configures it. It only tunes the optional `tower-tests` component: with that row off there is no `tower_test` tool and no receipt, and `gates.requireTests:true` is refused rather than silently unmet. |
 | `tests.admission` | `off` | `spawn` runs discovery before starting a worker, `complete` at `tower_complete`, `off` only on explicit `tower_test` (default; repository code is not executed automatically). |
 | `tests.timeoutMs` | `60000` | Per discovery command timeout. |
 | `tests.maxBytes` | `16777216` (16 MiB) | Captured stdout cap per command. |
 | `tests.autoChecks` | `true` | Attach an automatic `tests` check to the completion report. |
 | `tests.allowPackageDiscovery` | `true` | Allow repo-controlled `tower.testDiscovery` commands (executes worktree code; see security). |
 | `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
-| `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. |
+| `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. With the `tower-tests` component row off, planning/mode entry refuse this combination with an explanation. |
 | `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
 | `gates.maxReportBytes` | `32768` (32 KiB) | Hard cap in UTF-8 bytes for `tower_complete.report`. A larger report is rejected with `invalid-argument` and an actionable `nextAction` (file the full text in the mission worktree and reference its path); it is never truncated. Existing larger reports still load. |
 | `docs.board` | `true` | Write `MISSIONS.md` after mutations. |
@@ -89,16 +89,14 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `archive.enabled` | `true` | Move terminal (`merged`/`abandoned`) missions whose worktree is gone into `<git-common-dir>/dsh-tower/archive/` at a mutation boundary. Archived missions keep tasks, reviews, findings and the completion report; they are moved, never deleted. |
 | `archive.afterDays` | `30` | Age trigger: a terminal mission untouched for at least this many days is archived on the next mutation (`0` archives immediately). |
 | `archive.maxMissions` | `100` | Cap trigger: once more than this many terminal missions are hot, the oldest eligible ones are archived until the cap holds (`0` archives every eligible terminal mission). A mission with a live worktree is never archived. |
-| `tools.exposeOperational` | `true` | Register batch/resource/import/legacy/recover/test/doctor tools; `false` shrinks the fixed tool-schema context. |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
-| `dev.hotReload` | `true` | Register `tower_reload`; `/tower reload` is disabled when off. It returns `reload-unavailable` when the profile has no HMR service. |
-| `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. |
-| `dev.reloadRequiredIds` | five Tower loader ids | Entry ids passed to `reconcileProfile` as required. |
+| `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. Tuning inside the optional `tower-hmr` component. |
+| `dev.reloadRequiredIds` | three Tower loader ids | Entry ids passed to `reconcileProfile` as required by the `tower-hmr` component. Optional component rows are deliberately not required. |
 
 ## Example
 
 ```yaml
-- id: tower
+- id: tower-host
   name: 'dsh-tower'
   config:
     mode:
@@ -113,9 +111,13 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
       reviewerModel:
         provider: deepseek-account
         model: deepseek-flash
-    dev:
-      hotReload: true
 ```
+
+The optional capabilities (`tower-skills`, `tower-batch`, `tower-import`,
+`tower-leases`, `tower-tests`, `tower-hmr`, `preset-tower-reviewer`) are switched
+from the plugin page, not from a config key. The keys that used to switch them
+(`tools.expose*`, `dev.hotReload`) were removed in 2.4.0 and are rejected as
+unknown keys.
 
 ## Looking up the effective schema
 

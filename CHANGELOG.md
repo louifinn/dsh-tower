@@ -4,6 +4,40 @@
 
 ## 未发布（Unreleased）
 
+## 2.4.0（2026-10-24）
+
+### 新增
+
+- **#121 可选能力回到组件**：一个 `tower-bundle` 组拆成强制 `tower` 宿主 + 可独立开关的顶层行
+  （`tower-skills`/`tower-batch`/`tower-import`/`tower-leases`/`tower-tests`/`tower-hmr` 默认关/
+  `preset-tower-reviewer` 依 `review.requireReview` 条件存在）；新增 `./batch`/`./import`/`./leases`/
+  `./tests`/`./hmr` 导出，每个入口只注册自己的能力；8 个可见组件的 title/summary/disables 双语覆盖；
+  任一可选行关闭后 Tower 仍可用（模式、规划、状态、其余工具），缺失能力在 status/doctor 中以
+  “disabled by component <id>” 呈现。
+- **#120 组件面政策载体**：`PRINCIPLES.md` 第 11 条（“optional capabilities are switches; the core is not”）、
+  ADR 0005、64 键的组件轴分类（core / optional-component / optional-config / forbidden-to-disable，由
+  `scripts/component-surface.json` 单一来源生成）、`check-components`（locale 覆盖、forbidden-to-disable
+  denylist、组件计数 baseline）与 `components` 基线；组件面 4→1→8 的变化以带日期的 decision 记录。
+- **#115 类型面完整性**：`types:coverage` 从 `package.json files` 与 `tsc --listFiles` 派生检查程序
+  （146/146 运行时 .js 全覆盖，旧配置下可复现 19 个漏检）；tsconfig 改为 glob；`types:generate` 从运行时常量
+  生成发布词汇（ErrorCode/状态/角色等）并纳入 `--check`，修掉 8 个幽灵码与 4 个缺失码；
+  `tsconfig.strict.json`（noImplicitAny）以显式文件清单起步，manifest 禁止清单收缩。
+- **#118 surface 计数覆盖完整工具面**：`tower_doctor`/生成参考/`docs:check`/`surface:check` 统一为
+  29 个工具面（默认装配 28，tower-hmr 关闭时少 `tower_reload`），直接注册的 `tower_mode`/`tower_control`
+  也进入刹车；baseline 以 correction 记录 27→29。
+
+### 变更
+
+- **#122 安全网永不可关**：`tower_doctor`/`tower_recover` 在任何配置下都注册；删除
+  `tools.exposeDoctor`/`exposeRecovery`/`exposeOperational` 与整个 `tools` 组、`dev.hotReload`；
+  旧配置作为未知键被拒绝并停止挂载（升级指南 en/zh 已记录迁移）。
+- 配置面从 64 键/15 节收缩为 56 键/14 节；生成的 config/tools/component-surface 参考同步更新。
+
+### 修复
+
+- **F11/F9**：`operationalRegistry` 解析容忍 trailing comma 与 `OPERATIONAL_TOOLS.set` 路由；
+  根 README 的工具计数标题修正为 29（20 core + 9 optional）并注明默认装配 28。
+- 真实 `smoke:mount` 在 pinned host `0.2.1-rc.2` 上通过（默认 28/28），required `mount` CI 上下文保持绿。
 ## 2.3.0（2026-10-23）
 
 ### 新增

@@ -104,7 +104,7 @@ Tower work, and run the host under OS-level isolation.
   cannot make those safe; review hooks before running Tower on an untrusted repository.
 - **Package test commands.** Declared discovery commands have the same trust as repository hooks; a
   malicious `package.json` can run code. Disable `tests.allowPackageDiscovery` and review the file.
-- **HMR reload.** With `dev.hotReload`, `/tower reload`/`tower_reload` asks DSH to re-import the plugin
+- **HMR reload.** With the `tower-hmr` component row on, `/tower reload`/`tower_reload` asks DSH to re-import the plugin
   from disk. Only enable HMR watch roots for checkouts you trust; a reload executes the current files.
 - **Prompt injection.** The reviewer reads untrusted branch content (diff/comments). The read-only preset
   limits impact, but no model-side protection is absolute.

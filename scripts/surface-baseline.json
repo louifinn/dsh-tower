@@ -4,18 +4,49 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 64,
+      "value": 56,
       "decisions": []
     },
     "sections": {
       "seed": 15,
-      "value": 15,
+      "value": 14,
       "decisions": []
     },
     "tools": {
       "seed": 27,
-      "value": 27,
-      "decisions": []
+      "value": 29,
+      "decisions": [
+        {
+          "from": 27,
+          "to": 29,
+          "date": "2026-10-23",
+          "correction": {
+            "reason": "Measurement correction, not surface growth: the 2.3.0 baseline recorded only define()-registered tools. tower_mode and tower_control are registered directly by index.js, so the shipped surface was always 29 (#118). The recorder in host/tool-registry.js now covers both paths.",
+            "date": "2026-10-23",
+            "ref": "docs/adr/0004-surface-budget.md"
+          }
+        }
+      ]
+    },
+    "components": {
+      "seed": 4,
+      "value": 8,
+      "decisions": [
+        {
+          "from": 4,
+          "to": 1,
+          "date": "2026-10-23",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "The component surface joins the budget with its history. 2.0.4 shipped four top-level rows (tower, tower-skills, preset-tower-worker, preset-tower-reviewer); 2.3.0 replaced them with one tower-bundle group row that still mounts the same four sections. This is a recorded contraction, not a free ratchet: the seed stays at 4 so any further move -- including the #121 growth back to individually toggleable optional rows -- must extend this chain with a dated decision."
+        },
+        {
+          "from": 1,
+          "to": 8,
+          "date": "2026-10-23",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "#121 restores the #65 policy from ADR 0005: the one tower-bundle group becomes a mandatory tower host anchor plus seven individually switchable optional rows (tower-skills, tower-batch, tower-import, tower-leases, tower-tests, tower-hmr shipped off, preset-tower-reviewer conditional). The host anchor and preset-tower-worker stay mandatory; tower_doctor and tower_recover stay mandatory with the host (#122), so they are not rows. configKeys and sections shrank in the same wave because the seven tools.expose* keys and dev.hotReload became rows."
+        }
+      ]
     }
   }
 }

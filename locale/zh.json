@@ -4,25 +4,45 @@
     "description": "多代理任务规划、隔离工作树与审查门禁合并。"
   },
   "components": {
-    "tower-bundle": {
+    "tower": {
       "title": "Tower 控制塔",
-      "summary": "任务规划、隔离工作树、执行/审查代理与合并门禁。",
-      "disables": "关闭后整个 Tower 一起停用；不会留下孤立的代理预设或技能。"
+      "summary": "任务规划、隔离工作树、模式守卫、健康契约与恢复逃生口。",
+      "disables": "关闭强制主组件等同于卸载 Tower：不再保留任何工具、preset 或技能。"
     },
     "tower-skills": {
       "title": "Tower 技能包",
       "summary": "执行与审查代理的操作手册，以及失败后的恢复指南。",
-      "disables": "内部 section；随 Tower 整体启停。"
+      "disables": "三个 Tower 技能从目录中移除；执行/审查协议段落与所有 mission 工具继续工作。"
     },
-    "preset-tower-worker": {
-      "title": "Tower 执行代理",
-      "summary": "在独立分支里写代码、跑验证并提交，只改分给它的文件。",
-      "disables": "内部 section；缺失时会在规划/进入模式前被拒绝。"
+    "tower-batch": {
+      "title": "证据批次",
+      "summary": "把 mission 归入有限证据批次，并按必需检查与回执关闭批次。",
+      "disables": "不再注册 tower_batch；mission、门禁与合并不受影响。"
+    },
+    "tower-import": {
+      "title": "旧版导入",
+      "summary": "导入 Tower Codex 旧状态文件，并审计快照到 mission 的映射。",
+      "disables": "不再注册 tower_import_legacy 与 tower_legacy_map；新状态不受影响。"
+    },
+    "tower-leases": {
+      "title": "咨询式租约",
+      "summary": "用咨询式资源租约协调每个仓库中的重型工作。",
+      "disables": "不再注册 tower_resource；其他能力不依赖租约。"
+    },
+    "tower-tests": {
+      "title": "测试发现",
+      "summary": "运行 worktree 声明的测试发现，并为 mission tip 记录回执。",
+      "disables": "不再注册 tower_test，也无法记录回执；若 gates.requireTests:true，规划/进入模式会以解释性错误拒绝。"
+    },
+    "tower-hmr": {
+      "title": "开发热重载",
+      "summary": "为联动开发 profile 注册 tower_reload 与 /tower reload。",
+      "disables": "tower_reload 与 /tower reload 不可用；非 HMR profile 的行为与之前完全相同。随包默认关闭。"
     },
     "preset-tower-reviewer": {
       "title": "Tower 审查代理",
-      "summary": "只读检查改动是否越界、是否达标，给出通过或问题清单。",
-      "disables": "内部 section；缺失且强制审查时会在规划/进入模式前被拒绝。"
+      "summary": "只读独立审查：检查 mission diff、核对范围与验收，给出结论。",
+      "disables": "无法派发审查代理。review.requireReview 为 false 时允许关闭；强制审查开启时规划/进入模式会被锁定并给出解释。"
     }
   }
 }
