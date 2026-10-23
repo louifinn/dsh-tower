@@ -31,7 +31,7 @@ function usage() {
     '  --list          list the live scripts that can be selected',
     '',
     'Environment: DSH_LIVE=1 and DSH_HOME=<fresh directory under os.tmpdir()>.',
-    'Setup:       npm ci --prefix tests/live && npx playwright install chromium',
+    'Setup:       npm ci --prefix tests/live && npx --prefix tests/live playwright install chromium',
   ].join(os.EOL)
 }
 

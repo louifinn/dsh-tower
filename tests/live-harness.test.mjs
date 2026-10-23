@@ -60,6 +60,49 @@ function workflowJob(workflow, id) {
   return lines.slice(start, end).join('\n')
 }
 
+const RUNNER_TEMP = '${{ runner.temp }}'
+const OS_TEMP_ON_UBUNTU = '/tmp'
+
+/**
+ * Parse every flat `env:` mapping in the workflow into a Map of variable ->
+ * value. Only the direct `KEY: value` children of an `env:` key are collected;
+ * a deeper line would be a nested mapping, not an environment variable.
+ */
+function workflowEnvBlocks(workflow) {
+  const lines = workflow.split(/\r?\n/)
+  const blocks = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index].match(/^(\s*)env:\s*$/)
+    if (!header) continue
+    const indent = header[1].length
+    const values = new Map()
+    let childIndent = null
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor]
+      if (line.trim() === '' || /^\s*#/.test(line)) continue
+      const leading = line.match(/^(\s*)/)[1].length
+      if (leading <= indent) break
+      const entry = line.slice(leading).match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/)
+      if (!entry) continue
+      childIndent ??= leading
+      if (leading === childIndent) values.set(entry[1], entry[2].trim())
+    }
+    blocks.push({ line: index + 1, values })
+  }
+  return blocks
+}
+
+/** The job id containing a 1-based workflow line. */
+function jobNameAtLine(workflow, targetLine) {
+  const lines = workflow.split(/\r?\n/)
+  let current = null
+  for (let index = 0; index < targetLine; index += 1) {
+    const match = lines[index].match(/^ {2}([A-Za-z0-9_-]+):\s*$/)
+    if (match) current = match[1]
+  }
+  return current
+}
+
 test('live suite pins Playwright in its own package and lockfile; the root install stays light', () => {
   const livePackage = JSON.parse(readLive('package.json'))
   const pin = livePackage.devDependencies.playwright
@@ -78,6 +121,13 @@ test('live suite pins Playwright in its own package and lockfile; the root insta
     assert.ok(!('playwright' in deps), `root ${section} must not pull Playwright (and its browsers)`)
     assert.ok(!('playwright-core' in deps), `root ${section} must not pull playwright-core`)
   }
+  // The two setup commands must install and run the pinned local Playwright; a
+  // bare `npx playwright` would resolve an unpinned copy from npm.
+  assert.deepEqual(
+    INSTALL_COMMANDS,
+    ['npm ci --prefix tests/live', 'npx --prefix tests/live playwright install chromium'],
+    'the setup hint must match tests/README.md and the nightly CI',
+  )
 })
 
 test('the resolver searches tests/live/node_modules before NODE_PATH, and nothing implicit', () => {
@@ -130,7 +180,8 @@ test('missing Playwright prints the two exact install commands, exits 2, and has
     const stderr = result.stderr
     for (const command of INSTALL_COMMANDS) assert.ok(stderr.includes(command), `message must name ${command}`)
     assert.match(stderr, /npm ci --prefix tests\/live/)
-    assert.match(stderr, /npx playwright install chromium/)
+    assert.match(stderr, /npx --prefix tests\/live playwright install chromium/, 'the hint must name the pinned local CLI')
+    assert.doesNotMatch(stderr, /npx playwright install/, 'a bare npx playwright would bypass the lockfile')
     assert.match(stderr, /npm run test:live/, 'the message must point at the documented entry point')
     assert.doesNotMatch(stderr, /^\s+at .+\)?$/m, 'a missing install is an instruction, not a MODULE_NOT_FOUND stack')
     assert.ok(!stderr.includes('MODULE_NOT_FOUND'), 'the hint must replace MODULE_NOT_FOUND')
@@ -266,6 +317,63 @@ test('CI keeps the offline suite and protocol e2e on push, and moves the live ru
   assert.match(liveJob, /npm run test:live -- --script nightly/)
   assert.doesNotMatch(workflowJob(workflow, 'mount'), /live/, 'the offline mount job stays offline')
 })
+
+test('every live DSH_HOME in the workflow sits under the guard os.tmpdir() contract', () => {
+  // R13 / #47: the workflow used to point DSH_HOME at `${{ runner.temp }}/...`
+  // while the guard requires a strict child of os.tmpdir(). On ubuntu-latest
+  // those are different roots (/home/runner/work/_temp vs /tmp), so both live
+  // steps aborted before running. Parse every `env:` block and assert the
+  // pairing: a runner.temp home needs TMPDIR=${{ runner.temp }} next to it, and
+  // a literal /tmp home may not set TMPDIR to something else.
+  const workflow = read('.github/workflows/test.yml')
+  const homes = workflowEnvBlocks(workflow).filter((block) => block.values.has('DSH_HOME'))
+  assert.ok(homes.length >= 2, 'the push-level check and the nightly live job each declare a DSH_HOME')
+
+  for (const block of homes) {
+    const home = block.values.get('DSH_HOME')
+    const tmpdir = block.values.get('TMPDIR')
+    const label = `workflow DSH_HOME at line ${block.line} (${home})`
+    if (home.startsWith(`${RUNNER_TEMP}/`)) {
+      // os.tmpdir() reads TMPDIR on the Ubuntu runner, so both names must agree.
+      assert.equal(tmpdir, RUNNER_TEMP, `${label}: set "TMPDIR: ${RUNNER_TEMP}" next to DSH_HOME so os.tmpdir() matches it`)
+      assert.ok(home.length > `${RUNNER_TEMP}/`.length, `${label}: the guard rejects the temp root itself, not a child of it`)
+    } else {
+      assert.ok(home.startsWith(`${OS_TEMP_ON_UBUNTU}/`), `${label}: a live DSH_HOME must be under ${RUNNER_TEMP} or ${OS_TEMP_ON_UBUNTU}`)
+      assert.equal(tmpdir, undefined, `${label}: TMPDIR would make os.tmpdir() disagree with a literal /tmp home`)
+      assert.ok(home.length > `${OS_TEMP_ON_UBUNTU}/`.length, `${label}: the guard rejects the temp root itself, not a child of it`)
+    }
+  }
+
+  const jobs = homes.map((block) => jobNameAtLine(workflow, block.line))
+  assert.ok(jobs.includes('test'), 'push CI still checks the harness with an isolated home')
+  assert.ok(jobs.includes('live'), 'the nightly live job declares an isolated home')
+})
+
+test(
+  'POSIX: TMPDIR moves os.tmpdir() to the runner temp root, so the guard accepts the CI home',
+  { skip: process.platform === 'win32' ? 'TMPDIR is POSIX-only; the live CI job runs on ubuntu-latest' : false },
+  () => {
+    const root = tempDir('tower-live-tmpdir-')
+    try {
+      const probe = spawnSync(node, ['-e', 'process.stdout.write(require("node:os").tmpdir())'], {
+        env: { ...process.env, TMPDIR: root },
+        encoding: 'utf8',
+      })
+      assert.equal(probe.status, 0, probe.stderr)
+      assert.equal(fs.realpathSync(probe.stdout.trim()), fs.realpathSync(root), 'TMPDIR must move os.tmpdir() to the runner temp root')
+
+      const home = path.join(root, 'dsh-live-home')
+      fs.mkdirSync(home)
+      assert.equal(
+        assertIsolatedHome({ dshHome: home, tmpDir: root, operatorHome: path.join(root, 'operator-home') }),
+        fs.realpathSync(home),
+        'the guard must accept a home that TMPDIR made a child of os.tmpdir()',
+      )
+    } finally {
+      removeTemp(root)
+    }
+  },
+)
 
 test('the live entries announce the resolved home and host version before anything observable', () => {
   for (const file of ['run.cjs', 'boot-smoke.cjs', 'nightly.cjs']) {

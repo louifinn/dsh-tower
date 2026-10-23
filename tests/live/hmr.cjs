@@ -136,7 +136,7 @@ async function pageText(page) {
   } catch (error) {
     const firstLine = String((error && error.message) || error).split('\n')[0]
     log(`SKIP: Playwright could not launch Chromium (${firstLine})`)
-    console.log('Install the browser with `npx playwright install`, or set DSH_TEST_CHROME to an executable.')
+    console.log('Install the browser with `npx --prefix tests/live playwright install chromium`, or set DSH_TEST_CHROME to an executable.')
     process.exit(0)
   }
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } })

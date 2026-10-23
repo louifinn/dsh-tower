@@ -58,6 +58,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         env:
           DSH_LIVE: '1'
+          # #47: the guard only accepts a DSH_HOME below os.tmpdir(). On the
+          # Ubuntu runner os.tmpdir() defaults to /tmp while runner.temp is
+          # /home/runner/work/_temp, so point TMPDIR at runner.temp here: both
+          # then name the same root and the guard accepts the home. Keep TMPDIR
+          # next to DSH_HOME; tests/live-harness.test.mjs asserts this pairing.
+          TMPDIR: ${{ runner.temp }}
           DSH_HOME: ${{ runner.temp }}/dsh-live-check
         run: |
           mkdir -p "$DSH_HOME"
@@ -153,6 +159,9 @@ jobs:
     env:
       DSH_LIVE: '1'
       DSH_HOST_VERSION: ${{ matrix.dsh }}
+      # #47: same contract as the push-level check above — os.tmpdir() must equal
+      # runner.temp for the guard to accept DSH_HOME under it.
+      TMPDIR: ${{ runner.temp }}
       DSH_HOME: ${{ runner.temp }}/dsh-live-home
     steps:
       - uses: actions/checkout@v4

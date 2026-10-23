@@ -20,7 +20,10 @@ const PACKAGE = 'playwright'
 /** The two commands that make the live suite runnable, in order. */
 const INSTALL_COMMANDS = [
   'npm ci --prefix tests/live',
-  'npx playwright install chromium',
+  // Run the CLI from the pinned local install, exactly as tests/README.md and
+  // CI do. A bare `npx playwright` would fetch whatever latest version npx
+  // finds, which defeats the lockfile.
+  'npx --prefix tests/live playwright install chromium',
 ]
 
 const EXIT_MISSING = 2

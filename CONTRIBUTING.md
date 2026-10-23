@@ -75,7 +75,7 @@ npm test        # no dependencies to install; Node's built-in test runner only
 Requirements: Node.js 22+, Git. No package installation is needed for the offline suite.
 
 The opt-in live suite is the exception: install it once with
-`npm ci --prefix tests/live && npx playwright install chromium`, then run it with `npm run test:live`
+`npm ci --prefix tests/live && npx --prefix tests/live playwright install chromium`, then run it with `npm run test:live`
 against a disposable `DSH_HOME` under the OS temp directory and a booted isolated profile. The guard
 refuses the operator's real `DSH_HOME` and any profile under `DSH_HOME/profiles`. `npm run test:live --
 --check` validates the environment and Playwright resolution without a browser. See
@@ -92,7 +92,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (546 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (548 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
