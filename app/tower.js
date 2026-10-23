@@ -16,6 +16,8 @@ export { missionSummary } from '../domain/summary.js'
 
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
 import { TowerToolError } from '../domain/errors.js'
+import { buildMissionEvent } from '../domain/events.js'
+import { applyLandedMerge } from '../domain/integration/merge.js'
 import { plan } from './plan.js'
 import { updateMission } from './mission.js'
 import { checkCompletion, complete } from './checkCompletion.js'
@@ -198,6 +200,27 @@ export class Tower {
   /** #51 two-phase init: see the prepare/act/commit helpers in `./tower/init.js`. */
   async init(input = {}) {
     return init(this, input)
+  }
+
+  /**
+   * Persist-then-emit (#75): the caller has already written `state.json` and the
+   * activity log, so each domain transition descriptor is finalised with the
+   * persisted revision and emitted through the event port. The event channel is
+   * best effort — a listener (or an embedder without one) never fails the tool.
+   * @param {Array<{ type: string, missionId: string, commit?: string }>} descriptors
+   * @param {{ revision: number, at: number }} context
+   */
+  emitEvents(descriptors, context) {
+    const events = this.deps.events
+    if (!events || typeof events.emit !== 'function') return
+    for (const descriptor of descriptors ?? []) {
+      try {
+        const event = buildMissionEvent(/** @type {any} */ (descriptor), context)
+        events.emit(event.name, event.payload)
+      } catch {
+        // events describe a fact that is already durable; never fail the tool
+      }
+    }
   }
 
   async plan(input = {}) {
@@ -525,16 +548,14 @@ export class Tower {
     const mergedCommit = found ? found.commit : branchTip
     const now = Date.now()
     if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent
-    mission.status = 'merged'
-    mission.mergedAt = now
-    mission.mergedCommit = mergedCommit
-    mission.blockers = []
-    mission.notes.push(
-      found
+    const applied = applyLandedMerge({
+      mission,
+      mergedCommit,
+      note: found
         ? `reconciled already-landed merge ${mergedCommit.slice(0, 7)} with parents [${found.parents.map((parent) => parent.slice(0, 7)).join(', ')}]`
         : `reconciled already-landed merge: ${mergedCommit.slice(0, 7)} is contained in ${state.base} (no merge commit found)`,
-    )
-    mission.updatedAt = now
+      now,
+    })
     state.revision += 1
     state.updatedAt = now
     validateState(state, this.paths.state)
@@ -545,6 +566,7 @@ export class Tower {
       missionId: mission.id,
       text: `reconciled already-landed ${mergedCommit.slice(0, 7)} on ${state.base}`,
     })
+    this.emitEvents(applied.events, { revision: state.revision, at: now })
     return {
       ok: true,
       reconciled: true,

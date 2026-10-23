@@ -5,6 +5,7 @@ import {
   assertCompletionRequest,
   assertCompletionInbox,
   completionReport,
+  applyCompletion,
 } from '../domain/missions/completion.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
@@ -61,15 +62,14 @@ export async function complete(tower, input) {
     const { worker, commits } = prepared
     const checks = normalizeChecks(input.checks)
     const now = Date.now()
-    mission.status = 'completed'
-    mission.completionReport = completionReport({
+    const storedReport = completionReport({
       report: input.report,
       worker,
       checks,
       now,
       maxReportBytes: tower.config.gates?.maxReportBytes,
     })
-    mission.updatedAt = now
+    const applied = applyCompletion({ mission, report: storedReport, now })
     await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
@@ -82,6 +82,7 @@ export async function complete(tower, input) {
       missionId: mission.id,
       text: `${worker.name} reported completion (${commits} commit(s))`,
     })
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return { mission: fullMission(mission), commits, unread: 0 }
   })
 }

@@ -228,7 +228,7 @@ Every push and PR runs the same set of jobs; each job backs one checkable claim 
 
 | Job | Claim | Evidence |
 |---|---|---|
-| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the three `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
+| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, and domain purity all hold | `npm test`, `npm run docs:check`, the four `docs:check:generated*` checks, `pack:check`, `architecture:check`, `types:check`, `domain:check` |
 | `test (22, windows)` (`windows-latest`, not required) | the same offline suite and offline gates hold on a real Windows filesystem, so path casing, the `pwsh` shell, and the rename/unlink retries are measured instead of assumed | `npm test` plus the same offline gates as Ubuntu (no release/coverage) |
 | `test`'s `Coverage (Node 22)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
 | `test`'s `Release check` step (Node 22) | a tag is a claim: the version moved past the previous version tag, a pushed tag is `v<version>`, and the changelog carries release content | `npm run release:check` |

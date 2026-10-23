@@ -5,6 +5,7 @@
 // in-memory mission draft it is given.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { abandonedEvent, completedEvent } from '../events.js'
 import { MISSION_STATUSES, TERMINAL_STATUSES, canTransition, pauseCauseError } from '../mission.js'
 import { normalizeScope, scopesOverlap } from '../scope.js'
 
@@ -62,9 +63,10 @@ export function assertMissionActor(mission, actor, input) {
 
 /**
  * Apply one validated `tower_mission` patch to the mission draft and return
- * the human-readable change list used by the activity log.
+ * the human-readable change list used by the activity log plus the domain
+ * events the transition describes.
  * @param {{ mission: Mission, state: TowerState, input: any, config: any }} params
- * @returns {{ changes: string[] }}
+ * @returns {{ state: Mission, changes: string[], events: Array<{ type: string, missionId: string }> }}
  */
 export function applyMissionUpdate({ mission, state, input, config }) {
   const actor = input.actor ?? { name: 'tower', role: 'tower' }
@@ -77,6 +79,8 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   }
   /** @type {string[]} */
   const changes = []
+  /** @type {Array<{ type: string, missionId: string }>} */
+  const events = []
 
   if (input.status !== undefined) {
     if (typeof input.status !== 'string' || !MISSION_STATUSES.includes(input.status)) {
@@ -104,6 +108,8 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     }
     mission.status = input.status
     changes.push(`status=${input.status}`)
+    if (input.status === 'completed') events.push(completedEvent(mission))
+    if (input.status === 'abandoned') events.push(abandonedEvent(mission))
   }
 
   if (input.task_done !== undefined) {
@@ -182,5 +188,5 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   }
 
   if (changes.length === 0) fail('tower_mission requires at least one change')
-  return { changes }
+  return { state: mission, changes, events }
 }

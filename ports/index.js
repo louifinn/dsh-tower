@@ -13,6 +13,7 @@ import { STATE_PORT, assertStatePort } from './state.js'
 import { OWNERSHIP_PORT, assertOwnershipPort } from './ownership.js'
 import { CASE_SENSITIVITY_PORT, assertCaseSensitivityPort } from './caseSensitivity.js'
 import { ARCHIVE_PORT, assertArchivePort } from './archive.js'
+import { EVENT_PORT, assertEventPort } from './events.js'
 
 /** Every port the Tower app layer depends on, keyed by deps member. */
 export const PORTS = Object.freeze({
@@ -25,6 +26,7 @@ export const PORTS = Object.freeze({
   ownership: { contract: OWNERSHIP_PORT, assert: assertOwnershipPort },
   caseSensitivity: { contract: CASE_SENSITIVITY_PORT, assert: assertCaseSensitivityPort },
   archive: { contract: ARCHIVE_PORT, assert: assertArchivePort },
+  events: { contract: EVENT_PORT, assert: assertEventPort },
 })
 
 /** @param {unknown} deps */
@@ -48,4 +50,5 @@ export { STATE_PORT, assertStatePort } from './state.js'
 export { OWNERSHIP_PORT, assertOwnershipPort } from './ownership.js'
 export { CASE_SENSITIVITY_PORT, assertCaseSensitivityPort } from './caseSensitivity.js'
 export { ARCHIVE_PORT, assertArchivePort } from './archive.js'
+export { EVENT_PORT, assertEventPort, NOOP_EVENT_PORT } from './events.js'
 export { definePort, assertPort, implementsPort } from './contract.js'

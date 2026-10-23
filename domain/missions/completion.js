@@ -4,6 +4,7 @@
 // Git, and persists the transition; the rules below are repository-free.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { completedEvent } from '../events.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
@@ -164,4 +165,17 @@ export function assertCompletionInbox({ mission, worker, unread }) {
 export function completionReport({ report, worker, checks, now, maxReportBytes }) {
   const text = report.trim()
   return { report: text, reportBytes: assertReportSize(text, maxReportBytes), by: worker.name, at: now, checks }
+}
+
+/**
+ * Apply the completion transition to the mission draft and describe the domain
+ * fact. Persistence stays in app/checkCompletion.js.
+ * @param {{ mission: Mission, report: any, now: number }} params
+ * @returns {{ state: Mission, events: Array<{ type: string, missionId: string }> }}
+ */
+export function applyCompletion({ mission, report, now }) {
+  mission.status = 'completed'
+  mission.completionReport = report
+  mission.updatedAt = now
+  return { state: mission, events: [completedEvent(mission)] }
 }

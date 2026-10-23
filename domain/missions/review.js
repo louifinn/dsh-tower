@@ -5,6 +5,7 @@
 // persistence. Everything here is deterministic and repository-free.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { reviewedEvent } from '../events.js'
 import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -207,6 +208,21 @@ export function reviewOutcome({ status, merge, round, reviewerName, appended = f
     }
   }
   return { returnToActive: false, note: `review round ${round} by ${reviewerName}: clean (${merge})` }
+}
+
+/**
+ * Apply a recorded review's mission-level effect to the draft and describe the
+ * domain fact. Persistence, the review record and the round accounting stay in
+ * app/review.js.
+ * @param {{ mission: Mission, outcome: { returnToActive: boolean, note: string }, now: number }} params
+ * @returns {{ state: Mission, events: Array<{ type: string, missionId: string }> }}
+ */
+export function applyReviewOutcome({ mission, outcome, now }) {
+  if (outcome.returnToActive) mission.status = 'active'
+  mission.notes = mission.notes ?? []
+  mission.notes.push(outcome.note)
+  mission.updatedAt = now
+  return { state: mission, events: [reviewedEvent(mission)] }
 }
 
 /**

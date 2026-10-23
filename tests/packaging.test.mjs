@@ -78,6 +78,15 @@ test('generated config reference matches the schema defaults', async () => {
   assert.match(output, /keys in sync/)
 })
 
+test('generated events reference matches the event table', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const output = execFileSync(process.execPath, ['scripts/generate-events-reference.mjs', '--check'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.match(output, /events in sync/)
+})
+
 test('declaration contracts typecheck with tsc --noEmit', async () => {
   const { execFileSync } = await import('node:child_process')
   execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '--noEmit'], {

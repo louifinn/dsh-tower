@@ -483,7 +483,21 @@ export function registerTowerTools(ctx, options = {}) {
   // #69: the host entry (index.js) is the composition root. When it supplies the
   // port set, adopt it — validated once — instead of constructing a second set
   // here. Tests/embedders that omit deps fall back to one lazily built set.
-  if (options.deps) runtimeState.deps = assertPorts(options.deps)
+  // #75: the event port is bound here to the live Cordis emitter; emitting is
+  // best effort so a listener can never fail the tool that produced the fact.
+  const baseDeps = options.deps ? assertPorts(options.deps) : (runtimeState.deps ?? createDefaultDeps())
+  runtimeState.deps = {
+    ...baseDeps,
+    events: {
+      emit(name, payload) {
+        try {
+          ctx.emit?.(name, payload)
+        } catch {
+          // events are an optional side channel; never fail a tool for them
+        }
+      },
+    },
+  }
   // A lightweight roster watchdog: the authoritative activity comes from the
   // subagents catalog; a missing observation after spawn.staleMs is marked
   // stale (never silently treated as stopped) and blocks merge via the gate.

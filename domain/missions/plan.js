@@ -4,9 +4,11 @@
 // activity entry; everything here is deterministic and repository-free.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { plannedEvents } from '../events.js'
 import { normalizeScope, validateTitle } from '../scope.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
+/** @typedef {import('../../types/index.js').TowerState} TowerState */
 
 /**
  * @param {string} message
@@ -146,4 +148,16 @@ export function newMission(id, input, now) {
     createdAt: now,
     updatedAt: now,
   }))
+}
+
+/**
+ * Append the freshly projected missions to the state document and describe the
+ * resulting domain facts. Persistence and revision accounting stay in app/plan.
+ * @param {TowerState} state
+ * @param {Mission[]} created
+ * @returns {{ state: TowerState, events: Array<{ type: string, missionId: string }> }}
+ */
+export function applyPlan(state, created) {
+  state.missions.push(...created)
+  return { state, events: plannedEvents(created) }
 }

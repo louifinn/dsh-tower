@@ -83,10 +83,12 @@
     "docs:check:generated:tools": "node scripts/generate-tools-reference.mjs --check",
     "docs:generate:config": "node scripts/generate-config-reference.mjs",
     "docs:check:generated:config": "node scripts/generate-config-reference.mjs --check",
+    "docs:generate:events": "node scripts/generate-events-reference.mjs",
+    "docs:check:generated:events": "node scripts/generate-events-reference.mjs --check",
     "pack:check": "node scripts/check-pack.mjs",
     "architecture:check": "node scripts/architecture.mjs",
     "types:check": "tsc --noEmit",
-    "check": "npm test && npm run docs:check && npm run pack:check && npm run architecture:check && npm run types:check && npm run domain:check",
+    "check": "npm test && npm run docs:check && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run pack:check && npm run architecture:check && npm run types:check && npm run domain:check",
     "domain:metrics": "node scripts/domain-metrics.mjs",
     "domain:check": "node scripts/domain-metrics.mjs --check"
   },

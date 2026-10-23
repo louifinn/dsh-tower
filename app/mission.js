@@ -16,7 +16,7 @@ export async function updateMission(tower, input = {}) {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === missionId)
     if (!mission) fail(`unknown mission "${missionId}"`, 'mission-not-found')
-    const { changes } = applyMissionUpdate({ mission, state, input, config: tower.config })
+    const { changes, events } = applyMissionUpdate({ mission, state, input, config: tower.config })
     const now = Date.now()
     mission.updatedAt = now
     await sweepArchive(tower, state, { now })
@@ -31,6 +31,7 @@ export async function updateMission(tower, input = {}) {
       missionId: mission.id,
       text: changes.join('; '),
     })
+    tower.emitEvents(events, { revision: state.revision, at: now })
     return { revision: state.revision, mission: fullMission(mission) }
   })
 }

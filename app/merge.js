@@ -20,6 +20,8 @@ import path from 'node:path'
 import { validateState } from '../domain/state.js'
 import {
   alreadyMergedResult,
+  applyLandedMerge,
+  applyMergeSuccess,
   buildMergeIntent,
   classifyCommitOutcome,
   gateTipDrift,
@@ -36,7 +38,6 @@ import {
   mergeIntentEvidence,
   mergeIntentReconcileNote,
   mergeShapeDetail,
-  mergeSuccessNote,
   missionMissingResult,
   pendingMergeIntentResult,
   staleBaseResult,
@@ -179,14 +180,12 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     if (!mission) return { result: missionMissingResult(missionId) }
     const now = Date.now()
     if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent
-    mission.status = 'merged'
-    mission.mergedAt = now
-    mission.mergedCommit = observed.mergedCommit
-    mission.blockers = []
-    mission.notes.push(
-      landedMergeNote({ found: observed.found, mergedCommit: observed.mergedCommit, base: state.base }),
-    )
-    mission.updatedAt = now
+    const applied = applyLandedMerge({
+      mission,
+      mergedCommit: observed.mergedCommit,
+      note: landedMergeNote({ found: observed.found, mergedCommit: observed.mergedCommit, base: state.base }),
+      now,
+    })
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
@@ -197,6 +196,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
       missionId: mission.id,
       text: `reconciled already-landed ${observed.mergedCommit.slice(0, 7)} on ${state.base}`,
     })
+    tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return { result: landedMergeResult(observed) }
   })
 }
@@ -462,11 +462,13 @@ async function commitMerge(tower, plan, recorded, outcome) {
     if (kind === 'merged') {
       const now = Date.now()
       if (intentActive) delete state.mergeIntent
-      mission.status = 'merged'
-      mission.mergedAt = now
-      mission.mergedCommit = outcome.newTip
-      mission.updatedAt = now
-      mission.notes.push(mergeSuccessNote(recorded.intent.branchTip, state.base, outcome.newTip))
+      const applied = applyMergeSuccess({
+        mission,
+        branchTip: recorded.intent.branchTip,
+        base: state.base,
+        newTip: outcome.newTip,
+        now,
+      })
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
@@ -477,6 +479,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
         missionId: mission.id,
         text: `${recorded.intent.branchTip.slice(0, 7)} -> ${outcome.newTip.slice(0, 7)} on ${state.base}`,
       })
+      tower.emitEvents(applied.events, { revision: state.revision, at: now })
       return {
         ok: true,
         mergedCommit: outcome.newTip,
