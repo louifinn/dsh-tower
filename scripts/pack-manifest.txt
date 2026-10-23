@@ -158,6 +158,7 @@ ports/state.js
 ports/store.js
 ports/vcs.js
 reviewer.js
+scripts/architecture-waivers.json
 scripts/architecture.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs

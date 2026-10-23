@@ -176,11 +176,12 @@ its own lock.
   `adapters/`, `ports/` — and does not cover `scripts/**`, which holds maintenance
   entry points (release check, mount smoke, docs generators) that may spawn git or npm.
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
-  `tools/index.js` is the thin public wiring module and stays exempt from the thinness rule,
-  while registration/shared machinery lives in `lib/tool-registry.js`.
+  `tools/index.js` is the thin public wiring module (it imports `lib/`, not a `node:` module), while
+  registration/shared machinery lives in `lib/tool-registry.js`.
 - Aggregate files have size ceilings; top-level mutable state is limited to explicit composition
-  roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines; only the
-  `tools/index.js` wiring module is exempt, and it is now far below the ceiling.
+  roots (`aggregate-size`, `ambient-state`). The per-tool ceiling is 200 lines; `tools/index.js`
+  currently sits inside the 40-200 range, so the tools allow-list is empty rather than silently
+  exempting the wiring module.
 - `app/**` may import only app siblings, `domain/**`, `ports/**` and `node:path` (`app-ports-only`);
   an app module that reaches an adapter or a `lib/` module fails the gate.
 - Only the host entries (`index.js`, `worker.js`, `reviewer.js`) and `adapters/**` may import an
@@ -189,7 +190,35 @@ its own lock.
 - Every `ports/**` module must export a runtime contract (`const`/`function`/`class`) and must not
   import an implementation (`port-shape`); a typedef plus `export {}` is no longer accepted.
 
-A fixture test seeds one violation per rule, so a rule that cannot fail is itself a test failure.
+### Exemptions are justified data
+
+The gate's only exemptions live in `scripts/architecture-waivers.json`; `scripts/architecture.mjs`
+keeps no allow-lists of its own. Each entry names the `rule` and `path` and must carry a non-empty
+`reason` plus an `owner` or `ref`. An entry missing any of those is itself a blocking
+`waiver-contract` violation that names the rule and the path, so a bare path cannot turn the gate
+green. The waiver file is a two-key path in `CONTRIBUTING.md`; there is no `reviewBy`/expiry field in
+this release, so the reason and the owner are the reviewed decision.
+
+`ambient-state` waivers are narrower than file waivers: they additionally require `match`, the exact
+top-level binding (for example `profileRaw`). The scan is statement-aware rather than line-based: it
+walks the module's token stream and records every binding of every top-level `let` declaration. A
+second declarator (`let profileRaw = {}, evil = 1`), a second statement on the waived binding's line
+(`let profileRaw = {}; let evil = 1`), and any new top-level `let` in a previously exempt file are
+each their own violation and need their own justified entry. That is why the two process-wide `let`s
+in `lib/config.js` and `lib/git.js` are no longer vacuously exempt. Strings, comments, template
+literals and regex literals are skipped, and `let` inside a function, block, class or `for (…)`
+header is not module-level state.
+
+`domain-pure` and anything under `domain/**` are load-bearing: no waiver may target them, even a
+justified one. A `waiver-contract` violation rejects that entry and the underlying rule still fails.
+
+A green run prints `architecture: ok (waivers: N)`; N is the number of entries that actually
+suppressed a violation, so a stale waiver is visible in the output and in the tests. The fixture
+suite seeds an unjustified waiver (it fails), a justified one (it passes), both same-line bypass
+forms — a second declarator and a second statement on the waived binding's line (they fail) — a
+justified multi-binding declaration (it passes only when every binding is named), and a new violation
+inside each previously exempt file (it fails). A separate fixture seeds one violation per rule, so a
+rule that cannot fail is itself a test failure.
 
 ## Mount smoke and host internals
 
@@ -210,7 +239,8 @@ All epic DoD items now have an executable gate:
 - `domain/**` imports no fs, child_process, adapters, app, tools, or lib infrastructure;
   `domain-pure` is a blocking architecture rule.
 - Inside the source roots, only `adapters/vcs-git.js` imports `node:child_process`; only
-  `adapters/store-fs.js` imports `node:fs`; both are blocking rules with fixtures.
+  `adapters/store-fs.js` imports `node:fs`; both are blocking rules whose files are the only
+  `child-process-surface`/`fs-surface` entries in `scripts/architecture-waivers.json`.
 - `lib`, `app`, and `domain` files stay <= 800 lines; every `tools/**` file stays
   40-200 lines (one handler module per tool; `tools/index.js` is 40-line wiring).
 - No `withLock` scope starts a process; the two-phase tests instrument every git call.
@@ -223,7 +253,8 @@ All epic DoD items now have an executable gate:
 - The in-memory lifecycle runs the real app use cases (init → plan → provision → spawn → complete →
   review → gate → merge → teardown) on an in-memory store and scripted vcs supplied through the
   composition root, with no disk, no git and no `defaultDeps` (#69).
-- The ten fitness rules are errors, each with a seeded failing fixture.
+- The ten fitness rules are errors, each with a seeded failing fixture; the `waiver-contract` rule
+  makes an unjustified exemption blocking as well.
 
 
 
