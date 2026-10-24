@@ -1,14 +1,17 @@
-// Optional capability rows must explain themselves on the Plugins page (#121).
+// Optional capability rows and preset-declaring rows must explain themselves
+// on the Plugins page (#121).
 //
 // The DSH client renders a row as `row.meta.title ?? row.moduleName` plus
 // `row.meta.description`, and the Host fills `row.meta` by resolving
 // `<specifier>/locale/en.json` and then every sibling `<lang>.json` in that
 // directory. A subpath row without such a resource shows only `dsh-tower/batch`,
-// so the user cannot decide what the switch does.
+// so the user cannot decide what the switch does. Two preset rows that mount the
+// same shared module show the same label, so the mandatory worker dependency and
+// the conditional reviewer switch are indistinguishable.
 //
-// These tests resolve every capability subpath through the package's own exports
-// (Node self-reference, exactly the Host's lookup) and assert the generated files
-// stay a rendering of the single source of truth: the `components` block of
+// These tests resolve every row subpath through the package's own exports (Node
+// self-reference, exactly the Host's lookup) and assert the generated files stay
+// a rendering of the single source of truth: the `components` block of
 // `locale/en.json` and `locale/zh.json`.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -21,9 +24,13 @@ import { fileURLToPath } from 'node:url'
 import {
   CAPABILITY_LOCALES,
   CAPABILITY_LOCALE_LANGUAGES,
+  PRESET_LOCALES,
   capabilityLocaleExport,
   capabilityLocalePaths,
-  renderCapabilityLocaleFiles,
+  presetLocalePaths,
+  renderPresetMeta,
+  renderRowLocaleFiles,
+  rowLocalePaths,
 } from '../scripts/generate-capability-locale.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
@@ -37,11 +44,15 @@ const surface = readJson('scripts/component-surface.json')
 const locales = { en: readJson('locale/en.json'), zh: readJson('locale/zh.json') }
 const patch = read('cordis.patch.yml')
 const capabilityPaths = capabilityLocalePaths()
+const presetPaths = presetLocalePaths()
+const rowPaths = rowLocalePaths()
 
 // The off-effect label is what makes the description decidable: it separates what
 // the capability enables (the summary) from what turning it off removes (the
 // disables text). It is generated per language, so both must carry one.
 const OFF_EFFECT = { en: 'When off:', zh: '关闭后：' }
+// The mandatory worker dependency is labelled as a dependency, never a switch.
+const DEPENDENCY = { en: 'Mandatory dependency, not a switch:', zh: '强制依赖，不是开关：' }
 
 // Every visible component row must get its display text from a known source. A
 // new visible row makes this map stale, so the coverage test fails until the row
@@ -55,7 +66,7 @@ const ROW_DISPLAY_SOURCE = {
   'tower-leases': 'leases subpath locale',
   'tower-tests': 'tests subpath locale',
   'tower-hmr': 'hmr subpath locale',
-  'preset-tower-reviewer': 'preset manifest (cordis.patch.yml config name/description)',
+  'preset-tower-reviewer': 'preset-reviewer subpath locale',
 }
 
 const componentIdBySpecifier = new Map(
@@ -91,7 +102,32 @@ test('every optional capability subpath resolves its locale files through the pa
   }
 })
 
-test('each row title is the localized component title, never the module specifier', () => {
+test('both preset-declaring subpaths resolve their own locale files through the package exports', () => {
+  assert.equal(presetPaths.length, PRESET_LOCALES.length * CAPABILITY_LOCALE_LANGUAGES.length)
+  for (const { specifier } of PRESET_LOCALES) {
+    const mapping = capabilityLocaleExport(specifier)
+    assert.equal(
+      packageJson.exports[mapping.key],
+      mapping.target,
+      `package.json must map ${mapping.key} to ${mapping.target}`,
+    )
+    for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
+      const specifierPath = `dsh-tower/${specifier}/locale/${lang}.json`
+      const resolved = require.resolve(specifierPath)
+      assert.ok(fs.existsSync(resolved), `${specifierPath} must resolve to a shipped file`)
+      assert.match(
+        resolved.replace(/\\/g, '/'),
+        new RegExp(`/locale/${specifier}/${lang}\\.json$`),
+        `${specifierPath} must resolve to locale/${specifier}/${lang}.json`,
+      )
+      const meta = JSON.parse(fs.readFileSync(resolved, 'utf8')).meta
+      assert.ok(meta.title.trim().length > 0, `${specifierPath} needs a non-empty meta.title`)
+      assert.ok(meta.description.trim().length > 0, `${specifierPath} needs a non-empty meta.description`)
+    }
+  }
+})
+
+test('each capability row title is the localized component title, never the module specifier', () => {
   for (const { specifier, component } of CAPABILITY_LOCALES) {
     assert.ok(patch.includes(`name: 'dsh-tower/${specifier}'`), `cordis.patch.yml mounts dsh-tower/${specifier}`)
     for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
@@ -104,7 +140,7 @@ test('each row title is the localized component title, never the module specifie
   }
 })
 
-test('each row description states what the capability enables and what turning it off removes', () => {
+test('each capability row description states what it enables and what turning it off removes', () => {
   for (const { specifier, component } of CAPABILITY_LOCALES) {
     for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
       const entry = locales[lang].components[component]
@@ -120,6 +156,52 @@ test('each row description states what the capability enables and what turning i
   }
 })
 
+test('both preset rows carry distinct labels that name their preset', () => {
+  // The rows must not share the shared agent-preset module any more: that is
+  // exactly what made the two rows render the same title.
+  assert.doesNotMatch(patch, /@deepseek-ai\/dsh-agent-preset'/)
+  for (const { specifier, component } of PRESET_LOCALES) {
+    assert.ok(patch.includes(`name: 'dsh-tower/${specifier}'`), `cordis.patch.yml mounts dsh-tower/${specifier}`)
+    assert.equal(patch.includes(`name: '@deepseek-ai/dsh-agent-preset'`), false)
+  }
+  const workerName = 'Tower Worker'
+  const reviewerName = 'Tower Reviewer'
+  for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
+    const worker = readJson(`locale/preset-worker/${lang}.json`).meta
+    const reviewer = readJson(`locale/preset-reviewer/${lang}.json`).meta
+    assert.notEqual(worker.title, reviewer.title, `${lang} preset titles must differ`)
+    assert.notEqual(worker.description, reviewer.description, `${lang} preset descriptions must differ`)
+    assert.ok(worker.title.includes(workerName), `${lang} worker title names ${workerName}`)
+    assert.ok(reviewer.title.includes(reviewerName), `${lang} reviewer title names ${reviewerName}`)
+    assert.match(worker.title, /预设|preset/, `${lang} worker title names the preset role`)
+    assert.match(reviewer.title, /预设|preset/, `${lang} reviewer title names the preset role`)
+    assert.ok(worker.description.includes(workerName), `${lang} worker description names its preset`)
+    assert.ok(reviewer.description.includes(reviewerName), `${lang} reviewer description names its preset`)
+
+    // The mandatory worker dependency is never described as a switch; the
+    // conditional reviewer keeps the ordinary off-effect wording.
+    assert.ok(worker.description.includes(DEPENDENCY[lang]), `${lang} worker description marks the dependency`)
+    assert.equal(worker.description.includes(OFF_EFFECT[lang]), false, `${lang} worker is not a switch`)
+    assert.ok(reviewer.description.includes(OFF_EFFECT[lang]), `${lang} reviewer labels the off effect`)
+    assert.ok(
+      reviewer.description.includes(locales[lang].components['preset-tower-reviewer'].disables),
+      `${lang} reviewer description names what turning it off removes`,
+    )
+
+    // The committed files are the rendering, not a hand edit.
+    assert.deepEqual(
+      readJson(`locale/preset-worker/${lang}.json`),
+      renderPresetMeta(locales[lang].components['preset-tower-worker'], lang, true),
+    )
+    assert.deepEqual(
+      readJson(`locale/preset-reviewer/${lang}.json`),
+      renderPresetMeta(locales[lang].components['preset-tower-reviewer'], lang, false),
+    )
+    assert.deepEqual(Object.keys(worker).sort(), ['description', 'title'])
+    assert.deepEqual(Object.keys(reviewer).sort(), ['description', 'title'])
+  }
+})
+
 test('coverage: every visible component row has a display-metadata source', () => {
   const visible = surface.components
     .filter((component) => component.scope === 'visible')
@@ -132,11 +214,23 @@ test('coverage: every visible component row has a display-metadata source', () =
   for (const { specifier } of CAPABILITY_LOCALES) {
     assert.equal(ROW_DISPLAY_SOURCE[componentIdBySpecifier.get(specifier)], `${specifier} subpath locale`)
   }
-  // The mandatory group and the reviewer preset are visible too, but neither is a
-  // capability module: the group reads the package root meta and the preset row
-  // reads its own manifest label. Both sources are asserted, not assumed.
+  // The mandatory group reads the package root meta. Both preset rows are
+  // package specifiers now, so the reviewer's source is a generated label too;
+  // the internal worker row is not a visible key in the map but must still ship
+  // one (asserted by the preset tests above).
   assert.equal(ROW_DISPLAY_SOURCE.tower, 'package-root locale meta')
-  assert.match(patch, /id: preset-tower-reviewer[\s\S]*?name: Tower Reviewer\n\s+description: /)
+  const componentsById = new Map(surface.components.map((component) => [component.id, component]))
+  for (const { specifier, component } of PRESET_LOCALES) {
+    assert.ok(componentsById.has(component), `the component surface classifies ${component}`)
+    assert.match(
+      locales.en.components[component].title,
+      /预设|preset/,
+      `${component} ships a preset label`,
+    )
+    if (componentsById.get(component).scope === 'visible') {
+      assert.equal(ROW_DISPLAY_SOURCE[component], `${specifier} subpath locale`)
+    }
+  }
 })
 
 test('the root package locale meta for the Tower group is unchanged', () => {
@@ -150,19 +244,19 @@ test('the root package locale meta for the Tower group is unchanged', () => {
   })
 })
 
-test('the generated capability locale files are in sync with the generator', () => {
+test('the generated row locale files are in sync with the generator', () => {
   const output = execFileSync(process.execPath, ['scripts/generate-capability-locale.mjs', '--check'], {
     cwd: root,
     encoding: 'utf8',
   })
-  assert.match(output, /12 files in sync/)
+  assert.match(output, /16 files in sync/)
   // And the committed files are byte-for-byte the rendering, not a hand edit.
-  const expected = renderCapabilityLocaleFiles(root)
-  assert.deepEqual([...expected.keys()].sort(), capabilityPaths.slice().sort())
+  const expected = renderRowLocaleFiles(root)
+  assert.deepEqual([...expected.keys()].sort(), rowPaths.slice().sort())
   for (const [relative, text] of expected) assert.equal(read(relative), text, `${relative} is generated output`)
 })
 
-test('the generator --check fails when a committed capability file drifts (fixture)', () => {
+test('the generator --check fails when a committed row locale file drifts (fixture)', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-cap-locale-'))
   try {
     for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
@@ -181,7 +275,7 @@ test('the generator --check fails when a committed capability file drifts (fixtu
     assert.equal(result.status, 0, result.stderr)
     result = run('--check')
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /12 files in sync/)
+    assert.match(result.stdout, /16 files in sync/)
 
     fs.writeFileSync(
       path.join(fixture, 'locale', 'batch', 'en.json'),
@@ -191,15 +285,24 @@ test('the generator --check fails when a committed capability file drifts (fixtu
     assert.notEqual(result.status, 0, 'a hand-edited capability locale must fail --check')
     assert.match(result.stderr, /stale; run npm run docs:generate:locale/)
     assert.match(result.stderr, /locale\/batch\/en\.json/)
+
+    // A preset label drifting is caught by the same single-source check.
+    fs.writeFileSync(
+      path.join(fixture, 'locale', 'preset-worker', 'zh.json'),
+      `${JSON.stringify({ meta: { title: 'shared label', description: 'hand edited' } }, null, 2)}\n`,
+    )
+    result = run('--check')
+    assert.notEqual(result.status, 0, 'a hand-edited preset locale must fail --check')
+    assert.match(result.stderr, /locale\/preset-worker\/zh\.json/)
   } finally {
     removeTemp(fixture)
   }
 })
 
-test('the generated capability files are in package.json files and the reviewed pack snapshot', () => {
+test('the generated row locale files are in package.json files and the reviewed pack snapshot', () => {
   assert.ok(packageJson.files.includes('locale/'), 'package.json files must ship the nested locale tree')
   const manifest = read('scripts/pack-manifest.txt').split('\n').filter(Boolean)
-  for (const relative of capabilityPaths) {
+  for (const relative of rowPaths) {
     assert.ok(manifest.includes(relative), `${relative} must be in scripts/pack-manifest.txt`)
   }
 })

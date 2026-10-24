@@ -19,10 +19,11 @@ import {
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
+import { PRESET_LOCALES } from '../scripts/generate-capability-locale.mjs'
 import { configSurface } from '../domain/config/schema.js'
 import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
-import { checkComponents } from '../scripts/check-components.mjs'
+import { checkComponents, checkRowLocaleCoverage } from '../scripts/check-components.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -207,6 +208,46 @@ test('fixture: a visible component without three locale strings fails (#120 chec
     },
   }
   assert.deepEqual(checkLocaleCoverage(surface, complete), [])
+})
+
+test('fixture: a generated row label needs the three locale strings, even for an internal row (#121)', () => {
+  const surface = realSurface()
+  const locales = {
+    'locale/en.json': JSON.parse(read('locale/en.json')),
+    'locale/zh.json': JSON.parse(read('locale/zh.json')),
+  }
+  assert.deepEqual(checkRowLocaleCoverage(surface, locales, PRESET_LOCALES), [])
+
+  // The worker preset is internal, so the visible-only rule does not cover it;
+  // the row-label rule does. Dropping its English entry is a finding.
+  const missing = {
+    ...locales,
+    'locale/en.json': {
+      ...locales['locale/en.json'],
+      components: { ...locales['locale/en.json'].components },
+    },
+  }
+  delete missing['locale/en.json'].components['preset-tower-worker']
+  const dropped = checkRowLocaleCoverage(surface, missing, PRESET_LOCALES)
+  assert.ok(
+    dropped.some(
+      (entry) => entry.code === 'row-locale' && /preset-tower-worker/.test(entry.message) && /locale\/en\.json/.test(entry.message),
+    ),
+    JSON.stringify(dropped),
+  )
+
+  // The mandatory flag is a rendering of the component scope, so it cannot drift.
+  const flipped = PRESET_LOCALES.map((row) =>
+    row.component === 'preset-tower-worker' ? { ...row, mandatory: false } : row,
+  )
+  assert.ok(checkRowLocaleCoverage(surface, locales, flipped).some((entry) => entry.code === 'row-locale-scope'))
+
+  // A row label that names no shipped component is refused.
+  assert.ok(
+    checkRowLocaleCoverage(surface, locales, [{ specifier: 'ghost', component: 'preset-ghost' }]).some(
+      (entry) => entry.code === 'row-locale-unknown',
+    ),
+  )
 })
 
 test('fixture: a boolean key that disables a forbidden capability fails (#120 check 2)', () => {

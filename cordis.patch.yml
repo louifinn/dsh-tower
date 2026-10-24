@@ -33,8 +33,12 @@
               interruptDefault: true
             spawn:
               staleMs: 15000
+        # Each preset row mounts its own Tower-owned declaration module, not the
+        # shared @deepseek-ai/dsh-agent-preset: DSH labels a row from
+        # <specifier>/locale/<lang>.json, so two rows sharing one module would
+        # render the same title. The row config is unchanged.
         - id: preset-tower-worker
-          name: '@deepseek-ai/dsh-agent-preset'
+          name: 'dsh-tower/preset-worker'
           config:
             id: tower-worker
             name: Tower Worker
@@ -70,7 +74,7 @@
     # review.requireReview is false; with the gate on planning/mode entry refuse
     # the combination with an explanatory error.
     - id: preset-tower-reviewer
-      name: '@deepseek-ai/dsh-agent-preset'
+      name: 'dsh-tower/preset-reviewer'
       config:
         id: tower-reviewer
         name: Tower Reviewer

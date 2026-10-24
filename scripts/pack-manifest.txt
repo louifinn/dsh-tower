@@ -157,6 +157,8 @@ host/doctor.js
 host/hmr.js
 host/modeState.js
 host/modeStore.js
+host/preset-reviewer.js
+host/preset-worker.js
 host/presets.js
 host/tool-registry.js
 host/tower.js
@@ -171,6 +173,10 @@ locale/import/en.json
 locale/import/zh.json
 locale/leases/en.json
 locale/leases/zh.json
+locale/preset-reviewer/en.json
+locale/preset-reviewer/zh.json
+locale/preset-worker/en.json
+locale/preset-worker/zh.json
 locale/skills/en.json
 locale/skills/zh.json
 locale/tests/en.json

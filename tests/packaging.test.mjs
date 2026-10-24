@@ -33,16 +33,21 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
   const pkg = JSON.parse(read('package.json'))
   assert.ok(pkg.files.includes('ui-bundle/'))
   assert.ok(pkg.files.includes('COMPATIBILITY.md'))
-  // #121: the nested capability locale files ship with the package, so the
-  // Plugins page can resolve `<specifier>/locale/<lang>.json` from the install.
+  // #121: the nested capability and preset row locale files ship with the
+  // package, so the Plugins page can resolve `<specifier>/locale/<lang>.json`
+  // from the install.
   assert.ok(pkg.files.includes('locale/'))
-  for (const specifier of ['skills', 'batch', 'import', 'leases', 'tests', 'hmr']) {
+  for (const specifier of ['skills', 'batch', 'import', 'leases', 'tests', 'hmr', 'preset-worker', 'preset-reviewer']) {
     for (const lang of ['en', 'zh']) {
       assert.ok(
         manifest.includes(`locale/${specifier}/${lang}.json`),
         `locale/${specifier}/${lang}.json must be in the published snapshot`,
       )
     }
+  }
+  // The two preset-declaring rows mount Tower-owned modules; they must ship.
+  for (const file of ['host/preset-worker.js', 'host/preset-reviewer.js']) {
+    assert.ok(manifest.includes(file), `${file} must be in the published snapshot`)
   }
 })
 
@@ -70,7 +75,7 @@ test('packaging: the real pack gate fails when ui-bundle/cordis.patch.yml is rem
         {
           name: 'tower-pack-fixture',
           version: '0.0.0',
-          files: ['cordis.patch.yml', 'index.js', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
+          files: ['cordis.patch.yml', 'index.js', 'host/', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
         },
         null,
         2,

@@ -55,11 +55,30 @@ export function defaultOffToolIds() {
   return ids
 }
 
+/**
+ * The two preset rows the bundle declares. Each row mounts a Tower-owned
+ * declaration module (`dsh-tower/preset-*`) whose config the agent-preset
+ * registry registers; the label and the read-only reviewer surface are part of
+ * the contract, so the smoke compares the loaded `agentPresets.list()` entries
+ * against this table (#121).
+ */
+export const PRESET_ROWS = Object.freeze([
+  Object.freeze({ id: 'tower-worker', specifier: 'preset-worker', name: 'Tower Worker', order: 60 }),
+  Object.freeze({ id: 'tower-reviewer', specifier: 'preset-reviewer', name: 'Tower Reviewer', order: 61 }),
+])
+
 /** Presets the bundle declares for its worker and reviewer roles. */
-export const PRESET_IDS = ['tower-reviewer', 'tower-worker']
+export const PRESET_IDS = PRESET_ROWS.map((row) => row.id).sort()
+
+/** Module specifiers the two preset rows mount; each owns its Plugins-page label. */
+export const PRESET_SPECIFIERS = PRESET_ROWS.map((row) => `dsh-tower/${row.specifier}`)
 
 /** Cordis fiber state 2: mounted and active. */
 const FIBER_ACTIVE = 2
+/** Cordis fiber state 3: the plugin failed to activate. */
+const FIBER_FAILED = 3
+/** Cordis fiber state 1: activation is still in flight (the boot has not settled). */
+const FIBER_PENDING = 1
 
 const OWNED_ROW_IDS = new Set([BUNDLE_ID, ...BUNDLE_CHILD_IDS, ...OPTIONAL_ROW_IDS])
 
@@ -125,6 +144,128 @@ export function compareIds(label, expectedIds, loadedIds) {
   for (const id of expected) if (!loaded.includes(id)) failures.push(`${label}: missing ${id}`)
   for (const id of loaded) if (!expected.includes(id)) failures.push(`${label}: unexpected ${id}`)
   if (loaded.length !== expected.length) failures.push(`${label}: loaded ${loaded.length} ids, expected ${expected.length}`)
+  return failures
+}
+
+/** Read one localized field: DSH reports `{ en, zh }` maps, a bare string, or nothing. */
+function localizedField(value, lang) {
+  if (typeof value === 'string') return value.trim() || undefined
+  if (value && typeof value === 'object' && typeof value[lang] === 'string') return value[lang].trim() || undefined
+  return undefined
+}
+
+/**
+ * Assert the two preset rows resolve distinct Plugins-page labels. The defect
+ * this mission fixes was two rows sharing `@deepseek-ai/dsh-agent-preset`, so
+ * both rendered that module's single title; the smoke now reads the same
+ * `readPluginMeta` the page uses and requires a distinct title and description
+ * per specifier (#121).
+ * @param {Record<string, { title?: unknown, description?: unknown, error?: string } | null>} labels
+ *   module specifier -> label metadata from `readPluginMeta`.
+ * @returns {string[]} one message per missing, failed or indistinguishable label.
+ */
+export function checkPresetLabels(labels) {
+  const failures = []
+  const byLanguage = { en: new Map(), zh: new Map() }
+  for (const row of PRESET_ROWS) {
+    const specifier = `dsh-tower/${row.specifier}`
+    const label = labels?.[specifier]
+    if (label === undefined) {
+      failures.push(`label: no label reported for ${specifier}`)
+      continue
+    }
+    if (label === null) {
+      failures.push(`label: ${specifier} resolves no locale metadata`)
+      continue
+    }
+    if (label.error) {
+      failures.push(`label: ${specifier}: ${label.error}`)
+      continue
+    }
+    for (const lang of ['en', 'zh']) {
+      const title = localizedField(label.title, lang)
+      const description = localizedField(label.description, lang)
+      if (!title) {
+        failures.push(`label: ${specifier} has no ${lang} title`)
+        continue
+      }
+      if (!description) failures.push(`label: ${specifier} has no ${lang} description`)
+      if (title === specifier) failures.push(`label: ${specifier} falls back to the module specifier as its ${lang} title`)
+      if (!title.includes(row.name)) failures.push(`label: ${specifier} ${lang} title does not name ${row.name}`)
+      byLanguage[lang].set(specifier, { title, description })
+    }
+  }
+  for (const lang of ['en', 'zh']) {
+    const entries = [...byLanguage[lang].entries()]
+    if (entries.length < 2) continue
+    const [first] = entries
+    for (const [specifier, entry] of entries.slice(1)) {
+      if (entry.title === first[1].title) {
+        failures.push(`label: ${first[0]} and ${specifier} share the same ${lang} title`)
+      }
+      if (entry.description !== undefined && entry.description === first[1].description) {
+        failures.push(`label: ${first[0]} and ${specifier} share the same ${lang} description`)
+      }
+    }
+  }
+  return failures
+}
+
+/**
+ * Compare the loaded preset definitions against {@link PRESET_ROWS}. A missing
+ * preset, a changed display name/order, or an activation diagnostic (`broken`)
+ * is a failed claim: a preset row that mounts but never activates is exactly the
+ * regression the smoke exists to catch.
+ * @param {Array<{ id?: string, name?: string, order?: number, broken?: string }>} entries
+ * @returns {string[]} one message per violated preset claim.
+ */
+export function checkPresetRows(entries) {
+  const list = Array.isArray(entries) ? entries : []
+  const byId = new Map(list.map((entry) => [String(entry?.id), entry]))
+  const failures = []
+  for (const row of PRESET_ROWS) {
+    const entry = byId.get(row.id)
+    if (!entry) {
+      failures.push(`preset: missing ${row.id}`)
+      continue
+    }
+    if (entry.name !== row.name) {
+      failures.push(`preset: ${row.id} name ${JSON.stringify(entry.name)}, expected ${JSON.stringify(row.name)}`)
+    }
+    if (entry.order !== row.order) {
+      failures.push(`preset: ${row.id} order ${JSON.stringify(entry.order)}, expected ${row.order}`)
+    }
+    if (entry.broken) failures.push(`preset: ${row.id} failed to mount: ${entry.broken}`)
+  }
+  return failures
+}
+
+/** Entry ids whose fiber reported an activation error (state 3). */
+export function failedEntryStates(entryStates = {}) {
+  return Object.entries(entryStates)
+    .filter(([, state]) => state === FIBER_FAILED)
+    .map(([id]) => id)
+    .sort()
+}
+
+/** Entry ids still loading when the boot returned (state 1). */
+export function pendingEntryStates(entryStates = {}) {
+  return Object.entries(entryStates)
+    .filter(([, state]) => state === FIBER_PENDING)
+    .map(([id]) => id)
+    .sort()
+}
+
+/**
+ * No row may fail or stay pending in a green smoke: the bundle is supposed to
+ * compose a working profile, not merely register the ids it claims.
+ * @param {Record<string, number | null | undefined>} entryStates
+ * @returns {string[]} one message per failed or pending row.
+ */
+export function checkRowStates(entryStates = {}) {
+  const failures = []
+  for (const id of failedEntryStates(entryStates)) failures.push(`row: ${id} failed to mount (entry state 3)`)
+  for (const id of pendingEntryStates(entryStates)) failures.push(`row: ${id} is still pending (entry state 1)`)
   return failures
 }
 

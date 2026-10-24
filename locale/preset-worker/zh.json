@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tower Worker 预设",
+    "description": "声明 Tower Worker 预设：任务协议，以及执行代理在其工作树内使用的文件系统、终端与 Tower 工具。强制依赖，不是开关：缺少它 tower_spawn 无法启动执行代理。"
+  }
+}

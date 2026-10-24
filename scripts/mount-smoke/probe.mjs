@@ -11,6 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { PRESET_SPECIFIERS } from './surface.mjs'
 
 function parseArgs(argv) {
   const options = {}
@@ -45,7 +46,7 @@ for (const file of [profileBoot, appBoot]) {
 }
 
 const { runProfile } = await import(pathToFileURL(profileBoot).href)
-const { loadLayeredEnv } = await import(pathToFileURL(appBoot).href)
+const { loadLayeredEnv, readPluginMeta } = await import(pathToFileURL(appBoot).href)
 if (typeof runProfile !== 'function') throw new Error(`probe: host ${hostVersion} does not export runProfile`)
 
 /** Run one surface read, keeping a missing service a reportable value. */
@@ -64,7 +65,7 @@ const { ctx, shutdown } = await runProfile({
   args: [],
 })
 
-const surface = { host: { version: hostVersion }, profile: {}, tools: null, skills: null, presets: null, commands: null, tree: null }
+const surface = { host: { version: hostVersion }, profile: {}, tools: null, skills: null, presets: null, labels: null, commands: null, tree: null }
 try {
   const profileContext = ctx.get('profileContext')
   surface.profile = {
@@ -88,8 +89,37 @@ try {
 
   const presets = ctx.get('agentPresets')
   surface.presets = presets
-    ? await read(async () => (await presets.list()).map((preset) => preset.id))
+    ? await read(async () => {
+        // Both preset rows declare themselves through Tower-owned modules
+        // (`dsh-tower/preset-*`). Keep the display metadata and the activation
+        // diagnostic so the smoke can prove each row still mounts, not only
+        // that two ids exist (#121).
+        const list = await presets.list()
+        return {
+          ids: list.map((preset) => preset.id),
+          entries: list.map(({ id, name, description, order, broken }) => ({
+            id,
+            ...name === undefined ? {} : { name },
+            ...description === undefined ? {} : { description },
+            ...order === undefined ? {} : { order },
+            ...broken === undefined ? {} : { broken },
+          })),
+        }
+      })
     : { error: 'the agentPresets service is not mounted (profile has no preset registry)' }
+
+  // The Plugins page labels a row through this exact call. Resolve both preset
+  // row specifiers from the installed profile so the smoke proves the two rows
+  // render distinct titles/descriptions instead of one shared label (#121).
+  surface.labels =
+    typeof readPluginMeta === 'function' && typeof profileContext?.dir === 'string'
+      ? await read(() => {
+          const base = pathToFileURL(path.join(profileContext.dir, 'cordis.yml')).href
+          return Object.fromEntries(
+            PRESET_SPECIFIERS.map((specifier) => [specifier, readPluginMeta(specifier, base) ?? null]),
+          )
+        })
+      : { error: 'the host exports no readPluginMeta, so preset row labels cannot be read' }
 
   const commands = ctx.get('commands')
   surface.commands = commands
