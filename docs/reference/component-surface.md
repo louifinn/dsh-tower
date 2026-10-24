@@ -32,8 +32,8 @@ row is a section of its parent and is not independently switchable.
 | `tower-leases` | visible | row | tower_resource is not registered; advisory leases are coordination only, so nothing else depends on them. |
 | `tower-tests` | visible | row | tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing. |
 | `tower-hmr` | visible | row | tower_reload and /tower reload are unavailable; a profile without HMR behaves exactly as before. Shipped disabled: enable the row for a linked dev profile. |
-| `preset-tower-worker` | internal | row | tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
-| `preset-tower-reviewer` | visible | row | The reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error. |
+| `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
+| `preset-tower-reviewer` | visible | row | Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error. |
 
 ## Forbidden to disable
 

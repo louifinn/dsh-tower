@@ -61,13 +61,13 @@
       "id": "preset-tower-worker",
       "scope": "internal",
       "kind": "row",
-      "fallback": "tower_spawn fails without the worker preset. A mandatory dependency, never a switch."
+      "fallback": "Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch."
     },
     {
       "id": "preset-tower-reviewer",
       "scope": "visible",
       "kind": "row",
-      "fallback": "The reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error."
+      "fallback": "Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error."
     }
   ],
   "gateableTools": {},

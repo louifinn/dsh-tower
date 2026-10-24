@@ -5,7 +5,9 @@
 // gate is what makes that a rule instead of a slogan. It fails on:
 //
 //   1. a visible component without `title`, `summary` and `disables` in both
-//      locale/en.json and locale/zh.json;
+//      locale/en.json and locale/zh.json — and the same three strings for every
+//      component that ships a generated row label, including the internal
+//      worker preset (#121);
 //   2. a forbidden-to-disable capability (host, health, recovery, review
 //      contract, merge gates) that any group, row or boolean key can disable;
 //   3. a component count that moved without a decision in
@@ -28,6 +30,7 @@ import { Config, configSurface } from '../domain/config/schema.js'
 import {
   COMPONENT_REFERENCE_FILE,
   COMPONENT_SURFACE_FILE,
+  LOCALE_FIELDS,
   LOCALE_FILES,
   checkForbidden,
   checkLocaleCoverage,
@@ -40,6 +43,7 @@ import {
 import { validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
+import { ROW_LOCALES } from './generate-capability-locale.mjs'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REGISTRY_FILE = 'host/tool-registry.js'
@@ -51,6 +55,7 @@ const USAGE = `usage: node scripts/check-components.mjs [--root <dir>] [--json]
   --help   print this text
 
 Fails on a visible component without title/summary/disables in both locale files,
+a generated row label (capability or preset) whose component entry is missing,
 a forbidden-to-disable capability disabled by a group, row or boolean key, a
 component count that moved without a scripts/surface-baseline.json decision,
 an unclassified config key or component row, and a stale generated reference.
@@ -58,6 +63,57 @@ Regenerate the table with \`npm run docs:generate:components\`.`
 
 function finding(code, level, message) {
   return { code, level, message }
+}
+
+/**
+ * The generated row-label map is a coverage axis of its own (#121). A component
+ * that ships a `<specifier>/locale/<lang>.json` label must carry `title`,
+ * `summary` and `disables` in every shipped locale — including an internal
+ * component such as the mandatory worker preset, which the visible-only rule in
+ * `domain/components.js` deliberately does not cover.
+ *
+ * `rows` is the generator's declaration (`{ specifier, component, mandatory? }`).
+ * When a row records `mandatory`, it must agree with the component-surface
+ * scope: an internal component is a dependency, never a switch. That is how the
+ * worker's "mandatory dependency" description and the component policy stay one
+ * decision.
+ *
+ * @param {any} surface the parsed `scripts/component-surface.json`
+ * @param {Record<string, any>} locales file path -> parsed locale JSON
+ * @param {Array<{ specifier: string, component: string, mandatory?: boolean }>} rows
+ */
+export function checkRowLocaleCoverage(surface, locales, rows) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const components = new Map(surface.components.map((component) => [component.id, component]))
+  for (const row of rows ?? []) {
+    const component = components.get(row?.component)
+    if (!component) {
+      record(
+        'row-locale-unknown',
+        `row locale "${row?.specifier}" names component "${row?.component}", which the component surface does not declare`,
+      )
+      continue
+    }
+    if (typeof row.mandatory === 'boolean' && row.mandatory !== (component.scope === 'internal')) {
+      record(
+        'row-locale-scope',
+        `row locale "${row.specifier}" labels ${component.id} ${row.mandatory ? 'mandatory' : 'optional'}, but the component surface scope is ${component.scope}`,
+      )
+    }
+    for (const file of LOCALE_FILES) {
+      const entry = locales?.[file]?.components?.[component.id]
+      if (!entry || typeof entry !== 'object') {
+        record('row-locale', `row locale ${component.id} has no entry in ${file}`)
+        continue
+      }
+      for (const field of LOCALE_FIELDS) {
+        const value = typeof entry[field] === 'string' ? entry[field].trim() : ''
+        if (!value) record('row-locale', `row locale ${component.id} misses "${field}" in ${file}`)
+      }
+    }
+  }
+  return findings
 }
 
 /** The live boolean config keys, derived from the schemastery schema. */
@@ -141,6 +197,10 @@ export function checkComponents(root) {
   }
   findings.push(...validateComponentSurface(surface, { configKeys: live.configKeys, patch: live.patch }))
   findings.push(...checkLocaleCoverage(surface, live.locales))
+  // #121: a row that ships a generated `<specifier>/locale/*.json` label needs
+  // the same three strings in both locales, including an internal row (the
+  // mandatory worker preset) that the visible-only rule above does not cover.
+  findings.push(...checkRowLocaleCoverage(surface, live.locales, ROW_LOCALES))
   findings.push(...checkForbidden(surface, { booleans: live.booleans, registry: live.registry, patch: live.patch }))
 
   // #122: an empty OPERATIONAL_TOOLS table is the expected state. Every route

@@ -15,11 +15,18 @@ import {
   INDEX_TOOL_IDS,
   OPTIONAL_ROW_IDS,
   PRESET_IDS,
+  PRESET_ROWS,
+  PRESET_SPECIFIERS,
   checkBundleRow,
+  checkPresetLabels,
+  checkPresetRows,
+  checkRowStates,
   compareIds,
   defaultOffToolIds,
   expectedSkillIds,
   expectedToolIds,
+  failedEntryStates,
+  pendingEntryStates,
   toolIdForModule,
 } from '../scripts/mount-smoke/surface.mjs'
 
@@ -131,6 +138,86 @@ test('a composed but not mounted section is reported with its entry state', () =
 
 test('the presets claim both preset ids', () => {
   assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-worker'])
+  assert.deepEqual(
+    PRESET_ROWS.map((row) => [row.id, row.name, row.order]),
+    [
+      ['tower-worker', 'Tower Worker', 60],
+      ['tower-reviewer', 'Tower Reviewer', 61],
+    ],
+  )
+})
+
+test('each preset row must mount with its label and no activation diagnostic', () => {
+  const loaded = [
+    { id: 'tower-worker', name: 'Tower Worker', order: 60 },
+    { id: 'tower-reviewer', name: 'Tower Reviewer', order: 61 },
+  ]
+  assert.deepEqual(checkPresetRows(loaded), [])
+
+  // A preset that mounts but whose definition fails to activate is a failure.
+  assert.deepEqual(checkPresetRows([...loaded.slice(0, 1), { ...loaded[1], broken: 'row tower-reviewer-fs is not active' }]), [
+    'preset: tower-reviewer failed to mount: row tower-reviewer-fs is not active',
+  ])
+  // So is a missing preset, or one that lost its name/order.
+  assert.ok(checkPresetRows([loaded[0]]).includes('preset: missing tower-reviewer'))
+  assert.ok(checkPresetRows([{ ...loaded[0], name: 'Worker' }, loaded[1]]).some((line) => /name "Worker"/.test(line)))
+  assert.ok(checkPresetRows([{ ...loaded[0], order: 99 }, loaded[1]]).some((line) => /order 99/.test(line)))
+})
+
+test('the two preset rows resolve distinct Plugins-page labels', () => {
+  assert.deepEqual(PRESET_SPECIFIERS, ['dsh-tower/preset-worker', 'dsh-tower/preset-reviewer'])
+  const labels = {
+    'dsh-tower/preset-worker': {
+      title: { en: 'Tower Worker preset', zh: 'Tower Worker 预设' },
+      description: { en: 'Declares the Tower Worker preset: mandatory dependency, not a switch.', zh: '声明 Tower Worker 预设：强制依赖，不是开关。' },
+    },
+    'dsh-tower/preset-reviewer': {
+      title: { en: 'Tower Reviewer preset', zh: 'Tower Reviewer 预设' },
+      description: { en: 'Declares the Tower Reviewer preset: read-only review. When off: nothing reviews.', zh: '声明 Tower Reviewer 预设：只读审查。关闭后：没有审查。' },
+    },
+  }
+  assert.deepEqual(checkPresetLabels(labels), [])
+
+  // The old defect was two rows sharing one module and therefore one title.
+  const shared = {
+    ...labels,
+    'dsh-tower/preset-reviewer': { ...labels['dsh-tower/preset-reviewer'], title: labels['dsh-tower/preset-worker'].title },
+  }
+  assert.ok(checkPresetLabels(shared).some((line) => /share the same en title/.test(line)))
+  assert.ok(checkPresetLabels(shared).some((line) => /share the same zh title/.test(line)))
+  // A shared description is just as indistinguishable as a shared title.
+  const sharedDescription = {
+    ...labels,
+    'dsh-tower/preset-reviewer': {
+      ...labels['dsh-tower/preset-reviewer'],
+      description: labels['dsh-tower/preset-worker'].description,
+    },
+  }
+  assert.ok(checkPresetLabels(sharedDescription).some((line) => /share the same en description/.test(line)))
+
+  // Missing metadata, a specifier fallback, or a title that does not name the
+  // preset are all failures.
+  assert.ok(checkPresetLabels({ ...labels, 'dsh-tower/preset-worker': null }).some((line) => /resolves no locale metadata/.test(line)))
+  const fallback = {
+    ...labels,
+    'dsh-tower/preset-worker': { title: { en: 'dsh-tower/preset-worker', zh: 'x' }, description: { en: 'd', zh: 'd' } },
+  }
+  assert.ok(checkPresetLabels(fallback).some((line) => /falls back to the module specifier/.test(line)))
+  const wrongName = {
+    ...labels,
+    'dsh-tower/preset-worker': { title: { en: 'Agent preset', zh: '预设' }, description: { en: 'd', zh: 'd' } },
+  }
+  assert.ok(checkPresetLabels(wrongName).some((line) => /does not name Tower Worker/.test(line)))
+})
+
+test('no row may fail or stay pending', () => {
+  assert.deepEqual(checkRowStates({ tower: 2, 'tower-host': 2, 'preset-tower-worker': 2 }), [])
+  assert.deepEqual(failedEntryStates({ tower: 2, 'tower-skills': 3 }), ['tower-skills'])
+  assert.deepEqual(pendingEntryStates({ tower: 1, 'tower-skills': 2 }), ['tower'])
+  assert.deepEqual(checkRowStates({ tower: 2, 'tower-skills': 3, 'preset-tower-reviewer': 1 }), [
+    'row: tower-skills failed to mount (entry state 3)',
+    'row: preset-tower-reviewer is still pending (entry state 1)',
+  ])
 })
 
 test('CI runs the seeded fixtures against one shared host install', () => {

@@ -23,7 +23,7 @@ to a tool that is not on the recorded allowlist (empty since #122) and any
 
 ### Row display metadata (#121)
 
-The Plugins page renders an optional row as `row.meta.title ?? row.moduleName`
+The Plugins page renders a row as `row.meta.title ?? row.moduleName`
 plus `row.meta.description`. The Host fills `row.meta` by resolving
 `<specifier>/locale/en.json` and then every sibling `<lang>.json` in that
 directory, reading `meta.title` / `meta.description`; title falls back to the full
@@ -31,7 +31,7 @@ module specifier and description to empty when no resource resolves. That is why
 the mandatory `tower` card explains itself (the package root ships
 `locale/*.json`) while a bare subpath row would show only `dsh-tower/batch`.
 
-Each optional capability therefore ships its own resolvable subpath resource:
+Each optional capability row therefore ships its own resolvable subpath resource:
 `dsh-tower/skills/locale/{en,zh}.json` and the same for `batch`, `import`,
 `leases`, `tests` and `hmr`. `package.json` `exports` maps every
 `./<capability>/locale/*.json` to `./locale/<capability>/*.json`, and
@@ -39,31 +39,56 @@ Each optional capability therefore ships its own resolvable subpath resource:
 package. The root `./locale/*.json` export stays so the Tower group keeps its own
 `meta`.
 
-The capability files are generated, never hand-written. `npm run
-docs:generate:locale` renders them from the `components` block of
-`locale/en.json` and `locale/zh.json` (the same source `docs:check:components`
-audits): `meta.title` is the component `title`, and `meta.description` joins the
-component `summary` (what the capability enables) with its `disables` text (what
-turning it off removes) behind a per-language "When off / 关闭后" label. The
-row is therefore decidable from the page alone. `npm run
-docs:check:generated:locale` fails on drift, runs in `npm run check`, and is its
-own step in the `test` CI job (`.github/workflows/test.yml`).
+The two preset-declaring rows need the same treatment but cannot share a module.
+DSH labels a row from its own `moduleName`, so while both rows mounted
+`@deepseek-ai/dsh-agent-preset` they resolved one locale resource and rendered the
+same title: the mandatory worker dependency and the conditional reviewer switch
+were indistinguishable. That package is also supplied by the DSH profile, not by
+this bundle, so Tower cannot add per-row locale files beside its label. Tower
+therefore owns one tiny declaration module per preset row:
+`host/preset-worker.js` (row specifier `dsh-tower/preset-worker`) and
+`host/preset-reviewer.js` (`dsh-tower/preset-reviewer`). Each is a plain object
+plugin with `inject: ['agentPresets']` whose async `apply` returns
+`ctx.agentPresets.register(config)`; Cordis collects the resolved function as the
+plugin's disposer, so disabling the row or an HMR unload unregisters the preset.
+The registry still owns preset semantics — it mounts the definition's `plugins`
+list itself — and the modules import nothing, so they are renderer-free and do
+not depend on `@deepseek-ai/dsh-agent-preset`. In `cordis.patch.yml` only the two
+`name:` lines changed; the id/name/description/order/plugins config blocks are
+unchanged.
 
-To label a new capability row:
+The row label files are generated, never hand-written. `npm run
+docs:generate:locale` renders every row label — capability and preset — from the
+`components` block of `locale/en.json` and `locale/zh.json` (the same source
+`docs:check:components` audits): `meta.title` is the component `title`, and
+`meta.description` joins the component `summary` (what the row provides) with its
+`disables` text (what turning it off removes) behind a per-language "When off /
+关闭后" label. The mandatory worker preset has no off state, so its description
+uses a "Mandatory dependency, not a switch / 强制依赖，不是开关" label instead; the
+conditional reviewer keeps the off-effect wording. The row is therefore decidable
+from the page alone. `npm run docs:check:generated:locale` fails on drift, runs in
+`npm run check`, and is its own step in the `test` CI job
+(`.github/workflows/test.yml`). `npm run docs:check:components` also covers the
+generated rows: a label whose `components` entry is missing, or whose `mandatory`
+flag disagrees with the component scope, is refused there. The real
+`npm run smoke:mount` calls the same host `readPluginMeta` the Plugins page uses
+and fails unless the two preset rows resolve distinct title/description maps, so
+the shared-label defect cannot return unnoticed.
+
+To label a new row:
 
 1. Classify it in `scripts/component-surface.json`, ship it in
    `cordis.patch.yml`, and add `title` / `summary` / `disables` to the
    `components` block of both `locale/en.json` and `locale/zh.json`.
-2. Add `{ specifier, component }` to `CAPABILITY_LOCALES` in
-   `scripts/generate-capability-locale.mjs`, the matching
-   `./<specifier>/locale/*.json` export in `package.json`, and the row to the
-   coverage map in `tests/capability-locales.test.mjs`.
+2. Add `{ specifier, component }` to `CAPABILITY_LOCALES` — or to
+   `PRESET_LOCALES` with `mandatory` matching the component scope for a
+   preset-declaring row — in `scripts/generate-capability-locale.mjs`, the
+   matching `./<specifier>/locale/*.json` export in `package.json`, and the row
+   to the coverage map in `tests/capability-locales.test.mjs`.
 3. Run `npm run docs:generate:locale`, then regenerate
    `scripts/pack-manifest.txt` with `npm run pack:check -- --write`.
 
-The reviewer preset row is the one visible component that is not a package
-specifier: its label comes from the `cordis.patch.yml` preset `config.name` /
-`description`. The generated capability files never touch the root locale `meta`.
+The generated row files never touch the root locale `meta`.
 
 ```
 Host plugin (index.js)
@@ -90,6 +115,8 @@ Host plugin (index.js)
        host/modeStore.js       per-agent Tower mode persistence
        host/modeState.js       owned in-memory mode state
        host/presets.js         cross-field preset validation before work starts
+       host/preset-worker.js   mandatory worker preset declaration (dsh-tower/preset-worker)
+       host/preset-reviewer.js conditional reviewer preset declaration (dsh-tower/preset-reviewer)
        host/compatibility.js   COMPATIBILITY.md provenance
        host/tower.js           default-deps Tower binding for tests/embedders
  ports (explicit runtime contracts, no implementation):

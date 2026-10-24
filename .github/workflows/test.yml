@@ -97,10 +97,11 @@ jobs:
       # so "should this be a component?" is a table lookup rather than prose.
       - name: Generated component surface
         run: npm run docs:check:generated:components
-      # #121: an optional capability row labels itself on the Plugins page from
-      # its own `<specifier>/locale/<lang>.json`, generated from the shared locale
+      # #121: an optional capability row and both preset-declaring rows label
+      # themselves on the Plugins page from their own
+      # `<specifier>/locale/<lang>.json`, generated from the shared locale
       # components block; a hand edit is a red check.
-      - name: Generated capability row locales
+      - name: Generated row locales
         run: npm run docs:check:generated:locale
       # #120: locale coverage, the forbidden-to-disable denylist, and the baselined
       # component count. Principle 11 has no teeth without this step.
