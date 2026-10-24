@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "旧版导入",
+    "description": "导入 Tower Codex 旧状态文件，并审计快照到 mission 的映射。关闭后：不再注册 tower_import_legacy 与 tower_legacy_map；新状态不受影响。"
+  }
+}

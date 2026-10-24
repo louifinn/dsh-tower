@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "测试发现",
+    "description": "运行 worktree 声明的测试发现，并为 mission tip 记录回执。关闭后：不再注册 tower_test，也无法记录回执；若 gates.requireTests:true，规划/进入模式会以解释性错误拒绝。"
+  }
+}

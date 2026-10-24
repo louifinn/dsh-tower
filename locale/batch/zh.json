@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "证据批次",
+    "description": "把 mission 归入有限证据批次，并按必需检查与回执关闭批次。关闭后：不再注册 tower_batch；mission、门禁与合并不受影响。"
+  }
+}
