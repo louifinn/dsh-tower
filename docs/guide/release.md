@@ -105,15 +105,25 @@ below). `scripts/release-notes.mjs` is the authority for that body — do not ha
 section. The checklist step is `npm run release:notes -- --version <v> --since <prev-release> --output notes.md`, then pass that file to `gh release create`/`gh release edit` with `--notes-file notes.md`.
 
 ```bash
+# Stable release (the common case): no pre-release flags.
 VERSION=2.3.0
 SINCE=2.1.0                 # the previous GitHub Release, not the previous tag
 npm run release:notes -- --version "$VERSION" --since "$SINCE" --output notes.md
 npm run release:notes -- --version "$VERSION" --since "$SINCE" --check notes.md
-gh release create "v$VERSION" --title "dsh-tower $VERSION" --notes-file notes.md \
-  --prerelease --verify-tag --latest=false
+gh release create "v$VERSION" --title "dsh-tower $VERSION" --notes-file notes.md --verify-tag
 # editing a Release that already exists (for example, to correct its window):
 gh release edit "v$VERSION" --notes-file notes.md
 gh release view "v$VERSION" --json tagName,isPrerelease,body
+```
+
+```bash
+# Pre-release variant (a beta, for example 2.5.0-beta.1): mark the Release and keep "latest"
+# on the previous stable Release.
+VERSION=2.5.0-beta.1
+SINCE=2.4.2                 # the previous GitHub Release; a pre-release counts as one too
+npm run release:notes -- --version "$VERSION" --since "$SINCE" --output notes.md
+gh release create "v$VERSION" --title "dsh-tower $VERSION" --notes-file notes.md \
+  --prerelease --verify-tag --latest=false
 ```
 
 `--check notes.md` exits 1 when the file differs from the generated text (it prints the first
@@ -121,9 +131,10 @@ differing line and both byte counts), so a correction is verifiable. The script 
 missing/unknown flag, an invalid version, `since >= version`, or an empty window; it never emits
 a Release body it cannot justify.
 
-`--verify-tag` refuses to create the tag at the default branch when the pushed tag is missing;
-`--prerelease --latest=false` keeps the GitHub "latest" marker on the stable release. Releases
-are what consumers and the plugin directory can see — a tag alone is not a release.
+`--verify-tag` refuses to create the tag at the default branch when the pushed tag is missing.
+A beta Release adds `--prerelease --latest=false`: GitHub marks it as a pre-release and keeps
+the "latest" marker on the stable Release. Releases are what consumers and the plugin directory
+can see — a tag alone is not a release.
 
 ## Cumulative Release notes / 累积发布说明
 
