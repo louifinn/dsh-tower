@@ -46,7 +46,8 @@ audits): `meta.title` is the component `title`, and `meta.description` joins the
 component `summary` (what the capability enables) with its `disables` text (what
 turning it off removes) behind a per-language "When off / 关闭后" label. The
 row is therefore decidable from the page alone. `npm run
-docs:check:generated:locale` fails on drift and is part of `npm run check`.
+docs:check:generated:locale` fails on drift, runs in `npm run check`, and is its
+own step in the `test` CI job (`.github/workflows/test.yml`).
 
 To label a new capability row:
 
