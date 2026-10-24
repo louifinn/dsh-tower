@@ -225,6 +225,7 @@ scripts/mount-smoke/surface.mjs
 scripts/pack-manifest.txt
 scripts/regression-audit.mjs
 scripts/release-check.mjs
+scripts/release-notes.mjs
 scripts/surface-baseline.json
 scripts/surface-baseline.mjs
 scripts/types-coverage.mjs
