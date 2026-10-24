@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tower Reviewer 预设",
+    "description": "声明 Tower Reviewer 预设：只读独立审查，检视任务差异、核对范围与验收，并返回结论。关闭后：无法派发审查代理。review.requireReview 为 false 时允许关闭；强制审查开启时规划/进入模式会被锁定并给出解释。"
+  }
+}

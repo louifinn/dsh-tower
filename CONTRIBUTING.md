@@ -26,7 +26,8 @@ The component axis — who may be switched off — is principle 11 and
 [scripts/component-surface.json](scripts/component-surface.json) into
 [docs/reference/component-surface.md](docs/reference/component-surface.md) and
 enforced by `npm run docs:check:components`: every visible component needs
-`title`/`summary`/`disables` in both locales, the host/health/recovery/review/
+`title`/`summary`/`disables` in both locales (and every generated row label —
+capability or preset — needs the same three strings), the host/health/recovery/review/
 merge-gate capabilities may not be gated by any row or boolean key (the
 `gateableTools` allowlist is empty since #122), and the component count — 8
 visible rows in 2.4.0 — is the fourth baselined surface.
@@ -116,13 +117,14 @@ the push gates; CI schedules it nightly.
 - `index.js` — Host entry: `/tower` command, mode guard, dynamic prompt section, `tower_control`.
 - `host/` — the composition root and session/process glue (`tool-registry.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
+- `host/preset-worker.js` / `host/preset-reviewer.js` — the two Tower-owned preset declaration rows (`dsh-tower/preset-*`). They keep the row config in `cordis.patch.yml`, forward it to `ctx.agentPresets.register()`, and give each preset row its own Plugins-page label; do not mount the shared `@deepseek-ai/dsh-agent-preset` for these rows.
 - `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; live-runtime scripts are documented in `tests/README.md`.
 - `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, The three layering rules that keep the core pure — `domain-pure`, `host-scope`, and `no-lib-from-core` — cannot be waived at all. The `let` scan behind `host-scope` is statement-aware: every binding of every top-level declaration is recorded, and only `host/**` may hold ambient state.
 - `types/` — the published declaration surface (`package.json` `types` is `types/index.d.ts`). The vocabulary block in that file is generated from the runtime constants by `npm run types:generate` and gated by `npm run docs:check:generated:types`; never edit it by hand. `tsconfig.strict.json` turns `noImplicitAny` on for an explicit file list that may grow but never silently shrink: add a file, then record it with `npm run types:strict:write` (a removal also needs `--allow-shrink`). `npm run types:coverage` fails when a shipped runtime `.js` file is outside the `tsc` program.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (620 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
+1. `npm test` passes locally (631 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage) and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
@@ -139,7 +141,9 @@ the push gates; CI schedules it nightly.
    `docs/reference/component-surface.md` (`npm run docs:generate:components`), and must pass
    `npm run docs:check:components`. A new visible capability row also ships its own
    `<specifier>/locale/*.json` row label via `npm run docs:generate:locale` and passes
-   `npm run docs:check:generated:locale` (see
+   `npm run docs:check:generated:locale`; a preset-declaring row does the same through
+   `PRESET_LOCALES`, and every generated row label (capability or preset) must keep
+   `title`/`summary`/`disables` in both locales (see
    [architecture/overview.md](docs/architecture/overview.md#row-display-metadata-121)).
 
 ## Mount smoke

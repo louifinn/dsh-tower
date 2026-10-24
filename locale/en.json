@@ -39,9 +39,14 @@
       "summary": "Register tower_reload and /tower reload for linked-profile development.",
       "disables": "tower_reload and /tower reload are unavailable; a non-HMR profile behaves exactly as before. Shipped off."
     },
+    "preset-tower-worker": {
+      "title": "Tower Worker preset",
+      "summary": "Declares the Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker runs inside its assigned worktree.",
+      "disables": "tower_spawn cannot start a worker without it."
+    },
     "preset-tower-reviewer": {
-      "title": "Tower reviewer",
-      "summary": "Read-only independent review: inspect the mission diff, verify scope and acceptance, return a verdict.",
+      "title": "Tower Reviewer preset",
+      "summary": "Declares the Tower Reviewer preset: read-only independent review that inspects the mission diff, verifies scope and acceptance, and returns a verdict.",
       "disables": "The reviewer cannot be dispatched. Supported while review.requireReview is false; with the gate on planning/mode entry is locked with an explanatory error."
     }
   }

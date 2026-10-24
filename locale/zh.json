@@ -39,9 +39,14 @@
       "summary": "为联动开发 profile 注册 tower_reload 与 /tower reload。",
       "disables": "tower_reload 与 /tower reload 不可用；非 HMR profile 的行为与之前完全相同。随包默认关闭。"
     },
+    "preset-tower-worker": {
+      "title": "Tower Worker 预设",
+      "summary": "声明 Tower Worker 预设：任务协议，以及执行代理在其工作树内使用的文件系统、终端与 Tower 工具。",
+      "disables": "缺少它 tower_spawn 无法启动执行代理。"
+    },
     "preset-tower-reviewer": {
-      "title": "Tower 审查代理",
-      "summary": "只读独立审查：检查 mission diff、核对范围与验收，给出结论。",
+      "title": "Tower Reviewer 预设",
+      "summary": "声明 Tower Reviewer 预设：只读独立审查，检视任务差异、核对范围与验收，并返回结论。",
       "disables": "无法派发审查代理。review.requireReview 为 false 时允许关闭；强制审查开启时规划/进入模式会被锁定并给出解释。"
     }
   }

@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { capabilityLocalePaths } from './generate-capability-locale.mjs'
+import { capabilityLocalePaths, presetLocalePaths } from './generate-capability-locale.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REQUIRED_FILES = [
@@ -18,9 +18,13 @@ const REQUIRED_FILES = [
   'index.js',
   'locale/en.json',
   'locale/zh.json',
-  // #121: every optional capability row explains itself on the Plugins page
-  // through a subpath locale resource, so those generated files are required.
+  // #121: every optional capability row and both preset-declaring rows explain
+  // themselves on the Plugins page through a subpath locale resource, so those
+  // generated files are required.
   ...capabilityLocalePaths(),
+  ...presetLocalePaths(),
+  'host/preset-worker.js',
+  'host/preset-reviewer.js',
   'ui-bundle/index.js',
   'ui-bundle/package.json',
   'ui-bundle/cordis.patch.yml',

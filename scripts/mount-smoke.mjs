@@ -25,6 +25,9 @@ import {
   INDEX_TOOL_IDS,
   PRESET_IDS,
   checkBundleRow,
+  checkPresetLabels,
+  checkPresetRows,
+  checkRowStates,
   compareIds,
   expectedSkillIds,
   expectedToolIds,
@@ -163,13 +166,29 @@ function verifySurface(surface, root) {
   if (loadedSkills) failures.push(...compareIds('skill', expectedSkills, loadedSkills.tower))
 
   const loadedPresets = area(surface, 'presets', 'preset', failures)
-  if (loadedPresets) failures.push(...compareIds('preset', PRESET_IDS, loadedPresets))
+  if (loadedPresets) {
+    failures.push(...compareIds('preset', PRESET_IDS, loadedPresets.ids ?? []))
+    // Both preset rows must still activate: ids, display names/orders and no
+    // registry activation diagnostic (#121).
+    failures.push(...checkPresetRows(loadedPresets.entries ?? []))
+  }
+
+  // The Plugins page reads the label through `readPluginMeta`; the two preset
+  // rows used to share one module and rendered the same title. Prove the
+  // installed package now resolves a distinct label per row (#121).
+  const loadedLabels = area(surface, 'labels', 'label', failures)
+  if (loadedLabels) failures.push(...checkPresetLabels(loadedLabels))
 
   const loadedCommands = area(surface, 'commands', 'command', failures)
   if (loadedCommands && !loadedCommands.includes('tower')) failures.push('command: /tower is not registered in the loaded command registry')
 
   const tree = area(surface, 'tree', 'bundle', failures)
-  if (tree) failures.push(...checkBundleRow(tree.top, tree.states))
+  if (tree) {
+    failures.push(...checkBundleRow(tree.top, tree.states))
+    // The bundle was replaced row-by-row (#121); prove no row failed to activate
+    // or is still waiting, not only that the expected rows are active.
+    failures.push(...checkRowStates(tree.states))
+  }
 
   return failures
 }
@@ -179,10 +198,11 @@ function summarize(surface, root) {
   const expected = expectedToolIds(toolModuleNames(root)).length
   const tools = Array.isArray(surface?.tools?.value) ? surface.tools.value.filter((name) => name.startsWith('tower_')).length : '?'
   const skills = Array.isArray(surface?.skills?.value?.tower) ? surface.skills.value.tower.length : '?'
-  const presets = Array.isArray(surface?.presets?.value) ? surface.presets.value.length : '?'
+  const presets = Array.isArray(surface?.presets?.value?.ids) ? surface.presets.value.ids.length : '?'
+  const labels = surface?.labels?.value && typeof surface.labels.value === 'object' ? Object.keys(surface.labels.value).length : '?'
   const commands = Array.isArray(surface?.commands?.value) ? surface.commands.value.filter((name) => name === 'tower').length : '?'
   const rows = Array.isArray(surface?.tree?.value?.top) ? surface.tree.value.top.filter((row) => row.id === BUNDLE_ID).length : '?'
-  return `${tools} of ${expected} tower tools (${modules} modules + ${INDEX_TOOL_IDS.length} entry tools; ${DEFAULT_OFF_ROW_IDS.join(', ')} off), ${skills} skills, ${presets} presets, /tower ${commands === 1 ? 'present' : 'missing'}, ${rows} top-level bundle row`
+  return `${tools} of ${expected} tower tools (${modules} modules + ${INDEX_TOOL_IDS.length} entry tools; ${DEFAULT_OFF_ROW_IDS.join(', ')} off), ${skills} skills, ${presets} presets (${labels} distinct labels), /tower ${commands === 1 ? 'present' : 'missing'}, ${rows} top-level bundle row`
 }
 
 function reportFailure(state, pin, options, error) {

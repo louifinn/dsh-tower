@@ -4,6 +4,17 @@
 
 ## 未发布（Unreleased）
 
+## 2.4.2（2026-10-24）
+
+### 修复
+
+- **两个 Agent 预设行在 Plugins 页面无法区分**：此前 `preset-tower-worker` 与 `preset-tower-reviewer`
+  共用 `@deepseek-ai/dsh-agent-preset` 模块，页面按模块包取标签，两行都显示「Agent 预设定义」。
+  现在两行分别由 Tower 自有的 import-free preset 声明模块承载（`dsh-tower/preset-worker` /
+  `dsh-tower/preset-reviewer`），通过注入的 `agentPresets.register(config)` 注册，
+  preset 的 id/name/description/order/plugins 保持不变；两个 specifier 各自提供生成的
+  `<specifier>/locale/{en,zh}.json`，页面显示「Tower Worker 预设」「Tower Reviewer 预设」
+  及各自用途与关闭影响。真实 `smoke:mount` 在 pinned host 上确认 2 个 preset 均挂载且标签不同。
 ## 2.4.1（2026-10-24）
 
 ### 修复

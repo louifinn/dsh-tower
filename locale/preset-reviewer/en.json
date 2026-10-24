@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tower Reviewer preset",
+    "description": "Declares the Tower Reviewer preset: read-only independent review that inspects the mission diff, verifies scope and acceptance, and returns a verdict. When off: The reviewer cannot be dispatched. Supported while review.requireReview is false; with the gate on planning/mode entry is locked with an explanatory error."
+  }
+}
