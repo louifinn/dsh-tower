@@ -91,6 +91,7 @@
     "smoke:mount": "node scripts/mount-smoke.mjs",
     "smoke:fixtures": "node scripts/mount-smoke/fixtures.mjs",
     "release:check": "node scripts/release-check.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "audit:issues": "node scripts/issue-audit.mjs",
     "audit:regressions": "node scripts/regression-audit.mjs",
     "surface:check": "node scripts/surface-baseline.mjs",

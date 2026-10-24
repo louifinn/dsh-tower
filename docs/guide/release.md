@@ -97,29 +97,59 @@ git for-each-ref refs/tags/v2.1.0-beta.1 --format='%(objecttype)|%(subject)'
 The pushed tag must be exactly `v<version>`. The tag push re-runs `release:check` against
 `<tag>^`; this is why tagging a commit whose `package.json` did not move fails.
 
-## 6. GitHub Release from the CHANGELOG section
+## 6. GitHub Release with cumulative notes
+
+A Release body is not just its own CHANGELOG section: it carries **every** section after the
+previous GitHub Release (see [Cumulative Release notes](#cumulative-release-notes--累积发布说明)
+below). `scripts/release-notes.mjs` is the authority for that body — do not hand-extract a single
+section. The checklist step is `npm run release:notes -- --version <v> --since <prev-release> --output notes.md`, then pass that file to `gh release create`/`gh release edit` with `--notes-file notes.md`.
 
 ```bash
-VERSION=2.1.0-beta.1
-awk -v v="$VERSION" '$0 ~ "^##[[:space:]]+.*" v {s=1; next} s && /^##[[:space:]]/ {exit} s {print}' \
-  CHANGELOG.md > release-notes.md
-test -s release-notes.md || { echo "empty section for $VERSION" >&2; exit 1; }
-gh release create "v$VERSION" --title "dsh-tower $VERSION" --notes-file release-notes.md \
+VERSION=2.3.0
+SINCE=2.1.0                 # the previous GitHub Release, not the previous tag
+npm run release:notes -- --version "$VERSION" --since "$SINCE" --output notes.md
+npm run release:notes -- --version "$VERSION" --since "$SINCE" --check notes.md
+gh release create "v$VERSION" --title "dsh-tower $VERSION" --notes-file notes.md \
   --prerelease --verify-tag --latest=false
+# editing a Release that already exists (for example, to correct its window):
+gh release edit "v$VERSION" --notes-file notes.md
 gh release view "v$VERSION" --json tagName,isPrerelease,body
 ```
 
-PowerShell extraction of the same section:
-
-```powershell
-$version = '2.1.0-beta.1'; $lines = Get-Content CHANGELOG.md
-$start = ($lines | Select-String -Pattern "^##\s+.*$([regex]::Escape($version))" | Select-Object -First 1).LineNumber
-if (-not $start) { throw "CHANGELOG has no section for $version" }
-$next = ($lines | Select-String -Pattern '^##\s+' | Where-Object LineNumber -gt $start | Select-Object -First 1).LineNumber
-$end = if ($next) { $next - 2 } else { $lines.Count - 1 }
-($lines[$start..$end] -join "`n").Trim() | Set-Content release-notes.md -Encoding utf8
-```
+`--check notes.md` exits 1 when the file differs from the generated text (it prints the first
+differing line and both byte counts), so a correction is verifiable. The script exits 2 on a
+missing/unknown flag, an invalid version, `since >= version`, or an empty window; it never emits
+a Release body it cannot justify.
 
 `--verify-tag` refuses to create the tag at the default branch when the pushed tag is missing;
 `--prerelease --latest=false` keeps the GitHub "latest" marker on the stable release. Releases
 are what consumers and the plugin directory can see — a tag alone is not a release.
+
+## Cumulative Release notes / 累积发布说明
+
+A GitHub Release is cumulative: it aggregates every CHANGELOG section **after the previous
+Release**, up to and including the version being released.
+
+- The **previous Release** is the latest published GitHub Release by version. Pre-releases
+  created with `--prerelease` count as Releases, so a `2.1.0-beta.1` Release is a boundary too.
+- **Tag-only versions have no Release.** A version that was tagged or published to npm without
+  creating a GitHub Release — 2.1.1 and 2.1.2 were tag-only, and 2.2.0 too — would otherwise
+  lose its notes; its CHANGELOG section rolls into the next Release.
+- Example: once 2.1.0 is the previous Release, the 2.3.0 Release includes 2.1.1, 2.1.2, 2.2.0
+  and 2.3.0:
+
+  ```bash
+  npm run release:notes -- --version 2.3.0 --since 2.1.0 --output notes.md
+  ```
+
+  The window is `(2.1.0, 2.3.0]`; `2.1.0-beta.1` sorts before 2.1.0 and therefore stays out.
+- `npm run release:notes` (`scripts/release-notes.mjs`) is the authoritative generator: it reads
+  `CHANGELOG.md`, filters the window, orders sections by SemVer (pre-release identifiers
+  included), and emits the `# dsh-tower <v>` title, a provenance quote naming the previous
+  Release and the included versions, then the sections separated by `---`.
+- `--check <file>` re-verifies an existing notes file byte-for-byte (exit 1 on a mismatch), so
+  the body of a published Release can be audited without editing it. Use `--root <dir>` to check
+  another checkout.
+
+Never hand-extract only the current version's section: that is what produced single-section
+Releases whose tag-only predecessors were invisible.
