@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Dev hot reload",
+    "description": "Register tower_reload and /tower reload for linked-profile development. When off: tower_reload and /tower reload are unavailable; a non-HMR profile behaves exactly as before. Shipped off."
+  }
+}

@@ -4,6 +4,16 @@
 
 ## 未发布（Unreleased）
 
+## 2.4.1（2026-10-24）
+
+### 修复
+
+- **可选组件行在 Plugins 页面只显示模块名**：每个可选能力导出现在提供
+  `<specifier>/locale/{en,zh}.json`（`meta.title` / `meta.description`），由
+  `locale/<lang>.json` 的 `components` 块经 `npm run docs:generate:locale` 生成，并由
+  `docs:check:generated:locale` + CI 步骤防漂移；描述同时说明能力用途与关闭后移除的内容，
+  开关无需离开页面即可判断。
+
 ## 2.4.0（2026-10-24）
 
 ### 新增

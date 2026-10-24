@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Legacy import",
+    "description": "Import a Tower Codex legacy state file and audit its snapshot-to-mission mapping. When off: tower_import_legacy and tower_legacy_map are not registered; new state is unaffected."
+  }
+}
