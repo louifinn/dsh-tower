@@ -98,6 +98,9 @@ $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live-$(Get-Random)").
 $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
 # Optional: the host build under test, named on the first output line:
 $env:DSH_HOST_VERSION='0.2.1-rc.2'
+# Optional: the writable documents directory used to seed the first-use
+# Workspace (absolute). Defaults to <DSH_HOME>/documents.
+$env:DSH_LIVE_DOCUMENTS_DIR="$env:DSH_HOME\documents"
 
 npm run test:live                       # boot smoke against DSH_TEST_URL (default)
 npm run test:live -- --check            # environment + resolution only, no browser, < 10 s
@@ -111,7 +114,17 @@ Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a speci
 
 The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.1-rc.2)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
-`boot-smoke` waits up to 60 s for the composer or the new-session entry; set `DSH_LIVE_BOOT_TIMEOUT_MS` to override that (milliseconds, clamped to 1000–600000; an unset or invalid value falls back to the 60 s default). It always writes `tests/live/boot-smoke.png` and `tests/live/boot-smoke.log`; a failure logs the page signals, a redacted `body.innerText` snippet (URLs and `token=` values become `<redacted>`), and the full non-benign page/console errors. The nightly job uploads both files with `if: always()` as the `live-boot-diagnostics` artifact (7-day retention), so a red nightly is diagnosable from the run page even though it cannot be reproduced on push.
+`nightly` also seeds a default Workspace for a first-use CI runner (#47). An Ubuntu runner has no xdg Documents directory, so `@deepseek-ai/dsh-api-workspace-controller` cannot resolve its first-use workspace: the Web shell parks on the Preview Notice / "Choose workspace" state and the composer never renders (a Windows machine resolves Documents, which is why this was CI-only). The orchestrator creates a writable documents directory — `DSH_LIVE_DOCUMENTS_DIR` when set (must be absolute), otherwise `<DSH_HOME>/documents` — and writes a loader overlay at `<DSH_HOME>/workspace-override.patch.yml`:
+
+```yaml
+- id: workspace-controller
+  config:
+    documentsDirectory: '<absolute path>'
+```
+
+It passes that file to the host server as `--patch <overlay>`, a launcher flag that must precede the inner app flags (`--port`, `--no-open`). The profile's own layers stay untouched, and the run logs the documents directory and overlay path (paths only, no secrets). To boot the same way by hand, create the directory and the overlay, then add `--patch <overlay>` to the step-3 command. This is how CI gets a usable default Workspace instead of the notice.
+
+`boot-smoke` requires the composer as its success target: a shell that rendered only the sidebar is a broken boot, not a pass. After navigation it waits up to 15 s for the first render to show either the composer or a visible Preview Notice button with the exact label `Continue` / `继续`; if the notice is present it is clicked and the log records `dismissed:preview-notice` (a present-but-unclickable notice is recorded too). Readiness is then a bounded poll for the composer alone; set `DSH_LIVE_BOOT_TIMEOUT_MS` to override the 60 s timeout (milliseconds, clamped to 1000–600000; an unset or invalid value falls back to the 60 s default). The page signals log both sidebar markers (`New Session` and `新会话` as `newSessionEnglish` / `newSessionChinese`, with `newSession` true for either) plus whether a Preview Notice or a Choose-workspace state is still visible. It always writes `tests/live/boot-smoke.png` and `tests/live/boot-smoke.log`; a failure logs the page signals, a redacted `body.innerText` snippet (URLs and `token=` values become `<redacted>`), and the full non-benign page/console errors. The nightly job uploads both files with `if: always()` as the `live-boot-diagnostics` artifact (7-day retention), so a red nightly is diagnosable from the run page even though it cannot be reproduced on push.
 
 ### Command semantics (no model required)
 
