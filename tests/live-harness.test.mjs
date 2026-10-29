@@ -3,7 +3,9 @@
 // These run on every push and never launch a browser. They pin the install path
 // (own package + lockfile), the resolver order, the actionable missing-install
 // message, the isolated-DSH_HOME guard, and the CI policy (nightly live job on a
-// pinned host; offline + protocol e2e on every push).
+// pinned host; offline + protocol e2e on every push). The boot-smoke readiness
+// timeout and the nightly diagnostic-artifact upload are pinned here too, so a
+// future edit cannot silently reintroduce the fixed sleep or drop the artifact.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -14,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 import resolveModule from './live/resolve-playwright.cjs'
 import guardModule from './live/_guard.cjs'
+import bootDiagnostics from './live/_boot-diagnostics.cjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const liveDir = path.join(root, 'tests', 'live')
@@ -22,6 +25,15 @@ const readLive = (file) => fs.readFileSync(path.join(liveDir, file), 'utf8')
 const node = process.execPath
 const { INSTALL_COMMANDS, installHint, resolvePlaywright } = resolveModule
 const { announceLine, assertIsolatedHome, hostVersion } = guardModule
+const {
+  DEFAULT_BOOT_TIMEOUT_MS,
+  MAX_BOOT_TIMEOUT_MS,
+  MIN_BOOT_TIMEOUT_MS,
+  SNIPPET_CHARS,
+  parseBootTimeoutMs,
+  redactSnippet,
+  redactTokens,
+} = bootDiagnostics
 
 const HARNESS_FILES = ['run.cjs', '_env.cjs', '_guard.cjs', 'resolve-playwright.cjs']
 
@@ -58,6 +70,40 @@ function workflowJob(workflow, id) {
     }
   }
   return lines.slice(start, end).join('\n')
+}
+
+/** The step block (its `- ` line through the next step) that contains a marker. */
+function workflowStep(job, marker) {
+  const lines = job.replace(/\r\n/g, '\n').split('\n')
+  const markerLine = lines.findIndex((line) => line.includes(marker))
+  assert.notEqual(markerLine, -1, `the job must contain a step with ${marker}`)
+  const isStep = (line) => /^ {6}- /.test(line)
+  let start = markerLine
+  while (start > 0 && !isStep(lines[start])) start -= 1
+  let end = lines.length
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (isStep(lines[index])) {
+      end = index
+      break
+    }
+  }
+  return lines.slice(start, end).join('\n')
+}
+
+/** The entries of a block `path: |` mapping inside one step. */
+function workflowStepPaths(step) {
+  const lines = step.replace(/\r\n/g, '\n').split('\n')
+  const index = lines.findIndex((line) => /^\s*path:\s*\|\s*$/.test(line))
+  assert.notEqual(index, -1, 'the upload step must declare a block `path:`')
+  const indent = lines[index].match(/^\s*/)[0].length
+  const paths = []
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor]
+    if (!line.trim()) continue
+    if (line.match(/^\s*/)[0].length <= indent) break
+    paths.push(line.trim())
+  }
+  return paths
 }
 
 const RUNNER_TEMP = '${{ runner.temp }}'
@@ -383,4 +429,87 @@ test('the live entries announce the resolved home and host version before anythi
     const launchAt = source.search(/chromium\.launch|spawn\(/)
     assert.ok(launchAt === -1 || announceAt < launchAt, `${file} must announce before it starts a browser or a server`)
   }
+})
+
+test('boot-smoke bounds readiness with DSH_LIVE_BOOT_TIMEOUT_MS instead of a fixed sleep', () => {
+  // Contract: 60 s default, floored/clamped override, bad input never fails the
+  // smoke (a typo must not look like a boot failure).
+  assert.equal(DEFAULT_BOOT_TIMEOUT_MS, 60000)
+  assert.equal(MIN_BOOT_TIMEOUT_MS, 1000)
+  assert.equal(MAX_BOOT_TIMEOUT_MS, 600000)
+  assert.equal(parseBootTimeoutMs(undefined), 60000, 'unset uses the default')
+  assert.equal(parseBootTimeoutMs(null), 60000)
+  assert.equal(parseBootTimeoutMs(''), 60000, 'blank uses the default')
+  assert.equal(parseBootTimeoutMs('   '), 60000)
+  assert.equal(parseBootTimeoutMs('5000'), 5000, 'a valid override is honored')
+  assert.equal(parseBootTimeoutMs(' 2500 '), 2500, 'surrounding whitespace is tolerated')
+  assert.equal(parseBootTimeoutMs(15000), 15000)
+  assert.equal(parseBootTimeoutMs('abc'), 60000, 'a non-numeric override falls back, it does not fail')
+  assert.equal(parseBootTimeoutMs('0'), 60000, 'a non-positive override falls back')
+  assert.equal(parseBootTimeoutMs('-5'), 60000)
+  assert.equal(parseBootTimeoutMs('1'), MIN_BOOT_TIMEOUT_MS, 'too-small values are clamped up')
+  assert.equal(parseBootTimeoutMs('9999999'), MAX_BOOT_TIMEOUT_MS, 'huge values are clamped down')
+  assert.equal(parseBootTimeoutMs('2500.9'), 2500, 'fractional milliseconds are floored')
+
+  const source = readLive('boot-smoke.cjs')
+  assert.doesNotMatch(source, /waitForTimeout\s*\(\s*5000\s*\)/, 'the fixed 5 s sleep must be gone')
+  assert.match(source, /waitForFunction/, 'readiness must be a bounded poll')
+  assert.match(source, /DSH_LIVE_BOOT_TIMEOUT_MS/)
+  assert.match(source, /parseBootTimeoutMs/)
+  // Screenshot before signals, env skip semantics, and the actionable failure
+  // text are part of the diagnostic contract.
+  assert.ok(
+    source.indexOf('await page.screenshot') < source.indexOf('const diagnostics = await page.evaluate'),
+    'the screenshot is captured before the signals are read',
+  )
+  assert.match(source, /DSH_TEST_URL is not set/)
+  assert.match(source, /DSH_LIVE_REQUIRE/)
+  assert.match(source, /raise DSH_LIVE_BOOT_TIMEOUT_MS to wait longer/)
+})
+
+test('boot-smoke diagnostics are redacted and bounded before they are uploaded', () => {
+  const page = 'boot failed at http://127.0.0.1:59001/?token=supersecret and token=another-secret'
+  const redacted = redactSnippet(page)
+  assert.doesNotMatch(redacted, /supersecret|another-secret/, 'no token value may reach the artifact')
+  assert.doesNotMatch(redacted, /https?:\/\//, 'the tokenized URL is replaced, not printed')
+  assert.match(redacted, /<redacted>/)
+
+  assert.equal(redactTokens('?token=abc&x=1'), '?token=<redacted>&x=1', 'the parameter name survives, the value does not')
+  assert.equal(redactSnippet('x'.repeat(5000)).length, SNIPPET_CHARS, 'the failure snippet is bounded')
+  assert.equal(redactSnippet('abcdef', 3), 'abc', 'the limit is honored')
+  assert.equal(redactSnippet(undefined), '')
+})
+
+test('the nightly live job uploads the boot-smoke diagnostics with if: always()', () => {
+  const workflow = read('.github/workflows/test.yml')
+  const liveJob = workflowJob(workflow, 'live')
+  assert.equal(
+    (liveJob.match(/uses: actions\/upload-artifact@v4/g) ?? []).length,
+    1,
+    'exactly one diagnostic artifact upload belongs to the live job',
+  )
+
+  const upload = workflowStep(liveJob, 'actions/upload-artifact@v4')
+  assert.match(upload, /^\s*- name: .+$/m, 'the upload step must be named for the run log')
+  assert.match(upload, /^\s*if: always\(\)\s*$/m, 'the artifact must upload even when the smoke step failed')
+  assert.match(upload, /^\s*name: live-boot-diagnostics\s*$/m)
+  assert.deepEqual(
+    workflowStepPaths(upload),
+    ['tests/live/boot-smoke.png', 'tests/live/boot-smoke.log'],
+    'the artifact must carry exactly the screenshot and the log',
+  )
+  assert.match(upload, /^\s*if-no-files-found: ignore\s*$/m, 'a boot that never got far enough must not fail the upload')
+  assert.match(upload, /^\s*retention-days: 7\s*$/m, 'failure evidence does not need a long retention')
+
+  // Ordering: the upload covers the nightly run, it cannot precede it.
+  assert.ok(
+    liveJob.indexOf('npm run test:live -- --script nightly') < liveJob.indexOf('actions/upload-artifact@v4'),
+    'the upload step must come after the nightly smoke',
+  )
+  // The diagnostics step leaves the host matrix and env contract untouched.
+  const pin = JSON.parse(read('scripts/mount-smoke/host.json')).dsh
+  assert.match(liveJob, new RegExp(`- '${pin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`))
+  assert.match(liveJob, /DSH_HOME:/)
+  assert.match(liveJob, /DSH_HOST_VERSION:/)
+  assert.match(liveJob, /TMPDIR:/)
 })
