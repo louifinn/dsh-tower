@@ -225,4 +225,18 @@ jobs:
         run: |
           mkdir -p "$DSH_HOME"
           npm run test:live -- --script nightly
+      # #47: the 5/5 nightly boot-smoke failures reported only booleans, and CI
+      # kept no artifacts. Upload the screenshot and the log unconditionally so
+      # a red nightly is diagnosable from the run page. Short retention: this is
+      # failure evidence, not a durable product.
+      - name: Upload live boot diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-boot-diagnostics
+          path: |
+            tests/live/boot-smoke.png
+            tests/live/boot-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
 

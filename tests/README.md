@@ -111,6 +111,8 @@ Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a speci
 
 The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.1-rc.2)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
+`boot-smoke` waits up to 60 s for the composer or the new-session entry; set `DSH_LIVE_BOOT_TIMEOUT_MS` to override that (milliseconds, clamped to 1000–600000; an unset or invalid value falls back to the 60 s default). It always writes `tests/live/boot-smoke.png` and `tests/live/boot-smoke.log`; a failure logs the page signals, a redacted `body.innerText` snippet (URLs and `token=` values become `<redacted>`), and the full non-benign page/console errors. The nightly job uploads both files with `if: always()` as the `live-boot-diagnostics` artifact (7-day retention), so a red nightly is diagnosable from the run page even though it cannot be reproduced on push.
+
 ### Command semantics (no model required)
 
 ```powershell
