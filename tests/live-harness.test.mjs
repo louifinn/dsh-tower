@@ -17,6 +17,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import resolveModule from './live/resolve-playwright.cjs'
 import guardModule from './live/_guard.cjs'
 import bootDiagnostics from './live/_boot-diagnostics.cjs'
+import workspaceOverride from './live/_workspace-override.cjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const liveDir = path.join(root, 'tests', 'live')
@@ -26,14 +27,30 @@ const node = process.execPath
 const { INSTALL_COMMANDS, installHint, resolvePlaywright } = resolveModule
 const { announceLine, assertIsolatedHome, hostVersion } = guardModule
 const {
+  CHOOSE_WORKSPACE_MARKERS,
   DEFAULT_BOOT_TIMEOUT_MS,
   MAX_BOOT_TIMEOUT_MS,
   MIN_BOOT_TIMEOUT_MS,
+  NEW_SESSION_MARKERS,
+  PREVIEW_NOTICE_LABELS,
+  PREVIEW_NOTICE_WAIT_MS,
   SNIPPET_CHARS,
+  isPreviewNoticeLabel,
+  newSessionSignals,
   parseBootTimeoutMs,
   redactSnippet,
   redactTokens,
 } = bootDiagnostics
+const {
+  DOCUMENTS_DIR_ENV,
+  DOCUMENTS_DIRNAME,
+  OVERLAY_FILENAME,
+  WORKSPACE_ROW_ID,
+  renderOverlay,
+  resolveDocumentsDirectory,
+  writeWorkspaceOverride,
+  yamlSingleQuote,
+} = workspaceOverride
 
 const HARNESS_FILES = ['run.cjs', '_env.cjs', '_guard.cjs', 'resolve-playwright.cjs']
 
@@ -465,6 +482,123 @@ test('boot-smoke bounds readiness with DSH_LIVE_BOOT_TIMEOUT_MS instead of a fix
   assert.match(source, /DSH_TEST_URL is not set/)
   assert.match(source, /DSH_LIVE_REQUIRE/)
   assert.match(source, /raise DSH_LIVE_BOOT_TIMEOUT_MS to wait longer/)
+})
+
+test('the workspace override writes a writable documents directory and a valid loader overlay (#47)', () => {
+  const home = tempDir('tower-live-workspace-')
+  try {
+    const { documentsDirectory, overlayPath } = writeWorkspaceOverride({ dshHome: home, env: {} })
+    assert.ok(path.isAbsolute(documentsDirectory), 'the controller validates the documents dir as an absolute path')
+    assert.equal(documentsDirectory, path.join(home, DOCUMENTS_DIRNAME), 'the default lives under the isolated DSH_HOME')
+    assert.ok(fs.statSync(documentsDirectory).isDirectory(), 'the directory exists before the host boots')
+    assert.equal(overlayPath, path.join(home, OVERLAY_FILENAME))
+    assert.ok(fs.statSync(overlayPath).isFile())
+
+    const overlay = fs.readFileSync(overlayPath, 'utf8')
+    assert.equal(renderOverlay(documentsDirectory), overlay)
+    const lines = overlay.split('\n')
+    assert.ok(lines[0].startsWith('#'), 'the overlay carries a comment header')
+    assert.ok(lines.includes(`- id: ${WORKSPACE_ROW_ID}`), 'the overlay targets the workspace-controller row')
+    assert.ok(lines.includes('  config:'))
+    assert.ok(lines.includes(`    documentsDirectory: '${documentsDirectory}'`), 'the absolute path is single-quoted')
+    const row = lines.find((line) => line.includes('documentsDirectory:'))
+    const value = row.slice(row.indexOf(':') + 1).trim()
+    assert.match(value, /^'.*'$/)
+    assert.equal(value.slice(1, -1).replace(/''/g, "'"), documentsDirectory, 'the YAML scalar round-trips the path')
+  } finally {
+    removeTemp(home)
+  }
+})
+
+test('the workspace override honors DSH_LIVE_DOCUMENTS_DIR and rejects relative paths', () => {
+  const home = tempDir('tower-live-workspace-')
+  try {
+    const custom = path.join(home, 'custom-docs')
+    assert.equal(
+      resolveDocumentsDirectory({ dshHome: home, env: { [DOCUMENTS_DIR_ENV]: custom } }),
+      path.normalize(custom),
+      'an absolute override wins over the DSH_HOME default',
+    )
+    assert.equal(
+      resolveDocumentsDirectory({ dshHome: home, env: { [DOCUMENTS_DIR_ENV]: '   ' } }),
+      path.join(home, DOCUMENTS_DIRNAME),
+      'a blank override falls back to the default',
+    )
+    assert.throws(
+      () => resolveDocumentsDirectory({ dshHome: home, env: { [DOCUMENTS_DIR_ENV]: 'relative/docs' } }),
+      new RegExp(DOCUMENTS_DIR_ENV),
+      'a relative override would be resolved against the CWD, so it is rejected',
+    )
+    assert.throws(() => resolveDocumentsDirectory({ dshHome: 'relative-home', env: {} }), /absolute/)
+    assert.throws(() => renderOverlay('relative/docs'), /absolute/)
+    assert.throws(() => writeWorkspaceOverride({ dshHome: 'relative-home', env: {} }), /absolute/)
+    assert.equal(yamlSingleQuote("a'b"), "'a''b'", 'YAML single quotes are escaped by doubling')
+  } finally {
+    removeTemp(home)
+  }
+})
+
+test('nightly seeds the workspace overlay and passes it to the host server as --patch', () => {
+  const source = readLive('nightly.cjs')
+  assert.match(source, /require\('\.\/_workspace-override\.cjs'\)/)
+  assert.match(source, /writeWorkspaceOverride\(\{\s*dshHome: env\.DSH_HOME\s*\}\)/)
+  assert.match(source, /'--patch',\s*overlayPath/, 'the overlay reaches the server spawn, not just a log line')
+  assert.match(source, /live nightly: documents=\$\{documentsDirectory\}/)
+  assert.match(source, /live nightly: workspace overlay=\$\{overlayPath\}/)
+  // The isolated-profile contract is unchanged around the new overlay.
+  assert.match(source, /--from-default-profile', 'web'/)
+  assert.match(source, /--no-open/)
+  assert.match(source, /DSH_TELEMETRY_DISABLED: '1'/)
+  // Helpers are not selectable live scripts.
+  const listHome = tempDir('tower-live-list-')
+  try {
+    const list = spawnRun(liveDir, ['--list'], liveEnv(listHome))
+    assert.equal(list.status, 0, list.stderr)
+    assert.match(list.stdout, /^nightly$/m)
+    assert.doesNotMatch(list.stdout, /_workspace-override/)
+  } finally {
+    removeTemp(listHome)
+  }
+})
+
+test('boot-smoke dismisses the bilingual Preview Notice and requires the composer', () => {
+  assert.equal(PREVIEW_NOTICE_WAIT_MS, 15000)
+  assert.deepEqual(PREVIEW_NOTICE_LABELS, ['Continue', '继续'])
+  assert.deepEqual(NEW_SESSION_MARKERS, ['New Session', '新会话'])
+  assert.deepEqual(CHOOSE_WORKSPACE_MARKERS, ['Choose workspace', '选择工作区', '选择工作空间'])
+  assert.equal(isPreviewNoticeLabel(' Continue '), true, 'the label match trims and ignores case')
+  assert.equal(isPreviewNoticeLabel('继续'), true)
+  assert.equal(isPreviewNoticeLabel('Cancel'), false)
+  assert.equal(isPreviewNoticeLabel(null), false)
+  assert.deepEqual(newSessionSignals('New Session'), {
+    newSession: true,
+    newSessionEnglish: true,
+    newSessionChinese: false,
+  })
+  assert.deepEqual(newSessionSignals('新会话'), {
+    newSession: true,
+    newSessionEnglish: false,
+    newSessionChinese: true,
+  })
+  assert.equal(newSessionSignals('New Session 新会话').newSession, true)
+  assert.equal(newSessionSignals('a blank shell').newSession, false)
+
+  const source = readLive('boot-smoke.cjs')
+  assert.match(source, /dismissed:preview-notice/, 'a dismissed notice is recorded for the artifact')
+  assert.match(source, /preview-notice: absent/)
+  assert.match(source, /preview-notice: present but could not be clicked/)
+  assert.match(source, /PREVIEW_NOTICE_LABELS/)
+  assert.match(source, /isPreviewNoticeLabel/)
+  assert.match(source, /newSessionSignals/)
+  assert.match(source, /a sidebar-only shell is not a usable session/, 'the failure names the composer requirement')
+  assert.match(source, /choose a workspace/)
+  // Readiness waits for the composer alone; the sidebar marker must not satisfy it.
+  assert.match(source, /document\.querySelector\(composerSelector\) !== null/)
+  assert.doesNotMatch(source, /composer !== null \|\|/, 'a sidebar-only shell must not count as ready')
+  assert.ok(
+    source.indexOf('const diagnostics = await page.evaluate') > source.indexOf('dismissed:preview-notice'),
+    'the notice is dismissed before the screenshot and the signals are read',
+  )
 })
 
 test('boot-smoke diagnostics are redacted and bounded before they are uploaded', () => {

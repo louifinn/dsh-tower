@@ -62,7 +62,7 @@ function availableScripts() {
     .readdirSync(__dirname)
     .filter((name) => name.endsWith('.cjs'))
     .map((name) => name.slice(0, -'.cjs'.length))
-    .filter((name) => !['_env', '_guard', '_diagnostic-env', '_boot-diagnostics', 'resolve-playwright', 'run'].includes(name))
+    .filter((name) => !['_env', '_guard', '_diagnostic-env', '_boot-diagnostics', '_workspace-override', 'resolve-playwright', 'run'].includes(name))
     .sort()
 }
 
