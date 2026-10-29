@@ -6,6 +6,7 @@
 //   DSH_LIVE=1 DSH_HOST_DIR=<host> DSH_HOST_VERSION=<pin> node tests/live/run.cjs --script nightly
 //
 // This script creates a throwaway profile, adds this repository as its bundle,
+// writes a `--patch` overlay that pins a writable first-use Workspace directory,
 // boots the real Web app on a free loopback port, and hands the tokenized URL to
 // boot-smoke.cjs (the browser proof). The server is always stopped afterwards.
 // It never touches the operator's real profile: tests/live/_env.cjs refuses to
@@ -22,6 +23,7 @@ const env = require('./_env.cjs')
 env.announce()
 
 const { installHint, resolvePlaywright } = require('./resolve-playwright.cjs')
+const { writeWorkspaceOverride } = require('./_workspace-override.cjs')
 
 const REPO = path.resolve(process.env.DSH_REPO ?? path.join(__dirname, '..', '..'))
 const HOST_DIR = process.env.DSH_HOST_DIR
@@ -125,12 +127,26 @@ async function main() {
   // pnpm (installed by the CI job) is the plugin CLI's package manager.
   runHost('plugin add', ['plugin', '--profile', PROFILE, 'add', REPO], 600000)
 
+  // (#47) A CI runner has no xdg Documents directory, so the workspace
+  // controller cannot create its first-use default workspace and the Web shell
+  // never reaches the composer. Pin the controller's documentsDirectory through
+  // a `--patch` overlay under the isolated DSH_HOME. The overlay is a launcher
+  // flag, so it must precede the inner app flags (`--port`, `--no-open`).
+  const { documentsDirectory, overlayPath } = writeWorkspaceOverride({ dshHome: env.DSH_HOME })
+  // Paths only: neither value is sensitive.
+  console.log(`live nightly: documents=${documentsDirectory}`)
+  console.log(`live nightly: workspace overlay=${overlayPath}`)
+
   const port = await freePort()
-  const server = spawn(process.execPath, [HOST_BIN, '--profile', PROFILE, '--port', String(port), '--no-open'], {
-    cwd: REPO,
-    env: childEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const server = spawn(
+    process.execPath,
+    [HOST_BIN, '--profile', PROFILE, '--patch', overlayPath, '--port', String(port), '--no-open'],
+    {
+      cwd: REPO,
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   try {
     const url = await waitForUrl(server, SERVER_TIMEOUT_MS)
