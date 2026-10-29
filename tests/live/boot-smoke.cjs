@@ -10,22 +10,37 @@
 // Missing DSH_TEST_URL or a browser that cannot launch is an environment gap:
 // the script prints SKIP and exits 0 unless DSH_LIVE_REQUIRE=1 (the nightly CI
 // job sets it so a silent skip cannot pass as evidence).
+//
+// Readiness is a bounded poll for the composer or the new-session entry, not a
+// fixed sleep: DSH_LIVE_BOOT_TIMEOUT_MS overrides the 60 s default (#47). Every
+// run writes tests/live/boot-smoke.png and tests/live/boot-smoke.log; a failure
+// also logs a redacted body snippet and the full non-benign page/console
+// errors, so a CI-only failure is diagnosable from the artifact alone.
 'use strict'
 
 const fs = require('node:fs')
 const path = require('node:path')
 
 const env = require('./_env.cjs')
+const {
+  DEFAULT_BOOT_TIMEOUT_MS,
+  SNIPPET_CHARS,
+  SUCCESS_SNIPPET_CHARS,
+  parseBootTimeoutMs,
+  redactSnippet,
+  redactTokens,
+} = require('./_boot-diagnostics.cjs')
 
 env.announce()
 
 const { loadOrExit } = require('./resolve-playwright.cjs')
 
 const URL = process.env.DSH_TEST_URL
-const REDACTED_URL = typeof URL === 'string' ? URL.replace(/token=[^&]+/, 'token=<redacted>') : URL
 const REQUIRE = process.env.DSH_LIVE_REQUIRE === '1'
 const OUT = __dirname
 const LOG = path.join(OUT, 'boot-smoke.log')
+const TIMEOUT_RAW = process.env.DSH_LIVE_BOOT_TIMEOUT_MS
+const TIMEOUT_MS = parseBootTimeoutMs(TIMEOUT_RAW)
 
 fs.writeFileSync(LOG, '')
 const log = (message) => {
@@ -53,7 +68,12 @@ const { chromium } = playwright
 const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
 
 ;(async () => {
-  log(`launch url=${REDACTED_URL}`)
+  const startedAt = Date.now()
+  log(`launch url=${redactTokens(URL)}`)
+  log(
+    `boot: waiting up to ${TIMEOUT_MS}ms for the composer or the new-session entry ` +
+      `(DSH_LIVE_BOOT_TIMEOUT_MS=${TIMEOUT_RAW ?? 'unset, default ' + DEFAULT_BOOT_TIMEOUT_MS})`,
+  )
   let browser
   try {
     browser = await chromium.launch({ headless: true, executablePath: env.chromePath() })
@@ -73,36 +93,106 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
     consoleErrors.push(text)
   })
 
-  await page.goto(URL, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(5000)
-  await page.screenshot({ path: path.join(OUT, 'boot-smoke.png') })
-  log('screenshot:boot-smoke.png')
+  let navigationError = null
+  try {
+    await page.goto(URL, { waitUntil: 'domcontentloaded' })
+  } catch (error) {
+    navigationError = redactTokens(String((error && error.message) || error).split('\n')[0])
+    log(`navigation: failed (${navigationError})`)
+  }
 
-  const signals = await page.evaluate(() => {
-    const composer = document.querySelector('div[role="textbox"][contenteditable="true"], textarea[contenteditable], [contenteditable="true"]')
-    return {
-      title: document.title,
-      href: location.href,
-      composer: composer !== null,
-      newSession: document.body.innerText.includes('新会话'),
-      textLength: document.body.innerText.length,
+  // Bounded readiness poll (#47): the fixed 5 s sleep both flaked on a slow
+  // runner and hid the page state when it did not become interactive.
+  let ready = false
+  if (!navigationError) {
+    try {
+      await page.waitForFunction(
+        () => {
+          const composer = document.querySelector('div[role="textbox"][contenteditable="true"], textarea[contenteditable], [contenteditable="true"]')
+          return composer !== null || (document.body ? document.body.innerText.includes('新会话') : false)
+        },
+        undefined,
+        { timeout: TIMEOUT_MS, polling: 200 },
+      )
+      ready = true
+    } catch {
+      ready = false
     }
-  })
-  log(`signals: ${JSON.stringify(signals)}`)
+    log(`readiness: ${ready ? 'ready' : 'timeout'} after ${Date.now() - startedAt}ms`)
+  } else {
+    log('readiness: skipped (navigation failed)')
+  }
+
+  // The screenshot is taken before the signals are read, and even when the
+  // readiness poll timed out: it is the primary artifact for diagnosing a
+  // CI-only failure.
+  try {
+    await page.screenshot({ path: path.join(OUT, 'boot-smoke.png') })
+    log('screenshot:boot-smoke.png')
+  } catch (error) {
+    log(`screenshot: failed (${redactTokens(String((error && error.message) || error).split('\n')[0])})`)
+  }
+
+  let signals = null
+  let bodySnippet = ''
+  try {
+    const diagnostics = await page.evaluate((limit) => {
+      const composer = document.querySelector('div[role="textbox"][contenteditable="true"], textarea[contenteditable], [contenteditable="true"]')
+      const bodyText = document.body ? document.body.innerText : ''
+      return {
+        signals: {
+          title: document.title,
+          href: location.href,
+          composer: composer !== null,
+          newSession: bodyText.includes('新会话'),
+          textLength: bodyText.length,
+        },
+        bodySnippet: bodyText.slice(0, limit),
+      }
+    }, SNIPPET_CHARS)
+    signals = diagnostics.signals
+    bodySnippet = diagnostics.bodySnippet
+    // Never print the token itself; CI logs and uploaded artifacts are durable.
+    log(`signals: ${JSON.stringify({ ...signals, href: redactTokens(signals.href) })}`)
+  } catch (error) {
+    log(`signals: unavailable (${redactTokens(String((error && error.message) || error).split('\n')[0])})`)
+  }
+
   await browser.close()
   log('closed')
 
   const failures = []
-  if (pageErrors.length > 0) failures.push(`${pageErrors.length} page error(s): ${pageErrors.join(' | ').slice(0, 400)}`)
-  if (consoleErrors.length > 0) failures.push(`${consoleErrors.length} console error(s): ${consoleErrors.join(' | ').slice(0, 400)}`)
-  if (!signals.composer && !signals.newSession) failures.push('the page rendered neither a composer nor the new-session entry')
-  if (signals.textLength === 0) failures.push('the page rendered an empty body')
+  if (navigationError) failures.push(`navigation to the tokenized URL failed (${navigationError})`)
+  if (!signals) failures.push('the renderer did not answer a trivial page evaluate; it may have crashed')
+  if (pageErrors.length > 0) failures.push(`${pageErrors.length} page error(s)`)
+  if (consoleErrors.length > 0) failures.push(`${consoleErrors.length} console error(s)`)
+  if (signals && !signals.composer && !signals.newSession) {
+    failures.push(
+      `the page rendered neither a composer nor the new-session entry within ${TIMEOUT_MS}ms ` +
+        `(raise DSH_LIVE_BOOT_TIMEOUT_MS to wait longer)`,
+    )
+  }
+  if (signals && signals.textLength === 0) failures.push('the page rendered an empty body')
 
   if (failures.length > 0) {
-    console.error(`FAIL live boot smoke: ${failures.join('; ')}`)
+    // Full, non-benign errors: the summary above stays short, the artifact log
+    // carries everything needed to tell a blank page from a broken app.
+    for (const [index, message] of pageErrors.entries()) log(`page error[${index}]: ${redactTokens(message)}`)
+    for (const [index, message] of consoleErrors.entries()) log(`console error[${index}]: ${redactTokens(message)}`)
+    log(`body snippet (${bodySnippet.length} of ${signals ? signals.textLength : '?'} chars, redacted): ${JSON.stringify(redactSnippet(bodySnippet, SNIPPET_CHARS))}`)
+    const message = `FAIL live boot smoke: ${failures.join('; ')}`
+    log(message)
+    console.error(
+      `${message}\n` +
+        'live boot smoke: diagnostics are in tests/live/boot-smoke.png and tests/live/boot-smoke.log ' +
+        '(the nightly CI job uploads them as the `live-boot-diagnostics` artifact). ' +
+        `Waited ${Date.now() - startedAt}ms; set DSH_LIVE_BOOT_TIMEOUT_MS to wait longer.`,
+    )
     process.exit(1)
   }
-  console.log(`PASS live boot smoke (title=${JSON.stringify(signals.title)}, composer=${signals.composer}, newSession=${signals.newSession})`)
+
+  log(`body snippet (${bodySnippet.length} of ${signals.textLength} chars, redacted): ${JSON.stringify(redactSnippet(bodySnippet, SUCCESS_SNIPPET_CHARS))}`)
+  console.log(`PASS live boot smoke (title=${JSON.stringify(signals.title)}, composer=${signals.composer}, newSession=${signals.newSession}, wait=${Date.now() - startedAt}ms)`)
 })().catch((error) => {
   log(`FATAL ${error && error.stack ? error.stack : error}`)
   process.exit(1)
