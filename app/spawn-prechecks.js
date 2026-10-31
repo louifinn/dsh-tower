@@ -156,22 +156,27 @@ export async function precheckSpawnServices({ tower, ctx, config, preset, actor,
     // tower_resource" is useless when the tower-leases row is off and the tool is
     // not registered; name the component and both remedies instead.
     const leasesRow = typeof leaseComponent === 'function' ? leaseComponent() : null
-    const unavailable = leasesRow && leasesRow.enabled !== true
-    const remedy = unavailable
-      ? `the ${leasesRow.reason ?? 'tower-leases component is disabled'}, so tower_resource cannot acquire it; re-enable the tower-leases row or clear spawn.requireLease`
-      : 'acquire it with tower_resource before spawning'
+    if (leasesRow && leasesRow.enabled !== true) {
+      // Refuse before reading the ledger: a lease left over from when the row was
+      // on must not let a spawn through, and the ledger cannot be fixed without
+      // the unregistered tool (issue #131, evidence note 4).
+      throw new TowerToolError(
+        'lease-busy',
+        `spawn.requireLease="${requiredLease}" cannot be satisfied: ${leasesRow.reason ?? 'the tower-leases component is disabled'}, so tower_resource is not registered; re-enable the tower-leases row or clear spawn.requireLease`,
+      )
+    }
     const info = await inspectLeases(tower.commonDir)
     const lease = info.leases.find((entry) => entry.name === requiredLease && entry.expired !== true)
     if (!lease) {
       throw new TowerToolError(
         'lease-busy',
-        `spawn.requireLease="${requiredLease}" is not held; ${remedy}`,
+        `spawn.requireLease="${requiredLease}" is not held; acquire it with tower_resource before spawning`,
       )
     }
     if (lease.holder !== actor.name && lease.holder !== String(exec.agent.id)) {
       throw new TowerToolError(
         'lease-busy',
-        `spawn.requireLease="${requiredLease}" is held by "${lease.holder}", not by this tower${unavailable ? ` (${leasesRow.reason})` : ''}`,
+        `spawn.requireLease="${requiredLease}" is held by "${lease.holder}", not by this tower`,
       )
     }
   }

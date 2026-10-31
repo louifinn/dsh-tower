@@ -170,27 +170,46 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     assert.match(error.message, /acquire it with tower_resource before spawning/)
     return true
   })
-  // Holder mismatch reports the holder; with the row off it also names the cause.
+  // Row off: a lease left over from when the row was on must not let the spawn
+  // through — the check refuses before consulting the ledger and names the cause.
+  await assert.rejects(
+    () =>
+      precheckSpawnServices({
+        ...base,
+        inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'worker-m', expired: false }] }),
+        leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }),
+      }),
+    (error) => {
+      assert.equal(error.code, 'lease-busy')
+      assert.match(error.message, /cannot be satisfied/)
+      assert.match(error.message, /disabled by component tower-leases/)
+      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
+      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      return true
+    },
+  )
+  // Row on: the ledger path is unchanged — a held lease by this actor passes.
+  const held = await precheckSpawnServices({
+    ...base,
+    inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'worker-m', expired: false }] }),
+    leaseComponent: () => ({ enabled: true, reason: '' }),
+  })
+  assert.equal(held.provider, 'spawn')
+  // Row on, foreign holder: the holder is still named, without component noise.
   await assert.rejects(
     () =>
       precheckSpawnServices({
         ...base,
         inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'someone-else', expired: false }] }),
-        leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }),
+        leaseComponent: () => ({ enabled: true, reason: '' }),
       }),
     (error) => {
       assert.equal(error.code, 'lease-busy')
-      assert.match(error.message, /held by "someone-else"/)
-      assert.match(error.message, /disabled by component tower-leases/)
+      assert.match(error.message, /held by "someone-else", not by this tower/)
+      assert.doesNotMatch(error.message, /disabled by component/)
       return true
     },
   )
-  // A held lease needs no component at all: the probe is not consulted.
-  const held = await precheckSpawnServices({
-    ...base,
-    inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'worker-m', expired: false }] }),
-  })
-  assert.equal(held.provider, 'spawn')
 })
 
 test('preset validation fails closed before work starts (#64)', async () => {
