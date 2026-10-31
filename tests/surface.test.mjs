@@ -239,7 +239,7 @@ test('growth that is not recorded in the baseline fails', () => {
 
 test('a decision that grows without an existing ADR fails', () => {
   const baseline = baselineFor({ configKeys: 2 }, {
-    configKeys: [{ from: 1, to: 2, adr: 'docs/adr/9999-missing.md' }],
+    configKeys: [{ from: 1, to: 2, date: '2026-10-23', adr: 'docs/adr/9999-missing.md' }],
   }, { configKeys: 1 })
   const findings = validateBaseline(baseline, currentFor({ configKeys: 2, sections: 1, tools: 1 }), {
     exists: () => false,
@@ -249,7 +249,7 @@ test('a decision that grows without an existing ADR fails', () => {
   // #118: an incomplete correction is not evidence. A reason and a resolving
   // reference are what separate a measurement correction from silent growth.
   const noReason = baselineFor({ configKeys: 2 }, {
-    configKeys: [{ from: 1, to: 2, correction: { date: '2026-10-23' } }],
+    configKeys: [{ from: 1, to: 2, date: '2026-10-23', correction: { date: '2026-10-23' } }],
   }, { configKeys: 1 })
   const noReasonFindings = validateBaseline(noReason, currentFor({ configKeys: 2, sections: 1, tools: 1 }), {
     exists: () => false,
@@ -261,6 +261,7 @@ test('a decision that grows without an existing ADR fails', () => {
     configKeys: [{
       from: 1,
       to: 2,
+      date: '2026-10-23',
       correction: { reason: 'a correction that points nowhere', date: '2026-10-23', ref: 'docs/adr/9999-missing.md' },
     }],
   }, { configKeys: 1 })
@@ -272,7 +273,7 @@ test('a decision that grows without an existing ADR fails', () => {
 
 test('a matching deletion that is really gone authorizes growth; one still live does not', () => {
   const baseline = baselineFor({ configKeys: 2 }, {
-    configKeys: [{ from: 1, to: 2, deletions: ['legacy.key'] }],
+    configKeys: [{ from: 1, to: 2, date: '2026-10-23', deletions: ['legacy.key'] }],
   }, { configKeys: 1 })
   const gone = validateBaseline(baseline, currentFor({ configKeys: 2, sections: 1, tools: 1 }, { configKeys: ['new.key'] }))
   assert.deepEqual(gone, [])
@@ -306,6 +307,66 @@ test('config keys are two-way: a shrink needs a decision, while sections and too
   // Sections keep the ADR 0004 cheap-shrink rule.
   const sections = baselineFor({ sections: 1 }, {}, { sections: 2 })
   assert.deepEqual(validateBaseline(sections, currentFor({ configKeys: 1, sections: 1, tools: 1 })), [])
+})
+
+test('a two-way decision must be dated, not just reach the new count (#138)', () => {
+  // ADR 0005 and the reference page say a two-way change needs a *dated*
+  // decision. A bare from/to record must therefore fail even when its chain
+  // reaches the committed value: otherwise a config-key removal passes the gate
+  // with an undated note.
+  const undatedShrink = baselineFor(
+    { configKeys: 52 },
+    { configKeys: [{ from: 53, to: 52 }] },
+    { configKeys: 53 },
+  )
+  const shrinkFindings = validateBaseline(undatedShrink, currentFor({ configKeys: 52, sections: 1, tools: 1 }))
+  const shrinkDates = shrinkFindings.filter(
+    (finding) => finding.code === 'broken-chain' && /\.date is required/.test(finding.message),
+  )
+  assert.equal(shrinkDates.length, 1, JSON.stringify(shrinkFindings))
+  assert.match(shrinkDates[0].message, /configKeys\.decisions\[0\]\.date is required/)
+
+  // The same applies to growth whose only evidence is a matching deletion: the
+  // deletion proves the count moved, the date says when the decision was made.
+  const undatedGrowth = baselineFor(
+    { configKeys: 65 },
+    { configKeys: [{ from: 64, to: 65, deletions: ['gone.key'] }] },
+    { configKeys: 64 },
+  )
+  const growthFindings = validateBaseline(
+    undatedGrowth,
+    currentFor({ configKeys: 65, sections: 1, tools: 1 }, { configKeys: ['new.key'] }),
+  )
+  assert.equal(growthFindings.length, 1, JSON.stringify(growthFindings))
+  assert.equal(growthFindings[0].code, 'broken-chain')
+  assert.match(growthFindings[0].message, /\.date is required/)
+
+  // A present-but-malformed date is still refused.
+  const malformed = baselineFor(
+    { configKeys: 52 },
+    { configKeys: [{ from: 53, to: 52, date: '11/03/2026' }] },
+    { configKeys: 53 },
+  )
+  const malformedFindings = validateBaseline(malformed, currentFor({ configKeys: 52, sections: 1, tools: 1 }))
+  assert.ok(malformedFindings.some((finding) => finding.code === 'broken-chain' && /not YYYY-MM-DD/.test(finding.message)))
+
+  // The dated form of both decisions passes, so the brake is on the date, not on
+  // the direction of the change.
+  const datedShrink = baselineFor(
+    { configKeys: 52 },
+    { configKeys: [{ from: 53, to: 52, date: '2026-11-03' }] },
+    { configKeys: 53 },
+  )
+  assert.deepEqual(validateBaseline(datedShrink, currentFor({ configKeys: 52, sections: 1, tools: 1 })), [])
+  const datedGrowth = baselineFor(
+    { configKeys: 65 },
+    { configKeys: [{ from: 64, to: 65, date: '2026-11-03', deletions: ['gone.key'] }] },
+    { configKeys: 64 },
+  )
+  assert.deepEqual(
+    validateBaseline(datedGrowth, currentFor({ configKeys: 65, sections: 1, tools: 1 }, { configKeys: ['new.key'] })),
+    [],
+  )
 })
 
 test('a value that does not match its decision chain fails, so edits need a record', () => {

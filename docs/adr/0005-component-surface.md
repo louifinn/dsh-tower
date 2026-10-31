@@ -200,9 +200,11 @@ keys, 11 visible components.
   surface contracted 55 → 53, which the other surfaces allow without a decision
   record") is retracted. Removing a switch is a capability decision, so
   `configKeys` now joins `components` in `SURFACE_TWO_WAY_KEYS`: any later increase
-  or decrease needs a dated decision in `scripts/surface-baseline.json`. The
-  64 → 53 history is recorded as one dated decision there; sections and tools keep
-  the ADR 0004 cheap-shrink rule.
+  or decrease needs a dated decision in `scripts/surface-baseline.json`. The gate
+  requires the `date` field itself (`YYYY-MM-DD`) on every decision of a two-way
+  surface, so a bare from/to record fails even when its chain reaches the value
+  (review of #138). The 64 → 53 history is recorded as one dated decision there;
+  sections and tools keep the ADR 0004 cheap-shrink rule.
 - **The route table is imported, not scraped (#138.2).** `host/tool-registry.js`
   exports `OPERATIONAL_TOOLS`, and the gate imports that module instead of
   regex-matching its source. A missing file, a failed import, or a missing/non-Map

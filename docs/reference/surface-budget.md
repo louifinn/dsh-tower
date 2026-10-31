@@ -24,6 +24,9 @@ recorded non-boolean behaviour knob) cannot stay `optional-config` without a dat
 tuning-only exemption. Both the component count and the config-key count are
 baselined two-way: an increase or a contraction needs a dated decision
 (`npm run docs:check:components`, [ADR 0005](../adr/0005-component-surface.md)).
+Every decision on those two surfaces must carry a real `date` (`YYYY-MM-DD`); a
+from/to record without one fails the brake even when it reaches the committed
+count.
 The same source of truth records
 the `gateableTools` allowlist; it is empty since #122, so a future
 `tools.expose*` route to any tool is refused before it can remove a review,
