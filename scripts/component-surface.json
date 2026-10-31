@@ -19,7 +19,16 @@
       "id": "tower-host",
       "scope": "internal",
       "kind": "row",
-      "fallback": "The Host plugin itself, nested under the mandatory tower anchor. A mandatory dependency, never its own switch."
+      "fallback": "The Host plugin itself, nested under the mandatory tower anchor. A mandatory dependency, never its own switch.",
+      "allowedOverrides": [
+        "mode.allowAgentControl",
+        "mode.workspaceLock",
+        "mode.workspaceLockScope",
+        "mode.planModePolicy",
+        "init.autoGitInit",
+        "send.interruptDefault",
+        "spawn.staleMs"
+      ]
     },
     {
       "id": "tower-skills",
@@ -89,6 +98,10 @@
     }
   ],
   "gateableTools": {},
+  "behaviorKnobs": [
+    "spawn.requireLease",
+    "tests.admission"
+  ],
   "keys": [
     {
       "name": "section",
@@ -103,17 +116,35 @@
     {
       "name": "init.autoGitInit",
       "class": "optional-config",
-      "note": "Bootstrap convenience; off only means tower_init will not run git init."
+      "note": "Bootstrap convenience; off only means tower_init will not run git init.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning, not capability: tower_init stays the component and the switch only decides whether it runs git init."
+      }
     },
     {
       "name": "init.snapshotDirty",
       "class": "optional-config",
-      "note": "Dirty-work baseline convenience; no capability is removed."
+      "note": "Dirty-work baseline convenience; no capability is removed.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning, not capability: the init component remains available with or without a dirty-work snapshot baseline."
+      }
     },
     {
       "name": "init.autoExclude",
       "class": "optional-config",
-      "note": "Keeps Tower artifacts out of .git/info/exclude; safe either way."
+      "note": "Keeps Tower artifacts out of .git/info/exclude; safe either way.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning, not capability: both values keep the init component and only change which artifacts the exclude file names."
+      }
     },
     {
       "name": "mode.promptSection",
@@ -268,7 +299,13 @@
     {
       "name": "spawn.requireLease",
       "class": "optional-config",
-      "note": "Advisory-lease gate before a worker starts."
+      "note": "Advisory-lease gate before a worker starts.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning the safety level inside the optional tower-leases row; with leases off the Host refuses requireLease instead of removing the spawn capability."
+      }
     },
     {
       "name": "send.maxPerMinute",
@@ -278,12 +315,24 @@
     {
       "name": "send.interruptDefault",
       "class": "optional-config",
-      "note": "Default for the interrupt-before-deliver flag."
+      "note": "Default for the interrupt-before-deliver flag.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning, not capability: the send component always exists and the switch only picks a delivery default."
+      }
     },
     {
       "name": "tests.admission",
       "class": "optional-config",
-      "note": "Chooses when discovery runs inside the optional tests capability."
+      "note": "Chooses when discovery runs inside the optional tests capability.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning when the admission check runs inside the optional tower-tests row, which still owns whether test tooling exists."
+      }
     },
     {
       "name": "tests.timeoutMs",
@@ -298,7 +347,13 @@
     {
       "name": "tests.autoChecks",
       "class": "optional-config",
-      "note": "Attaches a tests check to completion when discovery runs."
+      "note": "Attaches a tests check to completion when discovery runs.",
+      "exemption": {
+        "date": "2026-11-03",
+        "ref": "docs/adr/0005-component-surface.md",
+        "issue": "#138",
+        "reason": "Tuning the default receipt policy inside the optional tower-tests row, which still owns whether any test tooling exists."
+      }
     },
     {
       "name": "tests.allowPackageDiscovery",

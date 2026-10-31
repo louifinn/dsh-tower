@@ -102,6 +102,7 @@ domain/collab/batch.js
 domain/collab/messages.js
 domain/collab/roster.js
 domain/collab/spawn.js
+domain/component-rules.js
 domain/components.js
 domain/config/schema.js
 domain/contracts/outputs.js

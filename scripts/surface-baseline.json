@@ -5,7 +5,15 @@
     "configKeys": {
       "seed": 64,
       "value": 53,
-      "decisions": []
+      "decisions": [
+        {
+          "from": 64,
+          "to": 53,
+          "date": "2026-11-03",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "Recorded contraction, not a free ratchet (#138). #121 removed the seven tools.expose* keys plus dev.hotReload, #136 replaced tests.enabled with the tower-tests row, and #133/#135 replaced docs.board/archive.enabled with the tower-board/tower-archive rows. The chain now continues here: the config-key surface is two-way like components, so any later increase or decrease needs its own dated decision."
+        }
+      ]
     },
     "sections": {
       "seed": 15,

@@ -25,7 +25,7 @@
 //   node scripts/check-components.mjs [--root <dir>] [--json]
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Config, configSurface } from '../domain/config/schema.js'
 import {
   COMPONENT_PATCH_FILES,
@@ -37,12 +37,13 @@ import {
   META_LOCALE_FILES,
   checkForbidden,
   checkGroupLabelCoverage,
+  checkKeyClassifications,
   checkLocaleCoverage,
   checkMetaLabelCoverage,
+  checkRowOverrides,
   mergeCordisPatches,
   parseComponentSurface,
   parseCordisPatch,
-  parseOperationalRegistry,
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
@@ -126,38 +127,73 @@ export function checkRowLocaleCoverage(surface, locales, rows) {
   return findings
 }
 
-/** The live boolean config keys, derived from the schemastery schema. */
-function liveBooleanKeys() {
-  const keys = []
+/** The live config keys and their schema type, derived from schemastery. */
+export function liveKeyTypes() {
+  /** @type {Record<string, string>} */
+  const types = {}
   for (const [key, schema] of Object.entries(Config.dict ?? {})) {
     const dict = schema?.dict
     if (dict && typeof dict === 'object') {
       for (const [child, childSchema] of Object.entries(dict)) {
-        if (childSchema?.type === 'boolean') keys.push(`${key}.${child}`)
+        types[`${key}.${child}`] = childSchema?.type ?? 'unknown'
       }
-    } else if (schema?.type === 'boolean') {
-      keys.push(key)
+    } else {
+      types[key] = schema?.type ?? 'unknown'
     }
   }
-  return keys
+  return types
+}
+
+/** The live boolean config keys, derived from the schemastery schema. */
+function liveBooleanKeys() {
+  return Object.entries(liveKeyTypes())
+    .filter(([, type]) => type === 'boolean')
+    .map(([key]) => key)
 }
 
 /**
- * The static wiring that lets a boolean key remove a tool: the OPERATIONAL_TOOLS
- * table in host/tool-registry.js. Parsing it (rather than importing the runtime)
- * keeps the denylist check offline and free of a booted Host. The parser accepts
- * both the tuple and the `Map.set(...)` forms, and a trailing comma (F11), so a
- * reformatted table cannot fall out of the allowlist.
+ * #138.2: import the OPERATIONAL_TOOLS table from host/tool-registry.js. The old
+ * regex scraper treated "found nothing" and "could not read the file" as the same
+ * empty route table. An empty Map is a legitimate determined state; a missing
+ * file, an import error or a missing/non-Map export is a gate failure.
+ *
+ * The import is dynamic and rooted at the checked directory, so the gate reads
+ * the module the package actually ships. The table is checked for shape before
+ * it reaches the denylist.
+ *
+ * @returns {Promise<{ routes?: Record<string, string>, error?: string }>}
  */
-function operationalRegistry(root) {
+async function operationalRegistry(root) {
   const file = path.join(root, REGISTRY_FILE)
-  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
-  return parseOperationalRegistry(text)
+  if (!fs.existsSync(file)) {
+    return { error: `${REGISTRY_FILE} is missing; the operational-tool route table cannot be determined` }
+  }
+  let module
+  try {
+    module = await import(pathToFileURL(file).href)
+  } catch (error) {
+    return { error: `${REGISTRY_FILE} cannot be imported: ${String(error?.message ?? error)}` }
+  }
+  const table = module.OPERATIONAL_TOOLS
+  if (!(table instanceof Map)) {
+    return { error: `${REGISTRY_FILE} must export OPERATIONAL_TOOLS as a Map; the route table cannot be determined` }
+  }
+  /** @type {Record<string, string>} */
+  const routes = {}
+  for (const [tool, flag] of table) {
+    if (typeof tool !== 'string' || !tool || typeof flag !== 'string' || !flag) {
+      return { error: `${REGISTRY_FILE} OPERATIONAL_TOOLS contains a route whose tool or switch is not a non-empty string` }
+    }
+    routes[tool] = flag
+  }
+  return { routes }
 }
 
 /** Read the live inputs the pure checks need: schema, patches, locales, registry. */
-export function componentCheckData(root) {
+export async function componentCheckData(root) {
   const config = configSurface()
+  const keyTypes = liveKeyTypes()
+  const registry = await operationalRegistry(root)
   // #134: the policy gate reads every shipped patch, not only the root one. A row
   // added to `ui-bundle/cordis.patch.yml` without a classification must fail here.
   const patches = {}
@@ -182,13 +218,65 @@ export function componentCheckData(root) {
   return {
     configKeys: config.keys,
     sections: config.sections,
+    keyTypes,
     booleans: liveBooleanKeys(),
-    registry: operationalRegistry(root),
+    registry: registry.routes ?? {},
+    registryError: registry.error ?? null,
     patches,
     patch,
     locales,
     metaLocales,
   }
+}
+
+/**
+ * #138.3: a shipped `cordis.patch.yml` that the policy does not read is an
+ * unreviewed component surface. Discover every patch in the package and compare
+ * it with COMPONENT_PATCH_FILES in both directions, so a new patch fails until
+ * its rows are classified and a listed-but-missing patch fails rather than
+ * silently contributing zero rows.
+ *
+ * @param {string} root
+ * @returns {string[]} repository-relative paths, POSIX separators
+ */
+export function discoverShippedPatches(root) {
+  const found = []
+  const skip = new Set(['.git', 'node_modules', 'coverage', '.dsh-tower-worktrees'])
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (skip.has(entry.name)) continue
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name === 'cordis.patch.yml') found.push(path.relative(root, full).replace(/\\/g, '/'))
+    }
+  }
+  walk(root)
+  return found.sort()
+}
+
+/**
+ * @param {string[]} discovered repository-relative patch paths
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function checkShippedPatchCoverage(discovered) {
+  const findings = []
+  for (const file of discovered) {
+    if (!COMPONENT_PATCH_FILES.includes(file)) {
+      findings.push(
+        finding(
+          'patch-unclassified',
+          'error',
+          `${file} is a shipped cordis.patch.yml but is not in COMPONENT_PATCH_FILES; add it to the policy before its rows can ship`,
+        ),
+      )
+    }
+  }
+  for (const file of COMPONENT_PATCH_FILES) {
+    if (!discovered.includes(file)) {
+      findings.push(finding('patch-missing', 'error', `${file} is listed in COMPONENT_PATCH_FILES but does not exist`))
+    }
+  }
+  return findings
 }
 
 /**
@@ -222,11 +310,11 @@ export function checkRowLabelSources(patch, rowLocales) {
 /**
  * Run every component-surface rule against one repository root.
  * @param {string} root
- * @returns {{ ok: boolean, surface: any, live: any, findings: Array<{ code: string, level: string, message: string }> }}
+ * @returns {Promise<{ ok: boolean, surface: any, live: any, findings: Array<{ code: string, level: string, message: string }> }>}
  */
-export function checkComponents(root) {
+export async function checkComponents(root) {
   const findings = []
-  const live = componentCheckData(root)
+  const live = await componentCheckData(root)
   const surfaceFile = path.join(root, COMPONENT_SURFACE_FILE)
   if (!fs.existsSync(surfaceFile)) {
     return {
@@ -248,6 +336,14 @@ export function checkComponents(root) {
     }
   }
   findings.push(...validateComponentSurface(surface, { configKeys: live.configKeys, patch: live.patch }))
+  // #138.3: every shipped patch is discovered, and every listed patch exists. A
+  // new package patch therefore fails until it joins COMPONENT_PATCH_FILES.
+  findings.push(...checkShippedPatchCoverage(discoverShippedPatches(root)))
+  // #138.1: a boolean (or recorded behaviour knob) cannot hide its capability on
+  // the `optional-config` axis without a dated tuning-only exemption.
+  findings.push(...checkKeyClassifications(surface, live))
+  // #138.4: a row may only override the config keys its component owns.
+  findings.push(...checkRowOverrides(surface, live))
   // #134: the root locale `components` block labels the rows that ship in the root
   // patch. A row that ships in its own package (`tower-ui`) is labelled by that
   // package's `meta` block and is checked below instead.
@@ -267,16 +363,29 @@ export function checkComponents(root) {
     .filter((row) => META_LABEL_PATCHES.includes(row.patch) && row.scope === 'visible')
     .map((row) => row.id)
   findings.push(...checkMetaLabelCoverage(metaRowIds, live.metaLocales, OFF_EFFECT_LABEL))
+  // #138.2: the route table is imported, so an absent file, a failed import or a
+  // missing/non-Map export fails closed. An empty Map remains the correct
+  // determined state (#122): "nothing is gated" is distinct from "could not read".
+  if (live.registryError) {
+    findings.push(finding('registry-unreadable', 'error', live.registryError))
+  }
   findings.push(...checkForbidden(surface, { booleans: live.booleans, registry: live.registry, patch: live.patch }))
-
-  // #122: an empty OPERATIONAL_TOOLS table is the expected state. Every route
-  // that does exist must still match the `gateableTools` allowlist, which
-  // checkForbidden enforces above; there is no "unreadable registry" failure to
-  // raise when the correct count is zero.
 
   // The decision record must exist: the ADR is where the policy is argued.
   if (!fs.existsSync(path.join(root, surface.adr))) {
     findings.push(finding('adr-missing', 'error', `component surface names ${surface.adr}, which does not exist`))
+  }
+  for (const key of surface.keys) {
+    if (!key.exemption) continue
+    if (!fs.existsSync(path.join(root, key.exemption.ref))) {
+      findings.push(
+        finding(
+          'key-exemption-decision',
+          'error',
+          `${key.name} keeps optional-config by an exemption recorded in ${key.exemption.ref}, which does not exist`,
+        ),
+      )
+    }
   }
   for (const capability of surface.forbidden) {
     const decision = capability.acceptedSwitches?.decision
@@ -329,7 +438,7 @@ export function checkComponents(root) {
   return { ok: findings.every((entry) => entry.level !== 'error'), surface, live, findings }
 }
 
-function main(argv) {
+async function main(argv) {
   const options = parseArgs(argv, {
     initial: { root: PACKAGE_ROOT, json: false, help: false },
     values: { '--root': { key: 'root', parse: path.resolve } },
@@ -340,7 +449,7 @@ function main(argv) {
     return 0
   }
   const root = path.resolve(options.root)
-  const report = checkComponents(root)
+  const report = await checkComponents(root)
   if (options.json) {
     console.log(JSON.stringify({ root, ...report }, null, 2))
     return report.ok ? 0 : 1

@@ -20,8 +20,10 @@ export const SURFACE_KEYS = ['configKeys', 'sections', 'tools', 'components']
 // A count in this list is two-way: a contraction needs a decision record just
 // like growth does. The component surface is where the failure actually
 // happened (4 top-level rows -> 1 group row), so "a reduction is cheap" is
-// exactly the policy hole #120 closes.
-export const SURFACE_TWO_WAY_KEYS = ['components']
+// exactly the policy hole #120 closes. #138 extends the same brake to the config
+// keys: a removed switch is a capability decision too, so the key count may not
+// shrink silently either. Sections and tools keep the ADR 0004 cheap-shrink rule.
+export const SURFACE_TWO_WAY_KEYS = ['components', 'configKeys']
 export const CONFIG_CLASSES = ['core', 'tuning', 'niche']
 export const TOOL_CLASSES = ['core', 'optional']
 export const SURFACE_SCHEMA_VERSION = 1
@@ -240,8 +242,10 @@ function correctionEvidence(decision, where, record, exists) {
  * live surface, or a valid measurement-correction record.
  *
  * A two-way surface (see SURFACE_TWO_WAY_KEYS) also refuses a contraction whose
- * new count is not reached by a decision record; the other surfaces keep the
- * "a reduction is cheap" rule from ADR 0004.
+ * new count is not reached by a decision record, and every one of its decisions
+ * must carry a real `date` (YYYY-MM-DD): "needs a decision" means a dated
+ * decision, not a bare from/to step. The other surfaces keep the "a reduction is
+ * cheap" rule from ADR 0004 and only format-check a date when one is present.
  *
  * Extracted from `validateBaseline` so a narrower gate (`docs:check:components`,
  * #120) can validate just the component count without re-measuring the others.
@@ -268,14 +272,25 @@ export function validateSurfaceEntry(key, entry, live, liveNames, options = {}) 
       `${key} ${direction} from the committed baseline ${entry.value} to ${live}; update ${SURFACE_BASELINE_FILE} with an ADR or a deletion record before landing`,
     )
   }
+  const twoWay = SURFACE_TWO_WAY_KEYS.includes(key)
   let running = entry.seed
   entry.decisions.forEach((decision, index) => {
     const where = `${key}.decisions[${index}]`
     if (decision.from !== running) {
       record('broken-chain', `${where}.from ${decision.from} does not continue from ${running}`)
     }
-    if (decision.date !== undefined && !ISO_DATE.test(String(decision.date))) {
-      record('broken-chain', `${where}.date is not YYYY-MM-DD`)
+    const dated = typeof decision.date === 'string' && ISO_DATE.test(decision.date)
+    if (!dated) {
+      if (decision.date === undefined) {
+        if (twoWay) {
+          record(
+            'broken-chain',
+            `${where}.date is required: a two-way surface needs a dated decision (YYYY-MM-DD), not just a from/to record`,
+          )
+        }
+      } else {
+        record('broken-chain', `${where}.date is not YYYY-MM-DD`)
+      }
     }
     const growth = decision.to - decision.from
     if (growth > 0) {
@@ -300,7 +315,6 @@ export function validateSurfaceEntry(key, entry, live, liveNames, options = {}) 
     }
     running = decision.to
   })
-  const twoWay = SURFACE_TWO_WAY_KEYS.includes(key)
   if (running !== entry.value && !(entry.decisions.length === 0 && entry.value < running && !twoWay)) {
     record(
       'broken-chain',

@@ -30,7 +30,9 @@ note for each niche key.
 
 - Growth is visible in a diff instead of arriving one reasonable-looking key at a
   time.
-- A reduction is cheap: the baseline can be ratcheted down with no ADR.
+- A reduction is cheap for `sections` and `tools`: the baseline can be ratcheted
+  down with no ADR. Since #138 the config-key count is two-way like the component
+  count (see [ADR 0005](0005-component-surface.md)).
 - The classification table is auditable, not decorative: the check fails when a
   live key or tool is missing from it.
 - The numbers are three lines in `tower_doctor` output, not a new dashboard.
@@ -53,8 +55,10 @@ extends the budget with a fourth — the number of user-visible component rows i
 `cordis.patch.yml` — and records it as its own `components` baseline entry with a
 two-way decision rule (a contraction needs a decision just like growth). The
 three original counts are still measured by `npm run surface:check`; the
-component count is validated by `npm run docs:check:components`. The historical
-decision above is unchanged: "three surfaces" describes the 2.3.0 rule.
+component count is validated by `npm run docs:check:components`. ADR 0005's wave
+3 (#138) also makes `configKeys` two-way, so the cheap-shrink consequence above
+now applies only to `sections` and `tools`. The historical decision above is
+unchanged: "three surfaces" describes the 2.3.0 rule.
 
 ## Rejected alternatives
 
@@ -65,6 +69,8 @@ decision above is unchanged: "three surfaces" describes the 2.3.0 rule.
 - **A per-key count in each generated reference** — two references can disagree;
   one shared baseline plus one check keeps the counts equal.
 - **Only an ADR requirement** — a pure deletion would need paperwork even though it
-  shrinks the surface; the matching-deletion path keeps reductions cheap.
+  shrinks the surface; the matching-deletion path keeps `sections`/`tools`
+  reductions cheap. The config-key surface is the exception since #138: a removed
+  switch is itself a capability decision, so it needs a dated record (ADR 0005).
 - **A GitHub issue label instead of a repo file** — the brake must run offline in
   `npm test` and in CI without a token.
