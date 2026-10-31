@@ -1,9 +1,11 @@
-// Mission state machine: the documented transition table, the completion and
-// merge entry points, and a deterministic fuzz run that must always leave a
-// valid, revision-monotonic state file behind.
+// Mission state machine: the documented transition table and the completion and
+// merge entry points.
 //
 // Everything here drives the real `Tower` domain class against a real
 // temporary git repository; no DSH runtime and no model calls.
+// The former deterministic 200-step fuzz run now lives in
+// tests/property/state-machine.prop.mjs, where fast-check can shrink a failing
+// sequence instead of printing an unshrinkable loop.
 // Run with: node --test tests/state-machine.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,7 +16,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
-import { MISSION_STATUSES, validateState } from '../app/tower.js'
+import { MISSION_STATUSES } from '../app/tower.js'
 
 // Independent copy of the documented table. Keep this explicit: the test must
 // fail if the implementation quietly grows an extra transition.
@@ -248,96 +250,6 @@ test('tower_complete and tower_merge enforce their own state preconditions', asy
     const notReady = await tower.merge({ missionId: stillPlanned.missions[0].id, activity: {} })
     assert.equal(notReady.ok, false)
     assert.ok(notReady.blockers.some((blocker) => blocker.code === 'mission-not-completed'))
-  } finally {
-    removeTemp(root)
-  }
-})
-
-test('fuzz: 200 deterministic mutations keep a valid, monotonic state file', async () => {
-  const { root, repo } = seedRepo('dsh-tower-machine-fuzz-')
-  try {
-    const tower = await Tower.open(repo)
-    await tower.init({})
-    const planned = await tower.plan({
-      missions: Array.from({ length: 6 }, (_, index) => ({
-        title: `Fuzz ${index}`,
-        scope: [`fuzz-${index}/**`],
-        tasks: ['first', 'second'],
-      })),
-    })
-    const ids = planned.missions.map((mission) => mission.id || `M${index + 1}`)
-    const statePath = tower.paths.state
-
-    // mulberry32: tiny deterministic PRNG so a failing sequence is reproducible.
-    let seed = 0x2f6e2b1
-    const random = () => {
-      seed |= 0
-      seed = (seed + 0x6d2b79f5) | 0
-      let value = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-      value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
-      return ((value ^ (value >>> 14)) >>> 0) / 4294967296
-    }
-    const pick = (values) => values[Math.floor(random() * values.length)]
-
-    const statuses = MISSION_STATUSES.filter((status) => status !== 'merged')
-    const scopes = ['fuzz-a/**', 'fuzz-b/**', 'fuzz-0/**', 'fuzz-*/inner/**']
-    let successes = 0
-    let failures = 0
-
-    for (let step = 0; step < 200; step += 1) {
-      const id = pick(ids)
-      const before = await tower.load()
-      const beforeRevision = before.revision
-      const operation = Math.floor(random() * 9)
-      let success = false
-      let revisionMayStay = false
-      try {
-        if (operation === 0) {
-          await tower.mission({ id, status: pick(statuses) })
-        } else if (operation === 1) {
-          await tower.mission({ id, task_done: pick(['first', 'second', 'nope']) })
-        } else if (operation === 2) {
-          await tower.mission({ id, blocker: `fuzz blocker ${step}` })
-        } else if (operation === 3) {
-          await tower.mission({ id, clear_blockers: true })
-        } else if (operation === 4) {
-          await tower.mission({ id, note: `fuzz note ${step}` })
-        } else if (operation === 5) {
-          await tower.mission({ id, scope: [pick(scopes)] })
-        } else if (operation === 6) {
-          await tower.mission({ id, status: 'abandoned', note: `fuzz abandon ${step}` })
-        } else if (operation === 7) {
-          const result = await tower.complete({ missionId: id, agentId: `fuzz-agent-${id}`, report: 'fuzz' })
-          success = result.mission.status === 'completed'
-        } else {
-          const result = await tower.merge({ missionId: id, activity: {} })
-          success = result.ok === true
-          revisionMayStay = true
-        }
-        if (success === false && operation !== 7 && operation !== 8) success = true
-      } catch {
-        success = false
-      }
-      const after = await tower.load()
-      validateState(after, statePath)
-      for (const mission of after.missions) {
-        assert.ok(MISSION_STATUSES.includes(mission.status), `step ${step}: illegal status ${mission.status}`)
-        assert.ok(Array.isArray(mission.tasks), `step ${step}: mission ${mission.id} lost its tasks array`)
-        assert.ok(Array.isArray(mission.deps), `step ${step}: mission ${mission.id} lost its deps array`)
-      }
-      if (success && !revisionMayStay) {
-        assert.equal(after.revision, beforeRevision + 1, `step ${step}: a successful mutation must bump revision by one`)
-      } else {
-        assert.ok(after.revision >= beforeRevision, `step ${step}: revision must never move backwards`)
-      }
-      if (success) successes += 1
-      else failures += 1
-    }
-
-    // The sequence must exercise both outcomes, otherwise the fuzz proves little.
-    assert.ok(successes > 20, `expected many successful mutations, saw ${successes}`)
-    assert.ok(failures > 20, `expected many rejected mutations, saw ${failures}`)
-    assert.ok(ids.length === 6)
   } finally {
     removeTemp(root)
   }
