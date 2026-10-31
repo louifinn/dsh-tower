@@ -4,6 +4,46 @@
 
 ## 未发布（Unreleased）
 
+## 2.5.0（2026-11-01）
+
+### 新增
+
+- **#133 追踪看板成为可选能力**：新增 `tower-board` 组件行，关闭后不再写 `MISSIONS.md`，
+  `tower_status`/`tower_doctor` 说明关闭原因；`docs.boardLocation` 仍是位置调节项。
+  旧的 `docs.board` 配置键被删除，写入旧键会收到带迁移说明的 `config-unknown-key`。
+- **#135 归档成为可选能力**：新增 `tower-archive` 组件行，关闭后终态任务保持热存储且不自动归档，
+  doctor 报告关闭后果；`archive.afterDays`/`archive.maxMissions` 仍是节奏调节项。
+  旧的 `archive.enabled` 配置键被删除。
+- **#134 `tower-ui` 进入组件源**：`ui-bundle/cordis.patch.yml` 的 UI 行现在被组件源、locale 覆盖与
+  基线同时看到；门禁解析所有随包发布的 `cordis.patch.yml`。
+- **#137 面向普通用户的双语标签与术语表**：新增 `GLOSSARY.md`（12 组中英术语 + 文案规则），
+  重写全部可见组件行的标题、用途与关闭后果；不再出现原始配置键、工具 id、斜杠命令或模块说明符。
+
+### 变更
+
+- **#138 组件门禁改为失败关闭**：键分类、行为开关、行覆盖、随包补丁与双向计数面全部机器校验；
+  双向面的每次计数决策必须带日期；`OPERATIONAL_TOOLS` 直接导入真实注册表，不再靠正则猜测。
+- **#136 删除 `tests.enabled` 第二开关**：`tower-tests` 组件行是唯一开关；`tower_test` 在行关闭时
+  报告 `disabled by component tower-tests` 并给出修复方式，不再误报“未配置”。
+- **#132 组行关闭后果可见**：`tower` 组行的“关闭等于卸载 Tower”现在显示在 Plugins 页面的描述里，
+  不再只是不可达的 locale 文本。
+- **#141 HMR 明确定位为开发工具**：`tower-hmr` 保持默认关闭，文案改为“开发热重载（开发工具）”。
+- 配置面 55 → 53 键；可见组件 11 个；新增 `tower-board`/`tower-archive` 行 locale 与打包清单条目。
+
+### 修复
+
+- **#131 租约组合提前拒绝**：`tower-leases` 关闭且 `spawn.requireLease` 非空时，配置/预检阶段直接
+  拒绝并说明行与两项修复方式；`lease-busy` 只指向真实注册的工具，`tower_doctor` 交叉检查该组合。
+- **#139 能力卸载不留残影**：skills provider 注册与 Tower 模式提示段都通过 `ctx.effect` 释放，
+  热卸载后 `componentReport` 与真实挂载状态一致。
+- **#140 禁用行原因一致**：`tests-missing` 合并阻塞项点名 `tower-tests` 行；机器输出的英文契约写入文档。
+- **#142 `/tower` 预检不再误伤转发输入**：运行前置条件只在进入模式/切换时重新校验，
+  转发指令与 `/tower off` 在无关行关闭时继续工作。
+- **F16 作用域重叠判定补全**：`scopesOverlap` 在保留文档化近似的同时加入精确 token-NFA 交集，
+  修掉 `a/b*` 与 `a/bc*` 被误判为不重叠的问题。
+- **F17 配置解析一遍收敛**：`resolveTowerConfig` 现在对空输入也满足严格一遍幂等。
+- **F23 术语表随包发布**：`GLOSSARY.md` 进入 `package.json` `files` 与打包清单（293 个文件）。
+
 ## 2.4.2（2026-10-24）
 
 ### 修复
