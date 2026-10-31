@@ -12,29 +12,50 @@ import { fileURLToPath } from 'node:url'
 
 import {
   checkForbidden,
+  checkGroupLabelCoverage,
   checkLocaleCoverage,
+  checkMetaLabelCoverage,
+  mergeCordisPatches,
   parseComponentSurface,
   parseCordisPatch,
   parseOperationalRegistry,
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
-import { PRESET_LOCALES } from '../scripts/generate-capability-locale.mjs'
+import { OFF_EFFECT_LABEL, PRESET_LOCALES, ROW_LOCALES } from '../scripts/generate-capability-locale.mjs'
 import { configSurface } from '../domain/config/schema.js'
 import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
-import { checkComponents, checkRowLocaleCoverage } from '../scripts/check-components.mjs'
+import { checkComponents, checkRowLabelSources, checkRowLocaleCoverage } from '../scripts/check-components.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8')
 const fixture = (name) => JSON.parse(read(`tests/fixtures/component-surface/${name}`))
 const realSurface = () => parseComponentSurface(read('scripts/component-surface.json'))
+const realLocales = () => ({
+  'locale/en.json': JSON.parse(read('locale/en.json')),
+  'locale/zh.json': JSON.parse(read('locale/zh.json')),
+})
+const realMetaLocales = () => ({
+  'ui-bundle/locale/en.json': JSON.parse(read('ui-bundle/locale/en.json')),
+  'ui-bundle/locale/zh.json': JSON.parse(read('ui-bundle/locale/zh.json')),
+})
+// #134: the policy gate reads every shipped patch, so the live shape is the
+// merged one, not the root patch alone.
+const realMergedPatch = () =>
+  mergeCordisPatches({
+    'cordis.patch.yml': parseCordisPatch(read('cordis.patch.yml')),
+    'ui-bundle/cordis.patch.yml': parseCordisPatch(read('ui-bundle/cordis.patch.yml')),
+  })
 
 // The files `checkComponents` reads from a root, so the integration proofs below
 // can tamper with a throwaway copy instead of the worktree.
 const GATE_FILES = [
   'cordis.patch.yml',
+  'ui-bundle/cordis.patch.yml',
+  'ui-bundle/locale/en.json',
+  'ui-bundle/locale/zh.json',
   'scripts/component-surface.json',
   'scripts/surface-baseline.json',
   'docs/reference/component-surface.md',
@@ -55,12 +76,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 55 keys', () => {
+test('the shipped component surface passes every rule and classifies all 53 keys', () => {
   const report = checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 55)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 55)
+  assert.equal(report.surface.keys.length, 53)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 53)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -68,8 +89,11 @@ test('the shipped component surface passes every rule and classifies all 55 keys
     'tower-import',
     'tower-leases',
     'tower-tests',
+    'tower-board',
+    'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
+    'tower-ui',
   ])
   for (const className of ['core', 'optional-config', 'forbidden-to-disable']) {
     assert.ok(
@@ -101,18 +125,24 @@ test('the generated reference is a rendering of the source of truth, not prose',
 
 test('the component count is baselined next to the other surfaces', () => {
   const baseline = readBaseline(root)
-  const patch = parseCordisPatch(read('cordis.patch.yml'))
-  assert.equal(baseline.surfaces.components.value, patch.visible.length)
-  assert.equal(baseline.surfaces.components.value, 8)
-  // The seed keeps the 2.0.4 history: the 4 -> 1 contraction and the #121
-  // growth back to individually switchable optional rows are recorded decisions.
+  assert.equal(baseline.surfaces.components.value, realMergedPatch().visible.length)
+  assert.equal(baseline.surfaces.components.value, 11)
+  // The seed keeps the 2.0.4 history: the 4 -> 1 contraction, the #121 growth
+  // back to individually switchable optional rows, and the wave-2 rows (#133
+  // tower-board, #135 tower-archive, #134 tower-ui) are recorded decisions.
   assert.equal(baseline.surfaces.components.seed, 4)
   const decisions = baseline.surfaces.components.decisions
-  assert.equal(decisions.length, 2)
-  assert.equal(decisions[0].from, 4)
-  assert.equal(decisions[0].to, 1)
-  assert.equal(decisions[1].from, 1)
-  assert.equal(decisions[1].to, 8)
+  assert.equal(decisions.length, 5)
+  assert.deepEqual(
+    decisions.map((decision) => [decision.from, decision.to]),
+    [
+      [4, 1],
+      [1, 8],
+      [8, 9],
+      [9, 10],
+      [10, 11],
+    ],
+  )
   for (const decision of decisions) {
     assert.match(decision.date, /^\d{4}-\d{2}-\d{2}$/)
     assert.equal(decision.adr, 'docs/adr/0005-component-surface.md')
@@ -155,6 +185,8 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     'tower-import',
     'tower-leases',
     'tower-tests',
+    'tower-board',
+    'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
   ])
@@ -169,6 +201,8 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
       'tower-import',
       'tower-leases',
       'tower-tests',
+      'tower-board',
+      'tower-archive',
       'tower-hmr',
       'preset-tower-reviewer',
     ],
@@ -177,11 +211,15 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
   assert.equal(patch.rows.find((row) => row.id === 'tower-host').scope, 'internal')
   assert.equal(patch.rows.find((row) => row.id === 'preset-tower-worker').scope, 'internal')
   assert.ok(!patch.rows.some((row) => row.id === 'tower-worker-policy'), 'plugin ids are not components')
+
+  // #134: the ui-bundle patch is a shipped patch too, and its row is visible.
+  const ui = parseCordisPatch(read('ui-bundle/cordis.patch.yml'))
+  assert.deepEqual(ui.visible, ['tower-ui'])
 })
 
 test('a shipped row or a live config key without a classification fails', () => {
   const surface = realSurface()
-  const live = { configKeys: configSurface().keys, patch: parseCordisPatch(read('cordis.patch.yml')) }
+  const live = { configKeys: configSurface().keys, patch: realMergedPatch() }
   assert.deepEqual(validateComponentSurface(surface, live), [])
 
   const missingRow = {
@@ -468,8 +506,89 @@ test('F11: the operational-registry parser accepts a trailing comma and Map.set 
   const live = {
     booleans: [],
     registry: parseOperationalRegistry("OPERATIONAL_TOOLS.set('tower_merge', 'exposeBatch')"),
-    patch: parseCordisPatch(read('cordis.patch.yml')),
+    patch: realMergedPatch(),
   }
   const errors = checkForbidden(surface, live).filter((entry) => entry.level === 'error')
   assert.ok(errors.some((entry) => entry.code === 'forbidden-tool-gate' && /tower_merge/.test(entry.message)))
+})
+
+test('the root language meta states the tower group off consequence (#132)', () => {
+  const surface = realSurface()
+  const locales = realLocales()
+  assert.deepEqual(checkGroupLabelCoverage(surface, locales), [])
+  for (const file of ['locale/en.json', 'locale/zh.json']) {
+    const consequence = locales[file].components.tower.disables
+    assert.ok(
+      locales[file].meta.description.includes(consequence),
+      `${file} meta.description carries the off consequence verbatim`,
+    )
+  }
+  const stripped = {
+    ...locales,
+    'locale/en.json': {
+      ...locales['locale/en.json'],
+      meta: { ...locales['locale/en.json'].meta, description: 'Mission planning, isolated worktrees.' },
+    },
+  }
+  assert.ok(checkGroupLabelCoverage(surface, stripped).some((entry) => entry.code === 'group-locale'))
+})
+
+test('a row that ships in its own package needs its own meta label (#134)', () => {
+  const ids = ['tower-ui']
+  const meta = realMetaLocales()
+  assert.deepEqual(checkMetaLabelCoverage(ids, meta, OFF_EFFECT_LABEL), [])
+  const stripped = {
+    ...meta,
+    'ui-bundle/locale/zh.json': { meta: { title: 'Tower 界面', description: '显示界面。' } },
+  }
+  assert.ok(checkMetaLabelCoverage(ids, stripped, OFF_EFFECT_LABEL).some((entry) => entry.code === 'meta-locale'))
+})
+
+test('every visible row has a label source (#134)', () => {
+  assert.deepEqual(checkRowLabelSources(realMergedPatch(), ROW_LOCALES), [])
+  const withoutBoard = ROW_LOCALES.filter((row) => row.component !== 'tower-board')
+  assert.ok(
+    checkRowLabelSources(realMergedPatch(), withoutBoard).some(
+      (entry) => entry.code === 'row-locale-missing' && /tower-board/.test(entry.message),
+    ),
+  )
+})
+
+test('integration: a row added to ui-bundle/cordis.patch.yml without a classification fails the gate (#134)', () => {
+  const dir = gateRoot({
+    'ui-bundle/cordis.patch.yml': (text) =>
+      `${text}    - id: tower-spectrum\n      name: 'dsh-tower-spectrum'\n`,
+  })
+  try {
+    const report = checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some(
+        (entry) => entry.code === 'component-unclassified' && /tower-spectrum/.test(entry.message),
+      ),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a group meta description without the off consequence fails the gate (#132)', () => {
+  const dir = gateRoot({
+    'locale/en.json': (text) => {
+      const data = JSON.parse(text)
+      data.meta.description = 'Mission planning, isolated worktrees.'
+      return `${JSON.stringify(data, null, 2)}\n`
+    },
+  })
+  try {
+    const report = checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'group-locale'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
 })

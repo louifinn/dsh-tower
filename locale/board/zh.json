@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "任务看板",
+    "description": "在 state 旁边写入人类可读的 MISSIONS.md 看板，让人无需调用工具即可阅读 mission 列表。关闭后：不再写入或刷新 MISSIONS.md，已有看板会过期；mission 工具、门禁与其他能力继续工作。"
+  }
+}

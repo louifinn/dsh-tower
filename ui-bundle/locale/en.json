@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower UI",
-    "description": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip."
+    "description": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip. When off: the web UI plugin does not load, so there are no Tower tool cards, composer-dock summary or status strip; host tools, missions, state and the board are unaffected."
   }
 }

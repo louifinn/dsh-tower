@@ -14,7 +14,7 @@
 //   - a repository with no archive directory stays fully usable.
 //
 // Run with: node --test tests/archive.test.mjs
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
@@ -25,10 +25,13 @@ import path from 'node:path'
 
 import { Tower } from '../host/tower.js'
 import { registerTowerTools } from '../host/tool-registry.js'
+import { __testResetComponentRegistry, componentEnabled, registerComponent } from '../host/capability-registry.js'
+import { boardEnabled, writeBoard } from '../app/board.js'
+import { sweepArchive } from '../app/archive.js'
 import { writeJsonAtomic } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
-import { Config, resolveTowerConfig } from '../domain/config/schema.js'
+import { resolveTowerConfig } from '../domain/config/schema.js'
 import { archivePaths, readArchiveIndex, writeArchiveEntries } from '../adapters/archive.js'
 import {
   ARCHIVE_VERSION,
@@ -60,7 +63,12 @@ function makeRepo(prefix = 'dsh-tower-archive-') {
   return { root, repo }
 }
 
-function makeCtx() {
+function makeCtx(options = {}) {
+  // #135: archival is a component row. A composed tool surface only sweeps when
+  // the row is mounted, so fixtures that exercise archival mount it explicitly.
+  const components = options.components ?? ['tower-archive']
+  __testResetComponentRegistry()
+  for (const id of components) registerComponent(id)
   const tools = new Map()
   const subagents = {
     list: () => ['spawn'],
@@ -97,6 +105,10 @@ function makeCtx() {
   registerTowerTools(ctx)
   return { ctx, tools }
 }
+
+afterEach(() => {
+  __testResetComponentRegistry()
+})
 
 async function call(tools, name, args, exec = towerExec) {
   const tool = tools.get(name)
@@ -466,7 +478,7 @@ test('the configured cap triggers archival at the next mutation; non-terminal mi
   const { root, repo } = makeRepo('dsh-tower-archive-threshold-')
   const { tools } = makeCtx()
   try {
-    writeRepoConfig(repo, { archive: { enabled: true, afterDays: 3650, maxMissions: 5 } })
+    writeRepoConfig(repo, { archive: { afterDays: 3650, maxMissions: 5 } })
     await call(tools, 'tower_init', { repoRoot: repo })
     const tower = await Tower.open(repo)
     await seedTerminalMissions(tower, 10, { ageDays: 1, reportSize: 50 })
@@ -693,14 +705,21 @@ test('a repository with no archive directory still init/status/doctor normally',
   }
 })
 
-test('archive config has safe defaults and rejects invalid policy values', () => {
-  assert.deepEqual(resolveTowerConfig({}).archive, { enabled: true, afterDays: 30, maxMissions: 100 })
+test('archive config keeps its tuning defaults and rejects invalid policy values', () => {
+  // #135: archive.enabled is gone; archival itself is the tower-archive row.
+  assert.deepEqual(resolveTowerConfig({}).archive, { afterDays: 30, maxMissions: 100 })
   assert.deepEqual(resolveTowerConfig({ archive: { afterDays: 0, maxMissions: 0 } }).archive, {
-    enabled: true,
     afterDays: 0,
     maxMissions: 0,
   })
-  assert.equal(Config({ archive: { enabled: false } }).archive.enabled, false)
+  assert.throws(
+    () => resolveTowerConfig({ archive: { enabled: false } }),
+    (error) =>
+      error.code === 'config-unknown-key' &&
+      error.message.includes('archive.enabled') &&
+      error.message.includes('tower-archive') &&
+      error.message.includes('docs/adr/0005-component-surface.md'),
+  )
   assert.throws(
     () => resolveTowerConfig({ archive: { afterDays: -1 } }),
     (error) => error.code === 'config-invalid',
@@ -713,6 +732,32 @@ test('archive config has safe defaults and rejects invalid policy values', () =>
     () => resolveTowerConfig({ archive: { typo: 1 } }),
     (error) => error.code === 'config-unknown-key',
   )
+})
+
+test('the board and archive rows are the switch, not a config key (#133/#135)', async () => {
+  // A probe that says the row is off suppresses the use case; without a probe
+  // (direct adapter/unit use) the historical behaviour is kept.
+  const off = { config: { archive: { afterDays: 30, maxMissions: 100 } }, deps: { components: { enabled: () => false } } }
+  assert.equal(boardEnabled(off), false)
+  assert.equal(await writeBoard(off), null)
+
+  const state = {
+    missions: [{ id: 'M1', status: 'merged', worktree: null, updatedAt: 0 }],
+    reviews: [],
+    findings: [],
+    batches: [],
+    revision: 7,
+    updatedAt: 1,
+  }
+  const snapshot = JSON.stringify(state)
+  assert.deepEqual(await sweepArchive(off, state), { archived: [], written: false, error: null })
+  assert.equal(JSON.stringify(state), snapshot, 'a disabled sweep leaves the state untouched')
+
+  const uncomposed = { config: {} }
+  assert.equal(boardEnabled(uncomposed), true)
+  assert.equal(componentEnabled('tower-archive'), false)
+  registerComponent('tower-archive')
+  assert.equal(componentEnabled('tower-archive'), true)
 })
 
 test('archivedEntry nests the untouched mission and its linked history', () => {

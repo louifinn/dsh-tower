@@ -48,7 +48,11 @@ sections 15 → 14. Those are recorded shrank values in the committed baseline,
 not free growth: a later increase still needs its own decision. #136 shrank it
 once more, 56 → 55: `tests.enabled` was a second switch over the `tower-tests`
 component row, so the row is now the only switch and the key is gone (a config
-that still writes it fails with `config-unknown-key`).
+that still writes it fails with `config-unknown-key`). #133 and #135 shrank it
+again, 55 → 53: `docs.board` and `archive.enabled` were the same kind of second
+switch over the new `tower-board` and `tower-archive` rows, so each row is now
+the only switch and both keys are gone (a config that still sets either fails
+with `config-unknown-key`, and the upgrade note names the replacing row).
 
 ## Config keys
 
@@ -101,10 +105,8 @@ that still writes it fails with `config-unknown-key`).
 | `gates.requireTests` | core | Requires a test receipt before merge. |
 | `gates.allowReviewExemption` | core | Allows a review exemption and its reason. |
 | `gates.maxReportBytes` | tuning | Report size cap; the refusal itself is not configurable. |
-| `docs.board` | tuning | Writes the human-readable board. |
-| `docs.boardLocation` | tuning | Chooses the board location. |
-| `archive.enabled` | core | Controls whether terminal missions leave the hot state. |
-| `archive.afterDays` | tuning | Archive age threshold. |
+| `docs.boardLocation` | tuning | Chooses where the board is written; whether it is written is the tower-board row. |
+| `archive.afterDays` | tuning | Archive age threshold; archival itself is the tower-archive row. |
 | `archive.maxMissions` | tuning | Hot terminal-mission cap. |
 | `leases.ttlMs` | tuning | Default advisory lease lifetime. |
 | `dev.reloadDelayMs` | tuning | Delay so a tool result is delivered before reload. |

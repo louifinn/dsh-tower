@@ -20,6 +20,13 @@ export const COMPONENT_SCOPES = ['visible', 'internal']
 export const COMPONENT_KINDS = ['group', 'row']
 export const LOCALE_FILES = ['locale/en.json', 'locale/zh.json']
 export const LOCALE_FIELDS = ['title', 'summary', 'disables']
+// #134: every shipped Cordis patch has component rows, not only the root one.
+// `ui-bundle/cordis.patch.yml` ships the `tower-ui` row. Labels for its rows live
+// in that package's own locale files (a DSH row renders `meta.title` /
+// `meta.description`, not the root `components` block).
+export const COMPONENT_PATCH_FILES = ['cordis.patch.yml', 'ui-bundle/cordis.patch.yml']
+export const META_LABEL_PATCHES = ['ui-bundle/cordis.patch.yml']
+export const META_LOCALE_FILES = ['ui-bundle/locale/en.json', 'ui-bundle/locale/zh.json']
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -232,7 +239,7 @@ export function parseComponentSurface(source) {
  * sections rather than a single plugin.
  *
  * @param {string} text
- * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[] }>, visible: string[] }}
+ * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], patch?: string }>, visible: string[] }}
  */
 export function parseCordisPatch(text) {
   const lines = String(text ?? '').split(/\r?\n/)
@@ -300,12 +307,31 @@ export function parseCordisPatch(text) {
 }
 
 /**
+ * Merge every shipped patch into the one live shape the policy checks compare
+ * against. Rows keep the file they came from, so a finding can name it.
+ *
+ * @param {Record<string, ReturnType<typeof parseCordisPatch>>} patches file -> parsed patch
+ * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], patch: string }>, visible: string[] }}
+ */
+export function mergeCordisPatches(patches = {}) {
+  const files = Object.keys(patches)
+  const rows = []
+  for (const file of files) {
+    for (const row of patches[file]?.rows ?? []) rows.push({ ...row, patch: file })
+  }
+  return {
+    rows,
+    visible: rows.filter((row) => row.scope === 'visible').map((row) => row.id),
+  }
+}
+
+/**
  * The shipped shape and the classification must describe the same components and
  * config keys. This is the parity half of the gate: a row without a class, or a
  * class without a row, is an unowned decision.
  *
  * @param {ReturnType<typeof parseComponentSurface>} surface
- * @param {{ configKeys: string[], patch: ReturnType<typeof parseCordisPatch> }} live
+ * @param {{ configKeys: string[], patch: ReturnType<typeof mergeCordisPatches> }} live
  */
 export function validateComponentSurface(surface, live) {
   const findings = []
@@ -315,25 +341,25 @@ export function validateComponentSurface(surface, live) {
   for (const component of surface.components) {
     const row = shipped.get(component.id)
     if (!row) {
-      record('component-missing', `component surface lists "${component.id}" but cordis.patch.yml does not ship it`)
+      record('component-missing', `component surface lists "${component.id}" but no shipped cordis.patch.yml defines it`)
       continue
     }
     if (row.scope !== component.scope) {
       record(
         'component-scope',
-        `component "${component.id}" is ${component.scope} in the source of truth but ${row.scope} in cordis.patch.yml`,
+        `component "${component.id}" is ${component.scope} in the source of truth but ${row.scope} in ${row.patch ?? 'cordis.patch.yml'}`,
       )
     }
     if (row.kind !== component.kind) {
       record(
         'component-kind',
-        `component "${component.id}" is a ${component.kind} in the source of truth but a ${row.kind} in cordis.patch.yml`,
+        `component "${component.id}" is a ${component.kind} in the source of truth but a ${row.kind} in ${row.patch ?? 'cordis.patch.yml'}`,
       )
     }
   }
   for (const row of live.patch.rows) {
     if (!classified.has(row.id)) {
-      record('component-unclassified', `cordis.patch.yml ships component "${row.id}" but the source of truth does not classify it`)
+      record('component-unclassified', `${row.patch ?? 'cordis.patch.yml'} ships component "${row.id}" but the source of truth does not classify it`)
     }
   }
   const declared = new Set(surface.keys.map((key) => key.name))
@@ -364,15 +390,22 @@ export function validateComponentSurface(surface, live) {
  * shipped locale. The locale set itself must only name known components, so a
  * typo cannot pass as coverage.
  *
+ * `options.ids` restricts the required set to the components whose labels live in
+ * these locale files. #134: the `tower-ui` row ships in `ui-bundle/` and is
+ * labelled by that package's own `meta` block, not by the root `components` block.
+ *
  * @param {ReturnType<typeof parseComponentSurface>} surface
  * @param {Record<string, any>} locales file path -> parsed locale JSON
+ * @param {{ ids?: string[] }} [options]
  */
-export function checkLocaleCoverage(surface, locales) {
+export function checkLocaleCoverage(surface, locales, options = {}) {
   const findings = []
   const record = (code, message) => findings.push({ code, level: 'error', message })
   const known = new Set(surface.components.map((component) => component.id))
+  const required = options.ids === undefined ? null : new Set(options.ids)
   for (const component of surface.components) {
     if (component.scope !== 'visible') continue
+    if (required && !required.has(component.id)) continue
     for (const file of LOCALE_FILES) {
       const entry = locales?.[file]?.components?.[component.id]
       if (!entry || typeof entry !== 'object') {
@@ -388,6 +421,75 @@ export function checkLocaleCoverage(surface, locales) {
   for (const file of LOCALE_FILES) {
     for (const id of Object.keys(locales?.[file]?.components ?? {})) {
       if (!known.has(id)) record('component-locale-unknown', `${file} labels "${id}", which is not a shipped component`)
+    }
+  }
+  return findings
+}
+
+/**
+ * #132: the plugin page renders a group row from the root locale `meta.title` /
+ * `meta.description`. The off consequence of the `tower` group (off equals
+ * uninstalling Tower) must therefore appear in `meta.description`, in every
+ * shipped language — otherwise the most important consequence is dead copy.
+ *
+ * @param {ReturnType<typeof parseComponentSurface>} surface
+ * @param {Record<string, any>} locales file path -> parsed locale JSON
+ */
+export function checkGroupLabelCoverage(surface, locales) {
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  for (const component of surface.components) {
+    if (component.scope !== 'visible' || component.kind !== 'group') continue
+    for (const file of LOCALE_FILES) {
+      const meta = locales?.[file]?.meta
+      const title = typeof meta?.title === 'string' ? meta.title.trim() : ''
+      const description = typeof meta?.description === 'string' ? meta.description.trim() : ''
+      if (!title) record('group-locale', `${file} misses meta.title for group component "${component.id}"`)
+      if (!description) {
+        record('group-locale', `${file} misses meta.description for group component "${component.id}"`)
+        continue
+      }
+      const disables = locales?.[file]?.components?.[component.id]?.disables
+      const consequence = typeof disables === 'string' ? disables.trim() : ''
+      if (!consequence) continue
+      if (!description.includes(consequence)) {
+        record(
+          'group-locale',
+          `${file} meta.description does not state the off consequence of group component "${component.id}"`,
+        )
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * #134: a row that ships in its own package is labelled by that package's
+ * `meta.title` / `meta.description`, and DSH shows the "when off" consequence in
+ * the description. Require both meta strings and the off marker for every
+ * visible row of a meta-labelled patch, in every language file it ships.
+ *
+ * @param {string[]} ids row ids whose labels live in `locales`
+ * @param {Record<string, any>} locales file path -> parsed locale JSON
+ * @param {Record<string, string>} markers language -> off-effect marker
+ */
+export function checkMetaLabelCoverage(ids, locales, markers) {
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  for (const id of ids) {
+    for (const [file, payload] of Object.entries(locales ?? {})) {
+      const lang = /([a-z]{2})\.json$/.exec(file)?.[1] ?? ''
+      const marker = markers?.[lang] ?? ''
+      const title = typeof payload?.meta?.title === 'string' ? payload.meta.title.trim() : ''
+      const description = typeof payload?.meta?.description === 'string' ? payload.meta.description.trim() : ''
+      if (!title) record('meta-locale', `row "${id}" misses meta.title in ${file}`)
+      if (!description) {
+        record('meta-locale', `row "${id}" misses meta.description in ${file}`)
+        continue
+      }
+      if (marker && !description.includes(marker)) {
+        record('meta-locale', `row "${id}" meta.description does not state the off consequence in ${file}`)
+      }
     }
   }
   return findings

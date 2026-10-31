@@ -28,12 +28,18 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Config, configSurface } from '../domain/config/schema.js'
 import {
+  COMPONENT_PATCH_FILES,
   COMPONENT_REFERENCE_FILE,
   COMPONENT_SURFACE_FILE,
   LOCALE_FIELDS,
   LOCALE_FILES,
+  META_LABEL_PATCHES,
+  META_LOCALE_FILES,
   checkForbidden,
+  checkGroupLabelCoverage,
   checkLocaleCoverage,
+  checkMetaLabelCoverage,
+  mergeCordisPatches,
   parseComponentSurface,
   parseCordisPatch,
   parseOperationalRegistry,
@@ -43,23 +49,27 @@ import {
 import { validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
-import { ROW_LOCALES } from './generate-capability-locale.mjs'
+import { OFF_EFFECT_LABEL, ROW_LOCALES } from './generate-capability-locale.mjs'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REGISTRY_FILE = 'host/tool-registry.js'
-const PATCH_FILE = 'cordis.patch.yml'
+const ROOT_PATCH = COMPONENT_PATCH_FILES[0]
 const USAGE = `usage: node scripts/check-components.mjs [--root <dir>] [--json]
 
   --root   repository root to check (default: this package)
   --json   print the report as JSON
   --help   print this text
 
+Reads every shipped cordis.patch.yml (${COMPONENT_PATCH_FILES.join(', ')}).
 Fails on a visible component without title/summary/disables in both locale files,
 a generated row label (capability or preset) whose component entry is missing,
-a forbidden-to-disable capability disabled by a group, row or boolean key, a
-component count that moved without a scripts/surface-baseline.json decision,
-an unclassified config key or component row, and a stale generated reference.
-Regenerate the table with \`npm run docs:generate:components\`.`
+a visible row with no label source at all, a group row whose plugin-page
+description omits its off consequence, a forbidden-to-disable capability disabled
+by a group, row or boolean key, a component count that moved without a
+scripts/surface-baseline.json decision, an unclassified config key or component
+row, and a stale generated reference.
+Regenerate the table with \`npm run docs:generate:components\` and the row labels
+with \`npm run docs:generate:locale\`.`
 
 function finding(code, level, message) {
   return { code, level, message }
@@ -145,26 +155,68 @@ function operationalRegistry(root) {
   return parseOperationalRegistry(text)
 }
 
-/** Read the live inputs the pure checks need: schema, patch, locales, registry. */
+/** Read the live inputs the pure checks need: schema, patches, locales, registry. */
 export function componentCheckData(root) {
   const config = configSurface()
-  const patchFile = path.join(root, PATCH_FILE)
-  const patch = fs.existsSync(patchFile)
-    ? parseCordisPatch(fs.readFileSync(patchFile, 'utf8'))
-    : { rows: [], visible: [] }
+  // #134: the policy gate reads every shipped patch, not only the root one. A row
+  // added to `ui-bundle/cordis.patch.yml` without a classification must fail here.
+  const patches = {}
+  for (const file of COMPONENT_PATCH_FILES) {
+    const patchFile = path.join(root, file)
+    patches[file] = fs.existsSync(patchFile)
+      ? parseCordisPatch(fs.readFileSync(patchFile, 'utf8'))
+      : { rows: [], visible: [] }
+  }
+  const patch = mergeCordisPatches(patches)
   const locales = {}
   for (const file of LOCALE_FILES) {
     const localeFile = path.join(root, file)
     locales[file] = fs.existsSync(localeFile) ? JSON.parse(fs.readFileSync(localeFile, 'utf8')) : null
+  }
+  // A package that ships its own patch labels its rows with its own meta block.
+  const metaLocales = {}
+  for (const file of META_LOCALE_FILES) {
+    const localeFile = path.join(root, file)
+    metaLocales[file] = fs.existsSync(localeFile) ? JSON.parse(fs.readFileSync(localeFile, 'utf8')) : null
   }
   return {
     configKeys: config.keys,
     sections: config.sections,
     booleans: liveBooleanKeys(),
     registry: operationalRegistry(root),
+    patches,
     patch,
     locales,
+    metaLocales,
   }
+}
+
+/**
+ * #134: every visible row needs a label source. Rows in the root patch use the
+ * generated `<specifier>/locale/*.json` files (capability rows) or the package
+ * root `meta` (the group); rows that ship in their own package use that package's
+ * `meta.title` / `meta.description`. A visible row with neither source shows only
+ * its module specifier on the Plugins page, so it is a gate failure.
+ *
+ * @param {{ rows: Array<{ id: string, scope: string, kind: string, patch: string }> }} patch merged patch
+ * @param {Array<{ component: string }>} rowLocales the generator declaration
+ */
+export function checkRowLabelSources(patch, rowLocales) {
+  const findings = []
+  const generated = new Set((rowLocales ?? []).map((row) => row.component))
+  for (const row of patch?.rows ?? []) {
+    if (row.scope !== 'visible' || row.kind === 'group') continue
+    if (generated.has(row.id)) continue
+    if (META_LABEL_PATCHES.includes(row.patch)) continue
+    findings.push(
+      finding(
+        'row-locale-missing',
+        'error',
+        `visible component "${row.id}" (${row.patch}) ships neither a generated <specifier>/locale label nor a package meta label`,
+      ),
+    )
+  }
+  return findings
 }
 
 /**
@@ -196,11 +248,25 @@ export function checkComponents(root) {
     }
   }
   findings.push(...validateComponentSurface(surface, { configKeys: live.configKeys, patch: live.patch }))
-  findings.push(...checkLocaleCoverage(surface, live.locales))
+  // #134: the root locale `components` block labels the rows that ship in the root
+  // patch. A row that ships in its own package (`tower-ui`) is labelled by that
+  // package's `meta` block and is checked below instead.
+  const rootVisible = live.patches?.[ROOT_PATCH]?.visible ?? []
+  findings.push(...checkLocaleCoverage(surface, live.locales, { ids: rootVisible }))
   // #121: a row that ships a generated `<specifier>/locale/*.json` label needs
   // the same three strings in both locales, including an internal row (the
   // mandatory worker preset) that the visible-only rule above does not cover.
   findings.push(...checkRowLocaleCoverage(surface, live.locales, ROW_LOCALES))
+  // #134: every visible row must have a label source; one without is a page that
+  // shows only `dsh-tower/board`.
+  findings.push(...checkRowLabelSources(live.patch, ROW_LOCALES))
+  // #132: the group row's plugin-page description must state its off consequence.
+  findings.push(...checkGroupLabelCoverage(surface, live.locales))
+  // #134: rows shipping in their own package are labelled by that package's meta.
+  const metaRowIds = (live.patch?.rows ?? [])
+    .filter((row) => META_LABEL_PATCHES.includes(row.patch) && row.scope === 'visible')
+    .map((row) => row.id)
+  findings.push(...checkMetaLabelCoverage(metaRowIds, live.metaLocales, OFF_EFFECT_LABEL))
   findings.push(...checkForbidden(surface, { booleans: live.booleans, registry: live.registry, patch: live.patch }))
 
   // #122: an empty OPERATIONAL_TOOLS table is the expected state. Every route

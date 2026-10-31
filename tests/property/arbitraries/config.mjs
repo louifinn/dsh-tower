@@ -119,7 +119,8 @@ const gatesArb = fc.record(
 
 const docsArb = fc.record(
   {
-    board: fc.boolean(),
+    // #133: whether the board is written is the tower-board component row, not
+    // a docs tuning key; only the location remains here.
     boardLocation: fc.constantFrom('common', 'repo'),
   },
   { requiredKeys: [] },
@@ -127,7 +128,8 @@ const docsArb = fc.record(
 
 const archiveArb = fc.record(
   {
-    enabled: fc.boolean(),
+    // #135: whether archival runs is the tower-archive component row; only the
+    // age/cap tuning remains here.
     afterDays: fc.integer({ min: 0, max: 3650 }),
     maxMissions: fc.integer({ min: 0, max: 10_000 }),
   },

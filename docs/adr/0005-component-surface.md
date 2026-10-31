@@ -128,3 +128,53 @@ this wave makes the shipped surface obey it instead of carrying debt.
 - **A GitHub issue label or a docs-only policy.** The brake must run offline in
   `npm test` and in CI without a token, and the policy must survive the closure
   of the issue that introduced it.
+
+## Addendum (wave 2): board, archive, UI and explicit development tooling
+
+- Date: 2026-11-02
+- Decisions: #132, #133, #134, #135, #141
+
+Four components were component-shaped but sat outside the policy: `docs.board` and
+`archive.enabled` were booleans in the config form, `tower-ui` shipped as a real
+plugin-page row that no source-of-truth entry described, and the group rows never
+stated their off consequence where a reader sees it. Wave 2 closes those gaps
+without widening the mechanism.
+
+- **`tower-board` (#133).** `docs.board` is deleted; the board is the optional
+  `tower-board` row with its own capability module. Its fallback: no `MISSIONS.md`
+  is written or refreshed, an existing board goes stale, and every state tool and
+  gate keeps working. `docs.boardLocation` stays a tuning key because it only
+  chooses a path. With the row off, the composition behaves like an all-Tower-off
+  profile for the board (nothing is written) while the rest of Tower keeps working.
+- **`tower-archive` (#135).** `archive.enabled` is deleted; archival is the
+  optional `tower-archive` row. Its fallback is deliberately honest: terminal
+  missions stay hot in `state.json`, the hot state keeps growing, and `status` /
+  `doctor` keep loading their full history; merges and gates are unaffected and
+  nothing is deleted. `archive.afterDays` / `archive.maxMissions` stay tuning.
+- **Removed keys fail loudly.** A config that still sets `docs.board` or
+  `archive.enabled` is rejected with `config-unknown-key` and an upgrade note that
+  names the replacing row and points here. There is no silent alias: a switch that
+  moved to the plugin page must not keep working from a config file.
+- **`tower-ui` is classified (#134).** The UI plugin row is now a visible
+  component with a documented fallback (the web UI plugin does not load: no tool
+  cards, composer-dock summary or status strip; host tools, missions and the board
+  are unaffected). Because it ships in `ui-bundle/`, the gate reads **every**
+  shipped `cordis.patch.yml` (root and `ui-bundle/`), classifies every visible row
+  and enforces a label source for each: either a generated `<specifier>/locale`
+  row, or the row package's own `meta` label when the labels live there. A row
+  added to any shipped patch without a source-of-truth entry fails
+  `npm run docs:check:components`.
+- **A group row states its consequence where it is read (#132).** The plugin page
+  renders the group row from the package `meta` block, so the off-equals-uninstall
+  consequence lives in the root `meta.description` in both languages, and the gate
+  pins it there instead of trusting only the `components` block. This is a label
+  fix, not a new mechanism.
+- **`tower-hmr` stays shipped off (#141).** Moving it to a separate install path
+  would hide the switch and re-open the orphan-mount hazard; the row is kept as
+  explicit development tooling instead: its locale copy and its source-of-truth
+  fallback say that it exists for a linked dev profile, that a normal profile
+  behaves exactly as before, and that it is off on purpose.
+- **Count decision.** The visible component count moved 8 → 9 → 10 → 11 across
+  #133, #135 and #134; the three dated steps are recorded in
+  `scripts/surface-baseline.json`. The config surface contracted 55 → 53, which the
+  other surfaces allow without a decision record.

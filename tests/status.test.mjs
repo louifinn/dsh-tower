@@ -1,7 +1,7 @@
 // tower_status: paged mission lists, full mission detail, markdown board,
 // includeGate digests and the MISSIONS.md artifact written by mutations.
 // Run with: node --test tests/status.test.mjs
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -10,6 +10,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
@@ -33,6 +34,9 @@ function seedRepo(prefix = 'dsh-tower-status-') {
 }
 
 function makeCtx() {
+  // #133: status fixtures read MISSIONS.md, so the board row must be mounted.
+  __testResetComponentRegistry()
+  registerComponent('tower-board')
   const tools = new Map()
   const ctx = {
     effect(fn) {
@@ -59,6 +63,10 @@ function makeCtx() {
   registerTowerTools(ctx)
   return { ctx, tools }
 }
+
+afterEach(() => {
+  __testResetComponentRegistry()
+})
 
 async function call(tools, name, args, execOverride = exec) {
   const tool = tools.get(name)

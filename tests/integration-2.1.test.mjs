@@ -1,7 +1,7 @@
 // Integration coverage for the 2.1 additions: test discovery/admission,
 // batches, leases, legacy import/map, doctor, references/review policy,
 // stale-worker gating, board location and delivery acknowledgements.
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -80,6 +80,11 @@ function makeCtx(options = {}) {
 
 const towerExec = { agent: { id: 'tower-agent' } }
 const call = (tools, name, args, exec = towerExec) => tools.get(name).execute(args, exec)
+
+afterEach(() => {
+  // Component rows are process-global: keep every test's mount set explicit.
+  __testResetComponentRegistry()
+})
 
 async function initPlan(tools, repo, missions = [{ title: 'M one', scope: ['src/**'] }]) {
   await call(tools, 'tower_init', { repoRoot: repo })
@@ -323,6 +328,8 @@ test('2.1 board/docs: boardLocation repo writes MISSIONS.md at the repository ro
   const { root, repo } = makeRepo()
   writeRepoConfig(repo, { docs: { boardLocation: 'repo' } })
   const { ctx, tools } = makeCtx()
+  // #133: writing the board is the tower-board row, not a config key.
+  registerComponent('tower-board')
   registerTowerTools(ctx)
   try {
     await initPlan(tools, repo)
