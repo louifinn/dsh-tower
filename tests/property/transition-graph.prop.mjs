@@ -17,9 +17,16 @@
 // Notes are annotations, not lifecycle transitions: a note-only patch on a
 // terminal mission is accepted, so the property pins that it still cannot change
 // the terminal status. The bare `tower_mission` override that completes a mission
-// with open tasks is intentional (tests/state-machine.test.mjs pins it) and is
-// not exercised here; tests/property/no-illegal-path.prop.mjs drives the guarded
-// completion and merge pipelines instead.
+// with open tasks is intentional and is not exercised here: it is
+// `app/mission.js:19` calling `applyMissionUpdate`, which applies the transition
+// table without the completion-admission checks in `app/checkCompletion.js:22`
+// (`assertCompletionRequest`) or the gates composed in `app/gate.js:43`
+// (`completionBlockers`) and `app/gate.js:94` (`mergeGateBlockers`).
+// tests/state-machine.test.mjs:104 pins the allowed/denied transition table and
+// tests/protocol.e2e.test.mjs:318 drives blocked → completed through
+// `tower.mission`, but both fixtures carry no tasks, so neither pins the
+// open-task aspect; the frozen example in tests/property/no-illegal-path.prop.mjs
+// does. That file drives the guarded completion and merge pipelines instead.
 //
 // No shrunk domain counterexample has been observed for these properties across
 // the three PR seeds (131, 40961, 978217) or the 2000-run long tier. The frozen

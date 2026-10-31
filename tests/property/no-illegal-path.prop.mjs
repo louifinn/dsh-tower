@@ -1,14 +1,30 @@
 // Property 5 (#130): generated command sequences never reach an illegal state.
 //
-// The sequence generator deliberately does not drive the tower's status-patch
-// escape hatch. `applyMissionUpdate` accepts a bare `status: 'completed'` patch
-// even when tasks are open — that override is intentional and pinned by
-// tests/state-machine.test.mjs ("mission transitions: blocked can be marked
-// completed again"). Completion instead goes through the admission pipeline
-// (`assertCompletionRequest` → `completionReport` → `applyCompletion`) and a
-// merge goes through the gate (`completionBlockers` + `mergeGateBlockers`)
-// before `applyMergeSuccess`, exactly like app/mission.js and app/merge.js.
-// Merge can only be recorded for a mission the gate admits, so a merged mission
+// The sequence generator deliberately never drives the tower's status-patch
+// escape hatch. `tower_mission` (`app/mission.js:19`) calls
+// `applyMissionUpdate`, which enforces the transition table but *not* the
+// completion-admission preconditions, so a bare `status: 'completed'` patch is
+// accepted even while tasks are still open. That is intentional — the tower may
+// close a mission directly — and it is not a legal completion pipeline. This
+// suite excludes that path from generation and pins it directly in the frozen
+// example near the bottom of this file ("frozen tower override: …"). The M25
+// reference model reaches the same conclusion by predicting a status patch from
+// the transition table alone (`modelStatusOutcome` in
+// ./model/state-machine-model.mjs, no open-task guard).
+// tests/protocol.e2e.test.mjs:318 ("mission transitions: blocked can be marked
+// completed again") drives blocked → completed through `tower.mission`, but its
+// fixture is plan-created with no tasks (`tower.plan({ missions: [{ title:
+// 'Transition case', scope: ['src/**'] }] })`), so it pins that a status patch
+// can complete a mission, not the open-task aspect;
+// tests/state-machine.test.mjs:104 pins the allowed/denied transition table and
+// also uses `tasks: []`.
+//
+// Completion instead goes through the admission pipeline in
+// `app/checkCompletion.js:22` (`assertCompletionRequest` → `completionReport` →
+// `applyCompletion`), and a merge goes through the gates composed in
+// `app/gate.js:43` (`completionBlockers`) and `app/gate.js:94`
+// (`mergeGateBlockers`) before `app/merge.js` calls `applyMergeSuccess`. Merge
+// can only be recorded for a mission the gate admits, so a merged mission
 // either carries a clean/merge review at the reviewed tip or is legitimately
 // review-exempt (`reviewPolicy: none` plus a non-empty exemption reason under a
 // config that allows the exemption) — both are legal, and the property checks
@@ -672,6 +688,47 @@ runProperty({
       JSON.parse(JSON.stringify(entry.state)),
       `${entry.name}: a refused completion must be a no-op`,
     )
+  },
+})
+
+// Frozen focused example: the tower's `tower_mission` status override is not the
+// completion pipeline. `app/mission.js:19` calls `applyMissionUpdate`, which
+// enforces the transition table but not the completion-admission preconditions,
+// so a bare `status: 'completed'` patch is accepted while a task is still open.
+// That is intentional (the tower may close a mission directly) and it is exactly
+// the path the generated command sequences above exclude. The guarded pipeline
+// (`app/checkCompletion.js:22` → `assertCompletionRequest`) refuses the very same
+// mission, which is what makes the patch an override rather than a legal
+// completion. Both halves are pinned here so the exclusion cannot quietly become
+// a claim that every completed mission went through admission and carries a
+// completion report.
+runProperty({
+  name: 'frozen tower override: status patch to completed ignores open tasks',
+  arbitrary: fc.constant(null),
+  predicate: () => {
+    const state = frozenState({
+      status: 'active',
+      patch: { tasks: [{ text: 'still open', status: 'open' }] },
+    })
+    validateState(state, 'frozen tower override: before')
+    // The guarded completion pipeline (`app/checkCompletion.js:22`) refuses it…
+    const refused = attemptCompletion(state)
+    assert.ok(refused.error instanceof TowerToolError, 'completion admission must refuse an open task')
+    assert.match(String(refused.error.message), /open task/, 'the refusal must come from the open-task guard')
+    assert.equal(refused.draft.missions[0].status, 'active', 'a refused completion must leave the mission active')
+    // …while the `tower_mission` override accepts the same mission. It changes
+    // only the status: the task stays open and no completion report is written.
+    const mission = state.missions[0]
+    applyMissionUpdate({
+      mission,
+      state,
+      input: { status: 'completed' },
+      config: MODEL_CONFIG,
+    })
+    assert.equal(mission.status, 'completed', 'the override must record completed')
+    assert.deepEqual(mission.tasks, [{ text: 'still open', status: 'open' }], 'the override must not touch tasks')
+    assert.equal(mission.completionReport, null, 'the override must not write a completion report')
+    validateState(state, 'frozen tower override: after')
   },
 })
 
