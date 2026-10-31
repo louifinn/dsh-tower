@@ -51,6 +51,11 @@ jobs:
         run: npm ci
       - name: Offline suite (includes protocol end-to-end)
         run: npm test
+      # #130: the PR property tier (100 runs x 3 fixed seeds) is deterministic
+      # and fast, so it gates every push like the offline suite. The 2000-run
+      # long tier is nightly-only; see the `property-long` job below.
+      - name: Property tests (PR tier)
+        run: npm run test:property
       # #87: the resolver/env half of the live harness is cheap even on a clean
       # clone (no tests/live/node_modules, no browser). It catches a rotted
       # harness on every push while the browser run stays nightly (#47).
@@ -237,6 +242,35 @@ jobs:
           path: |
             tests/live/boot-smoke.png
             tests/live/boot-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # #130: the long property tier - 2000 runs on one seed drawn from
+  # `node:crypto`. It is nightly/manual-only (same gate as `live`), so a random
+  # seed never reds a push/PR. On failure the harness writes seed/path/
+  # counterexample JSON under tests/property/.artifacts/; upload it so the
+  # failure is replayable from the run page. Evidence only, never a merge gate:
+  # the required contexts stay `test (22)`, `test (24)` and `mount`.
+  property-long:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Property tests (long tier)
+        run: npm run test:property:long
+      - name: Upload property failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: property-artifacts
+          path: tests/property/.artifacts/
           if-no-files-found: ignore
           retention-days: 7
 

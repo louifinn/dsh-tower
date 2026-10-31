@@ -440,9 +440,16 @@ export function resolveTowerConfig(rawConfig) {
   // Cordis config may omit this key, and an explicit legacy top-level
   // `allowAgentControl:true` must not be shadowed by a schema default.
   if (mode.allowAgentControl === undefined) mode.allowAgentControl = true
+  // F17/#130: materialize the resolved prompt section as well. `section` always
+  // mirrors `mode.promptSection`, so leaving the canonical field absent for a
+  // config with neither key would make a *second* pass copy the just-added
+  // `section:''` back into `mode` (`promptSection:''`): one pass would not be a
+  // fixed point. Filling it here makes `resolve(resolve(raw))` equal
+  // `resolve(raw)` for every valid config without changing any resolved value.
+  if (mode.promptSection === undefined) mode.promptSection = ''
   if (!Array.isArray(mode.denyTools) || mode.denyTools.length === 0) mode.denyTools = [...DEFAULT_DENY_TOOLS]
   return {
-    section: mode.promptSection ?? '',
+    section: mode.promptSection,
     init: clone(parsed.init ?? {}),
     mode,
     review: clone(parsed.review ?? {}),

@@ -25,7 +25,8 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `findings.test.mjs` — the finding lifecycle through the domain class.
 - `protocol.e2e.test.mjs` — drives the `Tower` class through a real temporary Git repository: init → plan → worktree → tasks → unread-inbox block → complete → finding → review → preflight → merge → teardown, plus automatic dependency for overlapping scopes and rejection of unknown dependencies.
 - `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
-- `state-machine.test.mjs` — the documented mission transition table (allowed and denied), completion/merge entry points, and a seeded 200-step fuzz that must keep the state valid and the revision monotonic.
+- `state-machine.test.mjs` — the documented mission transition table (allowed and denied) and the completion/merge entry points. The former seeded 200-step fuzz moved to `tests/property/state-machine.prop.mjs`, where fast-check shrinks a failing sequence instead of printing an unshrinkable loop.
+- `no-random.test.mjs` — the #130 PRNG guard: walks `tests/**/*.mjs` / `*.cjs` and fails if test inputs use `Math.random`, an inlined PRNG (mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG, `Math.imul`) or `node:crypto` randomness. The exemption list is explicit (live runtime plumbing, the cleanup helper's quarantine names, and the long-tier seed in the property harness) and a meta-test proves the scanner is not vacuous.
 - `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
 - `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
 - `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
@@ -59,6 +60,43 @@ npm run test:watch      # re-run the offline suite while editing
 ```
 
 Coverage is a diagnostic, not a gate; the meaningful signal is that the offline suite is green and the new behaviour has a dedicated case.
+
+### Property-based tests (fast-check, #130)
+
+The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
+
+Ten files carry **111 property cases** (the PR tier therefore generates 111 × 3 seeds × 100 runs = **33,300 inputs** per run; the long tier 111 × 2000 = 222,000):
+
+- `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
+- `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
+- `state-machine.prop.mjs` — the flagship model-based property: an `fc.commands` walk over ten mission operations compared with `tests/property/model/state-machine-model.mjs`; rejected commands are no-ops, accepted commands bump the revision by exactly one and stay atomic, and the merge gate matches the model.
+- `state-semantics-roundtrip.prop.mjs` — `validateState` accepts schema-valid states and rejects 21 semantic corruptions, JSON round-trips are fixed points, and state migration/migration refusal behave as documented.
+- `no-illegal-path.prop.mjs` — illegal mission sequences stay rejected and leave state unchanged; frozen completion/merge blocker matrices; the tower override is pinned.
+- `scope-algebra.prop.mjs` — property 7: `fileInScope` agrees with an independently written naive matcher for `*`/`**`/`?`, `scopesOverlap` is symmetric and a sound over-approximation (a shared concrete file always implies overlap, inline-prefix globs included; overlap may over-approximate but never under-approximates a provably shared path), and case-insensitive mode folds both sides.
+- `scope-normalization.prop.mjs` — property 8: `normalizeScope` is idempotent, absolute/`..`/hostile inputs are rejected with `invalid-argument`, `validateTitle` accepts Unicode after NFC, counts code points (not UTF-16 units), and rejects bidi/zero-width/control/over-long titles before and after normalization.
+- `gate-monotonicity.prop.mjs` — property 9: worsening completion or merge evidence (extra blocker, open task, missing checks, unknown/stale/busy worker, missing test receipt at a moved tip, worse review status/verdict) never removes an existing blocker or unblocks the gate; unrelated fields leave the blocker set unchanged. The documented exception — `running → inactive` clears `worker-busy` because the roster state *is* the evidence — is frozen explicitly.
+- `config-resolution.prop.mjs` — property 10: `resolveTowerConfig` is total over valid configs, is strictly one-pass idempotent (`resolve(resolve(raw))` deep-equals `resolve(raw)` for every generated config, including `{}`), and the 16-way `gates.requireTests` × `tests.enabled` presence table rejects exactly the `true` + `false` contradiction.
+- `error-catalogue.prop.mjs` — property 11: every `ERROR_CODES` entry is complete and reachable through `classifyError`, `renderErrorMessage` appends the ` — next:` segment exactly once (never twice), and a static scan proves every literal production constructor code is catalogued.
+
+Two tiers exist so the suite is affordable on every change and still thorough nightly:
+
+- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs in the `test` CI job right after `npm test`, on all three matrix legs, and is part of `npm run check`.
+- **Long tier** — `npm run test:property:long`. 2000 runs on one seed drawn from `node:crypto`, plus an `fc.statistics` distribution report for each property that supplies a `classify` function, so a shrinking corpus or a lopsided generator shows up in the log. It runs only in the nightly/manual `property-long` CI job (`schedule` / `workflow_dispatch`, never on push or pull_request) and locally with `npm run test:property:long` (the script selects the tier through `tests/property/tiers/long.env` and `node --env-file`, which works on Windows and POSIX).
+
+A failing property is replayable. Re-run the same seed and the recorded fast-check path:
+
+```powershell
+# POSIX
+FC_SEED=131 FC_PATH=0:4:0:2:0:2:0:0 node --test tests/property/scope-algebra.prop.mjs
+# PowerShell
+$env:FC_SEED='131'; $env:FC_PATH='0:4:0:2:0:2:0:0'; node --test tests/property/scope-algebra.prop.mjs
+```
+
+`FC_SEED` alone switches every property in every file to that seed (comma-separate several); `FC_PATH` without `FC_SEED` is an error, because a path is only meaningful for its seed. **`FC_PATH` is per file, not per property:** the harness applies it to every `*.prop.mjs` Node happens to run, so a foreign path can make an unrelated property fail before it replays. Replay the failing file only (as above), or restrict the run with `node --test --test-name-pattern "<property name>" tests/property/*.prop.mjs` so only the recorded property executes. The harness does not edit files or the counterexample; it just feeds the same generator.
+
+When a property fails the harness also writes a JSON artifact to `tests/property/.artifacts/` (gitignored) with the test name, tier, seed, path, run count, counterexample, error and the exact replay environment. The nightly `property-long` job uploads that directory on failure. Writing artifacts is the harness's only filesystem side effect; keep properties themselves pure.
+
+The same PR also added `tests/no-random.test.mjs`, which fails if a future test reintroduces a hand-rolled PRNG instead of using fast-check. It scans every `tests/**/*.mjs` / `*.cjs` file for `Math.random`, mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG/linear-congruential code, `Math.imul` mixing, and `randomUUID`/`randomBytes`/`randomInt`/`randomFill` used as a test input. The documented exemptions are `tests/live/**` (runtime plumbing), `tests/helpers/cleanup.mjs` (quarantine directory names) and `tests/property/helpers/harness.mjs` (the long tier's `node:crypto` seed, which fast-check replay covers); an inline `prng-guard: allow <reason>` annotation is available for a future justified exception. Seed selection belongs to fast-check plus `FC_SEED`/`FC_PATH`, not to a local PRNG.
 
 ## 2. Real Web runtime (isolated profile)
 

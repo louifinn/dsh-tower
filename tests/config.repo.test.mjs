@@ -7,8 +7,10 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { removeTemp } from './helpers/cleanup.mjs'
 
+import { resolveTowerConfig } from '../domain/config/schema.js'
 import { Tower } from '../host/tower.js'
 import { configureRuntime, repoConfigPath } from '../host/config.js'
 
@@ -89,7 +91,9 @@ test('repo config: mode.* keys cannot weaken the session mode guard', async () =
     writeRepoConfig(repo, { section: 'repo-specific tower text', allowAgentControl: false, mode: { denyTools: ['noop'], workspaceLock: false } })
     const tower = await Tower.open(repo)
     assert.equal(tower.config.section, '')
-    assert.equal(tower.config.mode.promptSection, undefined)
+    // #130 F17: the resolved default is materialized as '' (not `undefined`);
+    // the built-in reminder still applies because '' is falsy at the call site.
+    assert.equal(tower.config.mode.promptSection, '')
     assert.equal(tower.config.mode.allowAgentControl, false)
     assert.ok(tower.config.mode.denyTools.includes('create_goal'))
     assert.notDeepEqual(tower.config.mode.denyTools, ['noop'])
@@ -108,6 +112,30 @@ test('repo config: mode.* keys cannot weaken the session mode guard', async () =
   } finally {
     removeTemp(root)
   }
+})
+
+test('repo config: resolveTowerConfig is a one-pass fixed point (#130 F17)', () => {
+  // `{}` used to resolve to `section:''` with no `mode.promptSection`; resolving
+  // that output again then back-filled `mode.promptSection:''` from the legacy
+  // alias, so one pass was not a fixed point.
+  const once = resolveTowerConfig({})
+  assert.equal(once.section, '')
+  assert.equal(once.mode.promptSection, '')
+  assert.ok(isDeepStrictEqual(once, resolveTowerConfig(once)), 'resolve(resolve({})) must deep-equal resolve({})')
+  assert.equal(resolveTowerConfig({}).mode.allowAgentControl, true)
+
+  // A legacy top-level `section` alias is folded into `mode` once, then stable.
+  const legacy = resolveTowerConfig({ section: 'legacy text', allowAgentControl: false })
+  assert.equal(legacy.section, 'legacy text')
+  assert.equal(legacy.mode.promptSection, 'legacy text')
+  assert.equal(legacy.mode.allowAgentControl, false)
+  assert.ok(isDeepStrictEqual(legacy, resolveTowerConfig(legacy)))
+
+  // The canonical key keeps winning over the alias, also on a re-resolve.
+  const both = resolveTowerConfig({ section: 'legacy text', mode: { promptSection: 'canonical text' } })
+  assert.equal(both.section, 'canonical text')
+  assert.equal(both.mode.promptSection, 'canonical text')
+  assert.ok(isDeepStrictEqual(both, resolveTowerConfig(both)))
 })
 
 test('repo config: worktrees.root places new mission worktrees there', async () => {
