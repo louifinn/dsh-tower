@@ -74,7 +74,6 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `spawn.requireLease` | `''` | Optional lease name that must be held before a worker can spawn. |
 | `send.maxPerMinute` | `120` | Per-repository `tower_send` rate limit (0 disables); exceeding it returns `rate-limited`. |
 | `send.interruptDefault` | `false` (bundled patch: `true`) | Default for `tower_send.interrupt` (interrupt the running turn before delivering). |
-| `tests.enabled` | `true` | Run declared test discovery when the worktree `package.json` configures it. It only tunes the optional `tower-tests` component: with that row off there is no `tower_test` tool and no receipt, and `gates.requireTests:true` is refused rather than silently unmet. |
 | `tests.admission` | `off` | `spawn` runs discovery before starting a worker, `complete` at `tower_complete`, `off` only on explicit `tower_test` (default; repository code is not executed automatically). |
 | `tests.timeoutMs` | `60000` | Per discovery command timeout. |
 | `tests.maxBytes` | `16777216` (16 MiB) | Captured stdout cap per command. |

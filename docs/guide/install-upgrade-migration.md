@@ -29,6 +29,23 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.4.0 → 2.5.0 (unreleased, #136/#131/#142)**: the `tests.enabled` switch is
+  gone — the `tower-tests` component row is the only switch. A profile or repository
+  config that still writes `tests.enabled` is rejected as `config-unknown-key` and
+  the host stops mounting, so delete the key and enable or disable the row in the
+  plugin page instead. With the row off there is no `tower_test` tool and no receipt,
+  which also means `gates.requireTests` cannot be satisfied: planning and mode entry
+  refuse that combination, and the merge gate's `tests-missing` blocker names the
+  disabled row and the fix. `tower_test` no longer reports "not configured" for a
+  component cause; it reports `disabled by component tower-tests` with the remedy.
+  Two more runtime rules became explicit: a config that sets `spawn.requireLease`
+  while the `tower-leases` row is off is refused up front with `config-invalid`
+  naming the row and both remedies (previously every spawn failed at `lease-busy`
+  advising an unregistered `tower_resource`), and `/tower` re-validates the runtime
+  preconditions only when it enters the mode, so `/tower off` and a forwarded
+  `/tower <text>` keep working while an unrelated row is disabled. No state
+  migration; see [component rows and messages](quickstart.md#component-rows-runtime-preconditions-and-message-language).
+
 - **state schema v1 → v2 (unreleased)**: `state.json` migrates automatically. The first **write** after
   upgrading keeps a `state.json.v1.bak` backup, advances `revision` once, and appends
   `state.migrated {from,to}` to `activity.jsonl`; read-only tools keep reading a v1 file without

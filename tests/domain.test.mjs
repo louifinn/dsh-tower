@@ -40,6 +40,30 @@ test('pure merge gate returns review/worker/test blockers from snapshots', async
   assert.deepEqual(mergeGateBlockers({ mission, roster: [], config: { review: { requireReview: false } } }), [])
 })
 
+test('#140: tests-missing names the tower-tests row when the component is off', async () => {
+  const { mergeGateBlockers } = await import('../domain/gate.js')
+  const mission = { id: 'M1', reviewPolicy: 'required', status: 'completed' }
+  const options = {
+    mission,
+    branch: 'b',
+    branchTip: 'abcdef1234567',
+    config: { gates: { requireTests: true } },
+  }
+  const findTests = (options) =>
+    mergeGateBlockers(options).find((blocker) => blocker.code === 'tests-missing')
+  // Row off: the blocker explains that no receipt can exist and how to fix it.
+  const off = findTests({ ...options, testsComponent: { enabled: false, reason: 'disabled by component tower-tests' } })
+  assert.match(off.detail, /disabled by component tower-tests/)
+  assert.match(off.detail, /no receipt can exist/)
+  assert.match(off.detail, /re-enable the tower-tests component/)
+  // Row on / unknown: the generic wording stays (the cause is the mission, not a row).
+  for (const testsComponent of [{ enabled: true, reason: '' }, null, undefined]) {
+    const plain = findTests({ ...options, testsComponent })
+    assert.doesNotMatch(plain.detail, /disabled by component/)
+    assert.match(plain.detail, /has no passing test discovery for tip abcdef1/)
+  }
+})
+
 test('pure scope and planning helpers are testable without a repository', async () => {
   const { fileInScope, normalizeScope, scopesOverlap } = await import('../domain/scope.js')
   const { addAutoDeps, assertAcyclic, nextMissionNumber } = await import('../domain/planning.js')

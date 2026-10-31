@@ -31,7 +31,9 @@ export function registerCompleteTool(ctx, deps) {
       const context = await tower.missionContext(args.missionId)
       const checks = [...(Array.isArray(args.checks) ? args.checks : [])]
       const testsConfig = /** @type {any} */ (tower.config.tests ?? {})
-      if (testsConfig.enabled !== false && isCompleteAdmission(testsConfig.admission)) {
+      // #136: the `tower-tests` component row is the only switch; admission
+      // decides when discovery runs, not whether it may run.
+      if (isCompleteAdmission(testsConfig.admission)) {
         const discovery = await runMissionDiscovery(tower, { id: args.missionId, worktree: context.mission.worktree })
         if (discovery.configured && discovery.receipt.ok !== true) {
           throw new TowerToolError('tests-failed', `test discovery failed for ${args.missionId}: ${discovery.receipt.error}`)

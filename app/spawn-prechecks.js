@@ -132,10 +132,12 @@ export async function precheckWorkerOwnership({
 /**
  * Service/provider/preset/lease checks, run before provisioning.
  * `inspectLeases` is injected by the composition root so the app layer never
- * imports the lease adapter (#69).
- * @param {{ tower: any, ctx: any, config: any, preset: string, actor: any, exec: any, inspectLeases: any }} input
+ * imports the lease adapter (#69). `leaseComponent` is the matching probe for the
+ * `tower-leases` row (#131): when the row is off there is no `tower_resource`
+ * tool, so a missing lease cannot be fixed by following the old advice.
+ * @param {{ tower: any, ctx: any, config: any, preset: string, actor: any, exec: any, inspectLeases: any, leaseComponent?: () => { enabled: boolean, reason: string } }} input
  */
-export async function precheckSpawnServices({ tower, ctx, config, preset, actor, exec, inspectLeases }) {
+export async function precheckSpawnServices({ tower, ctx, config, preset, actor, exec, inspectLeases, leaseComponent }) {
   const subagents = ctx.get('subagents')
   if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot spawn')
   const providers = subagents.list()
@@ -150,18 +152,26 @@ export async function precheckSpawnServices({ tower, ctx, config, preset, actor,
   }
   if (typeof config.spawn.requireLease === 'string' && config.spawn.requireLease.trim()) {
     const requiredLease = config.spawn.requireLease.trim()
+    // #131: registration-aware. Telling a caller to "acquire it with
+    // tower_resource" is useless when the tower-leases row is off and the tool is
+    // not registered; name the component and both remedies instead.
+    const leasesRow = typeof leaseComponent === 'function' ? leaseComponent() : null
+    const unavailable = leasesRow && leasesRow.enabled !== true
+    const remedy = unavailable
+      ? `the ${leasesRow.reason ?? 'tower-leases component is disabled'}, so tower_resource cannot acquire it; re-enable the tower-leases row or clear spawn.requireLease`
+      : 'acquire it with tower_resource before spawning'
     const info = await inspectLeases(tower.commonDir)
     const lease = info.leases.find((entry) => entry.name === requiredLease && entry.expired !== true)
     if (!lease) {
       throw new TowerToolError(
         'lease-busy',
-        `spawn.requireLease="${requiredLease}" is not held; acquire it with tower_resource before spawning`,
+        `spawn.requireLease="${requiredLease}" is not held; ${remedy}`,
       )
     }
     if (lease.holder !== actor.name && lease.holder !== String(exec.agent.id)) {
       throw new TowerToolError(
         'lease-busy',
-        `spawn.requireLease="${requiredLease}" is held by "${lease.holder}", not by this tower`,
+        `spawn.requireLease="${requiredLease}" is held by "${lease.holder}", not by this tower${unavailable ? ` (${leasesRow.reason})` : ''}`,
       )
     }
   }

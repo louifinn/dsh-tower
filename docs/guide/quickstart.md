@@ -100,3 +100,71 @@ Statuses are `open → triaged → fixed` / `wontfix`, and `fixed`/`wontfix` can
 tower or a worker may change a finding; reviewers can list and read.
 
 A complete copy-paste example: [examples/first-mission.md](../examples/first-mission.md).
+
+## Component rows, runtime preconditions and message language
+
+The optional component rows are the only switches in this bundle (#121, #136). Three runtime rules
+follow from that, plus the language policy for everything a tool prints.
+
+### A row is the only switch
+
+`tests.enabled` was removed (#136). Discovery is on exactly while the `tower-tests` row is mounted:
+with the row off there is no `tower_test` tool and no test receipt to gate on, so a second boolean
+could only disagree with the mounted profile. A repository config that still writes
+`tests.enabled` is rejected as `config-unknown-key`; delete the key and enable or disable the row
+instead.
+
+The same reasoning covers the other rows:
+
+- `tower-leases` owns `tower_resource`. `spawn.requireLease` is satisfied through that tool, so a
+  config that requires a lease while the row is off is refused by the runtime preconditions with
+  `config-invalid`, naming the row and both remedies ("re-enable the tower-leases component or clear
+  spawn.requireLease") instead of failing every spawn at `lease-busy` with advice to use a tool that
+  is not registered (#131).
+- `tower-tests` must stay mounted while `gates.requireTests` is true. Planning and mode entry refuse
+  the combination; the merge gate's `tests-missing` blocker also names the disabled row as the cause
+  (#140).
+- `tower-hmr` ships off; `/tower reload` reports it by row name.
+
+No runtime path may claim a repository is "not configured" when a component row is the reason.
+Component causes are reported as `disabled by component <id>` and come with the fix (`enable the
+<id> row in the plugin page and restart DSH`).
+
+### Preconditions run on mode entry, not on every `/tower` input (#142)
+
+`/tower` re-validates the runtime preconditions (presets, component/config contradictions) only when
+it **enters** Tower mode:
+
+| Input | Preconditions |
+|---|---|
+| `/tower`, `/tower on`, `/tower <text>` while the mode is off | validated |
+| `/tower off`, `/tower off <text>` | not validated |
+| `/tower <text>` while the mode is already on | not validated |
+| `/tower ack`, `/tower base <branch>`, `/tower reload` | not validated |
+
+The reason: a row disabled after the session started (or a profile reloaded with a stricter config)
+must not make `/tower off` — the command a human needs to leave the mode — or an ordinary forwarded
+instruction fail. Capability guards still run where the work happens: `tower_spawn`, planning and
+merge/preflight evaluate their own preconditions, so the checks cannot be bypassed by entering the
+mode first.
+
+### Language of tool output
+
+Machine-facing output is **English only**, regardless of the request locale:
+
+- tool errors (`[tower:<code>] ...`), `nextAction`, blocker `detail` strings, `tower_status` /
+  `tower_doctor` detail lines, and completion reports;
+- anything that a script, a log search or another agent is expected to pattern-match.
+
+Localized, human-facing copy lives in `locale/*.json` (component descriptions, UI labels) and is the
+only translated surface. Two rules keep the split honest:
+
+1. New detail/error strings are written in English even when the surrounding UI is Chinese; they are
+   not added to `locale/*.json`.
+2. A localized label never shadows a machine-readable cause. The row id, the error code and the
+   English remedy phrase stay verbatim inside the message, so a grep for
+   `disabled by component tower-tests` works in every locale.
+
+`tower_status` and `tower_doctor` follow this policy: both print `disabled by component <id>` and the
+English "enable the ... row in the plugin page and restart DSH" action, and neither interpolates a
+translated label.

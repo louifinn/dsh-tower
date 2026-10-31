@@ -13,6 +13,11 @@
 // `tower-tests` adds a third: with the component row off there is no
 // `tower_test` tool and no receipt, so `gates.requireTests: true` is refused
 // here rather than left to fail at merge time with a misleading blocker.
+//
+// `tower-leases` adds a fourth (#131): `spawn.requireLease` is satisfied through
+// `tower_resource`, the tool the `tower-leases` row owns. With that row off every
+// spawn would fail at `lease-busy` advising a tool that is not registered, so the
+// contradiction is refused up front instead.
 import { TowerToolError } from '../domain/errors.js'
 import { componentEnabled, disabledReason } from './capability-registry.js'
 
@@ -71,6 +76,18 @@ export async function assertRuntimePreconditions(ctx, config = {}) {
     throw new TowerToolError(
       'config-invalid',
       `gates.requireTests is true but ${disabledReason('tower-tests')}; re-enable the tower-tests component or set gates.requireTests:false`,
+    )
+  }
+  // #131: `spawn.requireLease` is acquired through `tower_resource`, which only
+  // exists while the tower-leases row is mounted. Without this check the config
+  // looks valid and every spawn dies at `lease-busy` pointing at a tool that is
+  // not registered. Both remedies are named because either side may be the
+  // accidental one.
+  const requiredLease = String(config.spawn?.requireLease ?? '').trim()
+  if (requiredLease && !componentEnabled('tower-leases')) {
+    throw new TowerToolError(
+      'config-invalid',
+      `spawn.requireLease="${requiredLease}" is set but ${disabledReason('tower-leases')}; tower_resource is not registered, so the lease can never be acquired. Re-enable the tower-leases component or clear spawn.requireLease`,
     )
   }
   return presets

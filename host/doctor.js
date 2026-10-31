@@ -331,6 +331,25 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       : check('components', 'pass', componentSummary(components)),
   )
 
+  // #131: `spawn.requireLease` is acquired through `tower_resource`, which belongs
+  // to the tower-leases row. The runtime preconditions refuse this combination, so
+  // the doctor reports it first and names both remedies instead of letting it
+  // surface as a lease-busy from every spawn.
+  const requiredLease = String(config.spawn?.requireLease ?? '').trim()
+  if (requiredLease) {
+    const leasesDisabled = components.disabled.some((entry) => entry.id === 'tower-leases')
+    checks.push(
+      leasesDisabled
+        ? check(
+            'spawn-lease',
+            'fail',
+            `spawn.requireLease="${requiredLease}" is set but the tower-leases row is disabled, so tower_resource cannot acquire the lease`,
+            're-enable the tower-leases row in the plugin page and restart DSH, or clear spawn.requireLease',
+          )
+        : check('spawn-lease', 'pass', `spawn.requireLease="${requiredLease}" is satisfiable (tower-leases row enabled)`),
+    )
+  }
+
   const subagents = ctx.get?.('subagents')
   checks.push(subagents ? check('subagents', 'pass', 'service mounted') : check('subagents', 'fail', 'subagents service is unavailable', 'enable the subagent bundle'))
   const hmr = ctx.get?.('hmr')
@@ -426,14 +445,15 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     )
 
     const testConfigured = state.missions?.some((mission) => mission.testRuns !== undefined)
-    const testsDisabled =
-      config.tests?.enabled === false || components.disabled.some((entry) => entry.id === 'tower-tests')
+    // #136: the `tower-tests` component row is the only switch (there is no
+    // tests.enabled), so this check reads the registry and nothing else.
+    const testsDisabled = components.disabled.some((entry) => entry.id === 'tower-tests')
     checks.push(
       check(
         'tests',
         testsDisabled ? 'warn' : 'pass',
         testsDisabled
-          ? `test discovery disabled${config.tests?.enabled === false ? ' (tests.enabled:false)' : ' (disabled by component tower-tests)'}`
+          ? 'test discovery disabled (disabled by component tower-tests; enable the tower-tests row and restart DSH)'
           : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
     )

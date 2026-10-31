@@ -43,7 +43,7 @@
       "id": "tower-leases",
       "scope": "visible",
       "kind": "row",
-      "fallback": "tower_resource is not registered; advisory leases are coordination only, so nothing else depends on them."
+      "fallback": "tower_resource is not registered and /tower resource is unavailable; advisory leases are coordination only, but spawn.requireLease still needs the tool to acquire one, so a config that sets spawn.requireLease is rejected at runtime preconditions instead of failing every spawn at lease-busy."
     },
     {
       "id": "tower-tests",
@@ -261,11 +261,6 @@
       "name": "send.interruptDefault",
       "class": "optional-config",
       "note": "Default for the interrupt-before-deliver flag."
-    },
-    {
-      "name": "tests.enabled",
-      "class": "optional-component",
-      "note": "Tuning inside the optional tower-tests component: it decides whether discovery runs when the row is on. Off with gates.requireTests:true is rejected at config resolution."
     },
     {
       "name": "tests.admission",

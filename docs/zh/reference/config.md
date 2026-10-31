@@ -73,7 +73,6 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `spawn.requireLease` | `''` | worker spawn 前必须持有的可选租约名。 |
 | `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
 | `send.interruptDefault` | `false`（随包 patch：`true`） | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
-| `tests.enabled` | `true` | worktree 的 `package.json` 配置了测试发现时运行它。它只调整可选的 `tower-tests` 组件：该行关闭时既没有 `tower_test` 工具也无法记录回执，`gates.requireTests:true` 会被拒绝而不是静默失效。 |
 | `tests.admission` | `off` | `spawn` 在启动 worker 前运行发现（fail-closed，不启动子代理）；`complete` 在 `tower_complete` 时运行；`off` 只在显式 `tower_test` 时运行（默认；不会自动执行仓库代码）。 |
 | `tests.timeoutMs` | `60000` | 每条发现命令的超时。 |
 | `tests.maxBytes` | `16777216`（16 MiB） | 每条命令捕获的 stdout 上限。 |
