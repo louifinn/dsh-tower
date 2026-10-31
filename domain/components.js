@@ -12,6 +12,12 @@
 //
 // This module is pure: no fs, no git. `scripts/check-components.mjs` supplies the
 // live schema, `cordis.patch.yml`, the locale files and the baseline.
+//
+// #138: the class/row-override rules live in `component-rules.js` so this module
+// stays under the architecture aggregate-size brake; they are re-exported here.
+import { collectConfigOverrides } from './component-rules.js'
+export { checkKeyClassifications, checkRowOverrides } from './component-rules.js'
+
 export const COMPONENT_SURFACE_FILE = 'scripts/component-surface.json'
 export const COMPONENT_REFERENCE_FILE = 'docs/reference/component-surface.md'
 export const COMPONENT_SCHEMA_VERSION = 1
@@ -65,6 +71,7 @@ function normalizeComponent(entry, index) {
     scope,
     kind,
     fallback: text(entry.fallback, `components[${index}].fallback`),
+    allowedOverrides: stringList(entry.allowedOverrides, `components[${index}].allowedOverrides`),
   }
 }
 
@@ -78,6 +85,10 @@ function normalizeKey(entry, index) {
     name: text(entry.name, `keys[${index}].name`),
     class: className,
     note: text(entry.note, `keys[${index}].note`),
+    // #138: an `optional-config` boolean (or a recorded behaviour knob) needs a
+    // dated reason for staying a tuning key; the gate refuses the classification
+    // without it.
+    exemption: entry.exemption === undefined ? null : normalizeDecision(entry.exemption, `keys[${index}].exemption`),
   }
 }
 
@@ -142,35 +153,6 @@ function normalizeGateableTools(value) {
 }
 
 /**
- * Parse the static `host/tool-registry.js` route table that lets a boolean
- * remove a tool. This is the denylist's live input, so it is deliberately
- * tolerant about formatting (F11): it accepts a tuple with a trailing comma and
- * a `Map.set(...)` route, so a reformatted or rewritten table cannot fall out of
- * the allowlist and silently legalise a forbidden switch.
- *
- * @param {string} source the registry module text
- * @returns {Record<string, string>} tool name -> expose flag (without `tools.`)
- */
-export function parseOperationalRegistry(source) {
-  const text = String(source ?? '')
-  /** @type {Record<string, string>} */
-  const registry = {}
-  // Tuple form: ['tower_batch', 'exposeBatch'] with an optional trailing comma.
-  for (const match of text.matchAll(
-    /\[\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*,?\s*\]/g,
-  )) {
-    registry[match[1]] = match[2]
-  }
-  // Map form: OPERATIONAL_TOOLS.set('tower_batch', 'exposeBatch').
-  for (const match of text.matchAll(
-    /OPERATIONAL_TOOLS\s*\.\s*set\(\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*\)/g,
-  )) {
-    registry[match[1]] = match[2]
-  }
-  return registry
-}
-
-/**
  * Parse and validate the single source of truth. Structural problems throw with
  * an actionable message; semantic problems are findings from the validators
  * below, so one run can report all of them.
@@ -210,6 +192,9 @@ export function parseComponentSurface(source) {
   const keys = value.keys.map(normalizeKey)
   const forbidden = Array.isArray(value.forbidden) ? value.forbidden.map(normalizeForbidden) : []
   const gateableTools = normalizeGateableTools(value.gateableTools)
+  // #138: non-boolean keys that gate behaviour cannot hide behind
+  // `optional-config`; they are reviewed on the same axis as booleans.
+  const behaviorKnobs = stringList(value.behaviorKnobs, 'component surface behaviorKnobs')
   const seen = (list, label) => {
     const names = new Set()
     for (const entry of list) {
@@ -227,7 +212,17 @@ export function parseComponentSurface(source) {
   if (!components.some((component) => component.scope === 'visible')) {
     throw componentError('component surface needs at least one visible component')
   }
-  return { schema: COMPONENT_SCHEMA_VERSION, date, adr, classes, components, keys, gateableTools, forbidden }
+  return {
+    schema: COMPONENT_SCHEMA_VERSION,
+    date,
+    adr,
+    classes,
+    components,
+    keys,
+    behaviorKnobs,
+    gateableTools,
+    forbidden,
+  }
 }
 
 /**
@@ -239,13 +234,13 @@ export function parseComponentSurface(source) {
  * sections rather than a single plugin.
  *
  * @param {string} text
- * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], patch?: string }>, visible: string[] }}
+ * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], configOverrides: Array<{ key: string, value: string }>, patch?: string }>, visible: string[] }}
  */
 export function parseCordisPatch(text) {
   const lines = String(text ?? '').split(/\r?\n/)
   const insertIndex = lines.findIndex((line) => /^\s*-\s+insert:\s*$/.test(line))
   if (insertIndex < 0) return { rows: [], visible: [] }
-  /** @type {Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], indent: number, line: number }>} */
+  /** @type {Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], configOverrides: Array<{ key: string, value: string }>, indent: number, line: number }>} */
   const rows = []
   const stack = []
   let rowIndent = null
@@ -270,6 +265,7 @@ export function parseCordisPatch(text) {
         kind: 'row',
         group: false,
         overrides: [],
+        configOverrides: [],
         indent,
         line: index,
       })
@@ -294,11 +290,10 @@ export function parseCordisPatch(text) {
     }
     row.group = block.some((line) => /^\s*group:\s*true\s*$/.test(line))
     row.kind = row.group ? 'group' : 'row'
-    const overrides = new Set()
-    for (const line of block) {
-      for (const match of line.matchAll(/([A-Za-z0-9_-]+)\s*:\s*false\b/g)) overrides.add(match[1])
-    }
-    row.overrides = [...overrides]
+    row.configOverrides = row.group ? [] : collectConfigOverrides(lines, row)
+    // #138: keep the false-valued paths for the forbidden denylist, and the full
+    // override set for the "row matches the capability it owns" check.
+    row.overrides = row.configOverrides.filter((entry) => entry.value === 'false').map((entry) => entry.key)
   }
   return {
     rows: rows.map(({ line, indent, ...row }) => row),
@@ -529,15 +524,17 @@ export function checkForbidden(surface, live) {
   // row, whatever capability owns it. `gatedBy` is folded in so a contract key
   // recorded only on the capability still resolves to its full name.
   const forbiddenLeaves = new Map()
+  const remember = (name) => {
+    const leaf = name.split('.').pop()
+    if (!forbiddenLeaves.has(name)) forbiddenLeaves.set(name, name)
+    if (!forbiddenLeaves.has(leaf)) forbiddenLeaves.set(leaf, name)
+  }
   for (const key of surface.keys) {
     if (key.class !== 'forbidden-to-disable') continue
-    forbiddenLeaves.set(key.name.split('.').pop(), key.name)
+    remember(key.name)
   }
   for (const capability of surface.forbidden) {
-    for (const key of capability.gatedBy ?? []) {
-      const leaf = key.split('.').pop()
-      if (!forbiddenLeaves.has(leaf)) forbiddenLeaves.set(leaf, key)
-    }
+    for (const key of capability.gatedBy ?? []) remember(key)
   }
   for (const row of rows) {
     if (row.scope === 'visible' && forbiddenRowIds.has(row.id)) {
@@ -649,7 +646,17 @@ export function renderComponentSurface(surface, options = {}) {
         `| \`${component.id}\` | ${component.scope} | ${component.kind} | ${component.fallback} |`,
     )
     .join('\n')
-  const keyRows = surface.keys.map((key) => `| \`${key.name}\` | \`${key.class}\` | ${key.note} |`).join('\n')
+  const keyRows = surface.keys
+    .map((key) => {
+      const exemption = key.exemption
+        ? ` Tuning exemption: ${key.exemption.reason} (${key.exemption.date}${key.exemption.issue ? ` · ${key.exemption.issue}` : ''} · [${decidedIn(key.exemption.ref)}](${relativeAdr(key.exemption.ref)}))`
+        : ''
+      return `| \`${key.name}\` | \`${key.class}\` | ${key.note}${exemption} |`
+    })
+    .join('\n')
+  const behaviorRows = (surface.behaviorKnobs ?? [])
+    .map((name) => `| \`${name}\` |`)
+    .join('\n') || '| _(none)_ |'
   const forbiddenRows = surface.forbidden
     .map((capability) => {
       const decision = capability.acceptedSwitches?.decision
@@ -722,6 +729,17 @@ All keys from \`domain/config/schema.js\`, classified on the component axis.
 | Key | Component class | Decision note |
 |---|---|---|
 ${keyRows}
+
+## Behaviour knobs
+
+Non-boolean keys that gate behaviour are reviewed on the same axis as booleans
+(#138): each must be \`core\`, \`optional-component\`, \`forbidden-to-disable\`, or an
+\`optional-config\` key with a dated tuning-only exemption. A string or union that
+hides a capability cannot use the tuning class without that record.
+
+| Key |
+|---|
+${behaviorRows}
 
 ## Non-goals
 

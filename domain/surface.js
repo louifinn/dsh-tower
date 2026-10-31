@@ -20,8 +20,10 @@ export const SURFACE_KEYS = ['configKeys', 'sections', 'tools', 'components']
 // A count in this list is two-way: a contraction needs a decision record just
 // like growth does. The component surface is where the failure actually
 // happened (4 top-level rows -> 1 group row), so "a reduction is cheap" is
-// exactly the policy hole #120 closes.
-export const SURFACE_TWO_WAY_KEYS = ['components']
+// exactly the policy hole #120 closes. #138 extends the same brake to the config
+// keys: a removed switch is a capability decision too, so the key count may not
+// shrink silently either. Sections and tools keep the ADR 0004 cheap-shrink rule.
+export const SURFACE_TWO_WAY_KEYS = ['components', 'configKeys']
 export const CONFIG_CLASSES = ['core', 'tuning', 'niche']
 export const TOOL_CLASSES = ['core', 'optional']
 export const SURFACE_SCHEMA_VERSION = 1

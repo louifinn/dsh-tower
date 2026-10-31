@@ -178,3 +178,51 @@ without widening the mechanism.
   #133, #135 and #134; the three dated steps are recorded in
   `scripts/surface-baseline.json`. The config surface contracted 55 → 53, which the
   other surfaces allow without a decision record.
+
+## Addendum (wave 3): close the gate's blind spots
+
+- Date: 2026-11-03
+- Decisions: #138
+
+Wave 2 made the gate read every shipped row, but four ways to evade it remained:
+a class was free text, the operational route table was scraped with a regex, only
+the patches named in `COMPONENT_PATCH_FILES` were read, and only booleans were
+reviewed. Wave 3 closes them without changing the shipped decisions: 53 config
+keys, 11 visible components.
+
+- **The class is checked against the key's shape (#138.1).** A boolean that
+  removes a capability cannot file as `optional-config` by assertion. Every live
+  boolean must be `core`, `optional-component` or `forbidden-to-disable`, or an
+  `optional-config` key carrying a dated `exemption` whose reason names its
+  tuning-only nature. The same rule covers the non-boolean behaviour knobs below.
+  An exemption is only legal on a reviewed boolean/knob, and its `ref` must exist.
+- **The config-key count is two-way (#138.1).** Wave 2's closing note ("the config
+  surface contracted 55 → 53, which the other surfaces allow without a decision
+  record") is retracted. Removing a switch is a capability decision, so
+  `configKeys` now joins `components` in `SURFACE_TWO_WAY_KEYS`: any later increase
+  or decrease needs a dated decision in `scripts/surface-baseline.json`. The
+  64 → 53 history is recorded as one dated decision there; sections and tools keep
+  the ADR 0004 cheap-shrink rule.
+- **The route table is imported, not scraped (#138.2).** `host/tool-registry.js`
+  exports `OPERATIONAL_TOOLS`, and the gate imports that module instead of
+  regex-matching its source. A missing file, a failed import, or a missing/non-Map
+  export is `registry-unreadable` and fails the gate. An empty Map is still the
+  correct determined state (#122): "nothing is gated" is distinct from "could not
+  read".
+- **Every shipped patch is discovered (#138.3).** The gate walks the package for
+  `cordis.patch.yml` and compares the result with `COMPONENT_PATCH_FILES` in both
+  directions. An unlisted patch fails `patch-unclassified`; a listed patch that is
+  missing fails `patch-missing`. The row checks stay bidirectional: every shipped
+  row needs a source-of-truth entry, and every source-of-truth row needs a shipped
+  row.
+- **Behaviour knobs and row overrides are reviewed (#138.4).** `spawn.requireLease`
+  and `tests.admission` are recorded in `behaviorKnobs` and carry tuning-only
+  exemptions: the optional `tower-leases` / `tower-tests` row owns the capability,
+  while these keys choose the safety level or timing inside it. A row's scalar
+  `config:` overrides are now parsed and must name a live config key and be listed
+  in that component's `allowedOverrides`. A row that sets `docs.board`,
+  `archive.enabled` or `tests.enabled` therefore fails as `row-override-unknown`
+  (those capabilities are rows), a row that enables or disables a key it does not
+  own fails as `row-override-foreign`, and `allowedOverrides` may never name a
+  forbidden-to-disable key. Fixtures reproduce the #133/#135/#136 shapes and a
+  foreign override, proving they fail before the fix passes.

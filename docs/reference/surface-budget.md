@@ -19,10 +19,12 @@ these tables fails `npm run surface:check`.
 A second axis asks who may turn a key off. It is generated from
 [`scripts/component-surface.json`](../../scripts/component-surface.json) into
 [component-surface.md](component-surface.md): every key is `core`,
-`optional-component`, `optional-config` or `forbidden-to-disable`, and the
-component count is the fourth baselined surface, two-way: a contraction needs a
-dated decision just like growth does (`npm run docs:check:components`,
-[ADR 0005](../adr/0005-component-surface.md)). The same source of truth records
+`optional-component`, `optional-config` or `forbidden-to-disable`. A boolean (or a
+recorded non-boolean behaviour knob) cannot stay `optional-config` without a dated
+tuning-only exemption. Both the component count and the config-key count are
+baselined two-way: an increase or a contraction needs a dated decision
+(`npm run docs:check:components`, [ADR 0005](../adr/0005-component-surface.md)).
+The same source of truth records
 the `gateableTools` allowlist; it is empty since #122, so a future
 `tools.expose*` route to any tool is refused before it can remove a review,
 merge or host tool.
@@ -44,15 +46,24 @@ profile's 28 loaded tools and pins 29 for the all-rows-on surface.
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
-sections 15 → 14. Those are recorded shrank values in the committed baseline,
-not free growth: a later increase still needs its own decision. #136 shrank it
-once more, 56 → 55: `tests.enabled` was a second switch over the `tower-tests`
-component row, so the row is now the only switch and the key is gone (a config
-that still writes it fails with `config-unknown-key`). #133 and #135 shrank it
-again, 55 → 53: `docs.board` and `archive.enabled` were the same kind of second
-switch over the new `tower-board` and `tower-archive` rows, so each row is now
-the only switch and both keys are gone (a config that still sets either fails
-with `config-unknown-key`, and the upgrade note names the replacing row).
+sections 15 → 14. Sections keep the ADR 0004 cheap-shrink rule. #136 shrank the
+config keys once more, 56 → 55: `tests.enabled` was a second switch over the
+`tower-tests` component row, so the row is now the only switch and the key is
+gone (a config that still writes it fails with `config-unknown-key`). #133 and
+#135 shrank it again, 55 → 53: `docs.board` and `archive.enabled` were the same
+kind of second switch over the new `tower-board` and `tower-archive` rows, so
+each row is now the only switch and both keys are gone (a config that still sets
+either fails with `config-unknown-key`, and the upgrade note names the replacing
+row).
+
+Since #138 that 64 → 53 history is one dated decision in
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json), and the
+config-key count is two-way: a later increase **or** decrease needs its own
+decision naming an ADR, unlike sections and tools. The same wave makes the gate
+import `OPERATIONAL_TOOLS` instead of scraping it, discover every shipped
+`cordis.patch.yml` in both directions, review the non-boolean behaviour knobs
+(`spawn.requireLease`, `tests.admission`), and refuse a row config outside its
+component's `allowedOverrides`.
 
 ## Config keys
 

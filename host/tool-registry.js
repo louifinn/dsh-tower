@@ -378,7 +378,11 @@ async function ensureRepository(repoRootInput, autoGitInit) {
   }
 }
 
-const OPERATIONAL_TOOLS = new Map()
+// #138: exported so `scripts/check-components.mjs` can import the route table
+// instead of scraping this file. The table is empty since #122; an empty Map is
+// the determined state, while a missing export or a failed import is a gate
+// failure.
+export const OPERATIONAL_TOOLS = new Map()
 
 function plainSchema(value) {
   return JSON.parse(JSON.stringify(value))

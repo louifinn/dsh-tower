@@ -74,9 +74,9 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 |---|---|---|
 | `section` | `core` | Legacy alias for mode.promptSection: the Tower-mode prompt contract, not a capability. |
 | `allowAgentControl` | `core` | Legacy alias for mode.allowAgentControl: the human-owned mode rule (ADR 0003), not a component. |
-| `init.autoGitInit` | `optional-config` | Bootstrap convenience; off only means tower_init will not run git init. |
-| `init.snapshotDirty` | `optional-config` | Dirty-work baseline convenience; no capability is removed. |
-| `init.autoExclude` | `optional-config` | Keeps Tower artifacts out of .git/info/exclude; safe either way. |
+| `init.autoGitInit` | `optional-config` | Bootstrap convenience; off only means tower_init will not run git init. Tuning exemption: Tuning, not capability: tower_init stays the component and the switch only decides whether it runs git init. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
+| `init.snapshotDirty` | `optional-config` | Dirty-work baseline convenience; no capability is removed. Tuning exemption: Tuning, not capability: the init component remains available with or without a dirty-work snapshot baseline. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
+| `init.autoExclude` | `optional-config` | Keeps Tower artifacts out of .git/info/exclude; safe either way. Tuning exemption: Tuning, not capability: both values keep the init component and only change which artifacts the exclude file names. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `mode.promptSection` | `core` | Replaces the whole Tower-mode prompt text; contract text, not a capability. |
 | `mode.sectionAppend` | `optional-config` | Appends team conventions to the prompt. |
 | `mode.allowAgentControl` | `core` | Decides whether the model may toggle the mode (ADR 0003). A governance rule, never a component. |
@@ -107,13 +107,13 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.maxLiveWorkers` | `core` | Resource-safety cap on live workers. |
 | `spawn.staleMs` | `optional-config` | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | `optional-config` | Upper bound for a blocking spawn wait. |
-| `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. |
+| `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. Tuning exemption: Tuning the safety level inside the optional tower-leases row; with leases off the Host refuses requireLease instead of removing the spawn capability. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `send.maxPerMinute` | `optional-config` | Message rate limit; zero disables it. |
-| `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. |
-| `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. |
+| `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. Tuning exemption: Tuning, not capability: the send component always exists and the switch only picks a delivery default. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
+| `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. Tuning exemption: Tuning when the admission check runs inside the optional tower-tests row, which still owns whether test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.timeoutMs` | `optional-config` | Per-command discovery timeout. |
 | `tests.maxBytes` | `optional-config` | Captured discovery output cap. |
-| `tests.autoChecks` | `optional-config` | Attaches a tests check to completion when discovery runs. |
+| `tests.autoChecks` | `optional-config` | Attaches a tests check to completion when discovery runs. Tuning exemption: Tuning the default receipt policy inside the optional tower-tests row, which still owns whether any test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.allowPackageDiscovery` | `core` | Allows repository code to execute; a security contract, not a component. |
 | `gates.requireChecks` | `forbidden-to-disable` | Requires completion evidence before merge; a merge gate. |
 | `gates.requireTests` | `forbidden-to-disable` | Requires a test receipt before merge; a merge gate. With the tower-tests row off, planning/mode entry refuse the combination. |
@@ -125,6 +125,18 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `leases.ttlMs` | `optional-config` | Tuning inside the optional tower-leases component. |
 | `dev.reloadDelayMs` | `optional-config` | Delay so a tool result is delivered before a scheduled reload inside the optional tower-hmr component. |
 | `dev.reloadRequiredIds` | `optional-config` | Loader ids passed to reconcileProfile as required by the tower-hmr component. |
+
+## Behaviour knobs
+
+Non-boolean keys that gate behaviour are reviewed on the same axis as booleans
+(#138): each must be `core`, `optional-component`, `forbidden-to-disable`, or an
+`optional-config` key with a dated tuning-only exemption. A string or union that
+hides a capability cannot use the tuning class without that record.
+
+| Key |
+|---|
+| `spawn.requireLease` |
+| `tests.admission` |
 
 ## Non-goals
 

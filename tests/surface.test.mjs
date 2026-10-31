@@ -282,10 +282,30 @@ test('a matching deletion that is really gone authorizes growth; one still live 
   assert.match(live.find((finding) => finding.code === 'growth-without-evidence').message, /still in the live surface/)
 })
 
-test('a pure shrink is cheap: lowering the value needs no ADR', () => {
-  const baseline = baselineFor({ configKeys: 1 }, {}, { configKeys: 2 })
-  const findings = validateBaseline(baseline, currentFor({ configKeys: 1, sections: 1, tools: 1 }))
-  assert.deepEqual(findings, [])
+test('config keys are two-way: a shrink needs a decision, while sections and tools stay cheap', () => {
+  // #138: removing a switch is a capability decision, so the config-key count may
+  // not ratchet down silently.
+  const shrink = baselineFor({ configKeys: 1 }, {}, { configKeys: 2 })
+  const shrinkFindings = validateBaseline(shrink, currentFor({ configKeys: 1, sections: 1, tools: 1 }))
+  assert.ok(shrinkFindings.some((finding) => finding.code === 'broken-chain'))
+  assert.match(shrinkFindings[0].message, /every count change needs a decision record/)
+
+  // A dated decision reaches the lower count.
+  const recorded = baselineFor(
+    { configKeys: 1 },
+    { configKeys: [{ from: 2, to: 1, date: '2026-11-03', adr: 'docs/adr/0005-component-surface.md' }] },
+    { configKeys: 2 },
+  )
+  assert.deepEqual(
+    validateBaseline(recorded, currentFor({ configKeys: 1, sections: 1, tools: 1 }), {
+      exists: (relative) => relative === 'docs/adr/0005-component-surface.md',
+    }),
+    [],
+  )
+
+  // Sections keep the ADR 0004 cheap-shrink rule.
+  const sections = baselineFor({ sections: 1 }, {}, { sections: 2 })
+  assert.deepEqual(validateBaseline(sections, currentFor({ configKeys: 1, sections: 1, tools: 1 })), [])
 })
 
 test('a value that does not match its decision chain fails, so edits need a record', () => {
