@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "任务归档",
+    "description": "把终态 mission 及其关联记录移入磁盘归档，让 state.json 不再承载完整历史。关闭后：终态 mission 继续留在 state.json 中，热状态会持续增长；合并、门禁与其他能力继续工作，且不会删除任何内容。"
+  }
+}

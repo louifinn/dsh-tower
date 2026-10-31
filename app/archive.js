@@ -95,6 +95,21 @@ export function archiveView(index) {
 }
 
 /**
+ * #135: archival is the `tower-archive` component row, not a config switch. The
+ * probe is supplied by the composition root. A Tower built without a component
+ * probe (unit fixtures, direct adapter use) keeps archiving: an absent probe means
+ * "not composed", not "row disabled".
+ *
+ * @param {any} tower
+ * @returns {boolean}
+ */
+function archiveEnabled(tower) {
+  const components = tower.deps?.components
+  if (!components || typeof components.enabled !== 'function') return true
+  return components.enabled('tower-archive') === true
+}
+
+/**
  * Move the eligible terminal missions out of `state` and into the archive.
  * Mutates `state` in memory (missions, linked reviews and closed findings) and
  * leaves the caller to validate/persist it under the lock it already holds.
@@ -105,8 +120,8 @@ export function archiveView(index) {
  * @returns {Promise<{ archived: string[], written: boolean, files?: string[], error: string | null, year?: number }>}
  */
 export async function sweepArchive(tower, state, options = {}) {
+  if (!archiveEnabled(tower)) return { archived: [], written: false, error: null }
   const policy = tower.config.archive ?? {}
-  if (policy.enabled === false) return { archived: [], written: false, error: null }
   const now = options.now ?? Date.now()
   const activity = options.activity ?? {}
 

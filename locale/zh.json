@@ -1,13 +1,13 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "多代理任务规划、隔离工作树与审查门禁合并。"
+    "description": "多代理任务规划、隔离工作树与审查门禁合并。关闭该行等同于卸载 Tower：不再保留任何工具、preset 或技能。"
   },
   "components": {
     "tower": {
       "title": "Tower 控制塔",
       "summary": "任务规划、隔离工作树、模式守卫、健康契约与恢复逃生口。",
-      "disables": "关闭强制主组件等同于卸载 Tower：不再保留任何工具、preset 或技能。"
+      "disables": "关闭该行等同于卸载 Tower：不再保留任何工具、preset 或技能。"
     },
     "tower-skills": {
       "title": "Tower 技能包",
@@ -34,10 +34,20 @@
       "summary": "运行 worktree 声明的测试发现，并为 mission tip 记录回执。",
       "disables": "不再注册 tower_test，也无法记录回执；若 gates.requireTests:true，规划/进入模式会以解释性错误拒绝。"
     },
+    "tower-board": {
+      "title": "任务看板",
+      "summary": "在 state 旁边写入人类可读的 MISSIONS.md 看板，让人无需调用工具即可阅读 mission 列表。",
+      "disables": "不再写入或刷新 MISSIONS.md，已有看板会过期；mission 工具、门禁与其他能力继续工作。"
+    },
+    "tower-archive": {
+      "title": "任务归档",
+      "summary": "把终态 mission 及其关联记录移入磁盘归档，让 state.json 不再承载完整历史。",
+      "disables": "终态 mission 继续留在 state.json 中，热状态会持续增长；合并、门禁与其他能力继续工作，且不会删除任何内容。"
+    },
     "tower-hmr": {
-      "title": "开发热重载",
-      "summary": "为联动开发 profile 注册 tower_reload 与 /tower reload。",
-      "disables": "tower_reload 与 /tower reload 不可用；非 HMR profile 的行为与之前完全相同。随包默认关闭。"
+      "title": "开发热重载（开发工具）",
+      "summary": "仅用于联动开发 profile 的开发工具：注册 tower_reload 与 /tower reload，让插件改动无需手动重启即可协调。",
+      "disables": "tower_reload 与 /tower reload 不可用，联动 profile 的重新加载需在 Tower 之外触发；普通 profile 的行为与之前完全相同。属于开发工具，随包默认关闭。"
     },
     "preset-tower-worker": {
       "title": "Tower Worker 预设",
@@ -48,6 +58,11 @@
       "title": "Tower Reviewer 预设",
       "summary": "声明 Tower Reviewer 预设：只读独立审查，检视任务差异、核对范围与验收，并返回结论。",
       "disables": "无法派发审查代理。review.requireReview 为 false 时允许关闭；强制审查开启时规划/进入模式会被锁定并给出解释。"
+    },
+    "tower-ui": {
+      "title": "Tower 界面",
+      "summary": "在 Web 客户端显示 Tower 工具卡片、输入框区域的 Tower 摘要，以及短暂的 Tower 状态提示条。",
+      "disables": "界面插件不再加载：没有工具卡片、输入框摘要或状态提示条；host 工具、mission、state 与看板不受影响。"
     }
   }
 }

@@ -8,11 +8,13 @@
 #
 # Policy: principle 11 in PRINCIPLES.md + docs/adr/0005-component-surface.md.
 # The per-key answer is docs/reference/component-surface.md, generated from
-# scripts/component-surface.json. `npm run docs:check:components` refuses a new
-# switch, a missing locale label, or a moved component count without a written
-# decision. `tower_doctor` and `tower_recover` are part of the host and are never
-# switches (#122); a capability row owns exactly one optional capability, and
-# `tower_status` / `tower_doctor` name any row that is off.
+# scripts/component-surface.json. `npm run docs:check:components` reads every
+# shipped patch (this file and ui-bundle/cordis.patch.yml, which ships the
+# tower-ui row) and refuses a row with no classification, a missing locale label,
+# or a moved component count without a written decision. `tower_doctor` and
+# `tower_recover` are part of the host and are never switches (#122); a capability
+# row owns exactly one optional capability, and `tower_status` / `tower_doctor`
+# name any row that is off.
 - insert:
     # Mandatory host anchor. Not an optional capability: off == uninstall.
     - id: tower
@@ -66,7 +68,20 @@
       name: 'dsh-tower/leases'
     - id: tower-tests
       name: 'dsh-tower/tests'
-    # dev hot reload: shipped off. Enable the row for a linked dev profile.
+    # #133: the MISSIONS.md board is a capability, not the old `docs.board` key.
+    # Off writes no board and leaves an existing one to go stale; every tool and
+    # gate keeps working. `docs.boardLocation` stays genuine tuning.
+    - id: tower-board
+      name: 'dsh-tower/board'
+    # #135: archival is a capability, not the old `archive.enabled` key. Off keeps
+    # terminal missions hot in state.json, so the hot state keeps growing; merges,
+    # gates and every other capability keep working and nothing is deleted.
+    # `archive.afterDays` / `archive.maxMissions` stay genuine tuning.
+    - id: tower-archive
+      name: 'dsh-tower/archive'
+    # #141: developer tooling, not an end-user capability switch. It stays shipped
+    # off; the locale copy states that this row exists for linked-profile
+    # development only, so the plugin page does not read as a missing feature.
     - id: tower-hmr
       name: 'dsh-tower/hmr'
       disabled: true

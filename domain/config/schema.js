@@ -76,10 +76,32 @@ const SECTION_KEYS = {
   send: ['maxPerMinute', 'interruptDefault'],
   tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
-  docs: ['board', 'boardLocation'],
-  archive: ['enabled', 'afterDays', 'maxMissions'],
+  docs: ['boardLocation'],
+  archive: ['afterDays', 'maxMissions'],
   leases: ['ttlMs'],
   dev: ['reloadDelayMs', 'reloadRequiredIds'],
+}
+
+// #133/#135: `docs.board` and `archive.enabled` were component-shaped switches
+// hiding in the config form. They are component rows now, so a legacy config
+// keeps failing as an unknown key — with an upgrade note naming the row that
+// replaced it.
+/** @type {Record<string, string>} */
+const REMOVED_KEYS = {
+  'docs.board': 'tower-board',
+  'archive.enabled': 'tower-archive',
+}
+
+/**
+ * Upgrade note for a removed component switch, appended to the unknown-key error.
+ * @param {string} group
+ * @param {string} key
+ * @returns {string}
+ */
+function removedKeyNote(group, key) {
+  const component = REMOVED_KEYS[`${group}.${key}`]
+  if (!component) return ''
+  return ` — ${group}.${key} was removed: the ${component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
@@ -241,30 +263,24 @@ export const Config = Schema.object({
     .default({})
     .description('Merge-gate strictness.'),
   docs: Schema.object({
-    board: Schema.boolean()
-      .default(true)
-      .description('Write a human-readable MISSIONS.md after mission changes.'),
     boardLocation: Schema.union(['common', 'repo'])
       .default('common')
-      .description('common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md.'),
+      .description('common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md. Whether the board is written at all is the tower-board component row (#133).'),
   })
     .default({})
-    .description('Human-readable artifacts.'),
+    .description('Human-readable artifact location. Turning the board off is a component row, not a tuning key.'),
   archive: Schema.object({
-    enabled: Schema.boolean()
-      .default(true)
-      .description('Move terminal (merged/abandoned) missions whose worktree is gone into <git-common-dir>/dsh-tower/archive/ at the next mutation, so state.json stops carrying their full history.'),
     afterDays: Schema.natural()
       .min(0)
       .default(30)
-      .description('Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately).'),
+      .description('Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately). Archival itself is the tower-archive component row (#135).'),
     maxMissions: Schema.natural()
       .min(0)
       .default(100)
       .description('Maximum terminal missions kept hot; once exceeded, the oldest eligible terminal missions are archived until the cap holds (0 archives every eligible terminal mission).'),
   })
     .default({})
-    .description('Terminal-mission archival policy. Archived missions are moved, never deleted.'),
+    .description('Terminal-mission archival tuning. Whether archival runs at all is the tower-archive component row; archived missions are moved, never deleted.'),
   leases: Schema.object({
     ttlMs: Schema.natural().min(1000).max(86400000).default(900000).description('Default advisory lease lifetime; expiry never auto-releases.'),
   })
@@ -378,9 +394,10 @@ export function assertKnownKeys(raw, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const bad = Object.keys(value).filter((key) => !allowed.includes(key))
     if (bad.length > 0) {
+      const notes = bad.map((key) => removedKeyNote(group, key)).join('')
       throw new TowerToolError(
         'config-unknown-key',
-        `${label} has unknown key(s) ${bad.map((key) => `${group}.${key}`).join(', ')}`,
+        `${label} has unknown key(s) ${bad.map((key) => `${group}.${key}`).join(', ')}${notes}`,
       )
     }
     if ((group === 'spawn') && value.workerModel && typeof value.workerModel === 'object') {

@@ -52,10 +52,22 @@
       "fallback": "tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing."
     },
     {
+      "id": "tower-board",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "MISSIONS.md is not written or refreshed, so an existing board goes stale. Mission state tools, gates and every other capability keep working; docs.boardLocation still chooses where a board would be written."
+    },
+    {
+      "id": "tower-archive",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "Terminal missions are not moved out of state.json, so the hot state keeps growing and status/doctor keep loading their full history. Merges, gates and every other capability keep working; nothing is deleted. afterDays/maxMissions keep their tuning meaning."
+    },
+    {
       "id": "tower-hmr",
       "scope": "visible",
       "kind": "row",
-      "fallback": "tower_reload and /tower reload are unavailable; a profile without HMR behaves exactly as before. Shipped disabled: enable the row for a linked dev profile."
+      "fallback": "Development-only tooling: tower_reload and /tower reload are unavailable, so a linked-profile reload has to be triggered outside Tower. A normal profile behaves exactly as before; the row ships disabled on purpose."
     },
     {
       "id": "preset-tower-worker",
@@ -68,6 +80,12 @@
       "scope": "visible",
       "kind": "row",
       "fallback": "Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error."
+    },
+    {
+      "id": "tower-ui",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "The Tower web UI plugin does not load in this profile: no Tower tool cards, composer-dock summary or status strip. Host tools, missions, state and the MISSIONS.md board are unaffected."
     }
   ],
   "gateableTools": {},
@@ -308,24 +326,14 @@
       "note": "The report cap is part of the completion contract; the refusal itself is never configurable away."
     },
     {
-      "name": "docs.board",
-      "class": "optional-config",
-      "note": "Writes the human-readable board; no capability is removed."
-    },
-    {
       "name": "docs.boardLocation",
       "class": "optional-config",
-      "note": "Chooses the board location."
-    },
-    {
-      "name": "archive.enabled",
-      "class": "optional-config",
-      "note": "Archival is maintenance, not a tool capability; off only leaves terminal missions hot."
+      "note": "Chooses where the board is written; whether it is written is the tower-board component row (#133)."
     },
     {
       "name": "archive.afterDays",
       "class": "optional-config",
-      "note": "Archive age threshold."
+      "note": "Archive age threshold inside the optional tower-archive component (#135)."
     },
     {
       "name": "archive.maxMissions",

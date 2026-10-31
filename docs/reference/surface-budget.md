@@ -101,10 +101,8 @@ that still writes it fails with `config-unknown-key`).
 | `gates.requireTests` | core | Requires a test receipt before merge. |
 | `gates.allowReviewExemption` | core | Allows a review exemption and its reason. |
 | `gates.maxReportBytes` | tuning | Report size cap; the refusal itself is not configurable. |
-| `docs.board` | tuning | Writes the human-readable board. |
-| `docs.boardLocation` | tuning | Chooses the board location. |
-| `archive.enabled` | core | Controls whether terminal missions leave the hot state. |
-| `archive.afterDays` | tuning | Archive age threshold. |
+| `docs.boardLocation` | tuning | Chooses where the board is written; whether it is written is the tower-board row. |
+| `archive.afterDays` | tuning | Archive age threshold; archival itself is the tower-archive row. |
 | `archive.maxMissions` | tuning | Hot terminal-mission cap. |
 | `leases.ttlMs` | tuning | Default advisory lease lifetime. |
 | `dev.reloadDelayMs` | tuning | Delay so a tool result is delivered before reload. |

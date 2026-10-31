@@ -5,6 +5,11 @@ Every key is optional; defaults reproduce the shipped behavior. Unknown top-leve
 `mode.allowAgentControl`. A legacy alias only fills a gap: when both forms are set, the canonical
 `mode.*` key wins.
 
+Two component-shaped switches left the config form (#133/#135): `docs.board` is now the `tower-board`
+component row and `archive.enabled` is now the `tower-archive` component row. A config that still sets
+either one fails with `config-unknown-key` and an upgrade note naming the replacing row; the tuning
+keys (`docs.boardLocation`, `archive.afterDays`, `archive.maxMissions`) stay here.
+
 ## Layers and precedence
 
 Lowest precedence first:
@@ -83,10 +88,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. With the `tower-tests` component row off, planning/mode entry refuse this combination with an explanation. |
 | `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
 | `gates.maxReportBytes` | `32768` (32 KiB) | Hard cap in UTF-8 bytes for `tower_complete.report`. A larger report is rejected with `invalid-argument` and an actionable `nextAction` (file the full text in the mission worktree and reference its path); it is never truncated. Existing larger reports still load. |
-| `docs.board` | `true` | Write `MISSIONS.md` after mutations. |
-| `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. |
-| `archive.enabled` | `true` | Move terminal (`merged`/`abandoned`) missions whose worktree is gone into `<git-common-dir>/dsh-tower/archive/` at a mutation boundary. Archived missions keep tasks, reviews, findings and the completion report; they are moved, never deleted. |
-| `archive.afterDays` | `30` | Age trigger: a terminal mission untouched for at least this many days is archived on the next mutation (`0` archives immediately). |
+| `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. Whether the board is written at all is the `tower-board` component row (#133); `docs.board` was removed and is rejected as an unknown key. |
+| `archive.afterDays` | `30` | Age trigger: a terminal mission untouched for at least this many days is archived on the next mutation (`0` archives immediately). Archival itself is the `tower-archive` component row (#135); `archive.enabled` was removed and is rejected as an unknown key. |
 | `archive.maxMissions` | `100` | Cap trigger: once more than this many terminal missions are hot, the oldest eligible ones are archived until the cap holds (`0` archives every eligible terminal mission). A mission with a live worktree is never archived. |
 | `leases.ttlMs` | `900000` | Default advisory lease lifetime; expiry never auto-releases. |
 | `dev.reloadDelayMs` | `50` | Delay before a scheduled reload so the tool result is delivered first. Tuning inside the optional `tower-hmr` component. |

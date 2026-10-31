@@ -23,6 +23,8 @@ const { apply } = await import('../index.js')
 const { loadModes } = await import('../host/modeStore.js')
 const { __testResetComponentRegistry } = await import('../host/capability-registry.js')
 const batch = await import('../host/capability-batch.js')
+const board = await import('../host/capability-board.js')
+const missionArchive = await import('../host/capability-archive.js')
 const legacyImport = await import('../host/capability-import.js')
 const leases = await import('../host/capability-leases.js')
 const tests = await import('../host/capability-tests.js')
@@ -32,6 +34,8 @@ const { validateJsonSchema } = await import('./schema-validator.mjs')
 
 const CAPABILITY_MODULES = [
   ['tower-batch', batch],
+  ['tower-board', board],
+  ['tower-archive', missionArchive],
   ['tower-import', legacyImport],
   ['tower-leases', leases],
   ['tower-tests', tests],

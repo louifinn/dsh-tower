@@ -460,6 +460,26 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
     checks.push(check('batches', 'pass', `${state.batches?.length ?? 0} batch(es)`))
 
+    // #133: whether MISSIONS.md is written is the `tower-board` row, not a config
+    // key, so name the component when it is off instead of a phantom key.
+    const boardDisabled = components.disabled.some((entry) => entry.id === 'tower-board')
+    const boardPath =
+      config.docs?.boardLocation === 'repo'
+        ? path.join(tower.root, 'MISSIONS.md')
+        : path.join(tower.paths.dir, 'MISSIONS.md')
+    checks.push(
+      check(
+        'board',
+        boardDisabled ? 'warn' : 'pass',
+        boardDisabled
+          ? `MISSIONS.md is not written (disabled by component tower-board); expected at ${boardPath}`
+          : `MISSIONS.md refreshes after mission changes at ${boardPath}`,
+        boardDisabled
+          ? 'enable the tower-board row and restart DSH, or accept a stale board; every state tool and gate still works'
+          : undefined,
+      ),
+    )
+
     // Completion reports are the largest model-supplied strings in state.json;
     // report the biggest one so growth is visible before it becomes a problem.
     const reportSizes = (state.missions ?? [])
@@ -539,7 +559,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const archiveInventory = await inspectArchive(tower.paths)
   const stateBytes = await fsp.stat(tower.paths.state).then((stat) => stat.size).catch(() => null)
   const archivePolicy = config.archive ?? {}
-  const policyText = `afterDays=${archivePolicy.afterDays ?? 30} maxMissions=${archivePolicy.maxMissions ?? 100}${archivePolicy.enabled === false ? ' disabled' : ''}`
+  // #135: archival is the `tower-archive` row. Name the component when it is off;
+  // the documented consequence is that terminal missions stay hot.
+  const archiveEnabled = !components.disabled.some((entry) => entry.id === 'tower-archive')
+  const policyText = `afterDays=${archivePolicy.afterDays ?? 30} maxMissions=${archivePolicy.maxMissions ?? 100}${
+    archiveEnabled ? '' : ' (disabled by component tower-archive: terminal missions stay hot and state.json keeps growing)'
+  }`
   if (!archiveInventory.exists) {
     checks.push(check('archive', 'pass', `no archived missions; ${policyText}`))
   } else if (archiveInventory.unreadable.length > 0) {
@@ -582,7 +607,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       files: archiveInventory.files.length,
       unreadable: archiveInventory.unreadable,
       policy: {
-        enabled: archivePolicy.enabled !== false,
+        enabled: archiveEnabled,
         afterDays: archivePolicy.afterDays ?? 30,
         maxMissions: archivePolicy.maxMissions ?? 100,
       },

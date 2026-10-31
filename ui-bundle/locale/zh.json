@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower 界面",
-    "description": "显示 Tower 工具卡片、输入框区域的 Tower 状态摘要，以及短暂的 Tower 状态提示条。"
+    "description": "显示 Tower 工具卡片、输入框区域的 Tower 状态摘要，以及短暂的 Tower 状态提示条。关闭后：界面插件不再加载，因此没有 Tower 工具卡片、输入框摘要或状态提示条；host 工具、mission、state 与看板不受影响。"
   }
 }

@@ -100,9 +100,15 @@ it for the configured merge timeout (15 minutes by default), so a held lock is a
 failure; the holder's phase and age make a stalled tower diagnosable. `tower_status` returns the same
 `gitLock` object.
 
+`board` names the `MISSIONS.md` location (`docs.boardLocation`) and whether the `tower-board` component
+row is mounted. With the row off the check is a `warn` that says the board is not written (an existing
+board goes stale) and names the row; every state tool and gate still works.
+
 `archive` reports the terminal-mission archive: active `missions`, `archivedMissions` and `stateBytes`,
-the archive directory's `archiveBytes`/`years`/`files`, every `unreadable` diagnostic, and the configured
-`policy` (`enabled`, `afterDays`, `maxMissions`). A missing archive directory is a healthy empty archive
+the archive directory's `archiveBytes`/`years`/`files`, every `unreadable` diagnostic, and the tuning
+`policy` (`afterDays`, `maxMissions`). `policy.enabled` reflects the `tower-archive` component row, not a
+config key: with the row off the policy line says archival is disabled by the component, terminal
+missions stay hot and `state.json` keeps growing. A missing archive directory is a healthy empty archive
 (`archive` check `pass`); a truncated index or year file is a `warn` with the diagnostic, and archiving is
 paused until it is repaired rather than overwriting it. Nothing is lost while the archive is unreadable:
 the eligible missions stay in `state.json`.

@@ -8,8 +8,9 @@
 //   tools         every tool the Host entry registers, including the
 //                 tower_mode/tower_control pair that index.js registers
 //                 directly rather than through define() (#118)
-//   components    user-visible rows in cordis.patch.yml (#120), so the 2.3.0
-//                 4 -> 1 contraction and any future move need a written decision
+//   components    user-visible rows in every shipped cordis.patch.yml (#120,
+//                 #134), so the 2.3.0 4 -> 1 contraction and any future move
+//                 need a written decision
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
@@ -24,7 +25,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configSurface } from '../domain/config/schema.js'
-import { parseCordisPatch } from '../domain/components.js'
+import { COMPONENT_PATCH_FILES, mergeCordisPatches, parseCordisPatch } from '../domain/components.js'
 import { SURFACE_CLASSIFICATION_FILE, SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
@@ -42,7 +43,8 @@ with a decision that names an existing docs/adr/ ADR, deletions that are no
 longer in the live surface, or a measurement-correction record with a reason and
 date. The classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
-the component count comes from the visible rows in cordis.patch.yml.`
+the component count comes from the visible rows in every shipped
+cordis.patch.yml.`
 
 /**
  * The live tool names: apply the shipped Host entry so every registration path
@@ -65,7 +67,15 @@ function liveToolNames() {
 export function liveSurface(root = PACKAGE_ROOT) {
   const config = configSurface()
   const tools = liveToolNames()
-  const patch = parseCordisPatch(fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8'))
+  // #134: the counted component surface is every shipped patch, not only the
+  // root one; `ui-bundle/cordis.patch.yml` ships the tower-ui row.
+  const patches = {}
+  for (const file of COMPONENT_PATCH_FILES) {
+    const patchFile = path.join(root, file)
+    if (!fs.existsSync(patchFile)) continue
+    patches[file] = parseCordisPatch(fs.readFileSync(patchFile, 'utf8'))
+  }
+  const patch = mergeCordisPatches(patches)
   return {
     configKeys: config.count,
     sections: config.sections.length,

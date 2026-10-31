@@ -1,6 +1,6 @@
 // Regression tests for bugs found during the 2.0 review round.
 // Run with: node --test "tests/*.test.mjs"
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -9,6 +9,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
 import { loadModes, saveModes } from '../host/modeStore.js'
 
@@ -81,6 +82,10 @@ function makeCtx(options = {}) {
 async function call(tools, name, args, exec = { agent: { id: 'tower-agent' } }) {
   return tools.get(name).execute(args, exec)
 }
+
+afterEach(() => {
+  __testResetComponentRegistry()
+})
 
 test('regression: a worker-limit rejection happens before any activation or worktree', async () => {
   const { root, repo } = makeRepo()
@@ -266,9 +271,57 @@ test('regression: gates.requireChecks blocks a completion without evidence', asy
   }
 })
 
-test('regression: docs.board:false suppresses MISSIONS.md; user-paused resume can require authorization', async () => {
+test('regression: the tower-board row suppresses MISSIONS.md; the removed docs.board key is rejected (#133)', async () => {
+  // Row off: the board file is never written, exactly as docs.board:false used to.
+  const offRepo = makeRepo()
+  const offCtx = makeCtx()
+  registerTowerTools(offCtx.ctx)
+  try {
+    await call(offCtx.tools, 'tower_init', { repoRoot: offRepo.repo })
+    await call(offCtx.tools, 'tower_plan', {
+      repoRoot: offRepo.repo,
+      missions: [{ title: 'No board', scope: ['src/**'] }],
+    })
+    assert.equal(
+      fs.existsSync(path.join(offRepo.repo, '.git', 'dsh-tower', 'MISSIONS.md')),
+      false,
+      'a disabled tower-board row must suppress the board file',
+    )
+    // Row on: the same tool call refreshes the board.
+    const onRepo = makeRepo()
+    registerComponent('tower-board')
+    const onCtx = makeCtx()
+    registerTowerTools(onCtx.ctx)
+    try {
+      await call(onCtx.tools, 'tower_init', { repoRoot: onRepo.repo })
+      await call(onCtx.tools, 'tower_plan', {
+        repoRoot: onRepo.repo,
+        missions: [{ title: 'Board', scope: ['src/**'] }],
+      })
+      assert.equal(fs.existsSync(path.join(onRepo.repo, '.git', 'dsh-tower', 'MISSIONS.md')), true)
+    } finally {
+      removeTemp(onRepo.root)
+    }
+    // Upgrade path: a legacy config fails as unknown with a pointer to the row.
+    const legacyRepo = makeRepo()
+    writeRepoConfig(legacyRepo.repo, { docs: { board: false } })
+    await assert.rejects(
+      () => call(onCtx.tools, 'tower_init', { repoRoot: legacyRepo.repo }),
+      (error) =>
+        error.code === 'config-unknown-key' &&
+        /docs\.board/.test(error.message) &&
+        /tower-board/.test(error.message) &&
+        /docs\/adr\/0005-component-surface\.md/.test(error.message),
+    )
+    removeTemp(legacyRepo.root)
+  } finally {
+    removeTemp(offRepo.root)
+  }
+})
+
+test('regression: user-paused resume can require authorization', async () => {
   const { root, repo } = makeRepo()
-  writeRepoConfig(repo, { docs: { board: false }, mode: { requireResumeAuthorization: true } })
+  writeRepoConfig(repo, { mode: { requireResumeAuthorization: true } })
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {
@@ -277,8 +330,6 @@ test('regression: docs.board:false suppresses MISSIONS.md; user-paused resume ca
       repoRoot: repo,
       missions: [{ title: 'Pause rule', scope: ['src/**'] }],
     })
-    const board = path.join(repo, '.git', 'dsh-tower', 'MISSIONS.md')
-    assert.equal(fs.existsSync(board), false, 'docs.board:false must suppress the board file')
     const id = planned.missions[0].id
     await call(tools, 'tower_mission', { repoRoot: repo, id, status: 'active' })
     await call(tools, 'tower_mission', { repoRoot: repo, id, status: 'paused', pause_cause: 'user' })

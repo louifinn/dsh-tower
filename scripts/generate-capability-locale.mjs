@@ -30,6 +30,7 @@ const LANGUAGES = Object.keys(LANGUAGE_FILES)
 // `disables` prose, so the check can prove every description names what the
 // switch removes without depending on one English or Chinese phrasing.
 const OFF_EFFECT_LABEL = { en: 'When off:', zh: '关闭后：' }
+export { OFF_EFFECT_LABEL }
 // The worker preset has no off state; it is a mandatory dependency of the Tower
 // host. Its description says so with an explicit marker instead of a "When off"
 // label that would make the row read like a switch.
@@ -46,6 +47,8 @@ export const CAPABILITY_LOCALES = [
   { specifier: 'import', component: 'tower-import' },
   { specifier: 'leases', component: 'tower-leases' },
   { specifier: 'tests', component: 'tower-tests' },
+  { specifier: 'board', component: 'tower-board' },
+  { specifier: 'archive', component: 'tower-archive' },
   { specifier: 'hmr', component: 'tower-hmr' },
 ]
 

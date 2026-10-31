@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mission archive",
+    "description": "Move terminal missions and their linked records into the on-disk archive so state.json stops carrying their full history. When off: Terminal missions stay hot in state.json, so the hot state keeps growing; merges, gates and every other capability keep working and nothing is deleted."
+  }
+}

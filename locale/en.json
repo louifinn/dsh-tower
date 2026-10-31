@@ -1,13 +1,13 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges."
+    "description": "Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges. Off equals uninstalling Tower: no tools, presets or skills remain."
   },
   "components": {
     "tower": {
       "title": "Tower host",
       "summary": "Mission planning, worktree isolation, the mode guard, the health contract and the recovery escape.",
-      "disables": "Turns off the mandatory host; this equals uninstalling Tower: no tools, presets or skills remain."
+      "disables": "Off equals uninstalling Tower: no tools, presets or skills remain."
     },
     "tower-skills": {
       "title": "Tower skills",
@@ -34,10 +34,20 @@
       "summary": "Run the worktree's declared test discovery and record a receipt for the mission tip.",
       "disables": "tower_test is not registered and no receipt can be recorded; with gates.requireTests:true planning/mode entry is rejected with an explanation."
     },
+    "tower-board": {
+      "title": "Mission board",
+      "summary": "Write the human-readable MISSIONS.md board next to the state so a human can read the mission list without a tool call.",
+      "disables": "MISSIONS.md is not written or refreshed, so an existing board goes stale; mission tools, gates and every other capability keep working."
+    },
+    "tower-archive": {
+      "title": "Mission archive",
+      "summary": "Move terminal missions and their linked records into the on-disk archive so state.json stops carrying their full history.",
+      "disables": "Terminal missions stay hot in state.json, so the hot state keeps growing; merges, gates and every other capability keep working and nothing is deleted."
+    },
     "tower-hmr": {
-      "title": "Dev hot reload",
-      "summary": "Register tower_reload and /tower reload for linked-profile development.",
-      "disables": "tower_reload and /tower reload are unavailable; a non-HMR profile behaves exactly as before. Shipped off."
+      "title": "Development hot reload",
+      "summary": "Development-only tooling for a linked dev profile: register tower_reload and /tower reload so a plugin edit can be reconciled without a manual restart.",
+      "disables": "tower_reload and /tower reload are unavailable, so a linked-profile reload is triggered outside Tower; a normal profile behaves exactly as before. Development tooling, shipped off on purpose."
     },
     "preset-tower-worker": {
       "title": "Tower Worker preset",
@@ -48,6 +58,11 @@
       "title": "Tower Reviewer preset",
       "summary": "Declares the Tower Reviewer preset: read-only independent review that inspects the mission diff, verifies scope and acceptance, and returns a verdict.",
       "disables": "The reviewer cannot be dispatched. Supported while review.requireReview is false; with the gate on planning/mode entry is locked with an explanatory error."
+    },
+    "tower-ui": {
+      "title": "Tower UI",
+      "summary": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip in the web client.",
+      "disables": "The web UI plugin does not load: no tool cards, composer-dock summary or status strip; host tools, missions, state and the board are unaffected."
     }
   }
 }
