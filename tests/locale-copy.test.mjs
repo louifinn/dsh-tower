@@ -21,6 +21,7 @@ import {
   checkGlossaryFile,
   checkLocaleCopy,
   checkMetaRowCopy,
+  normalizeCopy,
 } from '../scripts/check-components.mjs'
 import { OFF_EFFECT_LABEL, ROW_LOCALES, rowLocalePaths } from '../scripts/generate-capability-locale.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
@@ -227,6 +228,81 @@ test('the ui-bundle meta label is pinned to the root source of truth (#137)', ()
   }
   const findings = checkMetaRowCopy(['tower-ui'], locales, drifted, OFF_EFFECT_LABEL)
   assert.ok(findings.some((entry) => entry.code === 'meta-row-copy'), JSON.stringify(findings))
+})
+
+test('role nouns match an initial capital but not the product names (#137 review P3)', () => {
+  // EN -> ZH: "Workers" / "Reviewers" at the start of a sentence are the role,
+  // so the Chinese copy owes 执行代理 / 审查代理.
+  for (const [en, term] of [
+    ['Workers plan missions.', '执行代理'],
+    ['Reviewers return a verdict.', '审查代理'],
+  ]) {
+    const findings = checkLocaleCopy([pair(meta('Tower', en), meta('Tower', '任务线。'))])
+    assert.ok(
+      findings.some((entry) => entry.code === 'locale-glossary' && entry.message.includes(term)),
+      `${en}: ${JSON.stringify(findings)}`,
+    )
+  }
+  // "Tower Worker" / "Tower Reviewer" are product names, not the generic role.
+  assert.deepEqual(
+    checkLocaleCopy([pair(meta('Tower', 'The Tower Worker preset.'), meta('Tower', 'Tower Worker 预设。'))]),
+    [],
+  )
+  assert.deepEqual(
+    checkLocaleCopy([pair(meta('Tower', 'The Tower Reviewer preset.'), meta('Tower', 'Tower Reviewer 预设。'))]),
+    [],
+  )
+  // ZH -> EN: the Chinese role term still demands the English role noun.
+  const zhOnly = checkLocaleCopy([pair(meta('Tower', 'A preset.'), meta('Tower', '执行代理预设。'))])
+  assert.ok(hasMessage(zhOnly, 'locale-glossary', /worker/), JSON.stringify(zhOnly))
+})
+
+test('case variants and full-width punctuation cannot bypass the copy gate (#137 review P3)', () => {
+  assert.equal(normalizeCopy('gates。requireTests'), 'gates.requireTests')
+  assert.equal(normalizeCopy('Tower＿batch'), 'Tower_batch')
+  assert.equal(normalizeCopy('ｔｏｗｅｒ＿ｂａｔｃｈ'), 'tower_batch')
+  const cases = [
+    ['en', 'Missions. Gates.requireTests is on.', 'locale-copy-config-key', 'Gates.requireTests'],
+    ['en', 'Tower_batch is not registered.', 'locale-copy-tool-id', 'Tower_batch'],
+    ['en', 'Run /Tower reload to pick it up.', 'locale-copy-command', '/Tower'],
+    ['en', 'Declared by DSH-Tower/preset-worker.', 'locale-copy-module', 'DSH-Tower/preset-worker'],
+    ['zh', '任务线。gates。requireTests 已开启。', 'locale-copy-config-key', 'gates.requireTests'],
+    ['zh', '任务线。Tower＿batch 不可用。', 'locale-copy-tool-id', 'Tower_batch'],
+    ['zh', '任务线。ｔｏｗｅｒ＿ｂａｔｃｈ 不可用。', 'locale-copy-tool-id', 'tower_batch'],
+  ]
+  for (const [lang, description, code, token] of cases) {
+    const findings = checkLocaleCopy(
+      lang === 'en'
+        ? [pair(meta('Tower', description), meta('Tower', '任务线。'))]
+        : [pair(meta('Tower', 'Missions.'), meta('Tower', description))],
+    )
+    assert.ok(
+      findings.some((entry) => entry.code === code && entry.message.includes(token)),
+      `${lang} ${description}: ${JSON.stringify(findings)}`,
+    )
+  }
+})
+
+test('the reviewed off copy and Chinese terms stay corrected (#137 review P2)', () => {
+  const en = readJson('locale/en.json')
+  const zh = readJson('locale/zh.json')
+  // With tower-tests off and the test requirement on, merges stay blocked; the
+  // copy must say so instead of promising that merges keep working.
+  const testsOff = en.components['tower-tests'].disables
+  assert.match(testsOff, /merges stay blocked/)
+  assert.doesNotMatch(testsOff, /merges .* keep working/)
+  assert.match(zh.components['tower-tests'].disables, /合并也会持续受阻/)
+  // The reviewer preset is usable while review is optional, and a precondition
+  // for merging only once review is required.
+  const reviewerSummary = en.components['preset-tower-reviewer'].summary
+  assert.doesNotMatch(reviewerSummary, /Only used when/)
+  assert.match(reviewerSummary, /Usable while review before merging is optional/)
+  assert.match(zh.components['preset-tower-reviewer'].summary, /可以使用/)
+  // The reviewed Chinese calques must not come back.
+  const zhText = JSON.stringify(zh)
+  for (const calque of ['收口', '在线状态文件', '锁状态的恢复出口', '关闭该行', '认领一项命名工作', '允许关闭本行']) {
+    assert.equal(zhText.includes(calque), false, `zh copy still contains the calque "${calque}"`)
+  }
 })
 
 test('the glossary document exists and names every canonical term pair (#137)', () => {

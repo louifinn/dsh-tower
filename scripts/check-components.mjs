@@ -91,8 +91,10 @@ export const GLOSSARY_FILE = 'GLOSSARY.md'
  * concept that appears in a label must use the recorded Chinese term, and the
  * Chinese side may not leave the English word untranslated.
  *
- * `worker` and `reviewer` match lowercase prose only on purpose: "Tower Worker"
- * and "Tower Reviewer" are product names, not the generic role.
+ * `worker` and `reviewer` match the generic role at the start of a word, in
+ * either case ("Workers are …"), but never the product names "Tower Worker" and
+ * "Tower Reviewer": the negative lookbehind keeps the brand out of the role
+ * check, so a label may say "Tower Worker preset" without owing 执行代理.
  */
 export const COMPONENT_GLOSSARY = Object.freeze([
   { en: 'mission', zh: '任务线', pattern: /\b[Mm]issions?\b/ },
@@ -104,19 +106,39 @@ export const COMPONENT_GLOSSARY = Object.freeze([
   { en: 'worktree', zh: '工作树', pattern: /\b[Ww]orktrees?\b/ },
   { en: 'review', zh: '审查', pattern: /\b[Rr]eviews?\b/ },
   { en: 'lease', zh: '租约', pattern: /\b[Ll]eases?\b/ },
-  { en: 'worker', zh: '执行代理', pattern: /\bworkers?\b/ },
-  { en: 'reviewer', zh: '审查代理', pattern: /\breviewers?\b/ },
+  { en: 'worker', zh: '执行代理', pattern: /\b(?<!Tower )[Ww]orkers?\b/ },
+  { en: 'reviewer', zh: '审查代理', pattern: /\b(?<!Tower )[Rr]eviewers?\b/ },
 ])
+
+/**
+ * #137: copy is written by people, and a Chinese IME (or a careful editor) can
+ * emit case variants and full-width punctuation. Normalize those before
+ * matching so `Gates.requireTests`, `Tower_batch`, `gates。requireTests` and the
+ * fully full-width `ｔｏｗｅｒ＿ｂａｔｃｈ` are all caught. Matching runs on the
+ * normalized text; the reported token is then the actionable ASCII spelling.
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function normalizeCopy(text) {
+  return String(text ?? '')
+    .replace(/[\uFF01-\uFF5E]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+    .replace(/\u3000/g, ' ')
+    .replace(/\u3002/g, '.')
+}
 
 // A section plus a dot is config-key syntax (`gates.requireTests:true`), not
 // prose. The same rule catches every section a user can edit, in either
-// language, so a new key family cannot sneak back into a label.
+// language, so a new key family cannot sneak back into a label. Matching is
+// case-insensitive: `Gates.requireTests` is the same leak.
 export const CONFIG_KEY_SYNTAX =
-  /\b(?:gates|review|spawn|tests|docs|mode|merge|git|worktrees|archive|leases|dev)\.[A-Za-z][A-Za-z0-9_.]*/
+  /\b(?:gates|review|spawn|tests|docs|mode|merge|git|worktrees|archive|leases|dev)\.[A-Za-z][A-Za-z0-9_.]*/i
 // Bare internal identifiers: tool ids, slash commands and package specifiers.
-export const TOOL_ID_SYNTAX = /\btower_[a-z]/
-export const COMMAND_SYNTAX = /\/tower\s/
-export const MODULE_SPECIFIER_SYNTAX = /\bdsh-tower\/[a-z]/
+// Case-insensitive for the same reason: `Tower_batch` and `/Tower reload` are
+// still internal spelling, not prose.
+export const TOOL_ID_SYNTAX = /\btower_[a-z][a-z0-9_]*/i
+export const COMMAND_SYNTAX = /\/tower\s/i
+export const MODULE_SPECIFIER_SYNTAX = /\bdsh-tower\/[a-z][a-z0-9._/-]*/i
 // Words that must be translated in the Chinese copy. Lowercase only, so
 // product names ("Tower Worker"), file names (MISSIONS.md) and brand names
 // (Tower, DSH) are not mistakes.
@@ -167,28 +189,31 @@ export function labelCopyFields(file, payload) {
 
 function checkBannedCopy(field, lang, record) {
   const label = `${field.file} ${field.path}`
-  const configKey = field.text.match(CONFIG_KEY_SYNTAX)
+  // Match on the normalized spelling so case variants and full-width
+  // punctuation cannot bypass the rule (#137).
+  const text = normalizeCopy(field.text)
+  const configKey = text.match(CONFIG_KEY_SYNTAX)
   if (configKey) {
     record(
       'locale-copy-config-key',
       `${label} names a config key ("${configKey[0]}"); describe the capability and its off consequence in plain language instead`,
     )
   }
-  const toolId = field.text.match(TOOL_ID_SYNTAX)
+  const toolId = text.match(TOOL_ID_SYNTAX)
   if (toolId) {
     record(
       'locale-copy-tool-id',
       `${label} names the internal tool id "${toolId[0]}"; describe what the user can do instead`,
     )
   }
-  const command = field.text.match(COMMAND_SYNTAX)
+  const command = text.match(COMMAND_SYNTAX)
   if (command) {
     record(
       'locale-copy-command',
       `${label} names the slash command "${command[0].trim()}"; describe the capability instead`,
     )
   }
-  const specifier = field.text.match(MODULE_SPECIFIER_SYNTAX)
+  const specifier = text.match(MODULE_SPECIFIER_SYNTAX)
   if (specifier) {
     record(
       'locale-copy-module',
@@ -197,7 +222,7 @@ function checkBannedCopy(field, lang, record) {
   }
   if (lang !== 'zh') return
   for (const { term, pattern } of ZH_UNTRANSLATED_SYNTAX) {
-    if (pattern.test(field.text)) {
+    if (pattern.test(text)) {
       record(
         'locale-copy-untranslated',
         `${label} leaves "${term}" untranslated; use the glossary term from ${GLOSSARY_FILE}`,

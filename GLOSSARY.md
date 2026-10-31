@@ -56,4 +56,12 @@ is migrated separately under the same glossary.
    cleared or the row is re-enabled. Say that, and say that everything else keeps
    working.
 5. English and Chinese must agree field by field. Chinese copy reads as Chinese:
-   no untranslated English common nouns, no machine-translated calques.
+   no untranslated English common nouns, no machine-translated calques — say
+   关闭该批次, not 收口; 当前状态文件, not 在线状态文件; 某一具体工作, not
+   一项命名工作; and 卡住的锁如何恢复, not 锁状态的恢复出口.
+6. When turning a row off makes an operation impossible under the current
+   settings, name that operation (planning, entering Tower mode, merging) and how
+   the user clears the requirement. Never claim a blocked operation keeps
+   working: a reviewer preset needed for merging is a precondition, not an
+   optional extra, and test evidence that cannot be recorded keeps merges blocked
+   until the requirement is cleared.

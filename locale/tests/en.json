@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Test evidence",
-    "description": "Run the project's declared test command in a mission's worktree and record the result as evidence for merging. When off: No test command can be run and no evidence can be recorded. If tests are configured as required before merging, planning and entering Tower mode are refused with an explanation; missions, merges and everything else keep working."
+    "description": "Run the project's declared test command in a mission's worktree and record the result as evidence for merging. When off: No test command can be run and no evidence can be recorded. If tests are already required before merging, planning and entering Tower mode are refused with an explanation, and merges stay blocked for the missing test evidence until that requirement is cleared; nothing else changes."
   }
 }

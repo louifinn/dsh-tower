@@ -270,6 +270,24 @@ do not move: 53 config keys, 13 components, 11 visible.
   `checkGlossaryFile` keeps `GLOSSARY.md` present and complete. Negative
   fixtures in `tests/locale-copy.test.mjs` prove a raw key, a bare tool id and a
   term mismatch fail in both languages before the fixed copy passes.
+- **Review of #137 corrected three claims and hardened the guard.** The
+  `tower-tests` off copy promised that "merges … keep working", but
+  `domain/gate.js` emits the `tests-missing` merge blocker while the test
+  requirement is on and `host/presets.js` refuses planning and Tower-mode entry,
+  so the copy now says planning and entry are refused and merges stay blocked
+  until the requirement is cleared. The reviewer preset summary said "only used
+  when review before merging is required"; the row is usable while review is
+  optional and becomes a precondition for merging only when the requirement is
+  on, so the summary says that instead. The Chinese calques 锁状态的恢复出口,
+  收口, 一项命名工作, 在线状态文件 and 关闭该行 were replaced with 卡住的锁如何
+  恢复, 关闭该批次, 某一具体工作, 当前状态文件 and 关闭这一项. The guard now
+  normalizes full-width punctuation and matches case-insensitively, so
+  `Gates.requireTests`, `Tower_batch` and `gates。requireTests` fail; the worker
+  and reviewer role nouns accept an initial capital but exclude the product names
+  "Tower Worker" and "Tower Reviewer", in both the en→zh and zh→en directions.
+  `GLOSSARY.md` ships in the package (`package.json` `files`, pinned by
+  `scripts/pack-manifest.txt`) because it is a gate input, not repository-only
+  prose.
 - **Rejected: a prose style guide with no gate.** It is what let wave 1–3 pass;
   a reviewer's attention does not survive the next rename.
 - **Rejected: translating the developer reference table.** The fallback text in

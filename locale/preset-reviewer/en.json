@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower Reviewer preset",
-    "description": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Only used when review before merging is required. When off: The reviewer cannot be started. That is supported while review before merging is optional; once it is required, planning and entering Tower mode are refused with an explanation."
+    "description": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Usable while review before merging is optional; a precondition for merging once review before merging is required. When off: The reviewer cannot be started. That is supported while review before merging is optional; once review before merging is required, planning and entering Tower mode are refused with an explanation."
   }
 }

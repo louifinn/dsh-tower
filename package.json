@@ -78,6 +78,7 @@
     "CONTRIBUTING.md",
     "SECURITY.md",
     "PRINCIPLES.md",
+    "GLOSSARY.md",
     "docs/",
     "ui-bundle/",
     "ports/*.js"

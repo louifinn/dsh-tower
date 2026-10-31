@@ -6,7 +6,7 @@
   "components": {
     "tower": {
       "title": "Tower host",
-      "summary": "The always-on core: mission planning and state, worktree isolation, Tower mode, the environment health check, and the lock recovery escape.",
+      "summary": "The always-on core: mission planning and state, worktree isolation, Tower mode, the environment health check, and how to recover a stuck lock.",
       "disables": "Off equals uninstalling Tower: no tools, presets or skills remain."
     },
     "tower-skills": {
@@ -32,7 +32,7 @@
     "tower-tests": {
       "title": "Test evidence",
       "summary": "Run the project's declared test command in a mission's worktree and record the result as evidence for merging.",
-      "disables": "No test command can be run and no evidence can be recorded. If tests are configured as required before merging, planning and entering Tower mode are refused with an explanation; missions, merges and everything else keep working."
+      "disables": "No test command can be run and no evidence can be recorded. If tests are already required before merging, planning and entering Tower mode are refused with an explanation, and merges stay blocked for the missing test evidence until that requirement is cleared; nothing else changes."
     },
     "tower-board": {
       "title": "Mission board",
@@ -56,8 +56,8 @@
     },
     "preset-tower-reviewer": {
       "title": "Tower Reviewer preset",
-      "summary": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Only used when review before merging is required.",
-      "disables": "The reviewer cannot be started. That is supported while review before merging is optional; once it is required, planning and entering Tower mode are refused with an explanation."
+      "summary": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Usable while review before merging is optional; a precondition for merging once review before merging is required.",
+      "disables": "The reviewer cannot be started. That is supported while review before merging is optional; once review before merging is required, planning and entering Tower mode are refused with an explanation."
     },
     "tower-ui": {
       "title": "Tower UI",
