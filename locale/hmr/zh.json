@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "开发热重载（开发工具）",
-    "description": "仅用于联动开发 profile 的开发工具：注册 tower_reload 与 /tower reload，让插件改动无需手动重启即可协调。关闭后：tower_reload 与 /tower reload 不可用，联动 profile 的重新加载需在 Tower 之外触发；普通 profile 的行为与之前完全相同。属于开发工具，随包默认关闭。"
+    "title": "开发热重载",
+    "description": "仅限开发人员：改动代码后，在联动开发配置中重新加载 Tower，无需重启 DSH。关闭后：不会自动重新加载，需要在开发配置中手动重启。普通安装不受影响：它是开发人员专用工具，默认关闭是有意为之。"
   }
 }

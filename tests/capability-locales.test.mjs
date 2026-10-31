@@ -253,8 +253,8 @@ test('the root package locale meta states the Tower group off consequence (#132)
   }
   assert.equal(locales.en.meta.title, 'Tower')
   assert.equal(locales.zh.meta.title, 'Tower')
-  assert.match(locales.en.meta.description, /^Mission planning, isolated worktrees/)
-  assert.match(locales.zh.meta.description, /^多代理任务规划/)
+  assert.match(locales.en.meta.description, /^Plan and track missions/)
+  assert.match(locales.zh.meta.description, /^规划并跟踪任务线/)
 })
 
 test('the tower-ui row is labelled by the ui-bundle package meta, off consequence included (#134)', () => {

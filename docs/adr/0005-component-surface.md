@@ -228,3 +228,51 @@ keys, 11 visible components.
   own fails as `row-override-foreign`, and `allowedOverrides` may never name a
   forbidden-to-disable key. Fixtures reproduce the #133/#135/#136 shapes and a
   foreign override, proving they fail before the fix passes.
+
+## Addendum (wave 4): broad-audience labels and a copy gate
+
+- Date: 2026-11-04
+- Decisions: #137
+
+Wave 3 made the gate fail closed, but every label it admitted still passed. The
+plugin page leaked config keys (`gates.requireTests:true`, `review.requireReview`)
+and bare tool ids (`tower_batch`, `tower_resource`) into the off-state copy, the
+Chinese copy mixed 咨询式租约 / 重型工作 / untranslated `mission` and `preset`, and
+the Web UI used 任务线 while the plugin page left `mission` in English. The counts
+do not move: 53 config keys, 13 components, 11 visible.
+
+- **The labels are rewritten for a reader, not for an operator (#137.1).** Every
+  visible row, the group row and the UI row now say what the capability is for
+  and what stops when it is off, in plain language. Config keys, tool ids, slash
+  commands and module specifiers are gone from `title`, `summary`, `disables` and
+  the two `meta` descriptions. The off copy says "refused with an explanation",
+  not "locked", and names Tower mode. The `tower-leases` fix also removes the F19
+  claim that "nothing else depends on a lease": a lease is coordination only, but
+  a worker configured to require one cannot start while the row is off; planning
+  and Tower-mode entry are refused with an explanation until the setting is
+  cleared or the row is re-enabled, and everything else keeps working.
+- **One bilingual vocabulary, recorded (#137.2).** `GLOSSARY.md` is the single
+  table for mission/任务线, batch/批次, doctor/体检, board/看板, archive/归档,
+  preset/预设, worktree/工作树, review/审查, lease/租约, worker/执行代理 and
+  reviewer/审查代理. It also records the copy rules (two sentences, no
+  identifiers, truthful off effect, natural Chinese) and is a gate input: a label
+  that uses a term the table does not pair with its other-language field fails.
+  The Web client's own string catalogue shares this table but is migrated
+  separately; the runtime error copy in `host/presets.js` is likewise a follow-up.
+- **The copy is checked mechanically (#137.3).** `checkLocaleCopy` runs over the
+  root locale pair, the ui-bundle meta pair and every generated row-locale pair.
+  It fails on config-key syntax, `tower_*` ids, `/tower` commands, `dsh-tower/*`
+  specifiers, empty fields, zh/en path drift and glossary mismatches in both
+  directions; the Chinese side may not leave glossary words untranslated.
+  `checkMetaRowCopy` pins the hand-written ui-bundle `meta.title` / `description`
+  to the root `components['tower-ui']` entry and the same composition the
+  generator renders, so the one row that ships its own label cannot drift.
+  `checkGlossaryFile` keeps `GLOSSARY.md` present and complete. Negative
+  fixtures in `tests/locale-copy.test.mjs` prove a raw key, a bare tool id and a
+  term mismatch fail in both languages before the fixed copy passes.
+- **Rejected: a prose style guide with no gate.** It is what let wave 1–3 pass;
+  a reviewer's attention does not survive the next rename.
+- **Rejected: translating the developer reference table.** The fallback text in
+  `scripts/component-surface.json` and the generated
+  `docs/reference/component-surface.md` is an operator reference for auditors, not
+  a plugin-page label. It may name keys and tools; the locale fields may not.

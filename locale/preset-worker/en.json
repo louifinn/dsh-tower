@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower Worker preset",
-    "description": "Declares the Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker runs inside its assigned worktree. Mandatory dependency, not a switch: tower_spawn cannot start a worker without it."
+    "description": "The mandatory Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker uses inside its own worktree. Not a switch: Tower depends on it. Mandatory dependency, not a switch: Tower cannot plan missions, enter Tower mode, or start a worker without it."
   }
 }

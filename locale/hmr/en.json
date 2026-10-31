@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Development hot reload",
-    "description": "Development-only tooling for a linked dev profile: register tower_reload and /tower reload so a plugin edit can be reconciled without a manual restart. When off: tower_reload and /tower reload are unavailable, so a linked-profile reload is triggered outside Tower; a normal profile behaves exactly as before. Development tooling, shipped off on purpose."
+    "description": "Development-only: reloads Tower in a linked development setup after a code change, so you do not have to restart DSH. When off: Nothing reloads automatically; restart the development setup by hand instead. A normal installation is unaffected, because this is developer tooling that ships off on purpose."
   }
 }

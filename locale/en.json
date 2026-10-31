@@ -1,68 +1,68 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges. Off equals uninstalling Tower: no tools, presets or skills remain."
+    "description": "Plan and track missions, isolate each one in its own worktree, hand the work to worker and reviewer agents, and merge only after review. Off equals uninstalling Tower: no tools, presets or skills remain."
   },
   "components": {
     "tower": {
       "title": "Tower host",
-      "summary": "Mission planning, worktree isolation, the mode guard, the health contract and the recovery escape.",
+      "summary": "The always-on core: mission planning and state, worktree isolation, Tower mode, the environment health check, and the lock recovery escape.",
       "disables": "Off equals uninstalling Tower: no tools, presets or skills remain."
     },
     "tower-skills": {
       "title": "Tower skills",
-      "summary": "Playbooks for worker/reviewer agents and recovery after a blocked merge.",
-      "disables": "The three Tower skills leave the catalog; the worker/reviewer protocol sections and every mission tool keep working."
+      "summary": "Step-by-step playbooks for worker and reviewer agents, and a guide for getting unstuck when a merge is blocked.",
+      "disables": "The three Tower skills leave the catalog; the worker and reviewer protocol sections and every mission tool keep working."
     },
     "tower-batch": {
       "title": "Evidence batches",
-      "summary": "Group missions into finite evidence batches and close them against required checks and receipts.",
-      "disables": "tower_batch is not registered; missions, gates and merges are unaffected."
+      "summary": "Collect a finite set of missions into a batch and close it only when every required check and evidence receipt is present.",
+      "disables": "Batch tools and their checks are unavailable; missions, merges and every other capability keep working."
     },
     "tower-import": {
       "title": "Legacy import",
-      "summary": "Import a Tower Codex legacy state file and audit its snapshot-to-mission mapping.",
-      "disables": "tower_import_legacy and tower_legacy_map are not registered; new state is unaffected."
+      "summary": "Read a legacy Tower Codex state file (the earlier Tower state format) and show how each old snapshot maps to a mission.",
+      "disables": "The import tools are unavailable; current state and every other capability keep working."
     },
     "tower-leases": {
-      "title": "Advisory leases",
-      "summary": "Coordinate heavy per-repository work with advisory resource leases.",
-      "disables": "tower_resource is not registered; nothing else depends on a lease."
+      "title": "Lease coordination",
+      "summary": "Coordination only: lets one agent claim a named piece of shared work (a lease) so two agents do not start the same job. A lease is a note other agents can read; it never blocks work by itself.",
+      "disables": "Lease tools are unavailable. A worker configured to require a lease cannot start: planning and entering Tower mode are refused with an explanation until that setting is cleared or this row is re-enabled. Everything else keeps working."
     },
     "tower-tests": {
-      "title": "Test discovery",
-      "summary": "Run the worktree's declared test discovery and record a receipt for the mission tip.",
-      "disables": "tower_test is not registered and no receipt can be recorded; with gates.requireTests:true planning/mode entry is rejected with an explanation."
+      "title": "Test evidence",
+      "summary": "Run the project's declared test command in a mission's worktree and record the result as evidence for merging.",
+      "disables": "No test command can be run and no evidence can be recorded. If tests are configured as required before merging, planning and entering Tower mode are refused with an explanation; missions, merges and everything else keep working."
     },
     "tower-board": {
       "title": "Mission board",
-      "summary": "Write the human-readable MISSIONS.md board next to the state so a human can read the mission list without a tool call.",
-      "disables": "MISSIONS.md is not written or refreshed, so an existing board goes stale; mission tools, gates and every other capability keep working."
+      "summary": "Write a plain-text board file (MISSIONS.md) beside the state so a person can read the mission list without calling a tool.",
+      "disables": "The board file is not written or refreshed, so an existing board goes stale; missions, merges and every other capability keep working."
     },
     "tower-archive": {
       "title": "Mission archive",
-      "summary": "Move terminal missions and their linked records into the on-disk archive so state.json stops carrying their full history.",
-      "disables": "Terminal missions stay hot in state.json, so the hot state keeps growing; merges, gates and every other capability keep working and nothing is deleted."
+      "summary": "Move finished missions and their linked records into the on-disk archive, so the live state file stops carrying their full history.",
+      "disables": "Finished missions stay in the live state file, so it keeps growing; merges and every other capability keep working, and nothing is deleted."
     },
     "tower-hmr": {
       "title": "Development hot reload",
-      "summary": "Development-only tooling for a linked dev profile: register tower_reload and /tower reload so a plugin edit can be reconciled without a manual restart.",
-      "disables": "tower_reload and /tower reload are unavailable, so a linked-profile reload is triggered outside Tower; a normal profile behaves exactly as before. Development tooling, shipped off on purpose."
+      "summary": "Development-only: reloads Tower in a linked development setup after a code change, so you do not have to restart DSH.",
+      "disables": "Nothing reloads automatically; restart the development setup by hand instead. A normal installation is unaffected, because this is developer tooling that ships off on purpose."
     },
     "preset-tower-worker": {
       "title": "Tower Worker preset",
-      "summary": "Declares the Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker runs inside its assigned worktree.",
-      "disables": "tower_spawn cannot start a worker without it."
+      "summary": "The mandatory Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker uses inside its own worktree. Not a switch: Tower depends on it.",
+      "disables": "Tower cannot plan missions, enter Tower mode, or start a worker without it."
     },
     "preset-tower-reviewer": {
       "title": "Tower Reviewer preset",
-      "summary": "Declares the Tower Reviewer preset: read-only independent review that inspects the mission diff, verifies scope and acceptance, and returns a verdict.",
-      "disables": "The reviewer cannot be dispatched. Supported while review.requireReview is false; with the gate on planning/mode entry is locked with an explanatory error."
+      "summary": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Only used when review before merging is required.",
+      "disables": "The reviewer cannot be started. That is supported while review before merging is optional; once it is required, planning and entering Tower mode are refused with an explanation."
     },
     "tower-ui": {
       "title": "Tower UI",
-      "summary": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip in the web client.",
-      "disables": "The web UI plugin does not load: no tool cards, composer-dock summary or status strip; host tools, missions, state and the board are unaffected."
+      "summary": "Adds Tower cards for tool results, a compact status summary above the message box, and a short status strip, in the web client.",
+      "disables": "The web interface piece is not loaded: no Tower cards, status summary or status strip. The Tower host, missions, state and the board keep working."
     }
   }
 }

@@ -1,68 +1,68 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "多代理任务规划、隔离工作树与审查门禁合并。关闭该行等同于卸载 Tower：不再保留任何工具、preset 或技能。"
+    "description": "规划并跟踪任务线，让每条任务线在独立工作树中完成，交给执行代理与审查代理，审查通过后才合并。关闭该行等同于卸载 Tower：不再保留任何工具、预设或技能。"
   },
   "components": {
     "tower": {
       "title": "Tower 控制塔",
-      "summary": "任务规划、隔离工作树、模式守卫、健康契约与恢复逃生口。",
-      "disables": "关闭该行等同于卸载 Tower：不再保留任何工具、preset 或技能。"
+      "summary": "常驻核心：任务线规划与状态、工作树隔离、Tower 模式、环境健康检查，以及锁状态的恢复出口。",
+      "disables": "关闭该行等同于卸载 Tower：不再保留任何工具、预设或技能。"
     },
     "tower-skills": {
       "title": "Tower 技能包",
-      "summary": "执行与审查代理的操作手册，以及失败后的恢复指南。",
-      "disables": "三个 Tower 技能从目录中移除；执行/审查协议段落与所有 mission 工具继续工作。"
+      "summary": "执行代理与审查代理的分步操作手册，以及合并受阻时如何脱困的指南。",
+      "disables": "三个 Tower 技能从目录中移除；执行代理与审查代理的协议段落与所有任务线工具继续工作。"
     },
     "tower-batch": {
       "title": "证据批次",
-      "summary": "把 mission 归入有限证据批次，并按必需检查与回执关闭批次。",
-      "disables": "不再注册 tower_batch；mission、门禁与合并不受影响。"
+      "summary": "把一组任务线收进一个批次，只有当所有必需检查与证据回执齐全时才允许收口。",
+      "disables": "批次工具及其检查不可用；任务线、合并与其他能力继续工作。"
     },
     "tower-import": {
       "title": "旧版导入",
-      "summary": "导入 Tower Codex 旧状态文件，并审计快照到 mission 的映射。",
-      "disables": "不再注册 tower_import_legacy 与 tower_legacy_map；新状态不受影响。"
+      "summary": "读取旧版 Tower Codex 状态文件（Tower 早期的状态格式），并显示每个旧快照对应哪一条任务线。",
+      "disables": "导入工具不可用；当前状态与其他能力继续工作。"
     },
     "tower-leases": {
-      "title": "咨询式租约",
-      "summary": "用咨询式资源租约协调每个仓库中的重型工作。",
-      "disables": "不再注册 tower_resource；其他能力不依赖租约。"
+      "title": "租约协调",
+      "summary": "只做协调：让一个代理认领一项命名工作（称为租约），避免两个代理同时开工。租约只是给其他代理看的说明，本身不会阻塞任何工作。",
+      "disables": "租约工具不可用。若某个执行代理被配置为必须先持有租约，它将无法启动：规划或进入 Tower 模式会被拒绝并给出解释，直到清除该设置或重新启用本行。其他工作照常进行。"
     },
     "tower-tests": {
-      "title": "测试发现",
-      "summary": "运行 worktree 声明的测试发现，并为 mission tip 记录回执。",
-      "disables": "不再注册 tower_test，也无法记录回执；若 gates.requireTests:true，规划/进入模式会以解释性错误拒绝。"
+      "title": "测试证据",
+      "summary": "在任务线的工作树中运行项目声明的测试命令，并把结果记录为合并证据。",
+      "disables": "无法运行测试命令，也无法记录证据。若已把测试设为合并前必须通过，规划或进入 Tower 模式会被拒绝并给出解释；任务线、合并与其他能力继续工作。"
     },
     "tower-board": {
-      "title": "任务看板",
-      "summary": "在 state 旁边写入人类可读的 MISSIONS.md 看板，让人无需调用工具即可阅读 mission 列表。",
-      "disables": "不再写入或刷新 MISSIONS.md，已有看板会过期；mission 工具、门禁与其他能力继续工作。"
+      "title": "任务线看板",
+      "summary": "在状态文件旁写入纯文本看板文件（MISSIONS.md），让人无需调用工具就能阅读任务线列表。",
+      "disables": "不再写入或刷新看板文件，已有看板会过期；任务线、合并与其他能力继续工作。"
     },
     "tower-archive": {
-      "title": "任务归档",
-      "summary": "把终态 mission 及其关联记录移入磁盘归档，让 state.json 不再承载完整历史。",
-      "disables": "终态 mission 继续留在 state.json 中，热状态会持续增长；合并、门禁与其他能力继续工作，且不会删除任何内容。"
+      "title": "任务线归档",
+      "summary": "把已结束的任务线及其关联记录移入磁盘归档，让在线状态文件不再承载它们的完整历史。",
+      "disables": "已结束的任务线继续留在在线状态文件中，文件会持续增大；合并与其他能力继续工作，且不会删除任何内容。"
     },
     "tower-hmr": {
-      "title": "开发热重载（开发工具）",
-      "summary": "仅用于联动开发 profile 的开发工具：注册 tower_reload 与 /tower reload，让插件改动无需手动重启即可协调。",
-      "disables": "tower_reload 与 /tower reload 不可用，联动 profile 的重新加载需在 Tower 之外触发；普通 profile 的行为与之前完全相同。属于开发工具，随包默认关闭。"
+      "title": "开发热重载",
+      "summary": "仅限开发人员：改动代码后，在联动开发配置中重新加载 Tower，无需重启 DSH。",
+      "disables": "不会自动重新加载，需要在开发配置中手动重启。普通安装不受影响：它是开发人员专用工具，默认关闭是有意为之。"
     },
     "preset-tower-worker": {
       "title": "Tower Worker 预设",
-      "summary": "声明 Tower Worker 预设：任务协议，以及执行代理在其工作树内使用的文件系统、终端与 Tower 工具。",
-      "disables": "缺少它 tower_spawn 无法启动执行代理。"
+      "summary": "必需的 Tower Worker 执行代理预设：任务线协议，以及执行代理在其独立工作树中使用的文件系统、终端与 Tower 工具。它不是开关：Tower 依赖它。",
+      "disables": "缺少它，Tower 无法规划任务线、进入 Tower 模式或启动执行代理。"
     },
     "preset-tower-reviewer": {
       "title": "Tower Reviewer 预设",
-      "summary": "声明 Tower Reviewer 预设：只读独立审查，检视任务差异、核对范围与验收，并返回结论。",
-      "disables": "无法派发审查代理。review.requireReview 为 false 时允许关闭；强制审查开启时规划/进入模式会被锁定并给出解释。"
+      "summary": "独立的 Tower Reviewer 审查代理预设：一个只读代理，阅读任务线差异、核对范围与验收，并给出结论。只有在要求合并前审查时才会使用。",
+      "disables": "无法启动审查代理。在合并前审查仍为可选时，允许关闭本行；一旦要求必须审查，规划或进入 Tower 模式会被拒绝并给出解释。"
     },
     "tower-ui": {
       "title": "Tower 界面",
-      "summary": "在 Web 客户端显示 Tower 工具卡片、输入框区域的 Tower 摘要，以及短暂的 Tower 状态提示条。",
-      "disables": "界面插件不再加载：没有工具卡片、输入框摘要或状态提示条；host 工具、mission、state 与看板不受影响。"
+      "summary": "在 Web 客户端中显示 Tower 工具结果卡片、输入框上方的简要状态摘要，以及简短的状态提示条。",
+      "disables": "界面插件不再加载，不再有 Tower 卡片、状态摘要或提示条。Tower 核心、任务线、状态与看板继续工作。"
     }
   }
 }
