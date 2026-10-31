@@ -24,8 +24,8 @@ import { buildAgentOptions, buildSpawnBriefing, waitForSpawnResult } from '../ap
  *   recordSpawnThrottle: any,
  *   recordSpawnSuccess: any,
  *   runMissionDiscovery: any,
- *   textOf: any,
- *   inspectLeases: any,
+ *   textOf: any, inspectLeases: any,
+ *   leaseComponent?: () => { enabled: boolean, reason: string },
  * }} deps
  */
 export function registerSpawnTool(ctx, deps) {
@@ -71,6 +71,8 @@ export function registerSpawnTool(ctx, deps) {
         })
         const { subagents, provider } = await precheckSpawnServices({
           tower, ctx, config, preset, actor, exec, inspectLeases: deps.inspectLeases,
+          // #131: the app layer only needs the row fact; the root owns the registry.
+          leaseComponent: deps.leaseComponent,
         })
 
         const provisioned = await tower.provision({
@@ -134,9 +136,7 @@ export function registerSpawnTool(ctx, deps) {
           if (classifyError(error).retryable === true) {
             recordSpawnThrottle(tower.root, config.spawn.maxLiveWorkers)
           }
-          // The child may already be running even when recordSpawn failed: stop
-          // it and mark the reserved entry failed so it cannot keep writing
-          // unobserved.
+          // The child may already be running: stop it and fail the reserved entry.
           if (agentId) {
             try {
               await Promise.resolve(subagents.interrupt(agentId, { kind: 'ancestor', agent: exec.agent }))

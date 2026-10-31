@@ -331,6 +331,25 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       : check('components', 'pass', componentSummary(components)),
   )
 
+  // #131: `spawn.requireLease` is acquired through `tower_resource`, which belongs
+  // to the tower-leases row. The runtime preconditions refuse this combination, so
+  // the doctor reports it first and names both remedies instead of letting it
+  // surface as a lease-busy from every spawn.
+  const requiredLease = String(config.spawn?.requireLease ?? '').trim()
+  if (requiredLease) {
+    const leasesDisabled = components.disabled.some((entry) => entry.id === 'tower-leases')
+    checks.push(
+      leasesDisabled
+        ? check(
+            'spawn-lease',
+            'fail',
+            `spawn.requireLease="${requiredLease}" is set but the tower-leases row is disabled, so tower_resource cannot acquire the lease`,
+            're-enable the tower-leases row in the plugin page and restart DSH, or clear spawn.requireLease',
+          )
+        : check('spawn-lease', 'pass', `spawn.requireLease="${requiredLease}" is satisfiable (tower-leases row enabled)`),
+    )
+  }
+
   const subagents = ctx.get?.('subagents')
   checks.push(subagents ? check('subagents', 'pass', 'service mounted') : check('subagents', 'fail', 'subagents service is unavailable', 'enable the subagent bundle'))
   const hmr = ctx.get?.('hmr')
@@ -426,19 +445,40 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     )
 
     const testConfigured = state.missions?.some((mission) => mission.testRuns !== undefined)
-    const testsDisabled =
-      config.tests?.enabled === false || components.disabled.some((entry) => entry.id === 'tower-tests')
+    // #136: the `tower-tests` component row is the only switch (there is no
+    // tests.enabled), so this check reads the registry and nothing else.
+    const testsDisabled = components.disabled.some((entry) => entry.id === 'tower-tests')
     checks.push(
       check(
         'tests',
         testsDisabled ? 'warn' : 'pass',
         testsDisabled
-          ? `test discovery disabled${config.tests?.enabled === false ? ' (tests.enabled:false)' : ' (disabled by component tower-tests)'}`
+          ? 'test discovery disabled (disabled by component tower-tests; enable the tower-tests row and restart DSH)'
           : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
     )
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
     checks.push(check('batches', 'pass', `${state.batches?.length ?? 0} batch(es)`))
+
+    // #133: whether MISSIONS.md is written is the `tower-board` row, not a config
+    // key, so name the component when it is off instead of a phantom key.
+    const boardDisabled = components.disabled.some((entry) => entry.id === 'tower-board')
+    const boardPath =
+      config.docs?.boardLocation === 'repo'
+        ? path.join(tower.root, 'MISSIONS.md')
+        : path.join(tower.paths.dir, 'MISSIONS.md')
+    checks.push(
+      check(
+        'board',
+        boardDisabled ? 'warn' : 'pass',
+        boardDisabled
+          ? `MISSIONS.md is not written (disabled by component tower-board); expected at ${boardPath}`
+          : `MISSIONS.md refreshes after mission changes at ${boardPath}`,
+        boardDisabled
+          ? 'enable the tower-board row and restart DSH, or accept a stale board; every state tool and gate still works'
+          : undefined,
+      ),
+    )
 
     // Completion reports are the largest model-supplied strings in state.json;
     // report the biggest one so growth is visible before it becomes a problem.
@@ -519,7 +559,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const archiveInventory = await inspectArchive(tower.paths)
   const stateBytes = await fsp.stat(tower.paths.state).then((stat) => stat.size).catch(() => null)
   const archivePolicy = config.archive ?? {}
-  const policyText = `afterDays=${archivePolicy.afterDays ?? 30} maxMissions=${archivePolicy.maxMissions ?? 100}${archivePolicy.enabled === false ? ' disabled' : ''}`
+  // #135: archival is the `tower-archive` row. Name the component when it is off;
+  // the documented consequence is that terminal missions stay hot.
+  const archiveEnabled = !components.disabled.some((entry) => entry.id === 'tower-archive')
+  const policyText = `afterDays=${archivePolicy.afterDays ?? 30} maxMissions=${archivePolicy.maxMissions ?? 100}${
+    archiveEnabled ? '' : ' (disabled by component tower-archive: terminal missions stay hot and state.json keeps growing)'
+  }`
   if (!archiveInventory.exists) {
     checks.push(check('archive', 'pass', `no archived missions; ${policyText}`))
   } else if (archiveInventory.unreadable.length > 0) {
@@ -562,7 +607,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       files: archiveInventory.files.length,
       unreadable: archiveInventory.unreadable,
       policy: {
-        enabled: archivePolicy.enabled !== false,
+        enabled: archiveEnabled,
         afterDays: archivePolicy.afterDays ?? 30,
         maxMissions: archivePolicy.maxMissions ?? 100,
       },

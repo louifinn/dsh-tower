@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mission board",
+    "description": "Write a plain-text board file (MISSIONS.md) beside the state so a person can read the mission list without calling a tool. When off: The board file is not written or refreshed, so an existing board goes stale; missions, merges and every other capability keep working."
+  }
+}

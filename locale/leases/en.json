@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Advisory leases",
-    "description": "Coordinate heavy per-repository work with advisory resource leases. When off: tower_resource is not registered; nothing else depends on a lease."
+    "title": "Lease coordination",
+    "description": "Coordination only: lets one agent claim a named piece of shared work (a lease) so two agents do not start the same job. A lease is a note other agents can read; it never blocks work by itself. When off: Lease tools are unavailable. A worker configured to require a lease cannot start: planning and entering Tower mode are refused with an explanation until that setting is cleared or this row is re-enabled. Everything else keeps working."
   }
 }

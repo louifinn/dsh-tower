@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Dev hot reload",
-    "description": "Register tower_reload and /tower reload for linked-profile development. When off: tower_reload and /tower reload are unavailable; a non-HMR profile behaves exactly as before. Shipped off."
+    "title": "Development hot reload",
+    "description": "Development-only: reloads Tower in a linked development setup after a code change, so you do not have to restart DSH. When off: Nothing reloads automatically; restart the development setup by hand instead. A normal installation is unaffected, because this is developer tooling that ships off on purpose."
   }
 }

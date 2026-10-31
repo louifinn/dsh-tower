@@ -23,6 +23,8 @@ const { apply } = await import('../index.js')
 const { loadModes } = await import('../host/modeStore.js')
 const { __testResetComponentRegistry } = await import('../host/capability-registry.js')
 const batch = await import('../host/capability-batch.js')
+const board = await import('../host/capability-board.js')
+const missionArchive = await import('../host/capability-archive.js')
 const legacyImport = await import('../host/capability-import.js')
 const leases = await import('../host/capability-leases.js')
 const tests = await import('../host/capability-tests.js')
@@ -32,6 +34,8 @@ const { validateJsonSchema } = await import('./schema-validator.mjs')
 
 const CAPABILITY_MODULES = [
   ['tower-batch', batch],
+  ['tower-board', board],
+  ['tower-archive', missionArchive],
   ['tower-import', legacyImport],
   ['tower-leases', leases],
   ['tower-tests', tests],
@@ -564,10 +568,88 @@ test('#121: review.requireReview true with the reviewer row off is locked with a
   )
 })
 
-test('requireTests with tests.enabled:false is rejected at config resolution', async () => {
+test('the retired tests.enabled switch is rejected by config resolution (#136)', async () => {
   const { resolveTowerConfig } = await import('../host/config.js')
   assert.throws(
     () => resolveTowerConfig({ gates: { requireTests: true }, tests: { enabled: false } }),
-    /requireTests/,
+    (error) => {
+      assert.equal(error.code, 'config-unknown-key')
+      assert.match(error.message, /tests\.enabled/)
+      return true
+    },
   )
+})
+
+test('gates.requireTests with the tower-tests row off is refused at mode entry (#136)', async () => {
+  __testResetComponentRegistry()
+  const { ctx, commands } = makeCtx()
+  apply(ctx, { gates: { requireTests: true } })
+  await assert.rejects(
+    () => callCommand(commands, makeAgent('agent-tests-row-off'), ''),
+    (error) => {
+      assert.equal(error.code, 'config-invalid')
+      assert.match(error.message, /tower-tests/)
+      assert.match(error.message, /re-enable the tower-tests component or set gates\.requireTests:false/)
+      return true
+    },
+  )
+})
+
+test('skills provider registration is disposed with the plugin (#139)', () => {
+  const { ctx, effects } = makeCtx()
+  const providers = new Set()
+  // The catalog the host exposes: registering returns a disposer, and only a
+  // registered provider can serve skills.
+  ctx.skills = {
+    registerProvider(factory) {
+      providers.add(factory)
+      return () => providers.delete(factory)
+    },
+  }
+  __testResetComponentRegistry()
+  skills.apply(ctx)
+  assert.equal(providers.size, 1, 'the catalog serves the tower provider while applied')
+  // Unload the plugin the way the host does: run every collected disposer.
+  for (const dispose of effects.splice(0).reverse()) dispose()
+  assert.equal(providers.size, 0, 'after unload the catalog no longer serves the provider')
+})
+
+test('/tower re-validates runtime preconditions on mode entry only (#142)', async () => {
+  const agent = makeAgent('agent-m142-on')
+  const first = makeCtx()
+  apply(first.ctx, {})
+  assert.match((await callCommand(first.commands, agent, '')).text, /Tower mode ON/)
+
+  // A later plugin load with `gates.requireTests:true` while the tower-tests row is
+  // off, with the session already in Tower mode: precisely the broken state a human
+  // must still be able to leave (or keep instructing) from the harness.
+  __testResetComponentRegistry()
+  const broken = makeCtx()
+  apply(broken.ctx, { gates: { requireTests: true } })
+  for (const [id, module] of CAPABILITY_MODULES) {
+    if (id !== 'tower-tests') module.apply(broken.ctx)
+  }
+
+  const forwarded = await callCommand(broken.commands, agent, '继续')
+  assert.equal(forwarded.kind, 'success')
+  assert.match(forwarded.text, /remains on/)
+  assert.match(forwarded.text, /Carried your instruction: 继续/)
+  assert.equal(agent.steered.length >= 1, true, 'the instruction still reaches the agent')
+
+  const off = await callCommand(broken.commands, agent, 'off')
+  assert.equal(off.kind, 'success')
+  assert.match(off.text, /Tower mode OFF/)
+
+  // Entering is still guarded: the same broken profile refuses to switch on.
+  for (const rawInput of ['on', '继续实现 P7']) {
+    await assert.rejects(
+      () => callCommand(broken.commands, agent, rawInput),
+      (error) => {
+        assert.equal(error.code, 'config-invalid')
+        assert.match(error.message, /tower-tests/)
+        return true
+      },
+      `entering with "${rawInput}" must re-validate`,
+    )
+  }
 })

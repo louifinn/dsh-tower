@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower UI",
-    "description": "Shows Tower tool cards, a composer-dock tower summary, and a transient Tower status strip."
+    "description": "Adds Tower cards for tool results, a compact status summary above the message box, and a short status strip, in the web client. When off: The web interface piece is not loaded: no Tower cards, status summary or status strip. The Tower host, missions, state and the board keep working."
   }
 }

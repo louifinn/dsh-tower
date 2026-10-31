@@ -1,6 +1,7 @@
 CHANGELOG.md
 COMPATIBILITY.md
 CONTRIBUTING.md
+GLOSSARY.md
 LICENSE
 PRINCIPLES.md
 README.en.md
@@ -102,6 +103,7 @@ domain/collab/batch.js
 domain/collab/messages.js
 domain/collab/roster.js
 domain/collab/spawn.js
+domain/component-rules.js
 domain/components.js
 domain/config/schema.js
 domain/contracts/outputs.js
@@ -145,7 +147,9 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/capability-archive.js
 host/capability-batch.js
+host/capability-board.js
 host/capability-hmr.js
 host/capability-import.js
 host/capability-leases.js
@@ -164,8 +168,12 @@ host/tool-registry.js
 host/tower.js
 icon.svg
 index.js
+locale/archive/en.json
+locale/archive/zh.json
 locale/batch/en.json
 locale/batch/zh.json
+locale/board/en.json
+locale/board/zh.json
 locale/en.json
 locale/hmr/en.json
 locale/hmr/zh.json

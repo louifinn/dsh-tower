@@ -8,8 +8,23 @@ export function boardFile(tower) {
     : path.join(tower.paths.dir, 'MISSIONS.md')
 }
 
+/**
+ * #133: the board is the `tower-board` component row, not a config switch. The
+ * probe is supplied by the composition root. A Tower built without a component
+ * probe (unit fixtures, direct adapter use) keeps writing the board: an absent
+ * probe means "not composed", not "row disabled".
+ *
+ * @param {any} tower
+ * @returns {boolean}
+ */
+export function boardEnabled(tower) {
+  const components = tower.deps?.components
+  if (!components || typeof components.enabled !== 'function') return true
+  return components.enabled('tower-board') === true
+}
+
 export async function writeBoard(tower) {
-  if (tower.config.docs?.board === false) return null
+  if (!boardEnabled(tower)) return null
   try {
     const state = await tower.load()
     const index = await tower.archiveIndex()

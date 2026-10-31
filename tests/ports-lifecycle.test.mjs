@@ -29,11 +29,12 @@ const CONFIG = {
   spawn: { maxLiveWorkers: 4, staleMs: 0 },
   review: { requireReview: true, maxRoundsPerReviewer: 5 },
   gates: { requireChecks: false, maxReportBytes: 32768, allowReviewExemption: false },
-  archive: { enabled: false },
+  // #133/#135: the board and archive are component rows, composed by the host.
+  // This fixture supplies the probe directly and keeps both off, as the old
+  // docs.board:false / archive.enabled:false tuning did.
+  components: { enabled: (id) => id !== 'tower-board' && id !== 'tower-archive', reason: (id) => `disabled by component ${id}` },
   worktrees: { root: WORKTREES },
   init: { autoExclude: false },
-  docs: { board: false },
-  tests: { enabled: false },
 }
 
 function createClock(start = 1_700_000_000_000, step = 1_000) {

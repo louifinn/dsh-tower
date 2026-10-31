@@ -61,9 +61,14 @@ PID 存活并不等于写者存活：停止心跳的持有者会报告 `stale: t
 因此“被持有”是 `warn` 而不是失败；持有者的阶段与时长让卡住的控制塔可被诊断。`tower_status` 返回同一个
 `gitLock` 对象。
 
+`board` 报告 `MISSIONS.md` 位置（`docs.boardLocation`）以及 `tower-board` 组件行是否挂载。该行关闭时
+检查为 `warn`，说明看板不会被写出（已有看板会变陈旧）并指出该行名；所有状态工具与门禁仍然工作。
+
 `archive` 报告终态任务归档：活跃 `missions`、`archivedMissions` 与 `stateBytes`，归档目录的
-`archiveBytes`/`years`/`files`，每条 `unreadable` 诊断，以及配置的 `policy`（`enabled`、`afterDays`、
-`maxMissions`）。归档目录不存在是健康的空归档（`archive` 检查为 `pass`）；截断的 index/year 文件是
+`archiveBytes`/`years`/`files`，每条 `unreadable` 诊断，以及调优字段 `policy`（`afterDays`、
+`maxMissions`）。`policy.enabled` 反映 `tower-archive` 组件行，而不是配置键：该行关闭时策略行说明
+归档被组件禁用，终态任务留在热状态，`state.json` 持续增长。归档目录不存在是健康的空归档
+（`archive` 检查为 `pass`）；截断的 index/year 文件是
 `warn` 并附带诊断，且归档会暂停而不是覆盖它——归档不可读期间没有数据会丢失，符合条件的 mission 仍留在
 `state.json`。
 

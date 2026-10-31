@@ -47,7 +47,11 @@ export function completionBlockers(mission, config = {}) {
 
 /**
  * Review, roster, and test-evidence blockers; all inputs are snapshots.
- * @param {MergeGateOptions} options
+ * `testsComponent` is the optional `tower-tests` row state (#140). It is passed
+ * through the options bag rather than declared on `MergeGateOptions` because the
+ * domain may not read the component registry itself: the composition root
+ * publishes the probe on the port bag and `app/gate.js` forwards the snapshot.
+ * @param {MergeGateOptions & { testsComponent?: ({ enabled?: boolean, reason?: string } | null) }} options
  * @returns {Blocker[]}
  */
 export function mergeGateBlockers({
@@ -61,6 +65,7 @@ export function mergeGateBlockers({
   parentStatus = null,
   inactiveStates = [],
   rebaseWaived = false,
+  testsComponent = null,
 }) {
   /** @type {Blocker[]} */
   const blockers = []
@@ -106,7 +111,17 @@ export function mergeGateBlockers({
   if (config.gates?.requireTests === true) {
     const runs = (mission.testRuns ?? []).filter((run) => run.ok === true && run.treeTip && branchTip && run.treeTip === branchTip)
     if (runs.length === 0) {
-      push('tests-missing', `mission ${mission.id} has no passing test discovery for tip ${branchTip ? branchTip.slice(0, 7) : '(none)'}`)
+      // #140: name the component cause when the row is off. Without this the
+      // blocker reads as a repository mistake ("no passing discovery") when the
+      // real cause is a disabled row and no tower_test tool exists to produce a
+      // receipt. The component state is a snapshot on the options bag.
+      const tip = branchTip ? branchTip.slice(0, 7) : '(none)'
+      const cause =
+        testsComponent && testsComponent.enabled !== true
+          ? `; ${testsComponent.reason ?? 'disabled by component tower-tests'} so no receipt can exist: ` +
+            're-enable the tower-tests component (or set gates.requireTests:false) and re-record discovery'
+          : ''
+      push('tests-missing', `mission ${mission.id} has no passing test discovery for tip ${tip}${cause}`)
     }
   }
   return blockers

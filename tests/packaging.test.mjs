@@ -27,12 +27,16 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
     'ui-bundle/cordis.patch.yml',
     'COMPATIBILITY.md',
     'types/index.d.ts',
+    // #137 F23: GLOSSARY.md is a gate input for the copy check, so it ships
+    // with the package and is pinned by the reviewed snapshot.
+    'GLOSSARY.md',
   ]) {
     assert.ok(manifest.includes(required), `${required} must be in the published snapshot`)
   }
   const pkg = JSON.parse(read('package.json'))
   assert.ok(pkg.files.includes('ui-bundle/'))
   assert.ok(pkg.files.includes('COMPATIBILITY.md'))
+  assert.ok(pkg.files.includes('GLOSSARY.md'))
   // #121: the nested capability and preset row locale files ship with the
   // package, so the Plugins page can resolve `<specifier>/locale/<lang>.json`
   // from the install.

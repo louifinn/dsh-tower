@@ -4,8 +4,16 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 56,
-      "decisions": []
+      "value": 53,
+      "decisions": [
+        {
+          "from": 64,
+          "to": 53,
+          "date": "2026-11-03",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "Recorded contraction, not a free ratchet (#138). #121 removed the seven tools.expose* keys plus dev.hotReload, #136 replaced tests.enabled with the tower-tests row, and #133/#135 replaced docs.board/archive.enabled with the tower-board/tower-archive rows. The chain now continues here: the config-key surface is two-way like components, so any later increase or decrease needs its own dated decision."
+        }
+      ]
     },
     "sections": {
       "seed": 15,
@@ -30,7 +38,7 @@
     },
     "components": {
       "seed": 4,
-      "value": 8,
+      "value": 11,
       "decisions": [
         {
           "from": 4,
@@ -45,6 +53,27 @@
           "date": "2026-10-23",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "#121 restores the #65 policy from ADR 0005: the one tower-bundle group becomes a mandatory tower host anchor plus seven individually switchable optional rows (tower-skills, tower-batch, tower-import, tower-leases, tower-tests, tower-hmr shipped off, preset-tower-reviewer conditional). The host anchor and preset-tower-worker stay mandatory; tower_doctor and tower_recover stay mandatory with the host (#122), so they are not rows. configKeys and sections shrank in the same wave because the seven tools.expose* keys and dev.hotReload became rows."
+        },
+        {
+          "from": 8,
+          "to": 9,
+          "date": "2026-11-02",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "#133: `docs.board` was a capability wearing a tuning-key costume. The visible tower-board row owns the MISSIONS.md board now; `docs.boardLocation` stays tuning. Off writes no board."
+        },
+        {
+          "from": 9,
+          "to": 10,
+          "date": "2026-11-02",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "#135: `archive.enabled` was the same costume. The visible tower-archive row owns archival now; `afterDays`/`maxMissions` stay tuning. Off keeps terminal missions hot, so state keeps growing."
+        },
+        {
+          "from": 10,
+          "to": 11,
+          "date": "2026-11-02",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "#134: the gate reads every shipped cordis.patch.yml, so the tower-ui row in ui-bundle/cordis.patch.yml joins the counted surface. The row was always shipped and unclassified; counting it is not new surface, it is the existing surface becoming visible to the policy."
         }
       ]
     }

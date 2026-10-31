@@ -74,12 +74,34 @@ const SECTION_KEYS = {
     'requireLease',
   ],
   send: ['maxPerMinute', 'interruptDefault'],
-  tests: ['enabled', 'admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
+  tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
-  docs: ['board', 'boardLocation'],
-  archive: ['enabled', 'afterDays', 'maxMissions'],
+  docs: ['boardLocation'],
+  archive: ['afterDays', 'maxMissions'],
   leases: ['ttlMs'],
   dev: ['reloadDelayMs', 'reloadRequiredIds'],
+}
+
+// #133/#135: `docs.board` and `archive.enabled` were component-shaped switches
+// hiding in the config form. They are component rows now, so a legacy config
+// keeps failing as an unknown key — with an upgrade note naming the row that
+// replaced it.
+/** @type {Record<string, string>} */
+const REMOVED_KEYS = {
+  'docs.board': 'tower-board',
+  'archive.enabled': 'tower-archive',
+}
+
+/**
+ * Upgrade note for a removed component switch, appended to the unknown-key error.
+ * @param {string} group
+ * @param {string} key
+ * @returns {string}
+ */
+function removedKeyNote(group, key) {
+  const component = REMOVED_KEYS[`${group}.${key}`]
+  if (!component) return ''
+  return ` — ${group}.${key} was removed: the ${component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
@@ -207,7 +229,9 @@ export const Config = Schema.object({
     .default({})
     .description('Message delivery policy.'),
   tests: Schema.object({
-    enabled: Schema.boolean().default(true).description('Run declared test discovery when a mission configures it.'),
+    // #136: no `enabled` switch. The `tower-tests` component row *is* the
+    // switch; a second boolean could only disagree with it, and a row-off
+    // profile has no tower_test tool and no receipt to gate on.
     admission: Schema.union(['spawn', 'complete', 'off'])
       .default('off')
       .description('Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test).'),
@@ -239,30 +263,24 @@ export const Config = Schema.object({
     .default({})
     .description('Merge-gate strictness.'),
   docs: Schema.object({
-    board: Schema.boolean()
-      .default(true)
-      .description('Write a human-readable MISSIONS.md after mission changes.'),
     boardLocation: Schema.union(['common', 'repo'])
       .default('common')
-      .description('common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md.'),
+      .description('common = <git-common-dir>/dsh-tower/MISSIONS.md; repo = <repoRoot>/MISSIONS.md. Whether the board is written at all is the tower-board component row (#133).'),
   })
     .default({})
-    .description('Human-readable artifacts.'),
+    .description('Human-readable artifact location. Turning the board off is a component row, not a tuning key.'),
   archive: Schema.object({
-    enabled: Schema.boolean()
-      .default(true)
-      .description('Move terminal (merged/abandoned) missions whose worktree is gone into <git-common-dir>/dsh-tower/archive/ at the next mutation, so state.json stops carrying their full history.'),
     afterDays: Schema.natural()
       .min(0)
       .default(30)
-      .description('Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately).'),
+      .description('Terminal missions untouched for at least this many days are archived on the next mutation (0 archives them immediately). Archival itself is the tower-archive component row (#135).'),
     maxMissions: Schema.natural()
       .min(0)
       .default(100)
       .description('Maximum terminal missions kept hot; once exceeded, the oldest eligible terminal missions are archived until the cap holds (0 archives every eligible terminal mission).'),
   })
     .default({})
-    .description('Terminal-mission archival policy. Archived missions are moved, never deleted.'),
+    .description('Terminal-mission archival tuning. Whether archival runs at all is the tower-archive component row; archived missions are moved, never deleted.'),
   leases: Schema.object({
     ttlMs: Schema.natural().min(1000).max(86400000).default(900000).description('Default advisory lease lifetime; expiry never auto-releases.'),
   })
@@ -376,9 +394,10 @@ export function assertKnownKeys(raw, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const bad = Object.keys(value).filter((key) => !allowed.includes(key))
     if (bad.length > 0) {
+      const notes = bad.map((key) => removedKeyNote(group, key)).join('')
       throw new TowerToolError(
         'config-unknown-key',
-        `${label} has unknown key(s) ${bad.map((key) => `${group}.${key}`).join(', ')}`,
+        `${label} has unknown key(s) ${bad.map((key) => `${group}.${key}`).join(', ')}${notes}`,
       )
     }
     if ((group === 'spawn') && value.workerModel && typeof value.workerModel === 'object') {
@@ -423,13 +442,10 @@ export function resolveTowerConfig(rawConfig) {
     throw new TowerToolError('config-invalid', `Tower config is invalid: ${String(error?.message ?? error)}`)
   }
   const mode = clone(parsed.mode ?? {})
-  if (parsed.gates?.requireTests === true && parsed.tests?.enabled === false) {
-    // #121: the tower-tests *component row* is the capability switch now; a
-    // repository that turns the row off cannot satisfy gates.requireTests. The
-    // component-level half of this invariant is enforced at plan/mode entry,
-    // where the mounted rows are known (host/presets.js).
-    throw new TowerToolError('config-invalid', 'Tower config is invalid: gates.requireTests is true but test discovery is disabled (tests.enabled:false)')
-  }
+  // #136: `tests.enabled` is gone, so this resolver can no longer disagree with
+  // the mounted rows. The component-level invariant (`gates.requireTests:true`
+  // with the `tower-tests` row off) is enforced where the rows are known:
+  // host/presets.js at plan/mode entry, and the merge gate reports its cause.
   // Canonical keys win; the legacy top-level aliases only fill gaps.
   const rawMode = raw.mode ?? {}
   if (rawMode.promptSection === undefined && raw.section !== undefined) mode.promptSection = raw.section

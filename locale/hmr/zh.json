@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "开发热重载",
-    "description": "为联动开发 profile 注册 tower_reload 与 /tower reload。关闭后：tower_reload 与 /tower reload 不可用；非 HMR profile 的行为与之前完全相同。随包默认关闭。"
+    "description": "仅限开发人员：改动代码后，在联动开发配置中重新加载 Tower，无需重启 DSH。关闭后：不会自动重新加载，需要在开发配置中手动重启。普通安装不受影响：它是开发人员专用工具，默认关闭是有意为之。"
   }
 }

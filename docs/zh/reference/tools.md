@@ -74,5 +74,6 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 
 门禁类工具返回 `{ok:false, blockers:[{code, detail}]}`；code 列表见 [blockers.md](blockers.md)。
 抛出的工具错误带稳定的 `[tower:<code>]` 前缀（见 [errors.md](errors.md)）。成功的变更会发出进程内
-事件（见 [events.md](events.md)），并且在 `docs.board:true` 时刷新
-`<git-common-dir>/dsh-tower/MISSIONS.md`。
+事件（见 [events.md](events.md)），并在挂载 `tower-board` 组件行时刷新
+`<git-common-dir>/dsh-tower/MISSIONS.md`。看板位置仍由 `docs.boardLocation` 决定；原先的
+`docs.board` 开关现在是组件行（#133）。

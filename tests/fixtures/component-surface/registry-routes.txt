@@ -1,6 +1,7 @@
-// F11 fixture: the operational-registry parser must tolerate a trailing comma
-// in the tuple form and must detect routes written with `OPERATIONAL_TOOLS.set`.
-const OPERATIONAL_TOOLS = new Map([
+// F11 fixture: the imported route table tolerates a trailing comma in the tuple
+// form and detects routes written with `OPERATIONAL_TOOLS.set`. Node imports it
+// as the throwaway root's host/tool-registry.js.
+export const OPERATIONAL_TOOLS = new Map([
   ['tower_batch', 'exposeBatch',],
   [
     'tower_test',

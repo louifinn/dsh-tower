@@ -29,7 +29,9 @@ export const BUNDLE_CHILD_IDS = ['preset-tower-worker', 'tower-host']
 /** The optional capability rows that sit at the top level beside the host. */
 export const OPTIONAL_ROW_IDS = [
   'preset-tower-reviewer',
+  'tower-archive',
   'tower-batch',
+  'tower-board',
   'tower-hmr',
   'tower-import',
   'tower-leases',

@@ -398,11 +398,15 @@ export function apply(ctx, rawConfig) {
       : () => {},
   )
 
-  ctx.systemPrompt.section({
-    name: 'tower:mode',
-    order: 15000,
-    text: (context) => (context && modeOn(agentKey(context.agent)) ? reminder : ''),
-  })
+  // #139: same leak as the skills provider — the section belongs to the plugin
+  // lifetime, so registration goes through `ctx.effect`.
+  ctx.effect(() =>
+    ctx.systemPrompt.section({
+      name: 'tower:mode',
+      order: 15000,
+      text: (context) => (context && modeOn(agentKey(context.agent)) ? reminder : ''),
+    }),
+  )
 
   // Workspace-lock heartbeat; only sessions holding a lock do I/O.
   ctx.effect(() => {
@@ -583,7 +587,14 @@ export function apply(ctx, rawConfig) {
           }
         }
         const { active, message } = parsed
-        if (active) await assertRuntimePreconditions(ctx, config)
+        // #142: preconditions guard the *transition* into Tower mode, not every
+        // `/tower` instruction. Re-validating on an already-active session meant a
+        // row disabled later in the session (tower-hmr ships off) blocked
+        // `/tower off` and ordinary forwarded text — the two commands a human
+        // needs precisely when something is broken. Spawn/plan/merge keep their own
+        // guards, so the capability checks still run before any real work.
+        const transition = active && !modeOn(key)
+        if (transition) await assertRuntimePreconditions(ctx, config)
         const outcome = active
           ? enterMode(ctx, key, agent, 'user', message || null)
           : await exitMode(key, 'user', message || null)

@@ -1,6 +1,7 @@
-// Property 10 (#130): config resolution is total, strictly one-pass
-// idempotent, and keeps exactly one cross-field rule (`gates.requireTests` ⇒
-// `tests.enabled`).
+// Property 10 (#130, #136): config resolution is total, strictly one-pass
+// idempotent, and no longer carries a cross-field rule — `tests.enabled` was
+// removed, so the `tower-tests` component row is the only switch and the
+// resolver has nothing left to contradict.
 //
 // WHAT THIS FILE CHECKS
 // ---------------------
@@ -12,9 +13,8 @@
 //   * folds the legacy top-level `section`/`allowAgentControl` aliases into
 //     `mode`, and materializes the resolved `mode.promptSection` so `section`
 //     always mirrors it;
-//   * rejects the one contradictory combination:
-//     `gates.requireTests:true` with `tests.enabled:false` — a repository that
-//     requires test evidence cannot also disable discovery.
+//   * rejects the retired `tests.enabled` key as `config-unknown-key` (#136): a
+//     config that still writes it cannot silently keep a second switch.
 //
 // The properties below pin those promises:
 //
@@ -27,10 +27,10 @@
 //     aliases, so the output is a fixed point of its own resolver (F17). A raw
 //     config that omits both `section` and `mode.promptSection` used to need a
 //     second pass to back-fill `mode.promptSection`; it no longer does;
-//   * the 16-way presence table for `gates.requireTests` × `tests.enabled`
-//     (absent group, empty group, explicit `true`, explicit `false`): exactly
-//     `requireTests:true` + `enabled:false` is rejected, everything else
-//     resolves, and the resolved defaults agree with the schema;
+//   * the 16-way presence table for `gates.requireTests` × the `tests` group
+//     (absent group, empty group, explicit `true`, explicit `false`): every cell
+//     resolves, because the removed `tests.enabled` was the only contradiction;
+//     the retired key itself is rejected as an unknown key in its own property;
 //   * invalid inputs (non-objects, unknown keys, wrong types) are rejected with
 //     `TowerToolError` and the documented code — resolution is total only over
 //     configs that could actually be written.
@@ -108,7 +108,8 @@ runProperty({
     assert.equal(typeof resolved.tests, 'object', 'tests is always an object')
     assert.ok(resolved.tests !== null && !Array.isArray(resolved.tests))
     assert.equal(typeof resolved.gates.requireTests, 'boolean', 'requireTests resolves to a boolean default')
-    assert.equal(typeof resolved.tests.enabled, 'boolean', 'tests.enabled resolves to a boolean default')
+    assert.equal(typeof resolved.tests.admission, 'string', 'tests.admission resolves to a string default')
+    assert.equal('enabled' in resolved.tests, false, 'tests has no enabled switch (#136)')
     assert.ok(Array.isArray(resolved.mode.denyTools) && resolved.mode.denyTools.length > 0, 'denyTools is always populated')
     assert.equal(typeof resolved.mode.promptSection, 'string', 'mode.promptSection is always a string')
     assert.equal(resolved.section, resolved.mode.promptSection, 'section mirrors promptSection')
@@ -135,7 +136,7 @@ runProperty({
     const resolved = resolve(/** @type {any} */ (raw))
     assert.equal(resolved.section, '')
     assert.equal(resolved.gates.requireTests, false)
-    assert.equal(resolved.tests.enabled, true)
+    assert.equal(resolved.tests.admission, 'off')
     assert.equal(resolved.review.requireReview, false)
   },
 })
@@ -172,71 +173,54 @@ runProperty({
 })
 
 // ---------------------------------------------------------------------------
-// The 16-way `gates.requireTests` × `tests.enabled` presence table.
+// The 16-way `gates.requireTests` × `tests`-group presence table (#136).
 // ---------------------------------------------------------------------------
 
 /** Build a config for one cell of the 16-way table. */
-function combination(requireTests, enabled) {
+function combination(requireTests, tests) {
   /** @type {Record<string, any>} */
   const config = {}
   if (requireTests !== 'absent') {
     config.gates = requireTests === 'empty' ? {} : { requireTests: requireTests === 'true' }
   }
-  if (enabled !== 'absent') {
-    config.tests = enabled === 'empty' ? {} : { enabled: enabled === 'true' }
+  if (tests !== 'absent') {
+    config.tests = tests === 'empty' ? {} : { admission: tests === 'true' ? 'complete' : 'off' }
   }
   return config
 }
 
 runProperty({
-  name: 'config cross-field rule: exactly the 16 gates.requireTests × tests.enabled cells behave as documented',
+  name: 'config totality: all 16 gates.requireTests × tests-group cells resolve (the contradiction is gone)',
   arbitrary: fc.constant(null),
   predicate: () => {
-    const rejected = []
-    const accepted = []
+    const cells = []
     for (const requireTests of /** @type {const} */ (['absent', 'empty', 'true', 'false'])) {
-      for (const enabled of /** @type {const} */ (['absent', 'empty', 'true', 'false'])) {
-        const config = combination(requireTests, enabled)
-        const label = `requireTests=${requireTests}, tests.enabled=${enabled}`
-        const shouldReject = requireTests === 'true' && enabled === 'false'
-        if (shouldReject) {
-          assertRejects(() => resolveTowerConfig(config), 'config-invalid', /gates\.requireTests is true/)
-          rejected.push(label)
-          continue
-        }
+      for (const tests of /** @type {const} */ (['absent', 'empty', 'true', 'false'])) {
+        const config = combination(requireTests, tests)
+        const label = `requireTests=${requireTests}, tests=${tests}`
         const resolved = resolve(config)
-        accepted.push(label)
         assert.equal(resolved.gates.requireTests, requireTests === 'true', `${label}: requireTests default/value`)
-        assert.equal(resolved.tests.enabled, enabled !== 'false', `${label}: tests.enabled default/value`)
+        assert.equal(resolved.tests.admission, tests === 'true' ? 'complete' : 'off', `${label}: admission default/value`)
+        cells.push(label)
       }
     }
-    assert.equal(accepted.length, 15, '15 of the 16 presence cells must resolve')
-    assert.deepEqual(rejected, ['requireTests=true, tests.enabled=false'])
+    assert.equal(cells.length, 16, 'all 16 presence cells must resolve: no cross-field rule remains')
   },
 })
 
 runProperty({
-  name: 'config cross-field rule: the contradiction is rejected regardless of legacy aliases and other groups',
-  arbitrary: fc.constant(null),
-  predicate: () => {
-    const base = {
-      section: 'legacy prompt section',
-      allowAgentControl: false,
-      mode: { denyTools: ['bash'] },
-      review: { requireReview: true },
-    }
+  name: 'config rejection: the retired tests.enabled switch is rejected as an unknown key (#136)',
+  arbitrary: fc.constantFrom(true, false),
+  predicate: (enabled) => {
+    // #136: the `tower-tests` row is the switch. A repository upgrade that still
+    // writes the old boolean must fail loudly rather than keep a second switch
+    // that can only disagree with the registry.
+    assertRejects(() => resolveTowerConfig({ tests: { enabled } }), 'config-unknown-key', /tests\.enabled/)
     assertRejects(
-      () => resolveTowerConfig({ ...base, gates: { requireTests: true }, tests: { enabled: false } }),
-      'config-invalid',
-      /requireTests is true but test discovery is disabled/,
+      () => resolveTowerConfig({ gates: { requireTests: true }, tests: { enabled } }),
+      'config-unknown-key',
+      /tests\.enabled/,
     )
-    // Turning discovery back on satisfies the same gate requirement.
-    const fixed = resolve({ ...base, gates: { requireTests: true }, tests: { enabled: true } })
-    assert.equal(fixed.gates.requireTests, true)
-    assert.equal(fixed.tests.enabled, true)
-    // Explicit false on the gate is fine with discovery off.
-    const discoveryOff = resolve({ ...base, gates: { requireTests: false }, tests: { enabled: false } })
-    assert.equal(discoveryOff.tests.enabled, false)
   },
 })
 
@@ -298,7 +282,7 @@ runProperty({
   name: 'config rejection: wrong-typed known keys are rejected with config-invalid (never crash)',
   arbitrary: fc.constantFrom(
     { gates: { requireTests: 'yes' } },
-    { tests: { enabled: 'no' } },
+    { tests: { admission: 'sometimes' } },
     { review: { maxRoundsPerReviewer: 'five' } },
     { spawn: { maxLiveWorkers: 0 } },
     { merge: { timeoutMs: -1 } },

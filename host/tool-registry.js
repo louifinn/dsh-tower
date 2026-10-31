@@ -378,7 +378,11 @@ async function ensureRepository(repoRootInput, autoGitInit) {
   }
 }
 
-const OPERATIONAL_TOOLS = new Map()
+// #138: exported so `scripts/check-components.mjs` can import the route table
+// instead of scraping this file. The table is empty since #122; an empty Map is
+// the determined state, while a missing export or a failed import is a gate
+// failure.
+export const OPERATIONAL_TOOLS = new Map()
 
 function plainSchema(value) {
   return JSON.parse(JSON.stringify(value))
@@ -473,8 +477,11 @@ async function runMissionDiscovery(tower, mission) {
     return { configured: false, disabledBy: 'tower-tests', reason: disabledReason('tower-tests') }
   }
   const testsConfig = tower.config.tests ?? {}
-  if (testsConfig.enabled === false || testsConfig.allowPackageDiscovery === false) {
-    return { configured: false }
+  // #136: there is no second switch. The `tower-tests` row decided above; the
+  // only remaining reason to skip discovery is an explicit opt-out of repository
+  // package discovery.
+  if (testsConfig.allowPackageDiscovery === false) {
+    return { configured: false, error: 'test discovery is disabled by tests.allowPackageDiscovery:false' }
   }
   const worktreePath = mission?.worktree?.path
   if (!worktreePath) return { configured: false, error: 'mission has no worktree' }
@@ -565,6 +572,14 @@ export function registerCoreTowerTools(ctx, options = {}) {
   const baseDeps = options.deps ? assertPorts(options.deps) : (runtimeState.deps ?? createDefaultDeps())
   runtimeState.deps = {
     ...baseDeps,
+    // #140: the merge gate lives in the pure domain, which cannot read the
+    // component registry. Publish the two probes it needs on the port bag the
+    // store already receives, so `evaluateGate` can name a disabled row as the
+    // cause instead of guessing from config.
+    components: {
+      enabled: (id) => componentEnabled(id),
+      reason: (id) => disabledReason(id),
+    },
     events: {
       emit(name, payload) {
         try {
@@ -615,7 +630,9 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport })
 
-  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases })
+  // #131: the lease precondition needs the row state, and the app layer may not
+  // import the registry, so the probe travels with the other spawn deps.
+  registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases, leaseComponent: () => ({ enabled: componentEnabled('tower-leases'), reason: disabledReason('tower-leases') }) })
 
   registerRosterTool(ctx, { openTower, define })
 

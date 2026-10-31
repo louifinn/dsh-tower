@@ -65,9 +65,16 @@ const ROW_DISPLAY_SOURCE = {
   'tower-import': 'import subpath locale',
   'tower-leases': 'leases subpath locale',
   'tower-tests': 'tests subpath locale',
+  'tower-board': 'board subpath locale',
+  'tower-archive': 'archive subpath locale',
   'tower-hmr': 'hmr subpath locale',
   'preset-tower-reviewer': 'preset-reviewer subpath locale',
+  'tower-ui': 'ui-bundle package locale meta',
 }
+
+// #134: the tower-ui row ships in ui-bundle/ and is labelled by that package's
+// own meta block; it is the one visible row that is not a dsh-tower subpath.
+const META_LABELED_ROWS = new Set(['tower-ui'])
 
 const componentIdBySpecifier = new Map(
   CAPABILITY_LOCALES.map(({ specifier, component }) => [specifier, component]),
@@ -181,6 +188,18 @@ test('both preset rows carry distinct labels that name their preset', () => {
     // The mandatory worker dependency is never described as a switch; the
     // conditional reviewer keeps the ordinary off-effect wording.
     assert.ok(worker.description.includes(DEPENDENCY[lang]), `${lang} worker description marks the dependency`)
+    // The dependency label is generated; the source summary must not repeat it
+    // (it used to append its own "Not a switch: Tower depends on it." /
+    // "它不是开关：Tower 依赖它。" sentence, so the row said it twice).
+    const workerSource = locales[lang].components['preset-tower-worker'].summary
+    for (const phrase of ['Not a switch', 'not a switch', 'Tower depends on it', '不是开关', 'Tower 依赖它']) {
+      assert.equal(workerSource.includes(phrase), false, `${lang} worker summary must not repeat "${phrase}"`)
+    }
+    assert.equal(
+      worker.description.split(DEPENDENCY[lang]).length - 1,
+      1,
+      `${lang} worker description marks the dependency exactly once`,
+    )
     assert.equal(worker.description.includes(OFF_EFFECT[lang]), false, `${lang} worker is not a switch`)
     assert.ok(reviewer.description.includes(OFF_EFFECT[lang]), `${lang} reviewer labels the off effect`)
     assert.ok(
@@ -209,7 +228,7 @@ test('coverage: every visible component row has a display-metadata source', () =
     .sort()
   assert.deepEqual(Object.keys(ROW_DISPLAY_SOURCE).sort(), visible)
 
-  const capabilityRows = visible.filter((id) => id.startsWith('tower-'))
+  const capabilityRows = visible.filter((id) => id.startsWith('tower-') && !META_LABELED_ROWS.has(id))
   assert.deepEqual(capabilityRows, [...componentIdBySpecifier.values()].sort())
   for (const { specifier } of CAPABILITY_LOCALES) {
     assert.equal(ROW_DISPLAY_SOURCE[componentIdBySpecifier.get(specifier)], `${specifier} subpath locale`)
@@ -233,15 +252,37 @@ test('coverage: every visible component row has a display-metadata source', () =
   }
 })
 
-test('the root package locale meta for the Tower group is unchanged', () => {
-  assert.deepEqual(locales.en.meta, {
-    title: 'Tower',
-    description: 'Mission planning, isolated worktrees, worker/reviewer agents, and review-gated merges.',
-  })
-  assert.deepEqual(locales.zh.meta, {
-    title: 'Tower',
-    description: '多代理任务规划、隔离工作树与审查门禁合并。',
-  })
+test('the root package locale meta states the Tower group off consequence (#132)', () => {
+  // #132: the plugin page renders the group row from the root meta, so the
+  // off-equals-uninstall consequence must live there, not only in the dead
+  // `components.tower.disables` field.
+  for (const lang of CAPABILITY_LOCALE_LANGUAGES) {
+    const consequence = locales[lang].components.tower.disables
+    assert.ok(
+      locales[lang].meta.description.includes(consequence),
+      `${lang} meta.description states the tower group's off consequence verbatim`,
+    )
+  }
+  assert.equal(locales.en.meta.title, 'Tower')
+  assert.equal(locales.zh.meta.title, 'Tower')
+  assert.match(locales.en.meta.description, /^Plan and track missions/)
+  assert.match(locales.zh.meta.description, /^规划并跟踪任务线/)
+})
+
+test('the tower-ui row is labelled by the ui-bundle package meta, off consequence included (#134)', () => {
+  const uiEn = readJson('ui-bundle/locale/en.json')
+  const uiZh = readJson('ui-bundle/locale/zh.json')
+  const markers = { en: 'When off:', zh: '关闭后：' }
+  for (const [lang, file] of [
+    ['en', uiEn],
+    ['zh', uiZh],
+  ]) {
+    assert.equal(typeof file.meta.title, 'string')
+    assert.ok(file.meta.title.trim().length > 0, `${lang} ui-bundle meta.title`)
+    assert.ok(file.meta.description.includes(markers[lang]), `${lang} ui-bundle meta.description labels the off effect`)
+  }
+  assert.equal(uiEn.meta.title, locales.en.components['tower-ui'].title)
+  assert.equal(uiZh.meta.title, locales.zh.components['tower-ui'].title)
 })
 
 test('the generated row locale files are in sync with the generator', () => {
@@ -249,7 +290,7 @@ test('the generated row locale files are in sync with the generator', () => {
     cwd: root,
     encoding: 'utf8',
   })
-  assert.match(output, /16 files in sync/)
+  assert.match(output, /20 files in sync/)
   // And the committed files are byte-for-byte the rendering, not a hand edit.
   const expected = renderRowLocaleFiles(root)
   assert.deepEqual([...expected.keys()].sort(), rowPaths.slice().sort())
@@ -275,7 +316,7 @@ test('the generator --check fails when a committed row locale file drifts (fixtu
     assert.equal(result.status, 0, result.stderr)
     result = run('--check')
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /16 files in sync/)
+    assert.match(result.stdout, /20 files in sync/)
 
     fs.writeFileSync(
       path.join(fixture, 'locale', 'batch', 'en.json'),

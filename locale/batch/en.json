@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Evidence batches",
-    "description": "Group missions into finite evidence batches and close them against required checks and receipts. When off: tower_batch is not registered; missions, gates and merges are unaffected."
+    "description": "Collect a finite set of missions into a batch and close it only when every required check and evidence receipt is present. When off: Batch tools and their checks are unavailable; missions, merges and every other capability keep working."
   }
 }

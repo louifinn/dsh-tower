@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mission archive",
+    "description": "Move finished missions and their linked records into the on-disk archive, so the live state file stops carrying their full history. When off: Finished missions stay in the live state file, so it keeps growing; merges and every other capability keep working, and nothing is deleted."
+  }
+}

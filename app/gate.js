@@ -91,6 +91,19 @@ export async function evaluateGate(tower, input) {
 
     const branch = worktree ? worktree.branch : null
     const latest = latestReview(reviewsForBranch(reviews, branch))
+    // #140: `mergeGateBlockers` is pure and may not read the component registry, so
+    // the composition root publishes `deps.components` and this layer snapshots the
+    // one fact the gate needs. Absent (unit tests, custom port bags) means unknown,
+    // and the blocker keeps its generic wording.
+    const components = /** @type {{ enabled?: (id: string) => boolean, reason?: (id: string) => string } | undefined} */ (
+      tower.deps?.components
+    )
+    const testsComponent = components
+      ? {
+          enabled: typeof components.enabled === 'function' ? components.enabled('tower-tests') === true : false,
+          reason: typeof components.reason === 'function' ? components.reason('tower-tests') : 'disabled by component tower-tests',
+        }
+      : null
     for (const blocker of mergeGateBlockers({
       mission,
       roster: state.roster ?? [],
@@ -102,6 +115,7 @@ export async function evaluateGate(tower, input) {
       parentStatus: input.parentStatus,
       inactiveStates: ROSTER_INACTIVE_STATES,
       rebaseWaived: latest ? tower.rebaseWaived(mission, latest) : false,
+      testsComponent,
     })) push(blocker.code, blocker.detail)
 
     const checkoutBranch = await tower.deps.vcs.currentBranch(tower.root)

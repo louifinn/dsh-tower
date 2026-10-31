@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower skills",
-    "description": "Playbooks for worker/reviewer agents and recovery after a blocked merge. When off: The three Tower skills leave the catalog; the worker/reviewer protocol sections and every mission tool keep working."
+    "description": "Step-by-step playbooks for worker and reviewer agents, and a guide for getting unstuck when a merge is blocked. When off: The three Tower skills leave the catalog; the worker and reviewer protocol sections and every mission tool keep working."
   }
 }

@@ -21,6 +21,8 @@ export const TOWER_COMPONENT_IDS = Object.freeze([
   'tower-import',
   'tower-leases',
   'tower-tests',
+  'tower-board',
+  'tower-archive',
   'tower-hmr',
   'preset-tower-reviewer',
 ])
@@ -32,6 +34,8 @@ export const COMPONENT_TOOLS = Object.freeze({
   'tower-import': Object.freeze(['tower_import_legacy', 'tower_legacy_map']),
   'tower-leases': Object.freeze(['tower_resource']),
   'tower-tests': Object.freeze(['tower_test']),
+  'tower-board': Object.freeze([]),
+  'tower-archive': Object.freeze([]),
   'tower-hmr': Object.freeze(['tower_reload']),
   'preset-tower-reviewer': Object.freeze([]),
 })

@@ -12,6 +12,12 @@
 //
 // This module is pure: no fs, no git. `scripts/check-components.mjs` supplies the
 // live schema, `cordis.patch.yml`, the locale files and the baseline.
+//
+// #138: the class/row-override rules live in `component-rules.js` so this module
+// stays under the architecture aggregate-size brake; they are re-exported here.
+import { collectConfigOverrides } from './component-rules.js'
+export { checkKeyClassifications, checkRowOverrides } from './component-rules.js'
+
 export const COMPONENT_SURFACE_FILE = 'scripts/component-surface.json'
 export const COMPONENT_REFERENCE_FILE = 'docs/reference/component-surface.md'
 export const COMPONENT_SCHEMA_VERSION = 1
@@ -20,6 +26,13 @@ export const COMPONENT_SCOPES = ['visible', 'internal']
 export const COMPONENT_KINDS = ['group', 'row']
 export const LOCALE_FILES = ['locale/en.json', 'locale/zh.json']
 export const LOCALE_FIELDS = ['title', 'summary', 'disables']
+// #134: every shipped Cordis patch has component rows, not only the root one.
+// `ui-bundle/cordis.patch.yml` ships the `tower-ui` row. Labels for its rows live
+// in that package's own locale files (a DSH row renders `meta.title` /
+// `meta.description`, not the root `components` block).
+export const COMPONENT_PATCH_FILES = ['cordis.patch.yml', 'ui-bundle/cordis.patch.yml']
+export const META_LABEL_PATCHES = ['ui-bundle/cordis.patch.yml']
+export const META_LOCALE_FILES = ['ui-bundle/locale/en.json', 'ui-bundle/locale/zh.json']
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -58,6 +71,7 @@ function normalizeComponent(entry, index) {
     scope,
     kind,
     fallback: text(entry.fallback, `components[${index}].fallback`),
+    allowedOverrides: stringList(entry.allowedOverrides, `components[${index}].allowedOverrides`),
   }
 }
 
@@ -71,6 +85,10 @@ function normalizeKey(entry, index) {
     name: text(entry.name, `keys[${index}].name`),
     class: className,
     note: text(entry.note, `keys[${index}].note`),
+    // #138: an `optional-config` boolean (or a recorded behaviour knob) needs a
+    // dated reason for staying a tuning key; the gate refuses the classification
+    // without it.
+    exemption: entry.exemption === undefined ? null : normalizeDecision(entry.exemption, `keys[${index}].exemption`),
   }
 }
 
@@ -135,35 +153,6 @@ function normalizeGateableTools(value) {
 }
 
 /**
- * Parse the static `host/tool-registry.js` route table that lets a boolean
- * remove a tool. This is the denylist's live input, so it is deliberately
- * tolerant about formatting (F11): it accepts a tuple with a trailing comma and
- * a `Map.set(...)` route, so a reformatted or rewritten table cannot fall out of
- * the allowlist and silently legalise a forbidden switch.
- *
- * @param {string} source the registry module text
- * @returns {Record<string, string>} tool name -> expose flag (without `tools.`)
- */
-export function parseOperationalRegistry(source) {
-  const text = String(source ?? '')
-  /** @type {Record<string, string>} */
-  const registry = {}
-  // Tuple form: ['tower_batch', 'exposeBatch'] with an optional trailing comma.
-  for (const match of text.matchAll(
-    /\[\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*,?\s*\]/g,
-  )) {
-    registry[match[1]] = match[2]
-  }
-  // Map form: OPERATIONAL_TOOLS.set('tower_batch', 'exposeBatch').
-  for (const match of text.matchAll(
-    /OPERATIONAL_TOOLS\s*\.\s*set\(\s*['"](tower_[a-z0-9_]+)['"]\s*,\s*['"](expose[A-Za-z0-9]+)['"]\s*\)/g,
-  )) {
-    registry[match[1]] = match[2]
-  }
-  return registry
-}
-
-/**
  * Parse and validate the single source of truth. Structural problems throw with
  * an actionable message; semantic problems are findings from the validators
  * below, so one run can report all of them.
@@ -203,6 +192,9 @@ export function parseComponentSurface(source) {
   const keys = value.keys.map(normalizeKey)
   const forbidden = Array.isArray(value.forbidden) ? value.forbidden.map(normalizeForbidden) : []
   const gateableTools = normalizeGateableTools(value.gateableTools)
+  // #138: non-boolean keys that gate behaviour cannot hide behind
+  // `optional-config`; they are reviewed on the same axis as booleans.
+  const behaviorKnobs = stringList(value.behaviorKnobs, 'component surface behaviorKnobs')
   const seen = (list, label) => {
     const names = new Set()
     for (const entry of list) {
@@ -220,7 +212,17 @@ export function parseComponentSurface(source) {
   if (!components.some((component) => component.scope === 'visible')) {
     throw componentError('component surface needs at least one visible component')
   }
-  return { schema: COMPONENT_SCHEMA_VERSION, date, adr, classes, components, keys, gateableTools, forbidden }
+  return {
+    schema: COMPONENT_SCHEMA_VERSION,
+    date,
+    adr,
+    classes,
+    components,
+    keys,
+    behaviorKnobs,
+    gateableTools,
+    forbidden,
+  }
 }
 
 /**
@@ -232,13 +234,13 @@ export function parseComponentSurface(source) {
  * sections rather than a single plugin.
  *
  * @param {string} text
- * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[] }>, visible: string[] }}
+ * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], configOverrides: Array<{ key: string, value: string }>, patch?: string }>, visible: string[] }}
  */
 export function parseCordisPatch(text) {
   const lines = String(text ?? '').split(/\r?\n/)
   const insertIndex = lines.findIndex((line) => /^\s*-\s+insert:\s*$/.test(line))
   if (insertIndex < 0) return { rows: [], visible: [] }
-  /** @type {Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], indent: number, line: number }>} */
+  /** @type {Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], configOverrides: Array<{ key: string, value: string }>, indent: number, line: number }>} */
   const rows = []
   const stack = []
   let rowIndent = null
@@ -263,6 +265,7 @@ export function parseCordisPatch(text) {
         kind: 'row',
         group: false,
         overrides: [],
+        configOverrides: [],
         indent,
         line: index,
       })
@@ -287,14 +290,32 @@ export function parseCordisPatch(text) {
     }
     row.group = block.some((line) => /^\s*group:\s*true\s*$/.test(line))
     row.kind = row.group ? 'group' : 'row'
-    const overrides = new Set()
-    for (const line of block) {
-      for (const match of line.matchAll(/([A-Za-z0-9_-]+)\s*:\s*false\b/g)) overrides.add(match[1])
-    }
-    row.overrides = [...overrides]
+    row.configOverrides = row.group ? [] : collectConfigOverrides(lines, row)
+    // #138: keep the false-valued paths for the forbidden denylist, and the full
+    // override set for the "row matches the capability it owns" check.
+    row.overrides = row.configOverrides.filter((entry) => entry.value === 'false').map((entry) => entry.key)
   }
   return {
     rows: rows.map(({ line, indent, ...row }) => row),
+    visible: rows.filter((row) => row.scope === 'visible').map((row) => row.id),
+  }
+}
+
+/**
+ * Merge every shipped patch into the one live shape the policy checks compare
+ * against. Rows keep the file they came from, so a finding can name it.
+ *
+ * @param {Record<string, ReturnType<typeof parseCordisPatch>>} patches file -> parsed patch
+ * @returns {{ rows: Array<{ id: string, scope: string, kind: string, group: boolean, overrides: string[], patch: string }>, visible: string[] }}
+ */
+export function mergeCordisPatches(patches = {}) {
+  const files = Object.keys(patches)
+  const rows = []
+  for (const file of files) {
+    for (const row of patches[file]?.rows ?? []) rows.push({ ...row, patch: file })
+  }
+  return {
+    rows,
     visible: rows.filter((row) => row.scope === 'visible').map((row) => row.id),
   }
 }
@@ -305,7 +326,7 @@ export function parseCordisPatch(text) {
  * class without a row, is an unowned decision.
  *
  * @param {ReturnType<typeof parseComponentSurface>} surface
- * @param {{ configKeys: string[], patch: ReturnType<typeof parseCordisPatch> }} live
+ * @param {{ configKeys: string[], patch: ReturnType<typeof mergeCordisPatches> }} live
  */
 export function validateComponentSurface(surface, live) {
   const findings = []
@@ -315,25 +336,25 @@ export function validateComponentSurface(surface, live) {
   for (const component of surface.components) {
     const row = shipped.get(component.id)
     if (!row) {
-      record('component-missing', `component surface lists "${component.id}" but cordis.patch.yml does not ship it`)
+      record('component-missing', `component surface lists "${component.id}" but no shipped cordis.patch.yml defines it`)
       continue
     }
     if (row.scope !== component.scope) {
       record(
         'component-scope',
-        `component "${component.id}" is ${component.scope} in the source of truth but ${row.scope} in cordis.patch.yml`,
+        `component "${component.id}" is ${component.scope} in the source of truth but ${row.scope} in ${row.patch ?? 'cordis.patch.yml'}`,
       )
     }
     if (row.kind !== component.kind) {
       record(
         'component-kind',
-        `component "${component.id}" is a ${component.kind} in the source of truth but a ${row.kind} in cordis.patch.yml`,
+        `component "${component.id}" is a ${component.kind} in the source of truth but a ${row.kind} in ${row.patch ?? 'cordis.patch.yml'}`,
       )
     }
   }
   for (const row of live.patch.rows) {
     if (!classified.has(row.id)) {
-      record('component-unclassified', `cordis.patch.yml ships component "${row.id}" but the source of truth does not classify it`)
+      record('component-unclassified', `${row.patch ?? 'cordis.patch.yml'} ships component "${row.id}" but the source of truth does not classify it`)
     }
   }
   const declared = new Set(surface.keys.map((key) => key.name))
@@ -364,15 +385,22 @@ export function validateComponentSurface(surface, live) {
  * shipped locale. The locale set itself must only name known components, so a
  * typo cannot pass as coverage.
  *
+ * `options.ids` restricts the required set to the components whose labels live in
+ * these locale files. #134: the `tower-ui` row ships in `ui-bundle/` and is
+ * labelled by that package's own `meta` block, not by the root `components` block.
+ *
  * @param {ReturnType<typeof parseComponentSurface>} surface
  * @param {Record<string, any>} locales file path -> parsed locale JSON
+ * @param {{ ids?: string[] }} [options]
  */
-export function checkLocaleCoverage(surface, locales) {
+export function checkLocaleCoverage(surface, locales, options = {}) {
   const findings = []
   const record = (code, message) => findings.push({ code, level: 'error', message })
   const known = new Set(surface.components.map((component) => component.id))
+  const required = options.ids === undefined ? null : new Set(options.ids)
   for (const component of surface.components) {
     if (component.scope !== 'visible') continue
+    if (required && !required.has(component.id)) continue
     for (const file of LOCALE_FILES) {
       const entry = locales?.[file]?.components?.[component.id]
       if (!entry || typeof entry !== 'object') {
@@ -388,6 +416,75 @@ export function checkLocaleCoverage(surface, locales) {
   for (const file of LOCALE_FILES) {
     for (const id of Object.keys(locales?.[file]?.components ?? {})) {
       if (!known.has(id)) record('component-locale-unknown', `${file} labels "${id}", which is not a shipped component`)
+    }
+  }
+  return findings
+}
+
+/**
+ * #132: the plugin page renders a group row from the root locale `meta.title` /
+ * `meta.description`. The off consequence of the `tower` group (off equals
+ * uninstalling Tower) must therefore appear in `meta.description`, in every
+ * shipped language — otherwise the most important consequence is dead copy.
+ *
+ * @param {ReturnType<typeof parseComponentSurface>} surface
+ * @param {Record<string, any>} locales file path -> parsed locale JSON
+ */
+export function checkGroupLabelCoverage(surface, locales) {
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  for (const component of surface.components) {
+    if (component.scope !== 'visible' || component.kind !== 'group') continue
+    for (const file of LOCALE_FILES) {
+      const meta = locales?.[file]?.meta
+      const title = typeof meta?.title === 'string' ? meta.title.trim() : ''
+      const description = typeof meta?.description === 'string' ? meta.description.trim() : ''
+      if (!title) record('group-locale', `${file} misses meta.title for group component "${component.id}"`)
+      if (!description) {
+        record('group-locale', `${file} misses meta.description for group component "${component.id}"`)
+        continue
+      }
+      const disables = locales?.[file]?.components?.[component.id]?.disables
+      const consequence = typeof disables === 'string' ? disables.trim() : ''
+      if (!consequence) continue
+      if (!description.includes(consequence)) {
+        record(
+          'group-locale',
+          `${file} meta.description does not state the off consequence of group component "${component.id}"`,
+        )
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * #134: a row that ships in its own package is labelled by that package's
+ * `meta.title` / `meta.description`, and DSH shows the "when off" consequence in
+ * the description. Require both meta strings and the off marker for every
+ * visible row of a meta-labelled patch, in every language file it ships.
+ *
+ * @param {string[]} ids row ids whose labels live in `locales`
+ * @param {Record<string, any>} locales file path -> parsed locale JSON
+ * @param {Record<string, string>} markers language -> off-effect marker
+ */
+export function checkMetaLabelCoverage(ids, locales, markers) {
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  for (const id of ids) {
+    for (const [file, payload] of Object.entries(locales ?? {})) {
+      const lang = /([a-z]{2})\.json$/.exec(file)?.[1] ?? ''
+      const marker = markers?.[lang] ?? ''
+      const title = typeof payload?.meta?.title === 'string' ? payload.meta.title.trim() : ''
+      const description = typeof payload?.meta?.description === 'string' ? payload.meta.description.trim() : ''
+      if (!title) record('meta-locale', `row "${id}" misses meta.title in ${file}`)
+      if (!description) {
+        record('meta-locale', `row "${id}" misses meta.description in ${file}`)
+        continue
+      }
+      if (marker && !description.includes(marker)) {
+        record('meta-locale', `row "${id}" meta.description does not state the off consequence in ${file}`)
+      }
     }
   }
   return findings
@@ -427,15 +524,17 @@ export function checkForbidden(surface, live) {
   // row, whatever capability owns it. `gatedBy` is folded in so a contract key
   // recorded only on the capability still resolves to its full name.
   const forbiddenLeaves = new Map()
+  const remember = (name) => {
+    const leaf = name.split('.').pop()
+    if (!forbiddenLeaves.has(name)) forbiddenLeaves.set(name, name)
+    if (!forbiddenLeaves.has(leaf)) forbiddenLeaves.set(leaf, name)
+  }
   for (const key of surface.keys) {
     if (key.class !== 'forbidden-to-disable') continue
-    forbiddenLeaves.set(key.name.split('.').pop(), key.name)
+    remember(key.name)
   }
   for (const capability of surface.forbidden) {
-    for (const key of capability.gatedBy ?? []) {
-      const leaf = key.split('.').pop()
-      if (!forbiddenLeaves.has(leaf)) forbiddenLeaves.set(leaf, key)
-    }
+    for (const key of capability.gatedBy ?? []) remember(key)
   }
   for (const row of rows) {
     if (row.scope === 'visible' && forbiddenRowIds.has(row.id)) {
@@ -547,7 +646,17 @@ export function renderComponentSurface(surface, options = {}) {
         `| \`${component.id}\` | ${component.scope} | ${component.kind} | ${component.fallback} |`,
     )
     .join('\n')
-  const keyRows = surface.keys.map((key) => `| \`${key.name}\` | \`${key.class}\` | ${key.note} |`).join('\n')
+  const keyRows = surface.keys
+    .map((key) => {
+      const exemption = key.exemption
+        ? ` Tuning exemption: ${key.exemption.reason} (${key.exemption.date}${key.exemption.issue ? ` · ${key.exemption.issue}` : ''} · [${decidedIn(key.exemption.ref)}](${relativeAdr(key.exemption.ref)}))`
+        : ''
+      return `| \`${key.name}\` | \`${key.class}\` | ${key.note}${exemption} |`
+    })
+    .join('\n')
+  const behaviorRows = (surface.behaviorKnobs ?? [])
+    .map((name) => `| \`${name}\` |`)
+    .join('\n') || '| _(none)_ |'
   const forbiddenRows = surface.forbidden
     .map((capability) => {
       const decision = capability.acceptedSwitches?.decision
@@ -620,6 +729,17 @@ All keys from \`domain/config/schema.js\`, classified on the component axis.
 | Key | Component class | Decision note |
 |---|---|---|
 ${keyRows}
+
+## Behaviour knobs
+
+Non-boolean keys that gate behaviour are reviewed on the same axis as booleans
+(#138): each must be \`core\`, \`optional-component\`, \`forbidden-to-disable\`, or an
+\`optional-config\` key with a dated tuning-only exemption. A string or union that
+hides a capability cannot use the tuning class without that record.
+
+| Key |
+|---|
+${behaviorRows}
 
 ## Non-goals
 
