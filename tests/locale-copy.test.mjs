@@ -298,9 +298,16 @@ test('the reviewed off copy and Chinese terms stay corrected (#137 review P2)', 
   assert.doesNotMatch(reviewerSummary, /Only used when/)
   assert.match(reviewerSummary, /Usable while review before merging is optional/)
   assert.match(zh.components['preset-tower-reviewer'].summary, /可以使用/)
+  // The group description must not present review before merging as the
+  // default: review.requireReview is false by default
+  // (domain/config/schema.js:171-174), so the merge clause has to be scoped to
+  // the configured-required case.
+  assert.doesNotMatch(en.meta.description, /merge only after review/)
+  assert.match(en.meta.description, /merge after review when review before merging is required/)
+  assert.match(zh.meta.description, /在把合并前审查设为必须时，审查通过后再合并/)
   // The reviewed Chinese calques must not come back.
   const zhText = JSON.stringify(zh)
-  for (const calque of ['收口', '在线状态文件', '锁状态的恢复出口', '关闭该行', '认领一项命名工作', '允许关闭本行']) {
+  for (const calque of ['收口', '在线状态文件', '锁状态的恢复出口', '关闭该行', '本行', '认领一项命名工作', '允许关闭本行']) {
     assert.equal(zhText.includes(calque), false, `zh copy still contains the calque "${calque}"`)
   }
 })

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower Worker 预设",
-    "description": "必需的 Tower Worker 执行代理预设：任务线协议，以及执行代理在其独立工作树中使用的文件系统、终端与 Tower 工具。它不是开关：Tower 依赖它。强制依赖，不是开关：缺少它，Tower 无法规划任务线、进入 Tower 模式或启动执行代理。"
+    "description": "必需的 Tower Worker 执行代理预设：任务线协议，以及执行代理在其独立工作树中使用的文件系统、终端与 Tower 工具。强制依赖，不是开关：缺少它，Tower 无法规划任务线、进入 Tower 模式或启动执行代理。"
   }
 }

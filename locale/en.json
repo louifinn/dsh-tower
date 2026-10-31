@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "Plan and track missions, isolate each one in its own worktree, hand the work to worker and reviewer agents, and merge only after review. Off equals uninstalling Tower: no tools, presets or skills remain."
+    "description": "Plan and track missions, isolate each one in its own worktree, hand the work to worker and reviewer agents, and merge after review when review before merging is required. Off equals uninstalling Tower: no tools, presets or skills remain."
   },
   "components": {
     "tower": {
@@ -51,7 +51,7 @@
     },
     "preset-tower-worker": {
       "title": "Tower Worker preset",
-      "summary": "The mandatory Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker uses inside its own worktree. Not a switch: Tower depends on it.",
+      "summary": "The mandatory Tower Worker preset: the mission protocol plus the filesystem, shell and Tower tools a worker uses inside its own worktree.",
       "disables": "Tower cannot plan missions, enter Tower mode, or start a worker without it."
     },
     "preset-tower-reviewer": {
