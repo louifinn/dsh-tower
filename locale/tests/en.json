@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Test discovery",
-    "description": "Run the worktree's declared test discovery and record a receipt for the mission tip. When off: tower_test is not registered and no receipt can be recorded; with gates.requireTests:true planning/mode entry is rejected with an explanation."
+    "title": "Test evidence",
+    "description": "Run the project's declared test command in a mission's worktree and record the result as evidence for merging. When off: No test command can be run and no evidence can be recorded. If tests are already required before merging, planning and entering Tower mode are refused with an explanation, and merges stay blocked for the missing test evidence until that requirement is cleared; nothing else changes."
   }
 }

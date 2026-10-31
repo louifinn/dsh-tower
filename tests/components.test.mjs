@@ -23,7 +23,7 @@ import {
   renderComponentSurface,
   validateComponentSurface,
 } from '../domain/components.js'
-import { OFF_EFFECT_LABEL, PRESET_LOCALES, ROW_LOCALES } from '../scripts/generate-capability-locale.mjs'
+import { OFF_EFFECT_LABEL, PRESET_LOCALES, ROW_LOCALES, rowLocalePaths } from '../scripts/generate-capability-locale.mjs'
 import { configSurface } from '../domain/config/schema.js'
 import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
@@ -71,6 +71,9 @@ const GATE_FILES = [
   'host/tool-registry.js',
   'locale/en.json',
   'locale/zh.json',
+  // #137: the copy gate reads the generated row labels and the glossary.
+  ...rowLocalePaths(),
+  'GLOSSARY.md',
 ]
 
 // The real registry imports the Host runtime, which a throwaway root cannot
@@ -830,6 +833,128 @@ test('integration: a group meta description without the off consequence fails th
     assert.equal(report.ok, false)
     assert.ok(
       report.findings.some((entry) => entry.code === 'group-locale'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+// #137: the copy gate. Each case tampers one user-facing field on a throwaway
+// root, so the shipped copy passes and a leak fails with a greppable code.
+const tamperLocale = (text, edit) => {
+  const data = JSON.parse(text)
+  edit(data)
+  return `${JSON.stringify(data, null, 2)}\n`
+}
+
+test('integration: config-key syntax in an English off sentence fails the copy gate (#137)', async () => {
+  const dir = gateRoot({
+    'locale/en.json': (text) =>
+      tamperLocale(text, (data) => {
+        data.components['tower-tests'].disables += ' With gates.requireTests:true planning is refused.'
+      }),
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'locale-copy-config-key'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a bare tool id in the Chinese off sentence fails the copy gate (#137)', async () => {
+  const dir = gateRoot({
+    'locale/zh.json': (text) =>
+      tamperLocale(text, (data) => {
+        data.components['tower-batch'].disables = '不再注册 tower_batch；任务线、合并与其他能力继续工作。'
+      }),
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'locale-copy-tool-id'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: an untranslated English noun in Chinese copy fails the copy gate (#137)', async () => {
+  const dir = gateRoot({
+    'locale/zh.json': (text) =>
+      tamperLocale(text, (data) => {
+        data.components['tower-batch'].summary = '把 mission 收进一个批次。'
+      }),
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some(
+        (entry) => entry.code === 'locale-copy-untranslated' && /mission/.test(entry.message),
+      ),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a glossary term mismatch between zh and en fails the copy gate (#137)', async () => {
+  const dir = gateRoot({
+    'locale/zh.json': (text) =>
+      tamperLocale(text, (data) => {
+        data.components.tower.disables = '关闭该行等同于卸载 Tower：不再保留任何工具、预置或技能。'
+      }),
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some(
+        (entry) => entry.code === 'locale-glossary' && /预设/.test(entry.message),
+      ),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a hand-written ui-bundle meta label that drifts from the root source fails (#137)', async () => {
+  const dir = gateRoot({
+    'ui-bundle/locale/en.json': (text) =>
+      tamperLocale(text, (data) => {
+        data.meta.description += ' Extra copy.'
+      }),
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'meta-row-copy'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a missing GLOSSARY.md fails the copy gate (#137)', async () => {
+  const dir = gateRoot()
+  try {
+    fs.rmSync(path.join(dir, 'GLOSSARY.md'))
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'glossary-missing'),
       JSON.stringify(report.findings, null, 2),
     )
   } finally {

@@ -188,6 +188,18 @@ test('both preset rows carry distinct labels that name their preset', () => {
     // The mandatory worker dependency is never described as a switch; the
     // conditional reviewer keeps the ordinary off-effect wording.
     assert.ok(worker.description.includes(DEPENDENCY[lang]), `${lang} worker description marks the dependency`)
+    // The dependency label is generated; the source summary must not repeat it
+    // (it used to append its own "Not a switch: Tower depends on it." /
+    // "它不是开关：Tower 依赖它。" sentence, so the row said it twice).
+    const workerSource = locales[lang].components['preset-tower-worker'].summary
+    for (const phrase of ['Not a switch', 'not a switch', 'Tower depends on it', '不是开关', 'Tower 依赖它']) {
+      assert.equal(workerSource.includes(phrase), false, `${lang} worker summary must not repeat "${phrase}"`)
+    }
+    assert.equal(
+      worker.description.split(DEPENDENCY[lang]).length - 1,
+      1,
+      `${lang} worker description marks the dependency exactly once`,
+    )
     assert.equal(worker.description.includes(OFF_EFFECT[lang]), false, `${lang} worker is not a switch`)
     assert.ok(reviewer.description.includes(OFF_EFFECT[lang]), `${lang} reviewer labels the off effect`)
     assert.ok(
@@ -253,8 +265,8 @@ test('the root package locale meta states the Tower group off consequence (#132)
   }
   assert.equal(locales.en.meta.title, 'Tower')
   assert.equal(locales.zh.meta.title, 'Tower')
-  assert.match(locales.en.meta.description, /^Mission planning, isolated worktrees/)
-  assert.match(locales.zh.meta.description, /^多代理任务规划/)
+  assert.match(locales.en.meta.description, /^Plan and track missions/)
+  assert.match(locales.zh.meta.description, /^规划并跟踪任务线/)
 })
 
 test('the tower-ui row is labelled by the ui-bundle package meta, off consequence included (#134)', () => {

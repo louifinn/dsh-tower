@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "任务看板",
-    "description": "在 state 旁边写入人类可读的 MISSIONS.md 看板，让人无需调用工具即可阅读 mission 列表。关闭后：不再写入或刷新 MISSIONS.md，已有看板会过期；mission 工具、门禁与其他能力继续工作。"
+    "title": "任务线看板",
+    "description": "在状态文件旁写入纯文本看板文件（MISSIONS.md），让人无需调用工具就能阅读任务线列表。关闭后：不再写入或刷新看板文件，已有看板会过期；任务线、合并与其他能力继续工作。"
   }
 }
