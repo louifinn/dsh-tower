@@ -10,7 +10,7 @@
 | `init.autoGitInit` | `false` | tower_init may run git init and create an empty initial commit when the directory is not a repository. |
 | `init.snapshotDirty` | `false` | tower_init may snapshot uncommitted tracked changes into a dangling commit used as the mission baseline. |
 | `init.autoExclude` | `true` | Add in-repo Tower artifacts (MISSIONS.md, in-repo worktree roots) to .git/info/exclude so they do not look like user dirt. |
-| `mode.promptSection` | `` | Replacement Tower-mode system prompt text. Empty keeps the built-in reminder. |
+| `mode.promptSection` | `""` | Replacement Tower-mode system prompt text. Empty keeps the built-in reminder. |
 | `mode.sectionAppend` | `` | Extra text appended to the Tower-mode system prompt section (team conventions). |
 | `mode.allowAgentControl` | `true` | Register tower_control so the model may enter/leave the mode with a reason. |
 | `mode.autoPauseGoal` | `true` | Pause an active goal when entering Tower mode. |

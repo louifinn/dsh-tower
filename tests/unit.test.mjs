@@ -18,6 +18,27 @@ test('scopesOverlap: leading wildcards are conservative', () => {
   assert.equal(scopesOverlap(['src/*.js'], ['lib/a/x.js']), false)
 })
 
+test('scopesOverlap: inline-prefix globs share a concrete path (#130 F16)', () => {
+  // The literal heads are `a/b` and `a/bc`, so the directory-prefix check used
+  // to miss this pair even though both match `a/bcd`.
+  assert.equal(fileInScope(['a/b*'], 'a/bcd'), true)
+  assert.equal(fileInScope(['a/bc*'], 'a/bcd'), true)
+  assert.equal(scopesOverlap(['a/b*'], ['a/bc*']), true)
+  // The same miss with file extensions inside one segment.
+  assert.equal(fileInScope(['src/a*.mjs'], 'src/abx.mjs'), true)
+  assert.equal(fileInScope(['src/ab*.mjs'], 'src/abx.mjs'), true)
+  assert.equal(scopesOverlap(['src/a*.mjs'], ['src/ab*.mjs']), true)
+  // A `?` inline wildcard overlaps the corresponding literal.
+  assert.equal(scopesOverlap(['a/b?'], ['a/bc']), true)
+  // Case folding still decides the pair, never rewrites it.
+  assert.equal(scopesOverlap(['a/B*'], ['a/bc*']), false)
+  assert.equal(scopesOverlap(['a/B*'], ['a/bc*'], { caseInsensitive: true }), true)
+  // Cheaply provable disjoint trees stay disjoint (no new false positives).
+  assert.equal(scopesOverlap(['a/*'], ['ab/*']), false)
+  assert.equal(scopesOverlap(['a/b*'], ['a/c*']), false)
+  assert.equal(scopesOverlap(['src/a*.mjs'], ['src/b*.mjs']), false)
+})
+
 test('normalizeScope: rejects absolute paths and parent traversal', () => {
   assert.throws(() => normalizeScope(['D:/x']), /relative/)
   assert.throws(() => normalizeScope(['/x']), /relative/)
