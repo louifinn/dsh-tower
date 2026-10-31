@@ -37,13 +37,13 @@ export function registerTestTool(ctx, deps) {
       await tower.assertWorktree(context.mission.worktree)
       const discovery = await runMissionDiscovery(tower, context.mission)
       if (!discovery.configured) {
-        return {
-          ok: false,
-          configured: false,
-          error: discovery.error ?? 'tower.testDiscovery is not configured in the worktree package.json',
-          tests: [],
-          commands: [],
-        }
+        // #136: the `tower-tests` row is the switch. When the row is off, say so
+        // and say how to turn it back on; never report the repository as
+        // "not configured" for a component cause.
+        const error = discovery.disabledBy
+          ? `test discovery is unavailable: ${discovery.reason ?? `disabled by component ${discovery.disabledBy}`}; enable the ${discovery.disabledBy} component in the plugin page and restart DSH`
+          : discovery.error ?? 'tower.testDiscovery is not configured in the worktree package.json'
+        return { ok: false, configured: false, error, tests: [], commands: [] }
       }
       const receipt = discovery.receipt
       return {

@@ -74,7 +74,7 @@ const SECTION_KEYS = {
     'requireLease',
   ],
   send: ['maxPerMinute', 'interruptDefault'],
-  tests: ['enabled', 'admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
+  tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
   docs: ['board', 'boardLocation'],
   archive: ['enabled', 'afterDays', 'maxMissions'],
@@ -207,7 +207,9 @@ export const Config = Schema.object({
     .default({})
     .description('Message delivery policy.'),
   tests: Schema.object({
-    enabled: Schema.boolean().default(true).description('Run declared test discovery when a mission configures it.'),
+    // #136: no `enabled` switch. The `tower-tests` component row *is* the
+    // switch; a second boolean could only disagree with it, and a row-off
+    // profile has no tower_test tool and no receipt to gate on.
     admission: Schema.union(['spawn', 'complete', 'off'])
       .default('off')
       .description('Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test).'),
@@ -423,13 +425,10 @@ export function resolveTowerConfig(rawConfig) {
     throw new TowerToolError('config-invalid', `Tower config is invalid: ${String(error?.message ?? error)}`)
   }
   const mode = clone(parsed.mode ?? {})
-  if (parsed.gates?.requireTests === true && parsed.tests?.enabled === false) {
-    // #121: the tower-tests *component row* is the capability switch now; a
-    // repository that turns the row off cannot satisfy gates.requireTests. The
-    // component-level half of this invariant is enforced at plan/mode entry,
-    // where the mounted rows are known (host/presets.js).
-    throw new TowerToolError('config-invalid', 'Tower config is invalid: gates.requireTests is true but test discovery is disabled (tests.enabled:false)')
-  }
+  // #136: `tests.enabled` is gone, so this resolver can no longer disagree with
+  // the mounted rows. The component-level invariant (`gates.requireTests:true`
+  // with the `tower-tests` row off) is enforced where the rows are known:
+  // host/presets.js at plan/mode entry, and the merge gate reports its cause.
   // Canonical keys win; the legacy top-level aliases only fill gaps.
   const rawMode = raw.mode ?? {}
   if (rawMode.promptSection === undefined && raw.section !== undefined) mode.promptSection = raw.section

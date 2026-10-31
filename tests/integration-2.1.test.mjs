@@ -10,6 +10,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
 import { Config, resolveTowerConfig } from '../host/config.js'
 
@@ -409,6 +410,23 @@ test('2.1 gates.requireTests: a completed mission without a test run is blocked'
     await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
     const gate = await (await Tower.open(repo)).evaluateGate({ missionId, activity: {} })
     assert.ok(gate.blockers.some((blocker) => blocker.code === 'tests-missing'))
+    // #140 wiring: the tool path evaluates the gate through a Tower whose port bag
+    // carries `deps.components`, so the same blocker names the row when it is off.
+    const blockerOf = (result) => (result.missions?.[0]?.gate?.blockers ?? []).find((entry) => entry.code === 'tests-missing')
+    // The registry is ref-counted process state: pin the row on and off explicitly
+    // rather than decrementing whatever the earlier fixtures registered.
+    __testResetComponentRegistry()
+    registerComponent('tower-tests')
+    const rowOn = await call(tools, 'tower_status', { repoRoot: repo, includeGate: true })
+    assert.doesNotMatch(String(blockerOf(rowOn)?.detail), /disabled by component/)
+    __testResetComponentRegistry()
+    try {
+      const off = await call(tools, 'tower_status', { repoRoot: repo, includeGate: true })
+      assert.match(String(blockerOf(off)?.detail), /disabled by component tower-tests/)
+      assert.match(String(blockerOf(off)?.detail), /re-enable the tower-tests component/)
+    } finally {
+      __testResetComponentRegistry()
+    }
   } finally {
     removeTemp(root)
   }

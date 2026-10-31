@@ -5,9 +5,9 @@
 // repository config file may contain". Values are bounded by the schema's own
 // min/max ranges; the groups are all optional, exactly like the real file.
 //
-// One cross-key invariant is enforced here: `gates.requireTests` may not be
-// true while `tests.enabled` is explicitly false, because `resolveTowerConfig`
-// rejects that combination (`config-invalid`).
+// #136: the generator emits no `tests.enabled`. That key was removed — the
+// `tower-tests` component row is the switch — so a generated config can no
+// longer contain a cross-key contradiction, and the resolver has none to reject.
 import fc from 'fast-check'
 
 import { DEFAULT_DENY_TOOLS } from '../../../domain/config/schema.js'
@@ -98,7 +98,6 @@ const sendArb = fc.record(
 
 const testsArb = fc.record(
   {
-    enabled: fc.boolean(),
     admission: fc.constantFrom('spawn', 'complete', 'off'),
     timeoutMs: fc.integer({ min: 1000, max: 1_800_000 }),
     maxBytes: fc.integer({ min: 1024, max: 16 * 1024 * 1024 }),
@@ -152,34 +151,27 @@ const devArb = fc.record(
  * A raw config object. `section` and `allowAgentControl` are the two legacy
  * top-level aliases the resolver still accepts.
  */
-export const configArb = fc
-  .record(
-    {
-      section: fc.string({ maxLength: 120 }),
-      allowAgentControl: fc.boolean(),
-      init: initArb,
-      mode: modeArb,
-      review: reviewArb,
-      merge: mergeArb,
-      git: gitArb,
-      worktrees: worktreesArb,
-      spawn: spawnArb,
-      send: sendArb,
-      tests: testsArb,
-      gates: gatesArb,
-      docs: docsArb,
-      archive: archiveArb,
-      leases: leasesArb,
-      dev: devArb,
-    },
-    { requiredKeys: [] },
-  )
-  .map((raw) => {
-    if (raw.gates?.requireTests === true && raw.tests?.enabled === false) {
-      return { ...raw, tests: { ...raw.tests, enabled: true } }
-    }
-    return raw
-  })
+export const configArb = fc.record(
+  {
+    section: fc.string({ maxLength: 120 }),
+    allowAgentControl: fc.boolean(),
+    init: initArb,
+    mode: modeArb,
+    review: reviewArb,
+    merge: mergeArb,
+    git: gitArb,
+    worktrees: worktreesArb,
+    spawn: spawnArb,
+    send: sendArb,
+    tests: testsArb,
+    gates: gatesArb,
+    docs: docsArb,
+    archive: archiveArb,
+    leases: leasesArb,
+    dev: devArb,
+  },
+  { requiredKeys: [] },
+)
 
 /**
  * A config object carrying only the legacy top-level aliases, which exercise

@@ -55,12 +55,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 56 keys', () => {
+test('the shipped component surface passes every rule and classifies all 55 keys', () => {
   const report = checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 56)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 56)
+  assert.equal(report.surface.keys.length, 55)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 55)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -71,12 +71,19 @@ test('the shipped component surface passes every rule and classifies all 56 keys
     'tower-hmr',
     'preset-tower-reviewer',
   ])
-  for (const className of ['core', 'optional-component', 'optional-config', 'forbidden-to-disable']) {
+  for (const className of ['core', 'optional-config', 'forbidden-to-disable']) {
     assert.ok(
       report.surface.keys.some((key) => key.class === className),
       `at least one key is classified ${className}`,
     )
   }
+  // #136: no shipped key is `optional-component` any more. A config boolean that
+  // only mirrors a row *is* the second switch the row model removed, so the class
+  // stays available in the schema but must not claim a key.
+  assert.deepEqual(
+    report.surface.keys.filter((key) => key.class === 'optional-component').map((key) => key.name),
+    [],
+  )
   // #122: the shipped boolean-route table is empty — a review, merge or host
   // tool is never a switch.
   assert.deepEqual(report.live.registry, {})

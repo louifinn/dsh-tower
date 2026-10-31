@@ -11,6 +11,12 @@ import { Config, resolveTowerConfig } from '../host/config.js'
 function mockCtx() {
   const state = { allow: null, section: null, providers: [] }
   const ctx = {
+    // #139: skills.registerProvider is wrapped in ctx.effect, the same contract the
+    // plugin host uses for every registration.
+    effect(fn) {
+      const dispose = fn()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
     tools: {
       restrict(options) {
         state.allow = options.allow
@@ -100,6 +106,110 @@ test('config: defaults, legacy aliases and unknown-key rejection', () => {
   assert.equal(both.mode.allowAgentControl, false)
 
   assert.throws(() => resolveTowerConfig({ allowAgentToggle: true }), /unknown key/i)
+})
+
+test('#131: spawn.requireLease with the tower-leases row off is refused at runtime preconditions', async () => {
+  const { assertRuntimePreconditions } = await import('../host/presets.js')
+  const { __testResetComponentRegistry, registerComponent } = await import('../host/capability-registry.js')
+  const ctx = { get: () => undefined }
+  __testResetComponentRegistry()
+  try {
+    await assert.rejects(
+      () => assertRuntimePreconditions(ctx, { spawn: { requireLease: 'heavy-ci' } }),
+      (error) => {
+        assert.equal(error.code, 'config-invalid')
+        // The error must name the row *and* both ways out: the config side and the
+        // component side are equally plausible mistakes.
+        assert.match(error.message, /tower-leases/)
+        assert.match(error.message, /tower_resource is not registered/)
+        assert.match(error.message, /Re-enable the tower-leases component or clear spawn\.requireLease/)
+        return true
+      },
+    )
+    // Remedy 1: mount the row.
+    registerComponent('tower-leases')
+    await assertRuntimePreconditions(ctx, { spawn: { requireLease: 'heavy-ci' } })
+    // Remedy 2: clear the key.
+    __testResetComponentRegistry()
+    await assertRuntimePreconditions(ctx, { spawn: { requireLease: '' } })
+    await assertRuntimePreconditions(ctx, {})
+    // The invariant is scoped to its own row: a different row off is irrelevant.
+    registerComponent('tower-leases')
+    registerComponent('tower-tests')
+    await assertRuntimePreconditions(ctx, { spawn: { requireLease: 'heavy-ci' } })
+  } finally {
+    __testResetComponentRegistry()
+  }
+})
+
+test('#131: a missing lease names the disabled row instead of advising an unregistered tool', async () => {
+  const { precheckSpawnServices } = await import('../app/spawn-prechecks.js')
+  const base = {
+    tower: { commonDir: '.' },
+    ctx: { get: (name) => (name === 'subagents' ? { list: () => ['spawn'] } : undefined) },
+    config: { spawn: { requireLease: 'heavy-ci' } },
+    preset: 'tower-worker',
+    actor: { name: 'worker-m' },
+    exec: { agent: { id: 'session-1' } },
+    inspectLeases: async () => ({ leases: [] }),
+  }
+  // Row off: name the cause and both remedies, never "acquire it with tower_resource".
+  await assert.rejects(
+    () => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }) }),
+    (error) => {
+      assert.equal(error.code, 'lease-busy')
+      assert.match(error.message, /disabled by component tower-leases/)
+      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
+      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      return true
+    },
+  )
+  // Row on: the original advice is still correct and still offered.
+  await assert.rejects(() => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: true, reason: '' }) }), (error) => {
+    assert.equal(error.code, 'lease-busy')
+    assert.match(error.message, /acquire it with tower_resource before spawning/)
+    return true
+  })
+  // Row off: a lease left over from when the row was on must not let the spawn
+  // through — the check refuses before consulting the ledger and names the cause.
+  await assert.rejects(
+    () =>
+      precheckSpawnServices({
+        ...base,
+        inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'worker-m', expired: false }] }),
+        leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }),
+      }),
+    (error) => {
+      assert.equal(error.code, 'lease-busy')
+      assert.match(error.message, /cannot be satisfied/)
+      assert.match(error.message, /disabled by component tower-leases/)
+      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
+      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      return true
+    },
+  )
+  // Row on: the ledger path is unchanged — a held lease by this actor passes.
+  const held = await precheckSpawnServices({
+    ...base,
+    inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'worker-m', expired: false }] }),
+    leaseComponent: () => ({ enabled: true, reason: '' }),
+  })
+  assert.equal(held.provider, 'spawn')
+  // Row on, foreign holder: the holder is still named, without component noise.
+  await assert.rejects(
+    () =>
+      precheckSpawnServices({
+        ...base,
+        inspectLeases: async () => ({ leases: [{ name: 'heavy-ci', holder: 'someone-else', expired: false }] }),
+        leaseComponent: () => ({ enabled: true, reason: '' }),
+      }),
+    (error) => {
+      assert.equal(error.code, 'lease-busy')
+      assert.match(error.message, /held by "someone-else", not by this tower/)
+      assert.doesNotMatch(error.message, /disabled by component/)
+      return true
+    },
+  )
 })
 
 test('preset validation fails closed before work starts (#64)', async () => {

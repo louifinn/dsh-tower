@@ -45,7 +45,10 @@ profile's 28 loaded tools and pins 29 for the all-rows-on surface.
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
 sections 15 → 14. Those are recorded shrank values in the committed baseline,
-not free growth: a later increase still needs its own decision.
+not free growth: a later increase still needs its own decision. #136 shrank it
+once more, 56 → 55: `tests.enabled` was a second switch over the `tower-tests`
+component row, so the row is now the only switch and the key is gone (a config
+that still writes it fails with `config-unknown-key`).
 
 ## Config keys
 
@@ -89,7 +92,6 @@ not free growth: a later increase still needs its own decision.
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
 | `send.maxPerMinute` | tuning | Message rate limit; zero disables it. |
 | `send.interruptDefault` | tuning | Default for the interrupt-before-deliver flag. |
-| `tests.enabled` | core | Whether declared discovery may run at all. |
 | `tests.admission` | core | Chooses when repository code is executed. |
 | `tests.timeoutMs` | tuning | Per-command discovery timeout. |
 | `tests.maxBytes` | tuning | Captured discovery output cap. |

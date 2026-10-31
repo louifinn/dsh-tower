@@ -125,6 +125,12 @@ tower_teardown  repoRoot=D:\work\repo
 
 图片与文件附件会随指令一起作为一条完整的 `UserMessage` 转发。
 
+运行时前置条件（preset 行、组件行与配置的冲突）只在**进入**模式的路径上重新校验：
+裸 `/tower`、`/tower on`、`/tower on <指令>`，以及模式关闭时的 `/tower <指令>`。已经开启
+模式后的 `/tower <指令>`、`/tower off`、`/tower off <指令>` 与 `/tower ack` 不再重复校验，
+因此会话中途关掉某一行之后，人仍然退得出去、指令也仍然转发得出去；`tower_spawn`、规划与
+合并/预检各自保留自己的护栏。详见 [组件行与消息语言](docs/guide/quickstart.md#component-rows-runtime-preconditions-and-message-language)。
+
 ## 组件模型
 
 本 bundle 采用 **强制 host 锚点 + 可单独启停的可选行**（#121）：`cordis.patch.yml` 插入顶层

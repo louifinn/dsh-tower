@@ -29,7 +29,7 @@ row is a section of its parent and is not independently switchable.
 | `tower-skills` | visible | row | The 3 skills leave the catalog; the worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost. |
 | `tower-batch` | visible | row | tower_batch is not registered; missions, gates and merges are unaffected because no state depends on a batch. |
 | `tower-import` | visible | row | tower_import_legacy and tower_legacy_map are not registered; new repository state is unaffected. |
-| `tower-leases` | visible | row | tower_resource is not registered; advisory leases are coordination only, so nothing else depends on them. |
+| `tower-leases` | visible | row | tower_resource is not registered; advisory leases are coordination only, but spawn.requireLease still needs the tool to acquire one, so a config that sets spawn.requireLease is rejected at runtime preconditions instead of failing every spawn at lease-busy. |
 | `tower-tests` | visible | row | tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing. |
 | `tower-hmr` | visible | row | tower_reload and /tower reload are unavailable; a profile without HMR behaves exactly as before. Shipped disabled: enable the row for a linked dev profile. |
 | `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
@@ -107,7 +107,6 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. |
 | `send.maxPerMinute` | `optional-config` | Message rate limit; zero disables it. |
 | `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. |
-| `tests.enabled` | `optional-component` | Tuning inside the optional tower-tests component: it decides whether discovery runs when the row is on. Off with gates.requireTests:true is rejected at config resolution. |
 | `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. |
 | `tests.timeoutMs` | `optional-config` | Per-command discovery timeout. |
 | `tests.maxBytes` | `optional-config` | Captured discovery output cap. |

@@ -66,5 +66,8 @@ export function apply(ctx) {
   // lets tower_status/tower_doctor report "disabled by component tower-skills"
   // when the row is off instead of leaving the missing catalog unexplained.
   holdComponent(ctx, 'tower-skills')
-  ctx.skills.registerProvider(() => provider)
+  // #139: the provider must be unregistered with the plugin, so the catalog stops
+  // serving after unload/reload instead of keeping a dead provider alive. Host
+  // registries may or may not return a disposer; `ctx.effect` accepts both.
+  ctx.effect(() => ctx.skills.registerProvider(() => provider))
 }
