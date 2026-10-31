@@ -302,6 +302,9 @@ runProperty({
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/** The six layered production roots; root-level entry modules are added below. */
+const SOURCE_DIRS = ['domain', 'app', 'host', 'adapters', 'ports', 'tools']
+
 /** @param {string} dir @returns {string[]} */
 function sourceFiles(dir) {
   /** @type {string[]} */
@@ -314,21 +317,55 @@ function sourceFiles(dir) {
   return files
 }
 
+/**
+ * Every production module the static scan covers: the six layered roots plus the
+ * root-level entry modules (`index.js` is the `dsh` entry; its siblings are the
+ * `bin` shims). Scanning root files by directory listing keeps a code added to an
+ * entry point covered without another list to remember to update.
+ *
+ * @returns {string[]}
+ */
+function productionFiles() {
+  /** @type {string[]} */
+  const files = []
+  for (const dir of SOURCE_DIRS) files.push(...sourceFiles(path.join(REPO_ROOT, dir)))
+  for (const entry of fs.readdirSync(REPO_ROOT, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.(?:m?js)$/.test(entry.name)) continue
+    files.push(path.join(REPO_ROOT, entry.name))
+  }
+  return files
+}
+
+// Non-vacuity floor for the static scan. Measured on this tree: 144 total
+// `new TowerToolError(` calls, 125 of them with a literal first argument (19
+// take a runtime code and are exempt by design). A line-scoped scan — the bug
+// this floor guards against — sees only 90 of those 125, because 35 calls put
+// the literal code on the line after `new TowerToolError(`. 120 therefore fails
+// loudly on a regression to per-line matching while still tolerating a handful
+// of legitimate call sites being removed. The current measurement is recorded
+// here; this is not an exact-count assertion.
+const MIN_LITERAL_CALL_SITES = 120
+
 test('error catalogue, static: every literal TowerToolError code in production sources is catalogued', () => {
   /** @type {Array<{ file: string, line: number, code: string }>} */
   const found = []
+  // Match the WHOLE file text, not each line: `\s*` spans newlines, so a code on
+  // the line after `new TowerToolError(` is captured. A non-literal first
+  // argument (a variable / template / class reference) never matches, preserving
+  // the dynamic-code exemption: only literal codes are required to be catalogued.
   const literal = /new\s+TowerToolError\(\s*(['"])([^'"]+)\1/g
-  for (const dir of ['domain', 'app', 'host', 'adapters', 'ports', 'tools']) {
-    for (const file of sourceFiles(path.join(REPO_ROOT, dir))) {
-      const text = fs.readFileSync(file, 'utf8')
-      text.split('\n').forEach((line, index) => {
-        for (const match of line.matchAll(literal)) {
-          found.push({ file: path.relative(REPO_ROOT, file), line: index + 1, code: match[2] })
-        }
-      })
+  for (const file of productionFiles()) {
+    const text = fs.readFileSync(file, 'utf8')
+    for (const match of text.matchAll(literal)) {
+      const line = text.slice(0, match.index).split('\n').length
+      found.push({ file: path.relative(REPO_ROOT, file), line, code: match[2] })
     }
   }
-  assert.ok(found.length > 0, 'the static scan must find TowerToolError call sites')
+  assert.ok(
+    found.length >= MIN_LITERAL_CALL_SITES,
+    `the whole-file static scan found ${found.length} literal call sites, expected >= ${MIN_LITERAL_CALL_SITES}; ` +
+      'a per-line scan cannot see a code on the line after `new TowerToolError(`',
+  )
   const unknown = found.filter(({ code }) => !isErrorCode(code))
   assert.deepEqual(
     unknown,
