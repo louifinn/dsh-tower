@@ -48,7 +48,11 @@ sections 15 → 14. Those are recorded shrank values in the committed baseline,
 not free growth: a later increase still needs its own decision. #136 shrank it
 once more, 56 → 55: `tests.enabled` was a second switch over the `tower-tests`
 component row, so the row is now the only switch and the key is gone (a config
-that still writes it fails with `config-unknown-key`).
+that still writes it fails with `config-unknown-key`). #133 and #135 shrank it
+again, 55 → 53: `docs.board` and `archive.enabled` were the same kind of second
+switch over the new `tower-board` and `tower-archive` rows, so each row is now
+the only switch and both keys are gone (a config that still sets either fails
+with `config-unknown-key`, and the upgrade note names the replacing row).
 
 ## Config keys
 
