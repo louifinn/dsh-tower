@@ -60,6 +60,26 @@ npm run test:watch      # re-run the offline suite while editing
 
 Coverage is a diagnostic, not a gate; the meaningful signal is that the offline suite is green and the new behaviour has a dedicated case.
 
+### Property-based tests (fast-check, #130)
+
+The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
+
+Two tiers exist so the suite is affordable on every change and still thorough nightly:
+
+- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs in the `test` CI job right after `npm test`, on all three matrix legs, and is part of `npm run check`.
+- **Long tier** — `npm run test:property:long`. 2000 runs on one seed drawn from `node:crypto`, plus an `fc.statistics` distribution report for each property, so a shrinking corpus or a lopsided generator shows up in the log. It runs only in the nightly/manual `property-long` CI job (`schedule` / `workflow_dispatch`, never on push or pull_request) and locally with `npm run test:property:long` (the script selects the tier through `tests/property/tiers/long.env` and `node --env-file`, which works on Windows and POSIX).
+
+A failing property is replayable. Re-run the same file with the recorded seed and the fast-check path:
+
+```powershell
+# POSIX
+FC_SEED=131 FC_PATH=0:4:0:2:0:2:0:0 npm run test:property
+# PowerShell
+$env:FC_SEED='131'; $env:FC_PATH='0:4:0:2:0:2:0:0'; npm run test:property
+```
+
+`FC_SEED` alone switches every property in the file to that seed (comma-separate several); `FC_PATH` without `FC_SEED` is an error, because a path is only meaningful for its seed. When a property fails the harness also writes a JSON artifact to `tests/property/.artifacts/` (gitignored) with the test name, tier, seed, path, run count, counterexample, error and the exact replay environment. The nightly `property-long` job uploads that directory on failure. Writing artifacts is the harness's only filesystem side effect; keep properties themselves pure.
+
 ## 2. Real Web runtime (isolated profile)
 
 Purpose: verify command registration, real `agent.steer`, `ctx.goals`, the guard, and tool output. It uses **another profile and another port**, so your active profile is untouched.
