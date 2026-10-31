@@ -33,7 +33,6 @@ const CONFIG = {
   worktrees: { root: WORKTREES },
   init: { autoExclude: false },
   docs: { board: false },
-  tests: { enabled: false },
 }
 
 function createClock(start = 1_700_000_000_000, step = 1_000) {

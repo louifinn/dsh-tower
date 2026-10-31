@@ -127,7 +127,7 @@ The same reasoning covers the other rows:
 - `tower-hmr` ships off; `/tower reload` reports it by row name.
 
 No runtime path may claim a repository is "not configured" when a component row is the reason.
-Component causes are reported as `disabled by component <id>` and come with the fix (`enable the
+Runtime refusals report the cause as `disabled by component <id>` and come with the fix (`enable the
 <id> row in the plugin page and restart DSH`).
 
 ### Preconditions run on mode entry, not on every `/tower` input (#142)
@@ -165,6 +165,9 @@ only translated surface. Two rules keep the split honest:
    English remedy phrase stay verbatim inside the message, so a grep for
    `disabled by component tower-tests` works in every locale.
 
-`tower_status` and `tower_doctor` follow this policy: both print `disabled by component <id>` and the
-English "enable the ... row in the plugin page and restart DSH" action, and neither interpolates a
-translated label.
+`tower_status` and `tower_doctor` follow this policy but are not textually identical: `tower_status`
+returns the cause only — `components.disabled` is `[{id, reason}]` with `reason` set to
+`disabled by component <id>` — while `tower_doctor` repeats that reason and adds the English remedy
+(`enable the reported row in the plugin page and restart DSH` for the `components` check; a
+capability-specific check names the row directly, e.g. `enable the tower-tests row and restart DSH`).
+Neither interpolates a translated label.

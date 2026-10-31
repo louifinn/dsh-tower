@@ -29,7 +29,7 @@ row is a section of its parent and is not independently switchable.
 | `tower-skills` | visible | row | The 3 skills leave the catalog; the worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost. |
 | `tower-batch` | visible | row | tower_batch is not registered; missions, gates and merges are unaffected because no state depends on a batch. |
 | `tower-import` | visible | row | tower_import_legacy and tower_legacy_map are not registered; new repository state is unaffected. |
-| `tower-leases` | visible | row | tower_resource is not registered and /tower resource is unavailable; advisory leases are coordination only, but spawn.requireLease still needs the tool to acquire one, so a config that sets spawn.requireLease is rejected at runtime preconditions instead of failing every spawn at lease-busy. |
+| `tower-leases` | visible | row | tower_resource is not registered; advisory leases are coordination only, but spawn.requireLease still needs the tool to acquire one, so a config that sets spawn.requireLease is rejected at runtime preconditions instead of failing every spawn at lease-busy. |
 | `tower-tests` | visible | row | tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing. |
 | `tower-hmr` | visible | row | tower_reload and /tower reload are unavailable; a profile without HMR behaves exactly as before. Shipped disabled: enable the row for a linked dev profile. |
 | `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
