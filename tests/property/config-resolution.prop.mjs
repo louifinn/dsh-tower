@@ -1,5 +1,6 @@
-// Property 10 (#130): config resolution is total, reaches a fixed point, and
-// keeps exactly one cross-field rule (`gates.requireTests` ⇒ `tests.enabled`).
+// Property 10 (#130): config resolution is total, strictly one-pass
+// idempotent, and keeps exactly one cross-field rule (`gates.requireTests` ⇒
+// `tests.enabled`).
 //
 // WHAT THIS FILE CHECKS
 // ---------------------
@@ -9,7 +10,8 @@
 //   * rejects non-objects and unknown keys with `TowerToolError`;
 //   * fills schema defaults for every group;
 //   * folds the legacy top-level `section`/`allowAgentControl` aliases into
-//     `mode`;
+//     `mode`, and materializes the resolved `mode.promptSection` so `section`
+//     always mirrors it;
 //   * rejects the one contradictory combination:
 //     `gates.requireTests:true` with `tests.enabled:false` — a repository that
 //     requires test evidence cannot also disable discovery.
@@ -18,17 +20,13 @@
 //
 //   * totality: every generated valid config resolves without throwing, and the
 //     resolved object always carries all 15 documented surfaces with `section`
-//     as a string and `gates`/`tests` as objects;
-//   * fixed point: `resolve(resolve(raw))` is the documented fixed point. The
-//     one deviation is a raw config that omits *both* `section` and
-//     `mode.promptSection`: the first pass has no legacy alias to copy, so it
-//     returns `mode` without `promptSection` and `section:''`; the second pass
-//     sees `section:''` and back-fills `mode.promptSection:''`. From then on it
-//     is stable, so the universal law asserted here is
-//     `resolve³(raw) == resolve²(raw)`, plus the strict
-//     `resolve²(raw) == resolve(raw)` whenever the first pass produced
-//     `mode.promptSection`. The first-pass gap is filed as a finding rather than
-//     asserted away;
+//     and `mode.promptSection` as strings and `gates`/`tests` as objects;
+//   * fixed point: `resolve(resolve(raw))` deep-equals `resolve(raw)` for every
+//     generated valid config. One pass materializes every resolved field,
+//     including `mode.promptSection` (which mirrors `section`) and the legacy
+//     aliases, so the output is a fixed point of its own resolver (F17). A raw
+//     config that omits both `section` and `mode.promptSection` used to need a
+//     second pass to back-fill `mode.promptSection`; it no longer does;
 //   * the 16-way presence table for `gates.requireTests` × `tests.enabled`
 //     (absent group, empty group, explicit `true`, explicit `false`): exactly
 //     `requireTests:true` + `enabled:false` is rejected, everything else
@@ -112,7 +110,8 @@ runProperty({
     assert.equal(typeof resolved.gates.requireTests, 'boolean', 'requireTests resolves to a boolean default')
     assert.equal(typeof resolved.tests.enabled, 'boolean', 'tests.enabled resolves to a boolean default')
     assert.ok(Array.isArray(resolved.mode.denyTools) && resolved.mode.denyTools.length > 0, 'denyTools is always populated')
-    assert.equal(resolved.section, resolved.mode.promptSection ?? '', 'section mirrors promptSection')
+    assert.equal(typeof resolved.mode.promptSection, 'string', 'mode.promptSection is always a string')
+    assert.equal(resolved.section, resolved.mode.promptSection, 'section mirrors promptSection')
   },
 })
 
@@ -142,35 +141,33 @@ runProperty({
 })
 
 // ---------------------------------------------------------------------------
-// Fixed point (with the documented first-pass alias gap).
+// Strict one-pass fixed point (F17).
 // ---------------------------------------------------------------------------
 
 runProperty({
-  name: 'config fixed point: resolve³(raw) deep-equals resolve²(raw) for every valid config',
+  name: 'config fixed point: resolve(resolve(raw)) deep-equals resolve(raw) for every valid config',
   arbitrary: configArb,
   predicate: (raw) => {
     const once = resolve(raw)
     const twice = resolve(/** @type {any} */ (once))
-    const thrice = resolve(/** @type {any} */ (twice))
-    assert.deepEqual(thrice, twice, 'the second pass must be the fixed point of resolveTowerConfig')
+    assert.deepEqual(twice, once, 'one pass must materialize every resolved field, including mode.promptSection')
+    // A raw config that omits both `section` and `mode.promptSection` is the
+    // F17 regression; one pass must already back-fill the empty prompt section.
+    if (raw.section === undefined && raw.mode?.promptSection === undefined) {
+      assert.equal(once.mode.promptSection, '', 'the first pass materializes the default promptSection')
+      assert.equal(once.section, '', 'section mirrors the materialized promptSection')
+    }
   },
 })
 
 runProperty({
-  name: 'config fixed point: a config whose first pass has promptSection is stable after one pass',
-  arbitrary: configArb,
+  name: 'config fixed point: resolve is also stable from an empty config',
+  arbitrary: fc.constant({}),
   predicate: (raw) => {
-    const once = resolve(raw)
-    const twice = resolve(/** @type {any} */ (once))
-    if (once.mode.promptSection !== undefined) {
-      assert.deepEqual(twice, once, 'resolve must be idempotent once the legacy section alias is materialized')
-    } else {
-      // Documented first-pass gap (finding): no `section`, no `mode.promptSection`
-      // in the input, so pass 1 cannot back-fill `mode.promptSection`; pass 2 does.
-      assert.equal(raw.section, undefined, 'promptSection can only be missing when the legacy section alias is absent')
-      assert.equal(raw.mode?.promptSection, undefined)
-      assert.equal(twice.mode.promptSection, '', 'pass 2 back-fills the empty promptSection from section:""')
-    }
+    const once = resolveTowerConfig(raw)
+    assert.equal(once.section, '')
+    assert.equal(once.mode.promptSection, '')
+    assert.deepEqual(resolveTowerConfig(/** @type {any} */ (once)), once)
   },
 })
 
