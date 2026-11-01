@@ -39,6 +39,57 @@ import { TowerToolError } from '../errors.js'
 export const REVIEW_MODES = Object.freeze(['off', 'optional', 'required'])
 export const DEFAULT_REVIEW_MODE = 'optional'
 
+// Cordis materializes a `.volatile()` schema field as a live reference object
+// (`{ get() }` plus a non-enumerable `Symbol.for('cosmokit.volatile.write')`).
+// Settings forms hand the runtime these references, not plain values, so every
+// consumer below unwraps them before validating or comparing. Keeping the
+// helpers here (instead of a new config module) lets the schema import them
+// without a cycle: review.js has no dependency on schema.js.
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+/**
+ * True for the live reference Cordis/Schemastery creates for a volatile field.
+ * @param {unknown} value
+ * @returns {value is { get: () => unknown }}
+ */
+export function isVolatileRef(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof /** @type {{ get?: unknown }} */ (value).get === 'function' &&
+    Object.getOwnPropertySymbols(value).includes(VOLATILE_WRITE)
+  )
+}
+
+/**
+ * Read a volatile reference once; other values pass through unchanged.
+ * @template T
+ * @param {T | { get: () => T }} value
+ * @returns {T}
+ */
+export function unwrapVolatile(value) {
+  return /** @type {any} */ (isVolatileRef(value) ? value.get() : value)
+}
+
+/**
+ * Deep-copy a raw config object, replacing every volatile reference with its
+ * current value. Non-plain objects (for example a class instance) are returned
+ * as-is; Tower config is JSON-shaped plain data.
+ * @param {unknown} value
+ * @returns {any}
+ */
+export function materializeVolatile(value) {
+  const plain = unwrapVolatile(value)
+  if (Array.isArray(plain)) return plain.map((entry) => materializeVolatile(entry))
+  if (plain === null || typeof plain !== 'object') return plain
+  const proto = Object.getPrototypeOf(plain)
+  if (proto !== Object.prototype && proto !== null) return plain
+  /** @type {Record<string, unknown>} */
+  const copy = {}
+  for (const [key, entry] of Object.entries(plain)) copy[key] = materializeVolatile(entry)
+  return copy
+}
+
 /**
  * @param {unknown} value
  * @returns {value is 'off' | 'optional' | 'required'}
@@ -65,8 +116,10 @@ export function legacyReviewMode(requireReview) {
  */
 export function reviewModeOf(config) {
   const review = config?.review ?? {}
-  if (isReviewMode(review.mode)) return review.mode
-  if (typeof review.requireReview === 'boolean') return legacyReviewMode(review.requireReview)
+  const mode = unwrapVolatile(review.mode)
+  if (isReviewMode(mode)) return mode
+  const alias = unwrapVolatile(review.requireReview)
+  if (typeof alias === 'boolean') return legacyReviewMode(alias)
   return DEFAULT_REVIEW_MODE
 }
 
@@ -98,8 +151,8 @@ export function reviewUnavailable(config) {
  */
 export function resolveReviewPolicy(rawReview) {
   const review = rawReview && typeof rawReview === 'object' && !Array.isArray(rawReview) ? rawReview : {}
-  const mode = review.mode
-  const alias = review.requireReview
+  const mode = unwrapVolatile(review.mode)
+  const alias = unwrapVolatile(review.requireReview)
   if (mode !== undefined && !isReviewMode(mode)) {
     throw new TowerToolError(
       'config-invalid',

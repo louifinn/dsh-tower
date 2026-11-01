@@ -14,6 +14,9 @@
 // changing the tsconfig is enough and this gate follows.
 //
 // Excluded tiers are data with a reason, not silent gaps:
+//   - `client.js` is the core Web Client half (#M40): a browser artifact checked
+//     by tests/plugin-config-client.test.mjs and the client rules, not by the
+//     Node tsc program;
 //   - `ui-bundle/**` is the optional Web client: a browser artifact with DOM
 //     types and no Node runtime, checked by tests/ui-bundle.test.mjs and the
 //     architecture client rules instead of the Node tsc program;
@@ -30,6 +33,10 @@ const WALK_SKIP = new Set(['node_modules', '.git', '.dsh-tower-worktrees', 'cove
 
 /** Shipped `.js` tiers that are deliberately outside the Node tsc program. */
 export const NOT_CHECKED_TIERS = [
+  {
+    pattern: 'client.js',
+    reason: 'core Web client: browser artifact, checked by tests/plugin-config-client.test.mjs',
+  },
   {
     pattern: 'ui-bundle/**',
     reason: 'optional Web client: browser artifact, checked by tests/ui-bundle.test.mjs and the client architecture rules',

@@ -20,6 +20,7 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
   for (const required of [
     'cordis.patch.yml',
     'index.js',
+    'client.js',
     'locale/en.json',
     'locale/zh.json',
     'ui-bundle/index.js',
@@ -34,6 +35,7 @@ test('packaging: reviewed pack manifest covers required runtime files', () => {
     assert.ok(manifest.includes(required), `${required} must be in the published snapshot`)
   }
   const pkg = JSON.parse(read('package.json'))
+  assert.ok(pkg.files.includes('client.js'))
   assert.ok(pkg.files.includes('ui-bundle/'))
   assert.ok(pkg.files.includes('COMPATIBILITY.md'))
   assert.ok(pkg.files.includes('GLOSSARY.md'))
@@ -79,7 +81,7 @@ test('packaging: the real pack gate fails when ui-bundle/cordis.patch.yml is rem
         {
           name: 'tower-pack-fixture',
           version: '0.0.0',
-          files: ['cordis.patch.yml', 'index.js', 'host/', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
+          files: ['cordis.patch.yml', 'index.js', 'client.js', 'host/', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
         },
         null,
         2,

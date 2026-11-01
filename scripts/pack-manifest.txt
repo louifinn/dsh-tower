@@ -46,6 +46,7 @@ app/spawn-support.js
 app/spawn.js
 app/teardown.js
 app/tower.js
+client.js
 cordis.patch.yml
 docs/README.md
 docs/adr/0001-ports-adapters-as-data.md

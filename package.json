@@ -28,6 +28,7 @@
   },
   "exports": {
     ".": "./index.js",
+    "./client": "./client.js",
     "./worker": "./worker.js",
     "./reviewer": "./reviewer.js",
     "./skills": "./skills.js",
@@ -55,6 +56,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "client.js",
     "index.js",
     "worker.js",
     "reviewer.js",
@@ -86,6 +88,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
     }
   },
   "scripts": {

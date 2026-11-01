@@ -24,7 +24,7 @@ import {
   resolveTowerConfig,
 } from '../domain/config/schema.js'
 import { TowerToolError } from '../domain/errors.js'
-import { resolveReviewPolicy, reviewUnavailable } from '../domain/integration/review.js'
+import { materializeVolatile, resolveReviewPolicy, reviewUnavailable } from '../domain/integration/review.js'
 
 export { Config, DEFAULT_DENY_TOOLS, resolveTowerConfig }
 
@@ -32,11 +32,16 @@ const REPO_CONFIG_MAX_BYTES = 1024 * 1024
 
 // The last raw profile config `apply()` received; repository config is merged
 // over it so a repo can tune spawn/merge/review without editing the profile.
+//
+// #M40: this must stay the *raw* object. A `.volatile()` field arrives as a
+// live reference that Cordis updates in place on a settings write, and cloning
+// (JSON) would freeze a copy and hide the new value from runtimeConfig(). Only
+// readers that need plain data (profileConfig) materialize it.
 let profileRaw = {}
 
 export function configureRuntime(config) {
-  profileRaw = clone(config ?? {}) ?? {}
-  return resolveTowerConfig(config)
+  profileRaw = config ?? {}
+  return resolveTowerConfig(profileRaw)
 }
 
 export function runtimeConfig() {
@@ -45,7 +50,7 @@ export function runtimeConfig() {
 
 /** Raw profile config before defaults are materialized (for doctor warnings). */
 export function profileConfig() {
-  return clone(profileRaw) ?? {}
+  return clone(materializeVolatile(profileRaw)) ?? {}
 }
 
 export function repoConfigPath(commonDir) {
