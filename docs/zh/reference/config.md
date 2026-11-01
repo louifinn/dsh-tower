@@ -41,6 +41,9 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 （`required` 仍然强制门禁；只有该 mode 才会把解析后的别名镜像回 `true`）。仓库层会独立解析：它可以放宽
 审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，仓库层不能自行提高 mode。
 
+同样的三个选项也出现在插件页的 `dsh-tower` 配置区：**关闭**、**可选**（默认）和 **必需**，每个选项都有一行效果说明。
+该控件通过宿主设置表单写入 profile 配置，因此无需手动编辑文件或重新加载插件，页面就会接受并显示所选值。
+
 `mode.*` 分组是会话级的，不是仓库级的：为兼容 schema，它可以在仓库文件中出现，但只有 profile
 配置能控制 Tower 模式提示与模型切换开关。文件格式错误、值不是对象、未知顶层键，或违反声明 schema
 的值（例如 `merge.timeoutMs` 小于 1000）会以稳定的 `config-invalid` / `config-unknown-key`

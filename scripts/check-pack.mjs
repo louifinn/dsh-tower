@@ -16,6 +16,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REQUIRED_FILES = [
   'cordis.patch.yml',
   'index.js',
+  // #M40: the core Web Client half carries the Plugins-page review policy
+  // control; it is part of the published bundle like ui-bundle/.
+  'client.js',
   'locale/en.json',
   'locale/zh.json',
   // #121: every optional capability row and both preset-declaring rows explain

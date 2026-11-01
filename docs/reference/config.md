@@ -44,6 +44,11 @@ accepted and the mode wins (`required` still enforces the gate; the resolved ali
 profile with `review.mode:off` never registered `tower_review`, so a repository cannot raise its own
 mode.
 
+The same three choices are available on the Plugins page, in the `dsh-tower` configuration
+section: **Off**, **Optional** (the default) and **Required**, each with a one-line description of
+its effect. That control writes the profile config through the Host settings form, so the value is
+accepted and reflected on the page without a manual file edit or a plugin reload.
+
 The `mode.*` group is session-scoped, not repository-scoped: it is accepted in the repository file
 for schema compatibility but only the profile config controls the Tower-mode prompt and the
 model-controlled toggle. A malformed file, a non-object value, unknown top-level keys, or a value that

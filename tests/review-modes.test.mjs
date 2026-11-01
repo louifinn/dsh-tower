@@ -35,7 +35,7 @@ import {
 } from '../domain/integration/review.js'
 import { mergeGateBlockers } from '../domain/gate.js'
 import { Config, resolveTowerConfig } from '../domain/config/schema.js'
-import { configureRuntime, resolveRepoConfig } from '../host/config.js'
+import { configureRuntime, profileConfig, resolveRepoConfig, runtimeConfig } from '../host/config.js'
 import { submitReview } from '../app/review.js'
 import { assertSpawnableMission } from '../app/spawn-prechecks.js'
 import { assertPresetsAvailable } from '../host/presets.js'
@@ -125,12 +125,14 @@ test('review config: resolution materializes the mode and a consistent alias fix
     assert.equal(resolved.review.requireReview, alias, JSON.stringify(raw))
     assert.deepEqual(resolveTowerConfig(resolved), resolved, `one pass is a fixed point: ${JSON.stringify(raw)}`)
   }
-  // The schema accepts the canonical key. It deliberately does not materialize a
-  // default `mode`: Cordis may resolve the schema before `apply()`, and a
-  // materialized `mode:'optional'` would look like a user contradiction next to
-  // a legacy `requireReview:true`. The resolver applies the default instead.
-  assert.equal(Config({ review: { mode: 'off' } }).review.mode, 'off')
-  assert.equal(Config({}).review.mode, undefined)
+  // The schema accepts the canonical key and exposes it as a live volatile
+  // reference (#M40) so the Plugins page can edit it without a reload. It
+  // deliberately does not materialize a default `mode`: Cordis may resolve the
+  // schema before `apply()`, and a materialized `mode:'optional'` would look
+  // like a user contradiction next to a legacy `requireReview:true`. The
+  // resolver applies the default instead.
+  assert.equal(Config({ review: { mode: 'off' } }).review.mode.get(), 'off')
+  assert.equal(Config({}).review.mode.get(), undefined)
   assert.equal(Config({}).review.requireReview, false)
   assert.equal(resolveTowerConfig(Config({})).review.mode, 'optional')
   // Legacy upgrade through a schema-materialized config: `Config()` fills the
@@ -148,7 +150,7 @@ test('review config: Cordis-materialized shapes resolve without a false contradi
   // mirrored `false` is not a user contradiction: the mode is the specific
   // policy and `false` never overrides it.
   const cordisRequired = Config({ review: { mode: 'required' } })
-  assert.equal(cordisRequired.review.mode, 'required')
+  assert.equal(cordisRequired.review.mode.get(), 'required')
   assert.equal(cordisRequired.review.requireReview, false, 'Config materializes the deprecated default')
   const resolvedRequired = resolveTowerConfig(cordisRequired)
   assert.equal(resolvedRequired.review.mode, 'required', 'mode wins over the materialized false')
@@ -158,17 +160,51 @@ test('review config: Cordis-materialized shapes resolve without a false contradi
   // The same holds for `off`: the materialized false is compatible, not a
   // conflict, and the fixed point keeps the more specific mode.
   const cordisOff = Config({ review: { mode: 'off' } })
+  assert.equal(cordisOff.review.mode.get(), 'off')
   assert.equal(cordisOff.review.requireReview, false)
   assert.equal(resolveTowerConfig(cordisOff).review.mode, 'off')
 
   // An explicit `false` next to `required` is accepted too, with `required`
   // winning; the mode is the specific policy, not the boolean.
   const explicit = Config({ review: { mode: 'required', requireReview: false } })
+  assert.equal(explicit.review.mode.get(), 'required')
   assert.equal(explicit.review.requireReview, false, 'explicit false is preserved by the schema')
   const resolvedExplicit = resolveTowerConfig(explicit)
   assert.equal(resolvedExplicit.review.mode, 'required')
   assert.equal(resolvedExplicit.review.requireReview, true)
   assert.equal(resolveTowerConfig({ review: { mode: 'required', requireReview: false } }).review.mode, 'required')
+})
+
+test('review config: a live volatile write from the settings form reaches every reader', () => {
+  // #M40: the Plugins page writes `review.mode` through the Host settings form,
+  // which updates the Cordis volatile reference in place instead of reloading
+  // the plugin. runtimeConfig() must therefore read the reference, not a clone
+  // captured at apply() time.
+  const raw = Config({ review: { mode: 'required' } })
+  const ref = raw.review.mode
+  const write = Symbol.for('cosmokit.volatile.write')
+  assert.equal(ref.get(), 'required')
+  configureRuntime(raw)
+  assert.equal(runtimeConfig().review.mode, 'required')
+  assert.equal(profileConfig().review.mode, 'required')
+
+  ref[write]('off')
+  assert.equal(ref.get(), 'off')
+  assert.equal(runtimeConfig().review.mode, 'off', 'runtimeConfig sees the live write')
+  assert.equal(resolveTowerConfig(raw).review.mode, 'off', 'direct resolution sees the live write')
+  assert.equal(profileConfig().review.mode, 'off', 'the doctor snapshot sees the live write')
+  assert.equal(resolveReviewPolicy(raw.review).mode, 'off')
+
+  ref[write]('optional')
+  assert.equal(runtimeConfig().review.mode, 'optional')
+  assert.equal(runtimeConfig().review.requireReview, false)
+
+  // The resolved config is a plain snapshot: a later live write does not mutate
+  // the value a caller already received.
+  const snapshot = runtimeConfig()
+  ref[write]('required')
+  assert.equal(snapshot.review.mode, 'optional')
+  assert.equal(runtimeConfig().review.mode, 'required')
 })
 
 // ---------------------------------------------------------------------------

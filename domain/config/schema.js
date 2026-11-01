@@ -16,7 +16,7 @@
 import Schema from '@deepseek-ai/schemastery'
 import { TowerToolError } from '../errors.js'
 import { DEFAULT_MAX_REPORT_BYTES } from '../missions/completion.js'
-import { resolveReviewPolicy } from '../integration/review.js'
+import { materializeVolatile, resolveReviewPolicy } from '../integration/review.js'
 
 export const DEFAULT_DENY_TOOLS = [
   'create_goal',
@@ -175,7 +175,13 @@ export const Config = Schema.object({
     // sit next to a legacy `review.requireReview:true` and look like a user
     // contradiction. The resolver (`resolveTowerConfig`) is the single place
     // that applies the `optional` default, after alias resolution.
-    mode: Schema.union(['off', 'optional', 'required']).description(
+    // #M40: `.volatile()` is what makes the field editable from the DSH
+    // Plugins-page settings form. The form projection keeps only fields under a
+    // volatile ancestor, and Cordis then hands the runtime a live reference
+    // that is updated in place on a settings write (see host/config.js).
+    mode: Schema.union(['off', 'optional', 'required'])
+      .volatile()
+      .description(
       'Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
     ),
     requireReview: Schema.boolean()
@@ -441,7 +447,10 @@ export function assertSafeKeys(value, label) {
 
 /** @param {any} [rawConfig] */
 export function resolveTowerConfig(rawConfig) {
-  const raw = rawConfig ?? {}
+  // #M40: the profile config Cordis hands `apply()` carries `review.mode` as a
+  // live volatile reference. Materialize before validation so the value checked
+  // here is the current one; the reference itself stays live in host/config.js.
+  const raw = materializeVolatile(rawConfig ?? {})
   if (raw !== null && typeof raw !== 'object') throw new TowerToolError('config-invalid', 'Tower config must be an object')
   assertKnownKeys(raw, 'Tower config')
   let parsed
