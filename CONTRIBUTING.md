@@ -126,7 +126,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (728 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage), `npm run test:property` passes (111 generated property cases; also part of `npm run check`), and `npm run docs:check` passes.
+1. `npm test` passes locally (729 tests today, including protocol end-to-end against a real temporary Git repository and mock spawn coverage), `npm run test:property` passes (111 generated property cases; also part of `npm run check`), and `npm run docs:check` passes.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
