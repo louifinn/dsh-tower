@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 35 tool error codes.
+release defines 36 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -43,6 +43,7 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `provider-cooldown` | The provider is throttled; spawn is in a short cooldown. | yes | wait for the cooldown to expire, then retry | repeated retryable provider failures; wait for `blockedUntil` |
 | `preset-missing` | The configured agent preset is not registered. | no | install the tower-worker and tower-reviewer agent presets and restart DSH | missing `tower-worker`/`tower-reviewer` preset rows, DSH not restarted |
 | `reviewer-prerequisite` | The reviewer spawn prerequisite is not met. | no | complete the mission first, then spawn the reviewer | reviewer spawned before the mission is `completed`, or before a worktree exists |
+| `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry | `tower_spawn` with `role:"reviewer"`, or a review submission, while `review.mode` is `off` |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to | a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale | `mode.workspaceLock:true` and a second session calls a repo-scoped tool |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers | spawning a fifth worker with the default limit |

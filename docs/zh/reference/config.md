@@ -27,12 +27,18 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 
 ```json
 {
-  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
+  "review": { "mode": "required", "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" },
   "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
 }
 ```
+
+`review.mode` 就是审查策略：`off`、`optional` 或 `required`。`review.requireReview` 是保留一个版本的
+兼容别名（`true` → `required`，`false` → `optional`），请优先使用 `review.mode`。同一层同时设置两者时，
+`requireReview:true` 与任何非 `required` 的 mode 冲突，会以 `config-invalid` 拒绝并同时点名两个键；
+`requireReview:false` 与 `off`/`optional` 兼容（两者都表示审查不阻塞合并）。仓库层会独立解析：它可以放宽
+审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，仓库层不能自行提高 mode。
 
 `mode.*` 分组是会话级的，不是仓库级的：为兼容 schema，它可以在仓库文件中出现，但只有 profile
 配置能控制 Tower 模式提示与模型切换开关。文件格式错误、值不是对象、未知顶层键，或违反声明 schema
@@ -60,7 +66,8 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `mode.denyTools` | goal/todo/team/workflow/subagent 工具（默认 12 个） | 模式激活期间被拒绝的工具。 |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
 | `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
-| `review.requireReview` | `false` | 合并前是否强制独立 clean 审查。默认 `false`（审查可选）；设为 `true` 则要求 `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch` 全部通过。`tower_review` 始终可用。 |
+| `review.mode` | `optional` | 审查策略。`off` = 审查被有意关闭（不注册 `tower_review`、`tower_spawn` 拒绝 reviewer 角色、合并门禁忽略审查）；`optional` = 审查可用但从不阻塞合并（默认）；`required` = 绑定分支 tip 的 clean 审查是合并门禁（`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`）。 |
+| `review.requireReview` | `false` | `review.mode` 的兼容别名（已弃用）：`true` → `required`，`false` → `optional`。请优先使用 `review.mode`。`true` 与冲突的 `review.mode` 同时设置会以 `config-invalid` 拒绝并点名两个键；`false` 与 `off`/`optional` 兼容。 |
 | `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
 | `merge.timeoutMs` | `900000`（15 分钟） | `tower_merge` 默认超时，包含钩子；单次调用的 `timeoutMs` 优先。 |
 | `merge.maxBufferBytes` | `67108864`（64 MB） | 合并输出缓冲区。 |
@@ -85,7 +92,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
 | `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
 | `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。`tower-tests` 组件行关闭时，规划/进入模式会带解释拒绝该组合。 |
-| `gates.allowReviewExemption` | `false` | 在 `review.requireReview:true` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；全局审查关闭时无影响。 |
+| `gates.allowReviewExemption` | `false` | 在 `review.mode:required` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；`review.mode` 为 `off` 或 `optional` 时无影响（不会产生审查 blocker）。 |
 | `gates.maxReportBytes` | `32768`（32 KiB） | `tower_complete.report` 的 UTF-8 字节硬上限。超出时以 `invalid-argument` 拒绝并给出可执行的 `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。已存在的超限报告仍可读取。 |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。是否写出看板由 `tower-board` 组件行决定（#133）；`docs.board` 已移除，会作为未知键被拒绝。 |
 | `archive.afterDays` | `30` | 年龄触发：终态任务超过这么多天未更新，会在下次变更时归档（`0` 表示立即归档）。归档本身由 `tower-archive` 组件行决定（#135）；`archive.enabled` 已移除，会作为未知键被拒绝。 |

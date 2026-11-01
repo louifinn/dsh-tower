@@ -113,6 +113,15 @@ runProperty({
     assert.ok(Array.isArray(resolved.mode.denyTools) && resolved.mode.denyTools.length > 0, 'denyTools is always populated')
     assert.equal(typeof resolved.mode.promptSection, 'string', 'mode.promptSection is always a string')
     assert.equal(resolved.section, resolved.mode.promptSection, 'section mirrors promptSection')
+    // #M39: `review.mode` is always one of the three documented values, and the
+    // deprecated boolean mirror is exactly `mode === 'required'` — the invariant
+    // that makes a second resolution a fixed point.
+    assert.ok(['off', 'optional', 'required'].includes(resolved.review.mode), 'review.mode resolves to one of the three modes')
+    assert.equal(
+      resolved.review.requireReview,
+      resolved.review.mode === 'required',
+      'the deprecated alias mirrors review.mode',
+    )
   },
 })
 
@@ -138,6 +147,7 @@ runProperty({
     assert.equal(resolved.gates.requireTests, false)
     assert.equal(resolved.tests.admission, 'off')
     assert.equal(resolved.review.requireReview, false)
+    assert.equal(resolved.review.mode, 'optional', 'the documented default review policy is optional')
   },
 })
 

@@ -13,7 +13,7 @@ export function registerReviewTool(ctx, deps) {
   define(ctx, {
     name: 'tower_review',
     description:
-      'Submit an independent review verdict bound to the current branch tip: a completed mission starts a review round, and while the mission is active a later route may still record a verdict for that same reviewed tip, appending to the same round without changing the status (a moved tip is rejected with an explanation). status is "clean", "p1-Nitems", or "p2-Nitems"; merge is "merge", "fix-then-merge", or "hold" (only clean + merge is later approval). Non-clean returns the mission to active. Reviewers are capped at 5 rounds per branch; a tower-submitted review is break-glass and requires breakGlassReason.',
+      'Submit an independent review verdict bound to the current branch tip: a completed mission starts a review round, and while the mission is active a later route may still record a verdict for that same reviewed tip, appending to the same round without changing the status (a moved tip is rejected with an explanation). status is "clean", "p1-Nitems", or "p2-Nitems"; merge is "merge", "fix-then-merge", or "hold" (only clean + merge is later approval). Non-clean returns the mission to active. Reviewers are capped at 5 rounds per branch; a tower-submitted review is break-glass and requires breakGlassReason. The tool is not registered when review.mode is off.',
     parameters: ReviewInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,

@@ -57,6 +57,7 @@ export type ErrorCode =
   | 'provider-cooldown'
   | 'preset-missing'
   | 'reviewer-prerequisite'
+  | 'review-disabled'
   | 'not-authorized'
   | 'workspace-busy'
   | 'worker-limit'
@@ -72,6 +73,15 @@ export type ErrorCode =
   | 'legacy-invalid'
   | 'tool-internal'
 // generated:vocabulary:end
+
+/**
+ * Review policy mode (#M39): `off` (review intentionally unavailable),
+ * `optional` (available, never required; default) or `required` (a clean review
+ * bound to the branch tip is a merge blocker). The deprecated
+ * `review.requireReview` boolean normalizes to this: true -> required,
+ * false -> optional.
+ */
+export type ReviewMode = 'off' | 'optional' | 'required'
 
 /** One machine-readable gate/completion blocker: a stable code plus a detail. */
 export interface Blocker {

@@ -16,6 +16,7 @@
 import Schema from '@deepseek-ai/schemastery'
 import { TowerToolError } from '../errors.js'
 import { DEFAULT_MAX_REPORT_BYTES } from '../missions/completion.js'
+import { resolveReviewPolicy } from '../integration/review.js'
 
 export const DEFAULT_DENY_TOOLS = [
   'create_goal',
@@ -57,7 +58,7 @@ const SECTION_KEYS = {
     'maxEntries',
     'lockTimeoutMs',
   ],
-  review: ['requireReview', 'maxRoundsPerReviewer'],
+  review: ['mode', 'requireReview', 'maxRoundsPerReviewer'],
   merge: ['timeoutMs', 'maxBufferBytes'],
   git: ['timeoutMs'],
   worktrees: ['root'],
@@ -169,13 +170,21 @@ export const Config = Schema.object({
     .default({})
     .description('Tower-mode behavior and persistence.'),
   review: Schema.object({
+    // #M39: deliberately *no* schema default here. Cordis resolves the schema
+    // before `apply()` on some paths, and a materialized `mode:'optional'` would
+    // sit next to a legacy `review.requireReview:true` and look like a user
+    // contradiction. The resolver (`resolveTowerConfig`) is the single place
+    // that applies the `optional` default, after alias resolution.
+    mode: Schema.union(['off', 'optional', 'required']).description(
+      'Review policy. off = review is intentionally unavailable (no tower_review, reviewer spawn refused, merge gate ignores review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
+    ),
     requireReview: Schema.boolean()
       .default(false)
-      .description('Require an independent clean review before merge. Default false: review is optional; set true to enforce the review gate globally.'),
+      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. Set only one of the two: true next to a conflicting mode is rejected.'),
     maxRoundsPerReviewer: Schema.natural().min(1).default(5).description('Review-round cap per reviewer per mission branch.'),
   })
     .default({})
-    .description('Review policy.'),
+    .description('Review policy: off, optional (default) or required.'),
   merge: Schema.object({
     timeoutMs: Schema.natural().min(1000).default(900000).description('Default tower_merge timeout, including pre-merge hooks.'),
     maxBufferBytes: Schema.natural().min(65536).default(67108864).description('Captured merge output buffer.'),
@@ -464,11 +473,20 @@ export function resolveTowerConfig(rawConfig) {
   // `resolve(raw)` for every valid config without changing any resolved value.
   if (mode.promptSection === undefined) mode.promptSection = ''
   if (!Array.isArray(mode.denyTools) || mode.denyTools.length === 0) mode.denyTools = [...DEFAULT_DENY_TOOLS]
+  // #M39: resolve the review policy here so every consumer reads one shape.
+  // `review.mode` is canonical; the deprecated `review.requireReview` boolean is
+  // materialized from it (true only for `required`), which keeps older readers
+  // working and makes `resolve(resolve(raw))` a fixed point — the mirrored alias
+  // is compatible with the mode it came from (domain/integration/review.js).
+  const reviewPolicy = resolveReviewPolicy(raw.review)
+  const review = clone(parsed.review ?? {})
+  review.mode = reviewPolicy.mode
+  review.requireReview = reviewPolicy.mode === 'required'
   return {
     section: mode.promptSection,
     init: clone(parsed.init ?? {}),
     mode,
-    review: clone(parsed.review ?? {}),
+    review,
     merge: clone(parsed.merge ?? {}),
     git: clone(parsed.git ?? {}),
     worktrees: clone(parsed.worktrees ?? {}),

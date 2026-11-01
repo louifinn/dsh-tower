@@ -553,18 +553,29 @@ test('#121: tower-tests off still rejects gates.requireTests true', async () => 
   )
 })
 
-test('#121: review.requireReview true with the reviewer row off is locked with an explanation', async () => {
+test('#121: review.mode required with the reviewer row off is locked with an explanation', async () => {
   const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
   compose(ctx)
-  apply(ctx, { review: { requireReview: true } })
+  apply(ctx, { review: { mode: 'required' } })
   await assert.rejects(
     () => callCommand(commands, makeAgent('agent-reviewer-off'), ''),
     (error) => {
       assert.equal(error.code, 'preset-missing')
       assert.match(error.message, /preset-tower-reviewer/)
-      assert.match(error.message, /review\.requireReview is true/)
+      assert.match(error.message, /review\.mode is required/)
       return true
     },
+  )
+})
+
+test('#M39: review.requireReview is a normalized alias for review.mode', async () => {
+  const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
+  compose(ctx)
+  // The deprecated boolean still reaches the same lock (true -> required).
+  apply(ctx, { review: { requireReview: true } })
+  await assert.rejects(
+    () => callCommand(commands, makeAgent('agent-reviewer-off-alias'), ''),
+    /review\.mode is required/,
   )
 })
 

@@ -35,7 +35,7 @@ row is a section of its parent and is not independently switchable.
 | `tower-archive` | visible | row | Terminal missions are not moved out of state.json, so the hot state keeps growing and status/doctor keep loading their full history. Merges, gates and every other capability keep working; nothing is deleted. afterDays/maxMissions keep their tuning meaning. |
 | `tower-hmr` | visible | row | Development-only tooling: tower_reload and /tower reload are unavailable, so a linked-profile reload has to be triggered outside Tower. A normal profile behaves exactly as before; the row ships disabled on purpose. |
 | `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
-| `preset-tower-reviewer` | visible | row | Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error. |
+| `preset-tower-reviewer` | visible | row | Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.mode is off or optional (merge is unaffected; off does not use the preset at all); with review.mode required, planning/mode entry is locked with an explanatory error. |
 | `tower-ui` | visible | row | The Tower web UI plugin does not load in this profile: no Tower tool cards, composer-dock summary or status strip. Host tools, missions, state and the MISSIONS.md board are unaffected. |
 
 ## Forbidden to disable
@@ -50,7 +50,7 @@ and `cordis.patch.yml`; a disabler that is not recorded here fails the gate.
 | the Tower host | Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it. The visible `tower` anchor is the all-off boundary, and the host section nested under it may never become its own switch. | none | none may exist |
 | tower_doctor (read-only health contract) | Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the tool is registered for every configuration. | none | none may exist |
 | tower_recover (stale state-lock escape) | The escape hatch must exist whenever the lock it repairs can be left behind. #122 removed exposeRecovery and the exposeOperational master switch; the tool is registered for every configuration. | none | none may exist |
-| the review contract | review.requireReview is a merge blocker, not a component; a row may not switch it off. The reviewer row is conditional, not a way to weaken the gate. | none | none may exist |
+| the review contract | The review policy is configuration, not a component: no group, row or boolean key may switch it off. review.mode is the policy selector (off/optional/required), and off is a documented mode that also removes tower_review; the reviewer row is conditional, never a way to weaken the gate. | none | none may exist |
 | the merge gates | gates.* decides delivery; a component may not bypass it. | none | none may exist |
 
 ## Gateable tools
@@ -92,7 +92,8 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `mode.storePath` | `optional-config` | Custom mode-store location; no capability is removed. |
 | `mode.maxEntries` | `optional-config` | Bounds the persisted mode store. |
 | `mode.lockTimeoutMs` | `optional-config` | Bounded wait for the cross-process mode lock. |
-| `review.requireReview` | `forbidden-to-disable` | Turns independent review into a merge blocker; no component may switch it off. With it on, the preset-tower-reviewer row may not be off (planning/mode entry refuse the combination). |
+| `review.mode` | `core` | The review policy itself: off, optional or required. It is policy configuration, not a component row and not a boolean switch; off intentionally removes tower_review, refuses reviewer spawn and makes the merge gate ignore review. The reviewer preset row stays a capability the mode may leave unused. |
+| `review.requireReview` | `forbidden-to-disable` | Deprecated boolean alias for review.mode (true -> required, false -> optional). With review.mode required, the preset-tower-reviewer row may not be off (planning/mode entry refuse the combination). |
 | `review.maxRoundsPerReviewer` | `forbidden-to-disable` | Caps review rounds; part of the review contract. |
 | `merge.timeoutMs` | `optional-config` | Default merge timeout; a per-call value wins. |
 | `merge.maxBufferBytes` | `optional-config` | Captured merge output buffer. |
@@ -135,6 +136,7 @@ hides a capability cannot use the tuning class without that record.
 
 | Key |
 |---|
+| `review.mode` |
 | `spawn.requireLease` |
 | `tests.admission` |
 
