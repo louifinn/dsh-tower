@@ -16,6 +16,7 @@ import {
 } from '../domain/vocabulary.js'
 import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { runtimeConfig } from './config.js'
+import { reviewUnavailable } from '../domain/integration/review.js'
 import { runDoctor } from './doctor.js'
 import { createHmrBridge } from './hmr.js'
 import { assertRuntimePreconditions } from './presets.js'
@@ -652,7 +653,14 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerFindingsTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerReviewTool(ctx, { openTower, define, actorFor })
+  // #M39: `review.mode:off` is the one configuration that removes tower_review
+  // from the mounted surface. The name is still recorded before the decision so
+  // the concept budget keeps measuring the build surface (the same rule the
+  // shipped-off component rows follow), and status/doctor report the mode as
+  // intentionally unavailable. A repository layer cannot re-enable the tool
+  // (host/config.js refuses that); the profile owns the mounted surface.
+  recordToolRegistration('tower_review')
+  if (!reviewUnavailable(runtimeConfig())) registerReviewTool(ctx, { openTower, define, actorFor })
 
   registerPreflightTool(ctx, { openTower, define, observeActivity })
 

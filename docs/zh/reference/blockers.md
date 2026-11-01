@@ -5,6 +5,10 @@
 `tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
 在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 32 个稳定 blocker/failure code。
 
+下列审查 blocker（`no-review`、`review-mission-mismatch`、`not-clean`、`review-hold`、
+`review-not-approved`、`tip-moved`、`review-exemption-invalid`）只在 `review.mode` 为 `required`
+时产生。`off` 或 `optional` 不会产生审查 blocker；`off` 还会移除 `tower_review` 并拒绝 reviewer spawn。
+
 ## 门禁 blocker（26 个）
 
 | Code | 含义 / 下一步 |
@@ -20,12 +24,12 @@
 | `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。在大小写敏感的检出上，仅大小写不同的路径仍会被拒绝，detail 会指出折叠大小写后本可匹配的 scope 条目。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未满足：build 依赖须 `merged`/`abandoned`；survey 依赖在 `completed` 即视为满足（含归档记录）。 |
-| `no-review` | `review.requireReview:true` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
-| `review-mission-mismatch` | `review.requireReview:true` 且最新审查属于另一个 mission。 |
-| `not-clean` | `review.requireReview:true` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮（同一轮的各 route 结论会追加记录，不会让状态反复翻转）。 |
-| `review-hold` | `review.requireReview:true` 且最新审查建议 hold；必须由后续的干净审查取代。 |
-| `review-not-approved` | `review.requireReview:true` 且最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
-| `tip-moved` | `review.requireReview:true` 且审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |
+| `no-review` | `review.mode:required` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
+| `review-mission-mismatch` | `review.mode:required` 且最新审查属于另一个 mission。 |
+| `not-clean` | `review.mode:required` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮（同一轮的各 route 结论会追加记录，不会让状态反复翻转）。 |
+| `review-hold` | `review.mode:required` 且最新审查建议 hold；必须由后续的干净审查取代。 |
+| `review-not-approved` | `review.mode:required` 且最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
+| `tip-moved` | `review.mode:required` 且审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |
 | `worker-busy` | 该 mission 的 roster agent 正在运行；等待或让其退役。 |
 | `worker-status-unknown` | 父目录不可用，无法证明 live roster agent 已停止；等目录恢复后重试，或先 adopt。 |
 | `base-wrong-branch` | 主检出不在记录的基线分支上。 |
@@ -33,7 +37,7 @@
 | `worker-stale` | 该 mission 的 roster worker 超过 `spawn.staleMs` 没有目录活动；合并前 adopt（只有确实还在运行时才 interrupt）。 |
 | `tests-missing` | 启用了 `gates.requireTests` 且没有针对当前分支 tip 的通过测试回执；运行 `tower_test` 或 `tower_complete`。 |
 | `tests-failed` | 最新测试发现回执失败，或不满足 minCount/required 检查。修复测试并重跑。 |
-| `review-exemption-invalid` | `review.requireReview:true` 且 mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
+| `review-exemption-invalid` | `review.mode:required` 且 mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
 | `merge-intent-pending` | 崩溃/失败前记录了合并意图；先运行 `tower_merge` 对账，再进行其他门禁。 |
 
 ## 合并失败（4 个）

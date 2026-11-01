@@ -2,6 +2,7 @@
 // service/provider/lease validation. Split out of tools/spawn.js; no I/O.
 import { TowerToolError } from '../domain/errors.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
+import { reviewUnavailable } from '../domain/integration/review.js'
 
 /**
  * Pick a unique roster name before any activation.
@@ -27,10 +28,19 @@ export function resolveRosterName({ role, missionId, requested, roster }) {
 
 /**
  * Role/mission preconditions checked before any provisioning.
- * @param {{ role: string, context: any }} input
+ * `config` is the repository-resolved Tower config (#M39): with
+ * `review.mode:off` there is no review to dispatch, so the reviewer role is
+ * refused before a worktree, preset or activation is touched.
+ * @param {{ role: string, context: any, config?: any }} input
  */
-export function assertSpawnableMission({ role, context }) {
+export function assertSpawnableMission({ role, context, config }) {
   if (role === 'reviewer') {
+    if (reviewUnavailable(config)) {
+      throw new TowerToolError(
+        'review-disabled',
+        'review.mode is off, so review is unavailable and a reviewer cannot be spawned',
+      )
+    }
     if (!context.mission.worktree) {
       throw new TowerToolError('reviewer-prerequisite', 'reviewer needs an existing mission worktree; spawn a worker first')
     }

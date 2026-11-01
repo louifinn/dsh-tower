@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 53,
+      "value": 54,
       "decisions": [
         {
           "from": 64,
@@ -12,6 +12,13 @@
           "date": "2026-11-03",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "Recorded contraction, not a free ratchet (#138). #121 removed the seven tools.expose* keys plus dev.hotReload, #136 replaced tests.enabled with the tower-tests row, and #133/#135 replaced docs.board/archive.enabled with the tower-board/tower-archive rows. The chain now continues here: the config-key surface is two-way like components, so any later increase or decrease needs its own dated decision."
+        },
+        {
+          "from": 53,
+          "to": 54,
+          "date": "2026-11-03",
+          "adr": "docs/adr/0005-component-surface.md",
+          "note": "#M39: one new key, review.mode (off/optional/required), replaces the deprecated review.requireReview boolean as the review policy. It is not a fifth component row: the reviewer preset row stays a capability, and the mode decides whether it is required (required) or unused (off). review.requireReview remains accepted for one release as a normalized alias, so it is a deprecated key rather than a removed one and the surface grows by exactly one."
         }
       ]
     },

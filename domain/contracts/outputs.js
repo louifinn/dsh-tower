@@ -87,6 +87,7 @@ const SCHEMAS = {
       gitLock: S.obj({ held: S.bool, pid: S.any, phase: S.any, heldMs: S.any }),
       mode: S.any,
       spawn: S.any,
+      review: S.any,
       towerAgentId: S.any,
       ownerMissing: S.bool,
     },
@@ -259,6 +260,7 @@ const SCHEMAS = {
       }),
       reports: S.any,
       surface: S.any,
+      review: S.any,
       archive: S.obj({
         missions: S.any,
         archivedMissions: S.int,

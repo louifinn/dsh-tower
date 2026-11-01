@@ -24,6 +24,7 @@ import {
   resolveTowerConfig,
 } from '../domain/config/schema.js'
 import { TowerToolError } from '../domain/errors.js'
+import { resolveReviewPolicy, reviewUnavailable } from '../domain/integration/review.js'
 
 export { Config, DEFAULT_DENY_TOOLS, resolveTowerConfig }
 
@@ -92,6 +93,10 @@ export async function readRepoConfig(commonDir) {
     // Validate value types without letting the schema's defaults win over the
     // profile layer: merge into an empty raw object and discard the result.
     Config(parsed)
+    // #M39: the schema accepts both review keys; only the resolver knows that an
+    // explicit `requireReview:true` next to a conflicting `review.mode` is a
+    // contradiction. Reject it here, before the layer can be merged.
+    resolveReviewPolicy(parsed.review)
   } catch (error) {
     throw new TowerToolError('config-invalid', `repo config at ${file} is invalid: ${String(error?.message ?? error)}`)
   }
@@ -129,6 +134,33 @@ export async function resolveRepoConfig(repo) {
   }
   if (!Array.isArray(merged.mode?.denyTools) || merged.mode.denyTools.length === 0) {
     merged.mode = { ...(merged.mode ?? {}), denyTools: [...DEFAULT_DENY_TOOLS] }
+  }
+  // #M39: the review policy is resolved per layer instead of deep-merging two
+  // resolved shapes. A resolved base always carries both `review.mode` and its
+  // mirrored alias, so a repository layer that sets only one of the two would
+  // otherwise pair a stale inherited `mode` with the new alias. The repository
+  // layer wins as a whole when it names either key; a layer that names neither
+  // inherits the profile policy untouched.
+  const repoReview = repoLayer.review
+  if (repoReview && typeof repoReview === 'object' && !Array.isArray(repoReview)) {
+    const explicit = repoReview.mode !== undefined || repoReview.requireReview !== undefined
+    if (explicit) {
+      const repoPolicy = resolveReviewPolicy(repoReview)
+      if (reviewUnavailable(base) && repoPolicy.mode !== 'off') {
+        // The tool surface is fixed when the plugin applies: a profile with
+        // review off never registered tower_review, so a repository may relax
+        // review further but cannot re-enable a tool that does not exist.
+        throw new TowerToolError(
+          'config-invalid',
+          `review.mode is off in the profile, so tower_review is not registered; repository config cannot set review.mode:${repoPolicy.mode}. Set review.mode in the profile instead.`,
+        )
+      }
+      merged.review = {
+        ...(merged.review ?? {}),
+        mode: repoPolicy.mode,
+        requireReview: repoPolicy.mode === 'required',
+      }
+    }
   }
   merged.section = merged.mode?.promptSection ?? merged.section ?? ''
   return {

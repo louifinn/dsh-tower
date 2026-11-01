@@ -29,6 +29,7 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `provider-cooldown` | The provider is throttled; spawn is in a short cooldown. | yes | wait for the cooldown to expire, then retry |
 | `preset-missing` | The configured agent preset is not registered. | no | install the tower-worker and tower-reviewer agent presets and restart DSH |
 | `reviewer-prerequisite` | The reviewer spawn prerequisite is not met. | no | complete the mission first, then spawn the reviewer |
+| `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers |

@@ -65,8 +65,16 @@ config-key count is two-way: a later increase **or** decrease needs its own
 decision naming an ADR, unlike sections and tools. The same wave makes the gate
 import `OPERATIONAL_TOOLS` instead of scraping it, discover every shipped
 `cordis.patch.yml` in both directions, review the non-boolean behaviour knobs
-(`spawn.requireLease`, `tests.admission`), and refuse a row config outside its
-component's `allowedOverrides`.
+(`spawn.requireLease`, `tests.admission`, and now `review.mode`), and refuse a row
+config outside its component's `allowedOverrides`.
+
+#M39 grew the config surface by exactly one, 53 → 54: `review.mode`
+(`off`/`optional`/`required`) is the review policy, and the deprecated
+`review.requireReview` boolean stays accepted for one release as a normalized
+alias. It is not a fifth component row: `preset-tower-reviewer` remains a
+capability row and `review.mode:off` simply leaves it unused (no `tower_review`,
+no reviewer spawn, no review blockers). The dated decision records both the new
+key and why the old boolean was not removed in the same release.
 
 ## Config keys
 
@@ -92,7 +100,8 @@ component's `allowedOverrides`.
 | `mode.storePath` | niche | Custom mode-store location added for one deployment workflow. Removal note: derive the path from `$DSH_HOME` in the next minor; no in-tree caller sets this key. |
 | `mode.maxEntries` | tuning | Bounds the persisted mode store. |
 | `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process mode lock. |
-| `review.requireReview` | core | Turns the review gate into a merge blocker. |
+| `review.mode` | core | The review policy itself (`off`/`optional`/`required`); it replaces the deprecated boolean as the single gate switch. |
+| `review.requireReview` | core | Deprecated alias for `review.mode` (`true` → `required`, `false` → `optional`); retained for one release. |
 | `review.maxRoundsPerReviewer` | core | Caps review rounds; changes the review lifecycle. |
 | `merge.timeoutMs` | tuning | Default merge timeout; a per-call value wins. |
 | `merge.maxBufferBytes` | tuning | Captured merge output buffer. |

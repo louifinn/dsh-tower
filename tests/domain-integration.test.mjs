@@ -171,18 +171,26 @@ test('merge result and activity strings stay byte-compatible', () => {
 test('landed-merge reconciliation selects reviews and ancestry outcomes purely', () => {
   const mission = { id: 'M1', status: 'completed', worktree: { branch: 'tower/m1', path: 'x' }, reviewPolicy: 'required-clean' }
   const review = { missionId: 'M1', branch: 'tower/m1', round: 1, status: 'clean', mergeVerdict: 'merge', reviewedCommit: 'r1' }
-  assert.equal(landedMergeCandidate({ ...mission, status: 'active' }, [review], {}), null)
-  assert.deepEqual(landedMergeCandidate(mission, [review], {}), { exempt: false, latest: review })
+  // #M39: review evidence is demanded only by `review.mode:required`; a bare
+  // config resolves to the optional default.
+  const required = { review: { mode: 'required' } }
+  assert.equal(landedMergeCandidate({ ...mission, status: 'active' }, [review], required), null)
+  assert.deepEqual(landedMergeCandidate(mission, [review], required), { exempt: false, latest: review })
   assert.equal(
-    landedMergeCandidate(mission, [{ ...review, status: 'p1-1items' }], {}),
+    landedMergeCandidate(mission, [{ ...review, status: 'p1-1items' }], required),
     null,
   )
   assert.deepEqual(
     landedMergeCandidate({ ...mission, reviewPolicy: 'none', reviewExemptionReason: 'single file' }, [], {
+      review: { mode: 'required' },
       gates: { allowReviewExemption: true },
     }),
     { exempt: true, latest: null },
   )
+  // `off`/`optional` reconcile a landed branch without review evidence.
+  for (const mode of ['off', 'optional']) {
+    assert.deepEqual(landedMergeCandidate(mission, [], { review: { mode } }), { exempt: true, latest: null })
+  }
   assert.deepEqual(
     landedMergeEvidence({
       missionId: 'M1',

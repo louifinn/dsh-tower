@@ -37,7 +37,7 @@ export function registerSpawnTool(ctx, deps) {
   define(ctx, {
     name: 'tower_spawn',
     description:
-      'Spawn a worker or reviewer for a mission. Workers use the tower-worker preset; reviewers require a completed mission and use the read-only tower-reviewer preset. Provisions (or reuses) the mission git worktree and branch, generates a self-contained briefing, and starts a background subagent in that worktree. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns record the branch tip so a reviewer that modifies the branch cannot submit a review. Returns immediately unless wait=true.',
+      'Spawn a worker or reviewer for a mission. Workers use the tower-worker preset; reviewers require a completed mission and use the read-only tower-reviewer preset, and the reviewer role is refused when review.mode is off. Provisions (or reuses) the mission git worktree and branch, generates a self-contained briefing, and starts a background subagent in that worktree. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns record the branch tip so a reviewer that modifies the branch cannot submit a review. Returns immediately unless wait=true.',
     parameters: SpawnInput,
     aliases: {"missionId":["id"],"waitMs":["wait_ms"]},
     requiresMissionId: true,
@@ -54,7 +54,7 @@ export function registerSpawnTool(ctx, deps) {
       const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : config.spawn.workerPreset
       const model = isReviewerRole(role) ? config.spawn.reviewerModel : config.spawn.workerModel
       const context = await tower.missionContext(args.missionId)
-      assertSpawnableMission({ role, context })
+      assertSpawnableMission({ role, context, config })
       const spawned = await enqueueSpawn(tower.root, async () => {
         const observed = await observeActivity(ctx, tower)
         await tower.reconcileObservedInactive(observed.activity)

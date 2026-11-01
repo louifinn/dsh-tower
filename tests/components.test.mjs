@@ -94,12 +94,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 53 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 54 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 53)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 53)
+  assert.equal(report.surface.keys.length, 54)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 54)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
