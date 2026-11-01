@@ -29,6 +29,7 @@ import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
 import {
   checkComponents,
+  checkReviewPolicySurface,
   checkRowLabelSources,
   checkRowLocaleCoverage,
   checkShippedPatchCoverage,
@@ -94,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 53 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 54 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 53)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 53)
+  assert.equal(report.surface.keys.length, 54)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 54)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -139,6 +140,87 @@ test('the generated reference is a rendering of the source of truth, not prose',
   for (const row of realSurface().keys) {
     assert.ok(expected.includes(`| \`${row.name}\` | \`${row.class}\` |`), `reference lists ${row.name}`)
   }
+})
+
+test('the review-policy decision is dated and count-consistent (#M42)', () => {
+  const surface = realSurface()
+  const baseline = readBaseline(root)
+  const reference = read('docs/reference/component-surface.md')
+  const adr = read(surface.adr)
+
+  assert.match(surface.date, /^\d{4}-\d{2}-\d{2}$/)
+  assert.equal(surface.date, '2026-11-01', 'the reclassification carries its own decision date')
+  assert.match(
+    adr,
+    new RegExp(`## Addendum \\(wave 5\\)[\\s\\S]*?- Date: ${surface.date}`),
+    'ADR 0005 records the wave-5 decision on the surface decision date',
+  )
+  assert.match(adr, /one tri-state control/)
+  assert.match(adr, /not a component row/)
+  assert.match(adr, /54 config keys, 11 visible components/)
+  assert.match(reference, new RegExp(`decision date: ${surface.date}`))
+
+  // The dated decision is count-consistent with the source of truth and the
+  // baseline: reclassification moves no key and no component.
+  assert.equal(surface.keys.length, 54)
+  assert.equal(baseline.surfaces.configKeys.value, 54)
+  assert.equal(realMergedPatch().visible.length, 11)
+  assert.equal(baseline.surfaces.components.value, 11)
+})
+
+test('the review policy is one tri-state control, not a component row (#M42)', () => {
+  const surface = realSurface()
+  const live = { configKeys: configSurface().keys, patch: realMergedPatch() }
+  assert.deepEqual(checkReviewPolicySurface(surface, live), [])
+
+  // The two policy keys are configuration/alias, never a switch.
+  assert.equal(surface.keys.find((key) => key.name === 'review.mode').class, 'core')
+  assert.equal(surface.keys.find((key) => key.name === 'review.requireReview').class, 'core')
+  assert.ok(!surface.components.some((component) => /review.*policy|^review$|^review-mode/.test(component.id)))
+  assert.equal(surface.components.filter((component) => component.id === 'preset-tower-reviewer').length, 1)
+
+  // A review-policy row is refused.
+  const policyRow = {
+    ...surface,
+    components: surface.components.map((component) =>
+      component.id === 'tower-board' ? { ...component, id: 'review-policy' } : component,
+    ),
+  }
+  assert.ok(checkReviewPolicySurface(policyRow, live).some((entry) => entry.code === 'review-policy-row'))
+
+  // No component row may own the control, through `allowedOverrides` ...
+  const allowed = {
+    ...surface,
+    components: surface.components.map((component) =>
+      component.id === 'tower-board' ? { ...component, allowedOverrides: ['review.mode'] } : component,
+    ),
+  }
+  assert.ok(checkReviewPolicySurface(allowed, live).some((entry) => entry.code === 'review-policy-switch'))
+
+  // ... or through the shipped `config:` block, whatever value it picks.
+  const rowPolicy = {
+    ...live,
+    patch: {
+      ...live.patch,
+      rows: live.patch.rows.map((row) =>
+        row.id === 'tower-board' ? { ...row, configOverrides: [{ key: 'review.mode', value: 'off' }] } : row,
+      ),
+    },
+  }
+  assert.ok(checkReviewPolicySurface(surface, rowPolicy).some((entry) => entry.code === 'review-policy-switch'))
+
+  // The required-mode gate must stay recorded as non-disableable.
+  const noGate = { ...surface, forbidden: surface.forbidden.filter((capability) => capability.id !== 'review') }
+  assert.ok(checkReviewPolicySurface(noGate, live).some((entry) => entry.code === 'review-policy-gate'))
+
+  // The reviewer row is not mutually exclusive with the policy.
+  const exclusive = {
+    ...surface,
+    forbidden: surface.forbidden.map((capability) =>
+      capability.id === 'review' ? { ...capability, rowIds: ['preset-tower-reviewer'] } : capability,
+    ),
+  }
+  assert.ok(checkReviewPolicySurface(exclusive, live).some((entry) => entry.code === 'review-policy-exclusive'))
 })
 
 test('the component count is baselined next to the other surfaces', () => {
@@ -343,11 +425,13 @@ test('a row may only override the config its component owns (#138)', () => {
   }
 
   // A component cannot allow itself a forbidden-to-disable key, and cannot name
-  // a key that does not exist.
+  // a key that does not exist. `review.requireReview` is no longer the example:
+  // #M42 classifies it as the deprecated policy alias (`core`), and the review
+  // policy's row-ownership rule is checked by checkReviewPolicySurface instead.
   const forbidden = {
     ...surface,
     components: surface.components.map((component) =>
-      component.id === 'tower-board' ? { ...component, allowedOverrides: ['review.requireReview'] } : component,
+      component.id === 'tower-board' ? { ...component, allowedOverrides: ['review.maxRoundsPerReviewer'] } : component,
     ),
   }
   assert.ok(checkRowOverrides(forbidden, live).some((entry) => entry.code === 'row-override-forbidden'))
@@ -607,25 +691,31 @@ test('a baseline without a components entry is refused', () => {
   assert.throws(() => parseBaseline(withoutComponents), /components/)
 })
 
-test('integration: a row that defaults review.requireReview off fails the gate', async () => {
-  const dir = gateRoot({
-    'cordis.patch.yml': (text) =>
-      text.replace(
-        /^(\s*)spawn:\s*$/m,
-        (line, indent) => `${indent}review:\n${indent}  requireReview: false\n${indent}spawn:`,
-      ),
-  })
-  try {
-    const report = await checkComponents(dir)
-    assert.equal(report.ok, false)
-    assert.ok(
-      report.findings.some(
-        (entry) => entry.code === 'forbidden-override' && /review\.requireReview/.test(entry.message),
-      ),
-      JSON.stringify(report.findings, null, 2),
-    )
-  } finally {
-    removeTemp(dir)
+test('integration: a row that owns the review policy fails the gate (#M42)', async () => {
+  for (const [label, block] of [
+    ['mode', 'mode: off'],
+    ['alias', 'requireReview: false'],
+  ]) {
+    const dir = gateRoot({
+      'cordis.patch.yml': (text) =>
+        text.replace(
+          /^(\s*)spawn:\s*$/m,
+          (line, indent) => `${indent}review:\n${indent}  ${block}\n${indent}spawn:`,
+        ),
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, label)
+      assert.ok(
+        report.findings.some(
+          (entry) =>
+            entry.code === 'review-policy-switch' && /review\.(?:mode|requireReview)/.test(entry.message),
+        ),
+        `${label}: ${JSON.stringify(report.findings, null, 2)}`,
+      )
+    } finally {
+      removeTemp(dir)
+    }
   }
 })
 

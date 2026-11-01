@@ -31,6 +31,23 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.5.0 → 2.6.0（#M39/#M40）—— 审查模式取代布尔开关**：审查策略是插件页 `dsh-tower` 配置区里的
+  一个三态控件，配置键为 `review.mode`：`off`、`optional`（默认）或 `required`。
+  - `off` 是受支持且有文档的模式：不注册 `tower_review`，拒绝 reviewer spawn，合并门禁忽略审查。
+  - `optional` 保留 `tower_review`，但从不阻塞合并。
+  - `required` 保留合并门禁：已完成 mission 必须有绑定分支 tip 的 clean 审查（原有的单 mission
+    豁免仍适用）。
+  `review.requireReview` 是已弃用、保留一个版本的别名：`true` 解析为 `required`，`false` 解析为
+  `optional`，不设置则为 `optional`。`true` 与非 `required` 的显式 mode 同时出现会以 `config-invalid`
+  拒绝；`false` 不会覆盖显式 mode。从插件页保存时总是写入 `review.mode`，并把别名归一化为 `false`。
+  该策略不是组件行，也不存在互斥的审查行：`preset-tower-reviewer` 仍是策略可以不使用的可选能力。
+  `review.mode` 为 `off` 或 `optional` 时该行可以关闭；当 `review.mode` 为 `required` 且该 reviewer
+  行关闭时，规划与模式进入会以带解释的 `preset-missing` 错误拒绝该组合。
+  以 `off` 启动的 profile 从未注册 `tower_review`；切换到 `optional` 或 `required` 会立即改变合并门禁，
+  但工具本身要等 DSH 重启（或 profile 重载）后才出现，插件页在保存后会说明这一点。
+  升级方式：把 `review.requireReview: true|false` 替换为 `review.mode: required|optional`；仅当同一份
+  配置还要供旧 2.5 安装使用时保留别名，并在本版本后移除。不需要迁移 state。
+
 - **state schema v1 → v2（未发布）**：`state.json` 会自动迁移。升级后的第一次**写入**会保留
   `state.json.v1.bak` 备份、`revision` 只 +1，并向 `activity.jsonl` 追加 `state.migrated {from,to}`；
   只读工具仍可读取 v1 文件且不改写它。`tower_doctor` 报告磁盘上的版本与待执行的迁移。由更新插件
@@ -45,13 +62,13 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 - **2.3.0 → 2.4.0（未发布）**：所有能力合一的 `tower-bundle` 组行已移除。`cordis.patch.yml`
   现在随包提供强制的 `tower` host 锚点（Host 插件与 worker preset 是它的内部 section），以及可单独
   开关的顶层行：`tower-skills`、`tower-batch`、`tower-import`、`tower-leases`、`tower-tests`、
-  `tower-hmr`（随包关闭）与 `preset-tower-reviewer`（受 `review.requireReview` 条件约束）。
+  `tower-hmr`（随包关闭）与 `preset-tower-reviewer`（受审查策略 `review.mode` 条件约束）。
   `tools` 配置组与 `dev.hotReload` 已删除：仍带这些键的 profile 现在会作为未知键被拒绝
   （`config-unknown-key`），在删除它们之前 host 不会挂载，因此不再存在静默无效的开关。请改为在插件页
   使用对应的组件行；`tower-hmr` 随包关闭，因此在为联动开发 profile 开启它之前，`tower_reload` 与
   `/tower reload` 会报告为 “disabled by component tower-hmr”。`tower_doctor` 与 `tower_recover`
-  在任何配置下都会注册，无需配置键。仅当 `review.requireReview` 为 false 时 reviewer 行才可关闭；
-  该门禁开启时，规划与模式进入会以带解释的错误拒绝该组合。不需要迁移 state。
+  在任何配置下都会注册，无需配置键。策略为 `off` 或 `optional` 时 reviewer 行可以关闭；策略为
+  `review.mode:required` 时，规划与模式进入会以带解释的错误拒绝该组合。不需要迁移 state。
 - **2.0.4 → 2.1.0-beta.1**：不需要迁移 config；state 会按上述说明自动迁移（v1/v2 → v3）。
   这是发布到 `next` dist-tag 的**预发布**，
   `latest` 仍指向 2.0.4——请用 `dsh plugin --profile web add dsh-tower@next`（或精确版本号）安装。
@@ -60,9 +77,11 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   `npm publish --tag next` 之后，`next` 才会解析到 2.1.0-beta.1；`latest` 在稳定版发布前保持 2.0.4。
 - **2.0.3 → 2.0.4**：不需要迁移 state/config。本版本是安全加固与完整性修复（授权、merge SHA 绑定、
   dirty worktree 完成拒绝、stale lock 恢复、限制 test/git 进程环境、`tower_recover`、UI 0.2.2）。
-  升级后请按威胁模型重新检查 `review.requireReview`、`tests.admission` 与 worker 工具权限。
-- **2.0.1 → 2.0.3**：不需要迁移状态。2.0.3 起独立审查**默认可选**（`review.requireReview:false`）；
-  若要保留旧的审查门禁行为，请显式设为 `true`。2.0.1 为 `tower_batch` 增加 `abandon`、允许 merged
+  升级后请按威胁模型重新检查审查策略（`review.mode`，或已弃用的 `review.requireReview` 别名）、
+  `tests.admission` 与 worker 工具权限。
+- **2.0.1 → 2.0.3**：不需要迁移状态。2.0.3 起独立审查**默认可选**（即今天的
+  `review.mode:optional`）；若要保留旧的审查门禁行为，请显式设为 `review.mode:required`。
+  2.0.1 为 `tower_batch` 增加 `abandon`、允许 merged
   成员 close、让 doctor 跳过已 teardown 的 worktree，并修复终态 mission spawn/preflight 边界。
   可选 `ui-bundle` 0.2.1 增加常驻 Tower 模式 chip 与模式感知的 disabled 工具行。
 - **1.x → 2.0（已发布）**：不需要迁移状态（`schemaVersion` 保持 1；新字段都是可选的）。需要留意的

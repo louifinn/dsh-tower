@@ -34,15 +34,22 @@ tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
 
 ## 4. 可选：审查
 
-独立审查默认可选。若要采用严格流程，先在 profile 或仓库配置中开启
-`review.requireReview:true`，然后：
+审查策略是插件页 `dsh-tower` 配置区里的一个三态控件：`off`、`optional`（默认）或 `required`；
+也可以在 profile 或仓库配置中写 `review.mode`。它是一个控件，不是组件行，也不是三个行。需要严格
+流程时设为 `required`，然后：
 
 ```
 tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
 ```
 
-reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交 `tower_review`。开启
-`review.requireReview:true` 后，只有 `clean` + `merge` 的结论才允许合并。
+reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交 `tower_review`。设为
+`review.mode:required` 后，只有 `clean` + `merge` 的结论才允许合并。`optional` 会记录审查但从不
+阻塞合并；`off` 是受支持的模式，不会注册 `tower_review`。
+
+旧布尔审查开关是保留一个版本的别名（`true` → `required`，`false` → `optional`；不设置 →
+`optional`）。请优先使用 `review.mode`。以 `off` 启动的 profile 需要
+重启或重载后才会注册 `tower_review`，但合并门禁会立即改变。完整迁移说明见
+[安装、升级与迁移](install-upgrade-migration.md)。
 
 ## 5. 门禁、合并与清理
 
@@ -52,8 +59,8 @@ tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 ```
 
-开启审查门禁时，审查前运行 `tower_preflight` 会报告 `no-review`；干净审查之后应为 `ok:true`。
-默认 `review.requireReview:false` 时没有审查 blocker。存在其他 blocker 时 `tower_merge` 拒绝合并。
+策略为 `review.mode:required` 时，审查前运行 `tower_preflight` 会报告 `no-review`；干净审查之后应为
+`ok:true`。默认 `optional` 时没有审查 blocker。存在其他 blocker 时 `tower_merge` 拒绝合并。
 `tower_teardown` 移除已 merged/abandoned 的 worktree 与分支。
 
 ```
@@ -63,9 +70,9 @@ tower_teardown  repoRoot=D:\work\repo
 ## 如果失败
 
 阅读 blocker code 并查阅 [blocker 参考](../reference/blockers.md)。最常见的情况：`stale-base`
-（执行 `tower_rebase`）、`no-review`（仅在 `review.requireReview:true` 时；spawn reviewer）、
-`merge-hook-failed`（重试，或调大 `timeoutMs`）、`tip-moved`（仅在审查门禁开启时；审查后分支
-已变化，需要重新审查）。
+（执行 `tower_rebase`）、`no-review`（仅在 `review.mode:required` 时；spawn reviewer）、
+`merge-hook-failed`（重试，或调大 `timeoutMs`）、`tip-moved`（仅在策略为 `required` 时；审查后
+分支已变化，需要重新审查）。
 
 工具抛出的错误带 `[tower:<code>]` 前缀；见[错误码](../reference/errors.md)（例如
 `preset-missing` 表示安装 bundle 后需要重启 DSH，`not-initialized` 表示先运行 `tower_init`）。
@@ -77,7 +84,7 @@ tower_teardown  repoRoot=D:\work\repo
 
 ```json
 {
-  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
+  "review": { "mode": "required", "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" }
 }

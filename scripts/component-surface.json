@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "date": "2026-10-23",
+  "date": "2026-11-01",
   "adr": "docs/adr/0005-component-surface.md",
   "classes": {
     "core": "Removing it breaks the Tower contract. It is never a switch.",
     "optional-component": "A capability whose off state leaves the rest of Tower intact. It must be a user-visible switch with a documented fallback.",
     "optional-config": "A tuning knob, not a capability. It stays in the config form and never hides a component.",
-    "forbidden-to-disable": "The host, the health contract, the recovery escape, the review contract and the merge gates. No group, row or boolean key may turn it off."
+    "forbidden-to-disable": "The host, the health contract, the recovery escape and the merge gates. No group, row or boolean key may turn it off."
   },
   "components": [
     {
@@ -88,7 +88,7 @@
       "id": "preset-tower-reviewer",
       "scope": "visible",
       "kind": "row",
-      "fallback": "Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.requireReview is false (merge is unaffected); with the gate on planning/mode entry is locked with an explanatory error."
+      "fallback": "Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.mode is off or optional (merge is unaffected; off does not use the preset at all); with review.mode required, planning/mode entry is locked with an explanatory error."
     },
     {
       "id": "tower-ui",
@@ -99,6 +99,7 @@
   ],
   "gateableTools": {},
   "behaviorKnobs": [
+    "review.mode",
     "spawn.requireLease",
     "tests.admission"
   ],
@@ -222,9 +223,14 @@
       "note": "Bounded wait for the cross-process mode lock."
     },
     {
+      "name": "review.mode",
+      "class": "core",
+      "note": "The review policy: off, optional (default) or required, selected by one tri-state control on the plugin-page configuration form. It is configuration, not a component row and not three mutually exclusive rows. off intentionally removes tower_review, refuses reviewer spawn and makes the merge gate ignore review; optional never blocks a merge; required makes a clean tip-bound review a merge blocker. The reviewer preset row stays a capability the mode may leave unused."
+    },
+    {
       "name": "review.requireReview",
-      "class": "forbidden-to-disable",
-      "note": "Turns independent review into a merge blocker; no component may switch it off. With it on, the preset-tower-reviewer row may not be off (planning/mode entry refuse the combination)."
+      "class": "core",
+      "note": "Deprecated one-release boolean alias for review.mode (true -> required, false -> optional; default optional). It is policy configuration and a deprecated alias, not a switch a row may own; false never overrides an explicit mode. Kept so 2.5 configurations keep working; remove after the 2.6 alias window."
     },
     {
       "name": "review.maxRoundsPerReviewer",
@@ -435,11 +441,11 @@
     },
     {
       "id": "review",
-      "capability": "the review contract",
-      "reason": "review.requireReview is a merge blocker, not a component; a row may not switch it off. The reviewer row is conditional, not a way to weaken the gate.",
-      "tools": ["tower_diff", "tower_preflight", "tower_review"],
-      "rowIds": ["tower-review"],
-      "gatedBy": ["review.requireReview", "review.maxRoundsPerReviewer"]
+      "capability": "the review gate in required mode",
+      "reason": "The policy is one tri-state configuration control on the plugin-page form, not a component row: review.mode is off, optional (default) or required, and off is a documented mode that removes tower_review and makes the merge gate ignore review. What no group, row or boolean key may switch off is the gate once the mode is required: a completed mission still needs a clean review bound to the branch tip, and the exemption path stays explicit. review.requireReview is a deprecated one-release alias, not a switch. The reviewer preset row remains a capability the policy may leave unused, never a way to weaken required mode.",
+      "tools": [],
+      "rowIds": [],
+      "gatedBy": ["review.mode", "review.maxRoundsPerReviewer", "gates.allowReviewExemption"]
     },
     {
       "id": "merge-gates",

@@ -1,7 +1,7 @@
 // Pure completion gate checks (#49). No repository I/O.
 // @ts-check
 import { isTerminal } from './mission.js'
-import { isReviewExempt, reviewExemptionInvalid } from './integration/review.js'
+import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
 /** @typedef {import('../types/index.js').Blocker} Blocker */
 /** @typedef {import('../types/index.js').MergeGateOptions} MergeGateOptions */
@@ -74,13 +74,16 @@ export function mergeGateBlockers({
     blockers.push({ code, detail })
   }
   const inactive = new Set(inactiveStates)
-  const requireReview = config.review?.requireReview !== false
+  // #M39: only `review.mode:required` produces review blockers. `optional`
+  // records reviews without gating, and `off` disables review entirely (no
+  // tower_review, no reviewer spawn), so both skip this whole block.
+  const requireReview = reviewRequired(config)
   const exempt = isReviewExempt(mission, config)
   if (reviewExemptionInvalid(mission, config)) {
     push('review-exemption-invalid', `mission ${mission.id} requests no review but gates.allowReviewExemption is disabled`)
   }
   if (requireReview && !exempt && !review) {
-    push('no-review', `branch ${branch ?? '(none)'} has no review; assign a reviewer first (or set review.requireReview:false)`)
+    push('no-review', `branch ${branch ?? '(none)'} has no review; assign a reviewer first (or set review.mode:optional)`)
   } else if (requireReview && !exempt) {
     const latest = /** @type {Review} */ (review)
     if (latest.missionId !== mission.id) push('review-mission-mismatch', `latest review belongs to mission ${latest.missionId}`)

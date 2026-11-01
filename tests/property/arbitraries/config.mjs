@@ -52,13 +52,27 @@ const modeArb = fc.record(
   { requiredKeys: [] },
 )
 
-const reviewArb = fc.record(
-  {
-    requireReview: fc.boolean(),
-    maxRoundsPerReviewer: fc.integer({ min: 1, max: 20 }),
-  },
-  { requiredKeys: [] },
-)
+// #M39: `review.mode` is the canonical policy and `review.requireReview` is a
+// deprecated alias. A generated object may use either, or both — when both are
+// present only `true` next to a non-required mode is contradictory. `false`
+// never overrides an explicit mode (including `required`), so `required` + `false`
+// is a valid shape (Cordis materializes exactly that for a mode-only profile) and
+// must stay in the "every valid config resolves" generator. The contradictory
+// combinations are rejected by the resolver and belong in their own negative
+// property.
+const reviewArb = fc
+  .record(
+    {
+      mode: fc.constantFrom('off', 'optional', 'required'),
+      requireReview: fc.option(fc.boolean(), { nil: undefined }),
+      maxRoundsPerReviewer: fc.integer({ min: 1, max: 20 }),
+    },
+    { requiredKeys: [] },
+  )
+  .map((value) => {
+    if (value.mode === undefined || value.requireReview === undefined) return value
+    return value.requireReview && value.mode !== 'required' ? { ...value, requireReview: false } : value
+  })
 
 const mergeArb = fc.record(
   {

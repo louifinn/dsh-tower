@@ -2,6 +2,7 @@
 import { sweepArchive } from './archive.js'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
+import { reviewUnavailable } from '../domain/integration/review.js'
 import {
   assertReviewableMission,
   resolveReviewActor,
@@ -78,6 +79,12 @@ async function prepareReview(tower, input) {
 }
 
 export async function submitReview(tower, input) {
+  // #M39: `review.mode:off` means review is intentionally unavailable. The tool
+  // is not registered in that profile, but the repository layer can also turn it
+  // off, so the app layer refuses before any state is read.
+  if (reviewUnavailable(tower.config)) {
+    throw new TowerToolError('review-disabled', 'review.mode is off, so tower_review cannot record a verdict')
+  }
   // Two-phase (#51): the lock is held only for the state reload, revision
   // revalidation, and write; every git call happens in prepareReview.
   for (let attempt = 0; attempt < 2; attempt += 1) {

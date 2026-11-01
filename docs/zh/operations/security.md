@@ -6,12 +6,13 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 
 ## 由插件强制执行的约束
 
-- **审查绑定（开启审查时）。** `tower_review` 会记录它检查的分支 tip；开启 `review.requireReview` 后
-  tip 变化会被门禁拒绝（`tip-moved`），除非一次干净且无冲突的 rebase 给予了豁免。reviewer 在 spawn
-  之后修改分支会被拒绝（`reviewer must not modify the mission branch`）。
-- **审查默认可选，可配置强制。** `review.requireReview:false` 是默认值；设为 `true` 才启用独立审查
-  门禁。全局开启时，mission 级 `reviewPolicy:"none"` + 理由是更窄的豁免。关闭门禁时插件不强制职责
-  分离；只应用于可信仓库或有人类监督的会话。
+- **审查绑定（策略为 required 时）。** `tower_review` 会记录它检查的分支 tip；策略为
+  `review.mode:required` 时，tip 变化会被门禁拒绝（`tip-moved`），除非一次干净且无冲突的 rebase
+  给予了豁免。reviewer 在 spawn 之后修改分支会被拒绝（`reviewer must not modify the mission branch`）。
+- **审查默认可选，可由三态策略强制。** `review.mode` 取 `off`、`optional`（默认）或 `required`。
+  设为 `required` 才启用独立审查门禁。策略为 required 时，mission 级 `reviewPolicy:"none"` + 理由是
+  更窄的豁免。策略为 `off` 时审查被有意关闭；为 `optional` 时插件不强制职责分离，只应用于可信仓库或
+  有人类监督的会话。该策略是插件页上的一个控件，不是组件行。
 - **角色强制。** 调用方会根据 roster 解析。worker 的 mission 更新仅限于 task/blocker/note；
   `completed`、`abandoned`、扩大 scope 与清除 blocker 仅限控制塔，完成（连同未读消息/提交门禁）必须
   走 `tower_complete`。仅限控制塔的工具会以 `[tower:not-authorized]` 拒绝 roster 中的 worker。
@@ -52,8 +53,8 @@ Tower 模式并修复它”。Tower **不认证**这句话背后的人类意图�
 
 它**不**防御：完全通过所有门禁但被恶意指令操纵的模型；仓库自己声明的 hooks/测试命令；或无视
 指令、通过 shell 访问 worktree 之外文件的 worker。更高保证的团队应设
-`mode.allowAgentControl:false`、保持 `review.requireReview:true`、在运行 Tower 前审查仓库，并用
-OS 级隔离运行 host。
+`mode.allowAgentControl:false`、保持审查策略为 `review.mode:required`、在运行 Tower 前审查仓库，
+并用 OS 级隔离运行 host。
 
 ## 不由插件强制执行的约束（部署关注点）
 

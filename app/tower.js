@@ -8,6 +8,7 @@ import { assertPorts } from '../ports/index.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 
 import { rebaseWaived } from '../domain/gate.js'
+import { isReviewExempt } from '../domain/integration/review.js'
 import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
@@ -508,11 +509,10 @@ export class Tower {
     if (!mission.worktree) return null
     const branch = mission.worktree.branch
     const reviews = (state.reviews ?? []).filter((review) => review.branch === branch)
-    const exempt =
-      this.config.review?.requireReview === false ||
-      (mission.reviewPolicy === 'none' &&
-        this.config.gates?.allowReviewExemption === true &&
-        String(mission.reviewExemptionReason ?? '').trim().length > 0)
+    // #M39: reconciliation follows the same policy as the gate — only
+    // `review.mode:required` demands review evidence; `off`/`optional` reconcile
+    // a landed branch without one.
+    const exempt = isReviewExempt(mission, this.config)
     if (reviews.length === 0 && !exempt) return null
     const latest = reviews.length > 0 ? reviews.reduce((a, b) => (a.round >= b.round ? a : b)) : null
     if (latest && !exempt && (latest.status !== 'clean' || latest.mergeVerdict !== 'merge')) return null

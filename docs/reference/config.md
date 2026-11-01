@@ -27,12 +27,37 @@ win, profile keys survive when the repo does not set them. `tower_status` report
 
 ```json
 {
-  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
+  "review": { "mode": "required", "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" },
   "spawn": { "reviewerPreset": "tower-reviewer", "maxDepth": 2 }
 }
 ```
+
+`review.mode` is the review policy: `off`, `optional` or `required`. `review.requireReview` is a
+deprecated alias kept for one release (`true` → `required`, `false` → `optional`); prefer
+`review.mode`. When both are set in the same layer, `requireReview:true` next to any mode other than
+`required` is a contradiction and is rejected with `config-invalid` naming both keys.
+`requireReview:false` never contradicts an explicit mode: `off`, `optional` and `required` all stay
+accepted and the mode wins (`required` still enforces the gate; the resolved alias is mirrored back as
+`true` only for that mode). A repository layer is resolved on its own: it may relax review, but a
+profile with `review.mode:off` never registered `tower_review`, so a repository cannot raise its own
+mode.
+
+The Plugins-page control shows the policy exactly as the runtime resolves it: `review.mode` decides
+when present, and a profile that still sets only `review.requireReview` displays Required (`true`) or
+Optional (`false`). Saving a choice always writes `review.mode` and sets `review.requireReview` to
+`false` in the same profile patch, so the alias can never contradict the selected mode.
+
+The same three choices are available on the Plugins page, in the `dsh-tower` configuration
+section: **Off**, **Optional** (the default) and **Required**, each with a one-line description of
+its effect. That control writes the profile config through the Host settings form, so the accepted
+value is reflected on the page without a manual file edit.
+
+One live change cannot rebuild the mounted tool surface: a profile that started with review off did
+not register `tower_review`. Switching to Optional or Required through the page immediately changes
+the merge gate, but the review tool itself appears only after a restart (or a profile reload); the
+control states that after such a save.
 
 The `mode.*` group is session-scoped, not repository-scoped: it is accepted in the repository file
 for schema compatibility but only the profile config controls the Tower-mode prompt and the
@@ -61,7 +86,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `mode.denyTools` | goal/todo/team/workflow/subagent tools | Tools refused while the mode is active (12 defaults). |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | Directory for `modes.json`. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries (1–2000). |
-| `review.requireReview` | `false` | Enforce an independent clean review before merge. Default `false` (review optional); set `true` to require `no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch` checks. `tower_review` remains available either way. |
+| `review.mode` | `optional` | Review policy. `off` = review is intentionally unavailable: recording a review is refused, `tower_spawn` refuses the reviewer role, the merge gate ignores review, and a profile-level `off` does not register `tower_review` (a repository-level `off` refuses the submission instead); `optional` = review is available but never blocks a merge (default); `required` = a clean review bound to the branch tip is a merge blocker (`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`). |
+| `review.requireReview` | `false` | Deprecated alias for `review.mode`: `true` → `required`, `false` → `optional`. Prefer `review.mode`. `true` next to a non-`required` `review.mode` is rejected with `config-invalid` naming both keys; `false` is accepted next to any explicit `review.mode` (`off`/`optional`/`required`) and never overrides it. The Plugins-page control shows the alias when it is the only key and always writes `review.mode` with `review.requireReview:false`. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per branch. |
 | `merge.timeoutMs` | `900000` (15 min) | Default `tower_merge` timeout, including hooks. A per-call `timeoutMs` wins. |
 | `merge.maxBufferBytes` | `67108864` (64 MB) | Merge output buffer. |
@@ -86,7 +112,7 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `tests.allowPackageDiscovery` | `true` | Allow repo-controlled `tower.testDiscovery` commands (executes worktree code; see security). |
 | `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
 | `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. With the `tower-tests` component row off, planning/mode entry refuse this combination with an explanation. |
-| `gates.allowReviewExemption` | `false` | With `review.requireReview:true`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant while the global review gate is off. |
+| `gates.allowReviewExemption` | `false` | With `review.mode:required`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant when `review.mode` is `off` or `optional` (no review blocker is produced). |
 | `gates.maxReportBytes` | `32768` (32 KiB) | Hard cap in UTF-8 bytes for `tower_complete.report`. A larger report is rejected with `invalid-argument` and an actionable `nextAction` (file the full text in the mission worktree and reference its path); it is never truncated. Existing larger reports still load. |
 | `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`; `repo` = `<repoRoot>/MISSIONS.md`. Whether the board is written at all is the `tower-board` component row (#133); `docs.board` was removed and is rejected as an unknown key. |
 | `archive.afterDays` | `30` | Age trigger: a terminal mission untouched for at least this many days is archived on the next mutation (`0` archives immediately). Archival itself is the `tower-archive` component row (#135); `archive.enabled` was removed and is rejected as an unknown key. |

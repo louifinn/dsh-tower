@@ -216,13 +216,29 @@ test('preset validation fails closed before work starts (#64)', async () => {
   const { assertPresetsAvailable } = await import('../host/presets.js')
   const ctxWith = (ids) => ({ get: (name) => (name === 'agentPresets' ? { list: async () => ids.map((id) => ({ id })) } : undefined) })
   await assert.rejects(
-    () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { requireReview: true } }),
+    () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'required' } }),
     (error) => {
       assert.equal(error.code, 'preset-missing')
       assert.match(error.message, /tower-reviewer/)
       assert.match(error.message, /preset-tower-reviewer/)
+      assert.match(error.message, /review\.mode is required/)
       return true
     },
+  )
+  // #M39: the reviewer preset is required only by `review.mode:required`. The
+  // deprecated alias must normalize to the same answer, and `off`/`optional`
+  // must not require a preset the mode intentionally does not use.
+  await assert.rejects(
+    () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { requireReview: true } }),
+    /review\.mode is required/,
+  )
+  assert.deepEqual(
+    await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'off' } }),
+    { checked: true, missing: [] },
+  )
+  assert.deepEqual(
+    await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'optional' } }),
+    { checked: true, missing: [] },
   )
   await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /preset-tower-worker/)
   assert.deepEqual(await assertPresetsAvailable(ctxWith(['tower-worker', 'tower-reviewer']), {}), { checked: true, missing: [] })

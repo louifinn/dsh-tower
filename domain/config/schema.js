@@ -16,6 +16,7 @@
 import Schema from '@deepseek-ai/schemastery'
 import { TowerToolError } from '../errors.js'
 import { DEFAULT_MAX_REPORT_BYTES } from '../missions/completion.js'
+import { materializeVolatile, resolveReviewPolicy } from '../integration/review.js'
 
 export const DEFAULT_DENY_TOOLS = [
   'create_goal',
@@ -57,7 +58,7 @@ const SECTION_KEYS = {
     'maxEntries',
     'lockTimeoutMs',
   ],
-  review: ['requireReview', 'maxRoundsPerReviewer'],
+  review: ['mode', 'requireReview', 'maxRoundsPerReviewer'],
   merge: ['timeoutMs', 'maxBufferBytes'],
   git: ['timeoutMs'],
   worktrees: ['root'],
@@ -169,13 +170,35 @@ export const Config = Schema.object({
     .default({})
     .description('Tower-mode behavior and persistence.'),
   review: Schema.object({
+    // #M39: deliberately *no* schema default here. Cordis resolves the schema
+    // before `apply()` on some paths, and a materialized `mode:'optional'` would
+    // sit next to a legacy `review.requireReview:true` and look like a user
+    // contradiction. The resolver (`resolveTowerConfig`) is the single place
+    // that applies the `optional` default, after alias resolution.
+    // #M40: `.volatile()` is what makes a field editable from the DSH
+    // Plugins-page settings form. The form projection keeps only fields under a
+    // volatile ancestor, and Cordis then hands the runtime a live reference
+    // that is updated in place on a settings write (see host/config.js).
+    //
+    // Both review keys are volatile on purpose: the page must show the
+    // *resolved* policy, and `resolveReviewPolicy` lets the deprecated alias
+    // decide when `mode` is absent. A non-volatile alias would be dropped by the
+    // projection, so a profile that sets only `review.requireReview:true` would
+    // render as Optional (and a save could persist a contradiction). The group
+    // itself stays non-volatile so the tuning keys remain ordinary config.
+    mode: Schema.union(['off', 'optional', 'required'])
+      .volatile()
+      .description(
+      'Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
+    ),
     requireReview: Schema.boolean()
       .default(false)
-      .description('Require an independent clean review before merge. Default false: review is optional; set true to enforce the review gate globally.'),
+      .volatile()
+      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required). The Plugins-page control shows the alias when it is the only key and always writes review.mode with review.requireReview:false.'),
     maxRoundsPerReviewer: Schema.natural().min(1).default(5).description('Review-round cap per reviewer per mission branch.'),
   })
     .default({})
-    .description('Review policy.'),
+    .description('Review policy: off, optional (default) or required.'),
   merge: Schema.object({
     timeoutMs: Schema.natural().min(1000).default(900000).description('Default tower_merge timeout, including pre-merge hooks.'),
     maxBufferBytes: Schema.natural().min(65536).default(67108864).description('Captured merge output buffer.'),
@@ -432,7 +455,10 @@ export function assertSafeKeys(value, label) {
 
 /** @param {any} [rawConfig] */
 export function resolveTowerConfig(rawConfig) {
-  const raw = rawConfig ?? {}
+  // #M40: the profile config Cordis hands `apply()` carries `review.mode` as a
+  // live volatile reference. Materialize before validation so the value checked
+  // here is the current one; the reference itself stays live in host/config.js.
+  const raw = materializeVolatile(rawConfig ?? {})
   if (raw !== null && typeof raw !== 'object') throw new TowerToolError('config-invalid', 'Tower config must be an object')
   assertKnownKeys(raw, 'Tower config')
   let parsed
@@ -464,11 +490,20 @@ export function resolveTowerConfig(rawConfig) {
   // `resolve(raw)` for every valid config without changing any resolved value.
   if (mode.promptSection === undefined) mode.promptSection = ''
   if (!Array.isArray(mode.denyTools) || mode.denyTools.length === 0) mode.denyTools = [...DEFAULT_DENY_TOOLS]
+  // #M39: resolve the review policy here so every consumer reads one shape.
+  // `review.mode` is canonical; the deprecated `review.requireReview` boolean is
+  // materialized from it (true only for `required`), which keeps older readers
+  // working and makes `resolve(resolve(raw))` a fixed point — the mirrored alias
+  // is compatible with the mode it came from (domain/integration/review.js).
+  const reviewPolicy = resolveReviewPolicy(raw.review)
+  const review = clone(parsed.review ?? {})
+  review.mode = reviewPolicy.mode
+  review.requireReview = reviewPolicy.mode === 'required'
   return {
     section: mode.promptSection,
     init: clone(parsed.init ?? {}),
     mode,
-    review: clone(parsed.review ?? {}),
+    review,
     merge: clone(parsed.merge ?? {}),
     git: clone(parsed.git ?? {}),
     worktrees: clone(parsed.worktrees ?? {}),

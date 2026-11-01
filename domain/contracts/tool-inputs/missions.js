@@ -21,7 +21,7 @@ export const PlanInput = Type.Object({
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'survey = read-only investigation that reserves no scope.' })),
       context: Type.Optional(Type.String({ description: "The user's own key sentences, verbatim (max 4096 chars)." })),
       references: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Read-only pointers/files the worker should read (max 20); copied into the briefing.' })),
-      reviewPolicy: Type.Optional(enumOf(REVIEW_POLICIES, { description: 'required-clean (mission default) means a clean review is required when review.requireReview is on; none needs reviewExemptionReason, and with the review gate on it also needs gates.allowReviewExemption.' })),
+      reviewPolicy: Type.Optional(enumOf(REVIEW_POLICIES, { description: 'required-clean (mission default) means a clean review is required when review.mode is required; none needs reviewExemptionReason, and with the review gate on it also needs gates.allowReviewExemption.' })),
       reviewExemptionReason: Type.Optional(Type.String({ description: 'Non-empty justification when reviewPolicy is "none".' })),
     }, { additionalProperties: false }),
     { description: 'Missions to create, in intended order.' },

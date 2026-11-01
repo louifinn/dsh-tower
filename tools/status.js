@@ -4,6 +4,7 @@ import { classifyError } from '../domain/errors.js'
 import { StatusInput } from '../domain/contracts/tool-inputs/index.js'
 import { ROSTER_INACTIVE_STATES, isMarkdownFormat, isReservedState, isWorkerRole } from '../domain/vocabulary.js'
 import { archiveView } from '../app/archive.js'
+import { reviewPolicyView } from '../domain/integration/review.js'
 
 /**
  * @param {any} ctx
@@ -21,7 +22,7 @@ export function registerStatusTool(ctx, deps) {
   define(ctx, {
     name: 'tower_status',
     description:
-      'Read the Tower dashboard for a repository: state path, base branch, revision, mission status counts, paged mission summaries (scope/deps/tasks/worktree/owner), roster size, findings, archive count, config path and the activity tail. Also reports the repo-scoped git lock holder (`gitLock: {held,pid,phase,heldMs}`) so a merge holding the mutex is visible. Pass missionId for one full mission (tasks, notes, reviews, findings, completion report; archived missions are loaded from their year file); offset/limit page the mission list (default 20, max 100); includeGate adds preflight gate digests for the page; includeArchived appends compact archived summaries after the active page; format:"markdown" returns the human-readable mission board (active missions plus an archived count). Read-only.',
+      'Read the Tower dashboard for a repository: state path, base branch, revision, mission status counts, paged mission summaries (scope/deps/tasks/worktree/owner), roster size, findings, archive count, config path and the activity tail. Also reports the repo-scoped git lock holder (`gitLock: {held,pid,phase,heldMs}`) so a merge holding the mutex is visible, and the resolved review policy (`review: {mode, available, required, detail}`; mode off means review is intentionally unavailable). Pass missionId for one full mission (tasks, notes, reviews, findings, completion report; archived missions are loaded from their year file); offset/limit page the mission list (default 20, max 100); includeGate adds preflight gate digests for the page; includeArchived appends compact archived summaries after the active page; format:"markdown" returns the human-readable mission board (active missions plus an archived count). Read-only.',
     parameters: StatusInput,
     aliases: { mission_id: ['missionId'], include_gate: ['includeGate'], include_archived: ['includeArchived'] },
     output: output(SCHEMAS.status),
@@ -38,6 +39,10 @@ export function registerStatusTool(ctx, deps) {
         (entry) => isWorkerRole(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state) && !isReservedState(entry.state),
       ).length
       const spawn = spawnBackoffView(tower.root, tower.config.spawn?.maxLiveWorkers, inflight)
+      // #M39: the resolved review policy (`{mode, available, required, detail}`)
+      // is a first-class dashboard fact. In `off` the detail says review is
+      // intentionally unavailable rather than leaving it as a silent absence.
+      const review = reviewPolicyView(tower.config)
       if (args.missionId) {
         const [status, detail] = await Promise.all([
           tower.status({ missionIds: [args.missionId] }),
@@ -51,6 +56,7 @@ export function registerStatusTool(ctx, deps) {
           boardPath,
           mode,
           spawn,
+          review,
           components,
         }
       }
@@ -96,6 +102,7 @@ export function registerStatusTool(ctx, deps) {
         boardPath,
         mode,
         spawn,
+        review,
         components,
       }
       if (isMarkdownFormat(args.format)) {

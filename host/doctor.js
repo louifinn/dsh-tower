@@ -13,6 +13,7 @@ import { SCHEMA_VERSION } from '../domain/mission.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
 import { configSurface } from '../domain/config/schema.js'
+import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
@@ -242,8 +243,11 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const config = tower.config ?? {}
   const profile = profileConfig()
   const staleDefaults = []
-  if (profile.review && profile.review.requireReview === undefined) {
-    staleDefaults.push('review.requireReview now defaults to false (2.0.3)')
+  // #M39: `review.mode` replaces the deprecated boolean. A profile that names
+  // neither key relies on the default (optional), so say so rather than letting
+  // a reader assume review is enforced.
+  if (profile.review && profile.review.mode === undefined && profile.review.requireReview === undefined) {
+    staleDefaults.push('review.mode defaults to optional; review.requireReview is a deprecated alias')
   }
   if (profile.mode && profile.mode.allowAgentControl === undefined) {
     staleDefaults.push('mode.allowAgentControl now defaults to true (2.0.4)')
@@ -261,6 +265,11 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       'optional: add <git-common-dir>/dsh-tower/config.json',
     ),
   )
+  // #M39: the resolved review mode is its own diagnostic fact. `off` is a
+  // supported, intentional posture (not a degradation), so it is a pass whose
+  // detail says exactly what is unavailable.
+  const reviewPolicy = reviewPolicyView(config)
+  checks.push(check('review', 'pass', reviewPolicy.detail))
   // #84: report the concept-budget surface instead of implying it. The counts
   // are the live schema/tool surface; the date is the committed baseline, so a
   // reader sees both the number and the decision it was frozen at.
@@ -288,7 +297,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         ),
   )
   const presets = ctx.get?.('agentPresets')
-  const reviewerRequired = config.review?.requireReview === true
+  const reviewerRequired = reviewRequired(config)
   if (presets && typeof presets.list === 'function') {
     try {
       const available = (await presets.list()).map((entry) => String(entry.id))
@@ -296,9 +305,10 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       const reviewer = config.spawn?.reviewerPreset ?? 'tower-reviewer'
       const required = reviewerRequired ? [worker, reviewer] : [worker]
       const missing = required.filter((id) => !available.includes(id))
-      // #121: `preset-tower-reviewer` is a conditional component. Its off state
-      // is supported while review.requireReview is false; with the gate on it is
-      // a fail, because no independent review can be dispatched.
+      // #121/#M39: `preset-tower-reviewer` is a conditional component. Its off
+      // state is supported while review is off or optional; with
+      // `review.mode:required` it is a fail, because no independent review can
+      // be dispatched.
       if (missing.length === 0) {
         const reviewerNote = available.includes(reviewer)
           ? `reviewer=${reviewer}`
@@ -309,7 +319,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           check(
             'presets',
             'fail',
-            `missing preset(s): ${missing.join(', ')}${reviewerRequired && missing.includes(reviewer) ? ' (review.requireReview is true, so preset-tower-reviewer may not be off)' : ''}`,
+            `missing preset(s): ${missing.join(', ')}${reviewerRequired && missing.includes(reviewer) ? ' (review.mode is required, so preset-tower-reviewer may not be off)' : ''}`,
             'enable the Tower preset component and retry',
           ),
         )
@@ -596,6 +606,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
 // reports (from #89) and archive (from #73) are both kept
     reports: reportsReport,
     surface: surfaceReport,
+    review: reviewPolicy,
     components,
     archive: {
       missions: state ? state.missions.length : null,

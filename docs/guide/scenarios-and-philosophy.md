@@ -10,8 +10,8 @@ a better fit.
 
 If you only remember one sentence: **use Tower when the output is an integrated repository change that
 must land through a controlled merge; use the other patterns when the output is exploration, repeated
-attempts, or programmatic fan-out.** Enable `review.requireReview` when the change also needs an
-independent reviewer.
+attempts, or programmatic fan-out.** Set the review policy to `required` when the change also needs
+an independent reviewer; the default policy is `optional`.
 
 ## 1. The design philosophy
 
@@ -45,11 +45,13 @@ When review is enabled, a reviewer also inspects a specific branch tip and the g
 binding. Separation of duties is the point when review is on: the agent that wrote the code is not the
 agent that approves it, and neither is the agent that merges.
 
-Independent review is optional by default: `review.requireReview:true` enforces it (and then a complete
-mission must carry a clean, merge-approved review from a reviewer bound to the branch tip). Set the flag
-to `true` for sensitive repositories; `reviewPolicy:"none"` + a reason + `gates.allowReviewExemption:true`
-remains available as a per-mission exemption when the global gate is on. Reviews can be submitted and
-recorded either way.
+The review policy is one tri-state control: `off`, `optional` (the default) or `required`. `required`
+enforces independent review (a complete mission must carry a clean, merge-approved review from a
+reviewer bound to the branch tip). Choose it for sensitive repositories; `reviewPolicy:"none"` + a
+reason + `gates.allowReviewExemption:true` remains available as a per-mission exemption when the
+policy is required. `optional` records reviews but never blocks a merge, and `off` is a supported
+mode that removes the review tool. The policy is configuration, not a component row: there is one
+control on the plugin page, not three mutually exclusive rows.
 
 ### 1.5 Evidence over assertion
 
@@ -184,7 +186,7 @@ integration, and what "done" means.**
 | Isolation | Git worktree + branch per mission; one writer per mission | Shared workspace; coordination by task ownership | Fresh child per round; no built-in branch/merge contract | Per-step child; no Git isolation | Child sessions; may share workspace |
 | Durable state | Git metadata + JSON state + activity + board | Team task board + sessions | Minimal; each round starts fresh | Run record/results; not a merge ledger | Session/subagent records |
 | Integration authority | Tower only, after preflight/gate (plus review when enabled) | Humans/teammates merge or edit manually | Usually the parent/worker applies results | Script applies results | Parent applies results |
-| Review / gate | Optional independent review (enable `review.requireReview`) + preflight/merge gate | Review is a collaboration convention, not a hard gate | No built-in review gate | No built-in review gate | No built-in review gate |
+| Review / gate | Optional independent review (one `review.mode` control: off/optional/required) + preflight/merge gate | Review is a collaboration convention, not a hard gate | No built-in review gate | No built-in review gate | No built-in review gate |
 | Parallelism | Multiple missions, disjoint scopes, serialized merges | Many teammates, shared board | Sequential rounds (or external fan-out) | High fan-out, script-controlled | High fan-out |
 | Human role | Owns the mode; can inspect evidence and release | Collaborator/coordinator | Author of the repeated objective | Author of the orchestration script | Delegator |
 | Best for | Feature delivery, migrations, release-bound changes | Design, research, cross-cutting collaboration | Iterative search/repair with fresh context | Large audits, batch analysis, deterministic pipelines | Quick exploration or independent subtasks |
@@ -195,8 +197,8 @@ integration, and what "done" means.**
 Ordinary `subagent`/`subagent_fork` calls are cheap and flexible. They are the right tool for "read
 these five files in parallel" or "try three approaches". They do not provide a write scope, a
 dedicated worktree, a durable mission, independent review, or a merge gate. Tower wraps the same
-subagent primitive in those contracts; it also costs more per child. (Review is optional: enable
-`review.requireReview` when you need the reviewer role.)
+subagent primitive in those contracts; it also costs more per child. (Review is optional: set the
+policy to `required` when you need the reviewer role to gate a merge.)
 
 Choose subagents when the work is read-mostly, short-lived, or you will integrate the result
 yourself. Choose Tower when the result must land on a branch under a controlled merge; enable review
@@ -245,14 +247,19 @@ Tower entry clears an active plan (or refuses entry under `mode.planModePolicy:"
 Tower session cannot use the goal/todo/team/workflow tools. Plan first, then execute; do not expect
 Tower to discover the plan for you.
 
-### 4.6 Review is optional by default
+### 4.6 The review policy is one tri-state control
 
-`review.requireReview:false` is the default, so a completed mission can merge without a reviewer for
-low-risk repositories, scratch work, or human-supervised sessions. Set it to `true` to enforce the
+The review policy is one control — `off`, `optional` (the default) or `required` — in the plugin-page
+`dsh-tower` configuration section, mirrored by `review.mode` in config. It is not a component row and
+not three mutually exclusive rows. `optional` means a completed mission can merge without a reviewer
+for low-risk repositories, scratch work, or human-supervised sessions. `required` enforces the
 independent review gate; the gate then re-checks `no-review`, `not-clean`, `review-hold`,
-`review-not-approved`, `tip-moved`, and `review-mission-mismatch`. `tower_review` is always available
-and records verdicts even when the gate is off. For one mission only, with the global gate on, set
-`reviewPolicy:"none"` + a reason and `gates.allowReviewExemption:true`.
+`review-not-approved`, `tip-moved`, and `review-mission-mismatch`. `off` is a supported mode that
+does not register `tower_review`; `optional` records verdicts but never blocks a merge. For one
+mission only, with the policy `required`, set `reviewPolicy:"none"` + a reason and
+`gates.allowReviewExemption:true`. The deprecated one-release boolean alias maps `true` → `required`
+and `false` → `optional`; see
+[install, upgrade and migration](install-upgrade-migration.md).
 
 ### 4.7 Concrete examples by workflow
 
@@ -309,8 +316,8 @@ A team wants "organization invitations": token model, email delivery, accept/dec
    `src/ui/invites/**`; make the API depend on tokens and email.
 2. Spawn workers for the independent missions; the API waits for its deps.
 3. Each worker commits on its branch, completes with checks.
-4. With `review.requireReview:true`, spawn reviewers and require a clean+merge verdict; otherwise
-   review is optional.
+4. With `review.mode:required`, spawn reviewers and require a clean+merge verdict; otherwise review
+   is optional or off.
 5. `tower_preflight` and `tower_merge` each mission; resolve scope/base/review blockers.
 6. `tower_teardown`; `MISSIONS.md` is the human-readable record.
 
@@ -344,9 +351,9 @@ Tower missions from those findings.
 ### Scenario E: sensitive release
 
 A library release with external consumers. Plan missions for the change, migration guide, and
-release notes; enable `review.requireReview:true` if the release requires independent review, require
-tests, and use `tower_batch` to close the release evidence only when all required checks are present;
-merge and tag outside Tower as your release process requires.
+release notes; set `review.mode:required` if the release requires independent review, require tests,
+and use `tower_batch` to close the release evidence only when all required checks are present; merge
+and tag outside Tower as your release process requires.
 
 ## 6. Choosing in practice: a short decision path
 
@@ -354,9 +361,9 @@ merge and tag outside Tower as your release process requires.
 2. **Would you open a PR for it?** No → Tower is too heavy; use a normal agent.
 3. **Do the slices have stable scopes and a known definition of done?** No → plan/explore first; then
    return to Tower.
-4. **Do you need a merge gate?** Repository changes with integration risk → Tower. Enable
-   `review.requireReview:true` if you also need independent review. If neither isolation nor evidence
-   is needed, plain subagents may be enough.
+4. **Do you need a merge gate?** Repository changes with integration risk → Tower. Set the review
+   policy to `required` if you also need independent review. If neither isolation nor evidence is
+   needed, plain subagents may be enough.
 5. **Do you need many parallel analyses or repeated fresh attempts?** Use Workflow/Ralph for that
    phase; encode the resulting changes as Tower missions.
 6. **Do you need cross-cutting human collaboration?** Use Agent Teams to decide; execute the decided
@@ -368,9 +375,9 @@ merge and tag outside Tower as your release process requires.
   round, gate, merge. Keep missions meaningful (roughly a PR-sized slice), not one task per function.
 - **Merges serialize**: overlapping scopes auto-add dependencies; independent missions still merge
   one at a time onto the base. Do not expect linear speedup for merge-heavy work.
-- **Review is not free when enabled**: each mission then needs a reviewer and a clean verdict.
-  `review.requireReview:false` (the default) makes review optional; when the gate is on, exemptions
-  are opt-in and require a reason.
+- **Review is not free when required**: each mission then needs a reviewer and a clean verdict.
+  `review.mode:optional` (the default) makes review non-blocking, and `off` removes the review tool;
+  when the policy is `required`, exemptions are opt-in and require a reason.
 - **Too-fine missions** increase coordination and merge cost. **Too-coarse missions** lose the benefit
   of parallel review and make scope conflicts likely.
 - **Tower is not a sandbox**: it is a coordination protocol. Host permissions, repository hooks, and
@@ -385,7 +392,7 @@ merge and tag outside Tower as your release process requires.
 - [ ] The work produces a repository change that deserves a PR-style review.
 - [ ] I can name 2–8 missions with non-overlapping scopes and a rough dependency order.
 - [ ] Each mission has a testable definition of done (tasks, checks/tests, optional review).
-- [ ] If this change needs independent review, `review.requireReview` is on (default is off).
+- [ ] If this change needs independent review, the review policy is `required` (default is `optional`).
 - [ ] I know which missions can run in parallel and which must wait.
 - [ ] I accept the merge-gate overhead (and review overhead if enabled) and will inspect
       `MISSIONS.md`/the branch.

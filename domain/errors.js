@@ -181,6 +181,12 @@ export const ERROR_CODES = {
     retryable: false,
     nextAction: 'complete the mission first, then spawn the reviewer',
   },
+  'review-disabled': {
+    description: 'Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration.',
+    trigger: '`tower_spawn` with `role:"reviewer"`, or a review submission, while `review.mode` is `off`',
+    retryable: false,
+    nextAction: 'set review.mode to optional or required in the Tower config, then retry',
+  },
   'not-authorized': {
     description: 'The calling agent role may not perform this action.',
     trigger: 'a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings',

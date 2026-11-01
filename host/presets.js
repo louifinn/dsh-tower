@@ -6,9 +6,9 @@
 //   1. `preset-tower-worker` is a mandatory dependency: planning, mode entry and
 //      spawn must refuse when the worker preset is absent.
 //   2. `preset-tower-reviewer` is a *conditional* component. It may be off while
-//      `review.requireReview` is false (merge is unaffected); with the review
-//      gate on it must be locked with an explanatory error, never silently
-//      allowed.
+//      `review.mode` is `off` or `optional` (merge is unaffected; `off` does not
+//      use the preset at all); with `review.mode:required` it must be locked with
+//      an explanatory error, never silently allowed.
 //
 // `tower-tests` adds a third: with the component row off there is no
 // `tower_test` tool and no receipt, so `gates.requireTests: true` is refused
@@ -19,6 +19,7 @@
 // spawn would fail at `lease-busy` advising a tool that is not registered, so the
 // contradiction is refused up front instead.
 import { TowerToolError } from '../domain/errors.js'
+import { reviewRequired } from '../domain/integration/review.js'
 import { componentEnabled, disabledReason } from './capability-registry.js'
 
 export function presetIds(config = {}) {
@@ -38,22 +39,22 @@ function rowId(preset) {
  * registered. If the service is unavailable, doctor reports that separately and
  * this check cannot make a claim either way.
  *
- * The reviewer preset is required only when `review.requireReview` is true; the
- * off state is otherwise supported by the component contract.
+ * The reviewer preset is required only when `review.mode` is `required`; with
+ * `off`/`optional` the off state is supported by the component contract.
  */
 export async function assertPresetsAvailable(ctx, config = {}) {
   const service = ctx?.get?.('agentPresets')
   if (!service || typeof service.list !== 'function') return { checked: false, missing: [] }
   const presets = presetIds(config)
   const required = [presets.worker]
-  if (config.review?.requireReview === true) required.push(presets.reviewer)
+  if (reviewRequired(config)) required.push(presets.reviewer)
   const available = new Set((await service.list()).map((entry) => String(entry.id)))
   const missing = required.filter((id) => !available.has(id))
   if (missing.length === 0) return { checked: true, missing: [] }
   const rows = [...new Set(missing.map(rowId))]
   const reviewLock =
-    config.review?.requireReview === true && missing.includes(presets.reviewer)
-      ? ` review.requireReview is true, so the reviewer row may not be off; ${disabledReason(rowId(presets.reviewer))} is rejected`
+    reviewRequired(config) && missing.includes(presets.reviewer)
+      ? ` review.mode is required, so the reviewer row may not be off; ${disabledReason(rowId(presets.reviewer))} is rejected`
       : ''
   throw new TowerToolError(
     'preset-missing',
