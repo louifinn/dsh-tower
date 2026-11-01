@@ -16,7 +16,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 - **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_control` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
-- **审查门禁合并。** 开启 `review.requireReview:true` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选（门禁关闭）；全局开启时，单个 mission 用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。
+- **审查门禁合并。** 审查策略是插件页上的一个三态控件：`off`、`optional`（默认）或 `required`（配置键 `review.mode`）。设为 `required` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选；策略为 `required` 时，单个 mission 可用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。升级提示：旧的布尔审查开关是保留一个版本的别名；映射关系见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
 - **受控的状态增长。** worktree 已移除的终态任务在达到 `archive.afterDays`/`archive.maxMissions` 后移入 `.git/dsh-tower/archive/`，保留 tasks、reviews、findings 与完成报告；此后 mutation 只重写活跃工作。`tower_status includeArchived` 列出压缩后的归档摘要，`tower_doctor` 报告归档大小、数量与策略。
 - **默认安全。** Tower 模式开启期间拒绝 `create_goal`、`update_goal(resume)`、`todo_write`、Team 任务板与 `spawn_teammate`；被暂停的 goal 不会被自动恢复。
@@ -99,10 +99,10 @@ tower_init      repoRoot=D:\work\repo            # 首次初始化，记录 base
 tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # worker 在 worktree 内实现并提交，调用 tower_complete；最终报告会返回本会话
-# 可选：需要强制独立审查时，先开启 review.requireReview:true
+# 可选：需要强制独立审查时，先设 review.mode:required
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # reviewer 只读审查并调用 tower_review（clean+merge 或 p1-Nitems/p2-Nitems）
-tower_preflight repoRoot=D:\work\repo missionId=M1    # 默认审查可选；开启 review.requireReview 时审查前预期 no-review，审查后 ok:true
+tower_preflight repoRoot=D:\work\repo missionId=M1    # 默认审查可选（review.mode:optional）；设为 review.mode:required 时审查前预期 no-review，审查后 ok:true
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
@@ -140,13 +140,15 @@ tower_teardown  repoRoot=D:\work\repo
 与其余工具继续工作。
 
 进入 Tower 模式与 `tower_plan` 前会校验必需的 preset。worker preset 是强制依赖；reviewer
-preset 只在 `review.requireReview` 为 true 时必需，因此审查可选时允许关闭 reviewer 行，强制审查
-开启时会以带解释的 `preset-missing` 锁定。`tower-tests` 关闭且 `gates.requireTests:true` 时同样
-拒绝。`tower_doctor` 与 `tower_recover` 不是组件、也没有配置键：任何配置都会注册它们（#122）。
+preset 只在 `review.mode` 为 `required` 时必需，因此策略为 `off` 或 `optional` 时允许关闭
+reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁定。`tower-tests` 关闭且
+`gates.requireTests:true` 时同样拒绝。`tower_doctor` 与 `tower_recover` 不是组件、也没有配置键：
+任何配置都会注册它们（#122）。
 
 原则 11（[PRINCIPLES.md](PRINCIPLES.md)）与
 [ADR 0005](docs/adr/0005-component-surface.md) 要求：只有关闭后仍不破坏其余能力的 capability
-才能成为组件；host、健康检查、恢复通道、审查契约与合并门禁永远不是开关。逐键答案见生成的
+才能成为组件；host、健康检查、恢复通道与合并门禁永远不是开关。审查策略是唯一的
+三态配置控件（off/optional/required），不是组件行。逐键答案见生成的
 [组件表面](docs/reference/component-surface.md)，由 `npm run docs:check:components` 强制。
 
 ## 配置
@@ -162,7 +164,7 @@ preset 只在 `review.requireReview` 为 true 时必需，因此审查可选时�
       autoPauseGoal: true
       denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
     review:
-      requireReview: false       # 默认审查可选；需要强制独立审查时改为 true
+      mode: optional             # 一个三态控件：off、optional（默认）或 required
       maxRoundsPerReviewer: 5
     merge:
       timeoutMs: 900000
@@ -177,7 +179,7 @@ preset 只在 `review.requireReview` 为 true 时必需，因此审查可选时�
 - 代码中 `mode.allowAgentControl` 默认 `true`；随包 `cordis.patch.yml` 也显式设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 15s。
 - `/tower base <branch>` 可设置会话级 init base 偏好；`/tower on` 会清除活跃 plan mode（`mode.planModePolicy:"refuse"` 则拒绝进入），保证 plan/tower 互斥。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
-- 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
+- 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。三种审查模式、插件页控件位置与单版本别名迁移见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
 ## 工具（29 个：22 个核心 + 7 个可选）
 
@@ -188,7 +190,7 @@ preset 只在 `review.requireReview` 为 true 时必需，因此审查可选时�
 ## 安全与约束
 
 - **门禁不全绿不合并。** `tower_preflight` 是只读检查，返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
-- **审查绑定提交。** 开启 `review.requireReview` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。非 clean 的一轮审查会让 mission 回到 active，此后其他 route 仍可为同一 reviewed tip 提交结论并追加到同一轮；依赖为 `completed` 的 survey 视为已满足（build 依赖仍需 merged）。
+- **审查绑定提交。** 策略为 `review.mode:required` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。`off` 是受支持的模式，会移除 `tower_review`；`optional` 记录审查但从不阻塞合并。非 clean 的一轮审查会让 mission 回到 active，此后其他 route 仍可为同一 reviewed tip 提交结论并追加到同一轮；依赖为 `completed` 的 survey 视为已满足（build 依赖仍需 merged）。
 - **scope 强制。** mission 只能修改其 scope glob 匹配的文件，越界会以 `out-of-scope` 阻止合并。
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。

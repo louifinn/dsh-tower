@@ -76,6 +76,14 @@ capability row and `review.mode:off` simply leaves it unused (no `tower_review`,
 no reviewer spawn, no review blockers). The dated decision records both the new
 key and why the old boolean was not removed in the same release.
 
+#M42 reclassifies the deprecated alias from `forbidden-to-disable` to `core` in
+the component surface: it is policy configuration and a compatibility alias, not
+a capability a row may switch. The policy is one tri-state control on the
+plugin-page form, not a row and not one row per mode; the review gate in
+`required` mode, its tip-bound evidence and the exemption path remain
+non-disableable. The component and config-key counts do not move (11 visible
+components, 54 keys).
+
 ## Config keys
 
 | Key | Class | Note |

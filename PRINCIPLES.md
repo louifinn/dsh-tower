@@ -140,18 +140,26 @@ Enforced by: `docs/operations/incident.md`, `scripts/regression-audit.mjs`, and
 A component may exist only for a capability whose off state leaves the rest of the
 product intact. Every capability that qualifies gets a component, so the user can
 control it. Every capability that does not — the host, the health contract, the
-recovery escape, the review contract, the merge gates — is configuration or code,
-never a switch: not as a row, and not as a boolean that removes it.
+recovery escape, the merge gates — is configuration or code, never a switch: not
+as a row, and not as a boolean that removes it.
+
+The review policy is the deliberate middle case: it is one tri-state configuration
+control (`off`, `optional`, `required`) on the plugin page, not a component row and
+never one row per mode. Its off mode is documented and supported, while the review
+gate in required mode — the clean, tip-bound review evidence and its exemption
+path — remains non-disableable. A row may not own the policy, and the reviewer row
+is not mutually exclusive with it.
 
 Refused because of this: a single all-or-nothing switch offered as "simpler"; a
 disableable `tower_doctor`/`tower_recover`; a core feature exposed as a toggle; a
-component whose off state is worse than uninstalling the plugin.
+component whose off state is worse than uninstalling the plugin; a review policy
+exposed as a row or as three mutually exclusive rows.
 
 Enforced by: `scripts/check-components.mjs` (locale coverage, the
-forbidden-to-disable denylist and the generated component reference),
-`scripts/surface-baseline.mjs` (the component count is a baselined surface),
-`docs/adr/0005-component-surface.md`, and `tests/components.test.mjs`; gate:
-`npm run docs:check:components`.
+forbidden-to-disable denylist, the review-policy control and the generated
+component reference), `scripts/surface-baseline.mjs` (the component count is a
+baselined surface), `docs/adr/0005-component-surface.md`, and
+`tests/components.test.mjs`; gate: `npm run docs:check:components`.
 
 ## Non-goals
 

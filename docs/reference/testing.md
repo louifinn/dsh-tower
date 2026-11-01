@@ -51,7 +51,7 @@ discovery fails.
 - `tower_complete` adds a `tests` check when `tests.autoChecks` is on.
 - `gates.requireChecks` requires any completion check; `gates.requireTests` requires a passing receipt
   for the current mission branch tip (`tests-missing`). Review is independent of this gate: with
-  `review.requireReview:false` the tests gate still checks the branch tip.
+  `review.mode:optional` (the default) or `off`, the tests gate still checks the branch tip.
 
 ## Trust boundary
 

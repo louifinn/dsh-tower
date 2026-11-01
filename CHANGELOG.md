@@ -4,6 +4,34 @@
 
 ## 未发布（Unreleased）
 
+## 2.6.0（2026-11-01）
+
+### 新增
+
+- **#M39/#M40 审查策略成为单一三态控件**：`review.mode` 提供 `off` / `optional`（默认）/
+  `required`；插件页 `dsh-tower` 配置区只有一个三态单选组，不是组件行，也不是三个互斥行。
+  `off` 是受支持的模式：不注册 `tower_review`、拒绝 reviewer spawn、合并门禁忽略审查；
+  `optional` 记录审查但从不阻塞合并；`required` 恢复"干净且绑定分支 tip 的审查"合并门禁。
+- **#M42 双语迁移说明**：安装、升级与迁移文档新增 2.5.0 → 2.6.0 一节，说明三种模式、控件位置、
+  旧布尔别名的映射与单版本兼容窗口、从 `off` 启动需要重启的限制，以及 `required` 对
+  `preset-tower-reviewer` 行的依赖。
+
+### 变更
+
+- **#M42 审查策略的组件表面重新分类（2026-11-01 决策）**：`review.mode` 是一个三态配置控件；
+  `review.requireReview` 从 `forbidden-to-disable` 改为 `core`（已弃用的单版本别名）。`required`
+  模式下的合并门禁、审查证据与豁免路径仍不可被行/布尔关闭；`preset-tower-reviewer` 仍是可关闭的
+  能力行。PRINCIPLES 原则 11 与 ADR 0005 增加 wave-5 说明；组件门禁新增"审查策略不是行、没有互斥行"
+  的检查。数量不变：54 个配置键、11 个可见组件。
+- **#M42 文档全面改用 `review.mode`**：README、quickstart、FAQ、场景、架构、安全、测试参考与
+  reviewer 行注释不再把旧布尔写成当前用法；历史迁移记录保留。
+- `GLOSSARY.md` 增补 review policy / 审查策略 术语与"一个三态控件，不是三个行"的文案规则。
+
+### 修复
+
+- **F25 reviewer 行注释过时**：`cordis.patch.yml` 不再声称"仅当旧布尔为 false 时才能关闭"，
+  改为按 `review.mode` 的三态语义描述（`off`/`optional` 可关闭，`required` 时拒绝该组合）。
+
 ## 2.5.0（2026-11-01）
 
 ### 新增

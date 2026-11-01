@@ -14,9 +14,9 @@ phase instead—use Workflow/Team to analyze and decide, then start Tower to exe
 review) the repository change. See the [full guide](guide/scenarios-and-philosophy.md#4-how-tower-differs-from-other-dsh-workflow-patterns).
 
 **Why did `tower_preflight` fail with `no-review` right after the worker finished?**
-That happens only when `review.requireReview:true` is enabled: a completed mission awaits an
-independent review. Spawn a reviewer; after a clean review the gate turns green. With the default
-`review.requireReview:false`, review is optional and no `no-review` blocker is produced.
+That happens only when the review policy is `required` (`review.mode:required`): a completed mission
+awaits an independent review. Spawn a reviewer; after a clean review the gate turns green. With the
+default `review.mode:optional`, review is optional and no `no-review` blocker is produced.
 
 **Do I need to poll the worker?**
 No. The worker's final report is delivered to this session; `tower_roster` shows live activity. Polling
@@ -40,10 +40,12 @@ Correct: the branch is already contained in the base. Call `tower_merge` to reco
 instead of rebasing.
 
 **Can I require independent review?**
-Yes. Set `review.requireReview:true` in the profile or repository config to enable the global review
-gate (default is `false`, review optional). When enabled, mission-level `reviewPolicy:"none"` + a
-reason + `gates.allowReviewExemption:true` is the narrower exemption. `tower_review` works and records
-verdicts either way.
+Yes. Set the review policy to `required` — the one tri-state control on the Plugins page, or
+`review.mode:required` in the profile or repository config (the default is `optional`). When required,
+mission-level `reviewPolicy:"none"` + a reason + `gates.allowReviewExemption:true` is the narrower
+exemption. `tower_review` works and records verdicts in `optional` mode too. The old boolean toggle is
+a deprecated one-release alias; the mapping is in
+[install, upgrade and migration](guide/install-upgrade-migration.md).
 
 **Can a reviewer edit files?**
 No. Reviewers use the read-only `tower-reviewer` preset (no write/edit/pwsh); a branch changed after the

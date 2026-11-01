@@ -23,8 +23,9 @@ Wait for the worker's final report (delivered to this session) or check `tower_r
 creates `src/greet.txt`, commits on `tower/m1-add-greeting`, marks both tasks done, and calls
 `tower_complete`.
 
-This example follows the strict workflow: enable `review.requireReview:true` in the profile or
-repository config before the review step (default is optional review). Spawn the reviewer:
+This example follows the strict workflow: set the review policy to `required` (`review.mode:required`
+in the profile or repository config, or the one tri-state control on the Plugins page) before the
+review step; the default is `optional`. Spawn the reviewer:
 
 ```json
 {"repoRoot":"D:\\work\\demo","missionId":"M1","role":"reviewer"}

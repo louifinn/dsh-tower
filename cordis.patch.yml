@@ -85,9 +85,11 @@
     - id: tower-hmr
       name: 'dsh-tower/hmr'
       disabled: true
-    # Conditional optional component: off is supported only while
-    # review.requireReview is false; with the gate on planning/mode entry refuse
-    # the combination with an explanatory error.
+    # Optional capability row, usable while the review policy (`review.mode`) is
+    # off or optional. With `review.mode:required`, planning/mode entry refuse this
+    # row being off with an explanatory error. The row is not mutually exclusive
+    # with the policy: the policy is one tri-state control on the plugin page,
+    # not a component row.
     - id: preset-tower-reviewer
       name: 'dsh-tower/preset-reviewer'
       config:

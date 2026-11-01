@@ -42,14 +42,17 @@ Adopt this shape and record it as principle 11:
   a documented fallback stating what still works while it is off. A capability
   qualifies only when its off state leaves the rest of Tower intact and is not
   worse than uninstalling.
-- **The safety nets are never switches.** The health contract, the recovery
-  escape, the review contract and the merge gates are configuration or code; no
-  group, row or boolean key may gate them. Enforcement covers both routes: a
-  `cordis.patch.yml` row that defaults any key classified `forbidden-to-disable`
-  to `false` is refused, and every `tools.expose*` route in
-  `host/tool-registry.js` must match the `gateableTools` allowlist in the source
-  of truth, so a new route to a review, merge or host tool fails even when that
-  capability lists no tools of its own.
+- **The safety nets are never switches.** The health contract, the recovery escape
+  and the merge gates are configuration or code; no group, row or boolean key may
+  gate them. The review policy is configuration too — one tri-state control
+  (`off`/`optional`/`required`) on the plugin-page form, not a component row and
+  never one row per mode — while the review gate in required mode (clean,
+  tip-bound evidence and the exemption path) is contract and cannot be switched
+  off by a row. Enforcement covers both routes: a `cordis.patch.yml` row that
+  defaults any key classified `forbidden-to-disable` to `false` is refused, and
+  every `tools.expose*` route in `host/tool-registry.js` must match the
+  `gateableTools` allowlist in the source of truth, so a new route to a review,
+  merge or host tool fails even when that capability lists no tools of its own.
 - **Config keys stay on the component axis.** Every config key is classified
   `core`, `optional-component`, `optional-config` or `forbidden-to-disable` in
   `docs/reference/component-surface.md`, generated from the single source of
@@ -80,9 +83,10 @@ The one `tower-bundle` group is gone. `cordis.patch.yml` now ships the mandatory
 `tower` host anchor (the Host plugin and the worker preset are its internal
 sections) plus the individually switchable top-level rows `tower-skills`,
 `tower-batch`, `tower-import`, `tower-leases`, `tower-tests`, `tower-hmr`
-(shipped off) and `preset-tower-reviewer` (conditional on
-`review.requireReview`). The visible component count moved 1 → 8 and is recorded
-as a dated decision in `scripts/surface-baseline.json`.
+(shipped off) and `preset-tower-reviewer` (conditional on the review policy;
+today the reviewer row may be off unless `review.mode` is `required`). The
+visible component count moved 1 → 8 and is recorded as a dated decision in
+`scripts/surface-baseline.json`.
 
 The capability switches became rows: the seven `tools.expose*` keys and
 `dev.hotReload` were deleted from the schema and are now rejected as unknown
@@ -235,8 +239,9 @@ keys, 11 visible components.
 - Decisions: #137
 
 Wave 3 made the gate fail closed, but every label it admitted still passed. The
-plugin page leaked config keys (`gates.requireTests:true`, `review.requireReview`)
-and bare tool ids (`tower_batch`, `tower_resource`) into the off-state copy, the
+plugin page leaked config keys (`gates.requireTests:true`, the deprecated
+`review.requireReview` alias) and bare tool ids (`tower_batch`, `tower_resource`)
+into the off-state copy, the
 Chinese copy mixed 咨询式租约 / 重型工作 / untranslated `mission` and `preset`, and
 the Web UI used 任务线 while the plugin page left `mission` in English. The counts
 do not move: 53 config keys, 13 components, 11 visible.
@@ -294,3 +299,43 @@ do not move: 53 config keys, 13 components, 11 visible.
   `scripts/component-surface.json` and the generated
   `docs/reference/component-surface.md` is an operator reference for auditors, not
   a plugin-page label. It may name keys and tools; the locale fields may not.
+
+## Addendum (wave 5): the review policy is a tri-state control, not a component row
+
+- Date: 2026-11-01
+- Decisions: #M39, #M40, #M42
+
+Waves 1–4 listed "the review contract" among the things that are never switches.
+That wording was honest while review was a bare boolean, but it became wrong when
+#M39 made the policy a three-value mode and #M40 put one control for it on the
+plugin page. Wave 5 states the actual contract:
+
+- **`review.mode` is the policy, not a capability row.** It has exactly three
+  values — `off`, `optional` (the default) and `required` — and the plugin-pages
+  control is one tri-state radio group on the `dsh-tower` configuration form.
+  There is no review-policy component row, and there are no three mutually
+  exclusive rows. `off` is supported and documented: `tower_review` is not
+  registered, reviewer spawn is refused, and the merge gate ignores review.
+  `optional` keeps `tower_review` and never blocks a merge. `required` keeps the
+  merge gate: a completed mission needs a clean review bound to the branch tip,
+  with the existing exemption path.
+- **`review.requireReview` is a deprecated one-release alias.** It is classified
+  `core` (not `forbidden-to-disable`) because it is policy configuration and a
+  compatibility alias, not a switch a row may own. `true` resolves to `required`,
+  `false` to `optional`, and leaving it unset means `optional`. `true` next to an
+  explicit non-required mode is rejected; `false` never overrides an explicit
+  mode. The alias is removed after the 2.6 window.
+- **What stays non-disableable is the gate in `required` mode.** The merge gate's
+  review evidence and tip binding, and the exemption path, may not be removed by
+  any group, row or boolean. The reviewer preset row stays an optional
+  capability: it may be off while the policy is `off` or `optional`, and under
+  `required` planning and mode entry refuse that combination with an explanation.
+  It is not a mutually exclusive row — the policy is not a row at all.
+- **The gate enforces the shape.** A review-policy-shaped component row, a
+  component `allowedOverrides` or shipped row `config:` that names `review.mode`
+  (or the alias), a missing required-mode gate record, or a forbidden capability
+  that lists `preset-tower-reviewer` all fail
+  `npm run docs:check:components`.
+- **Counts do not move.** 54 config keys, 11 visible components; only the class of
+  one deprecated key changes. The source of truth carries the decision date
+  (`2026-11-01`) and this addendum is its written decision.

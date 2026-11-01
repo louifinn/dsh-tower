@@ -29,6 +29,28 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.5.0 → 2.6.0 (#M39/#M40) — review modes replace the boolean**: the review policy is one
+  tri-state control on the Plugins page in the `dsh-tower` configuration section, and the config key
+  is `review.mode`: `off`, `optional` (the default) or `required`.
+  - `off` is supported and documented: `tower_review` is not registered, reviewer spawn is refused,
+    and the merge gate ignores review.
+  - `optional` keeps `tower_review` but never blocks a merge.
+  - `required` keeps the merge gate: a completed mission needs a clean review bound to the branch tip
+    (the existing per-mission exemption still applies).
+  `review.requireReview` is a deprecated one-release alias: `true` resolves to `required`, `false`
+  to `optional`, and leaving it unset means `optional`. A `true` next to an explicit non-`required`
+  mode is rejected with `config-invalid`; `false` never overrides an explicit mode. Saving from the
+  plugin page always writes `review.mode` and normalizes the alias to `false`. The policy is not a
+  component row and there are no mutually exclusive review rows: `preset-tower-reviewer` remains an
+  optional capability, required only when the mode is `required` (planning and mode entry otherwise
+  refuse the combination with `preset-missing`).
+  A profile that starts with the policy `off` never registered `tower_review`; switching to
+  `optional` or `required` changes the merge gate immediately, but the tool appears only after a DSH
+  restart (or a profile reload), and the plugin page states that after such a save.
+  Upgrade: replace `review.requireReview: true|false` with `review.mode: required|optional`; keep the
+  alias only if the same config is shared with older 2.5 installations, and remove it after this
+  release. No state migration.
+
 - **2.4.2 → 2.5.0 (#131/#133/#135/#136/#142)**: three component-shaped config
   keys are gone — `tests.enabled`, `docs.board`, and `archive.enabled`. The
   `tower-tests`, `tower-board`, and `tower-archive` component rows are the only
@@ -70,14 +92,14 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   now ships the mandatory `tower` host anchor (the Host plugin and the worker preset are its internal
   sections) plus individually switchable top-level rows: `tower-skills`, `tower-batch`, `tower-import`,
   `tower-leases`, `tower-tests`, `tower-hmr` (shipped off) and `preset-tower-reviewer` (conditional on
-  `review.requireReview`). The `tools` config group and `dev.hotReload` were removed: a profile that
-  still carries them is now rejected as an unknown key (`config-unknown-key`) and the host stops
+  the review policy, today `review.mode`). The `tools` config group and `dev.hotReload` were removed: a
+  profile that still carries them is now rejected as an unknown key (`config-unknown-key`) and the host stops
   mounting until they are deleted, so no silent no-op switch remains. Move each capability to its row
   in the plugin page instead; `tower-hmr` ships off, so `tower_reload` and `/tower reload` are reported
   as "disabled by component tower-hmr" until you enable it for a linked dev profile. `tower_doctor` and
   `tower_recover` are registered for every configuration and need no key. The reviewer row may be off
-  only while `review.requireReview` is false; with the gate on, planning and mode entry refuse the
-  combination with an explanatory error. No state migration is needed.
+  while the policy is `off` or `optional`; with `review.mode:required`, planning and mode entry refuse
+  the combination with an explanatory error. No state migration is needed.
 
 - **2.0.4 → 2.1.0-beta.1**: no config migration; the state file migrates automatically (v1/v2 → v3) as
   described above. This is a **pre-release** published on the
@@ -89,10 +111,12 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   runs `npm publish --tag next`, and `latest` stays on 2.0.4 until a stable release.
 - **2.0.3 → 2.0.4**: no state/config migration. This is a security-hardening and integrity release
   (authorization, merge SHA binding, dirty-worktree completion, stale-lock recovery, limited test/git
-  process environment, `tower_recover`, UI 0.2.2). Review `review.requireReview`, `tests.admission` and
-  worker tool permissions against your threat model after upgrading.
+  process environment, `tower_recover`, UI 0.2.2). Review the review policy (`review.mode`, or the
+  deprecated `review.requireReview` alias), `tests.admission` and worker tool permissions against your
+  threat model after upgrading.
 - **2.0.1 → 2.0.3**: no state migration. Independent review became **optional by default** in 2.0.3
-  (`review.requireReview:false`); set it to `true` to keep the old review-gated merges. 2.0.1 added
+  (today's `review.mode:optional`); set `review.mode:required` to keep the old review-gated merges.
+  2.0.1 added
   `tower_batch` `abandon`, accepted merged members in batch close, made doctor skip torn-down worktrees,
   and fixed terminal-mission spawn/preflight edge cases. The optional `ui-bundle` 0.2.1 adds the
   persistent Tower-mode chip and mode-aware denied-tool rows.
