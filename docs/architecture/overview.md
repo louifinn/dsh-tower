@@ -12,9 +12,14 @@ escape keep working.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
-a capability whose off state leaves the rest intact, and that the host, health,
-recovery, review and merge-gate capabilities are never switches. Which keys are
-allowed to be switches is a table lookup in
+a capability whose off state leaves the rest intact, and that the host, the
+health contract, the recovery escape and the merge gates are never switches.
+The review policy is not one of them: `review.mode` is a single tri-state
+control (`off`, `optional` or `required`) on the plugin-page configuration
+form, not a component row and never one row per mode, and only the review gate
+it turns on in `required` mode — the clean, tip-bound evidence and the
+exemption path — is non-disableable. Which keys are allowed to be switches is a
+table lookup in
 [component-surface.md](../reference/component-surface.md), generated from
 `scripts/component-surface.json`; the component count is baselined and checked by
 `npm run docs:check:components`. That gate also refuses a `tools.expose*` route
