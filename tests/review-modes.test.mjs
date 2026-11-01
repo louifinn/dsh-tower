@@ -141,6 +141,36 @@ test('review config: resolution materializes the mode and a consistent alias fix
   assert.throws(() => resolveTowerConfig({ review: { require_review: true } }), /config-unknown-key|review\.require_review/)
 })
 
+test('review config: Cordis-materialized shapes resolve without a false contradiction', () => {
+  // #M39 review R44: Cordis resolves the schema before `apply()`, so a profile
+  // that wrote only `review.mode:'required'` reaches the resolver as
+  // `required` + the deprecated boolean's materialized default `false`. That
+  // mirrored `false` is not a user contradiction: the mode is the specific
+  // policy and `false` never overrides it.
+  const cordisRequired = Config({ review: { mode: 'required' } })
+  assert.equal(cordisRequired.review.mode, 'required')
+  assert.equal(cordisRequired.review.requireReview, false, 'Config materializes the deprecated default')
+  const resolvedRequired = resolveTowerConfig(cordisRequired)
+  assert.equal(resolvedRequired.review.mode, 'required', 'mode wins over the materialized false')
+  assert.equal(resolvedRequired.review.requireReview, true, 'the resolved alias mirrors the mode')
+  assert.deepEqual(resolveTowerConfig(resolvedRequired), resolvedRequired)
+
+  // The same holds for `off`: the materialized false is compatible, not a
+  // conflict, and the fixed point keeps the more specific mode.
+  const cordisOff = Config({ review: { mode: 'off' } })
+  assert.equal(cordisOff.review.requireReview, false)
+  assert.equal(resolveTowerConfig(cordisOff).review.mode, 'off')
+
+  // An explicit `false` next to `required` is accepted too, with `required`
+  // winning; the mode is the specific policy, not the boolean.
+  const explicit = Config({ review: { mode: 'required', requireReview: false } })
+  assert.equal(explicit.review.requireReview, false, 'explicit false is preserved by the schema')
+  const resolvedExplicit = resolveTowerConfig(explicit)
+  assert.equal(resolvedExplicit.review.mode, 'required')
+  assert.equal(resolvedExplicit.review.requireReview, true)
+  assert.equal(resolveTowerConfig({ review: { mode: 'required', requireReview: false } }).review.mode, 'required')
+})
+
 // ---------------------------------------------------------------------------
 // Repository layer: resolved per layer, never by merging two resolved shapes.
 // ---------------------------------------------------------------------------
@@ -460,12 +490,34 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     assert.equal(optionalPreflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
 
     // off: review is intentionally unavailable — no reviewer spawn, no blocker,
-    // and the merge itself succeeds without a review.
+    // and the merge itself succeeds without a review. The profile here is
+    // default/optional, so `tower_review` IS registered: a repository-level off
+    // refuses the submission instead of unregistering the profile-owned tool.
     writeRepoConfig(path.join(repo, '.git'), { review: { mode: 'off' } })
     const offStatus = await call(tools, 'tower_status', { repoRoot: repo })
     assert.equal(offStatus.review.mode, 'off')
     assert.equal(offStatus.review.available, false)
     assert.match(offStatus.review.detail, /intentionally unavailable/)
+    assert.match(offStatus.review.detail, /recording a review is refused/)
+    assert.match(offStatus.review.detail, /a profile-level off does not register tower_review/)
+    assert.equal(tools.has('tower_review'), true, 'a repository-level off cannot unregister the profile-owned tool')
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_review', {
+          repoRoot: repo,
+          missionId,
+          status: 'clean',
+          merge: 'merge',
+          findings: 'none',
+          decision: 'ok',
+          breakGlassReason: 'repo-level off e2e',
+        }),
+      (error) => {
+        assert.equal(error.code, 'review-disabled')
+        assert.match(String(error.message), /review\.mode is off/)
+        return true
+      },
+    )
     const offDoctor = await call(tools, 'tower_doctor', { repoRoot: repo })
     assert.equal(offDoctor.review.mode, 'off')
     const offCheck = offDoctor.checks.find((check) => check.id === 'review')
@@ -484,6 +536,17 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     const merged = await call(tools, 'tower_merge', { repoRoot: repo, missionId })
     assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
     assert.ok(merged.mergedCommit)
+
+    // Profile-level off is the other registration state: a fresh mount has no
+    // tower_review at all, and the shared detail sentence is still accurate.
+    configureRuntime({ review: { mode: 'off' } })
+    __testResetToolSurface()
+    const profileOff = makeCtx()
+    registerTowerTools(profileOff.ctx)
+    assert.equal(profileOff.tools.has('tower_review'), false, 'a profile-level off never registers tower_review')
+    const profileOffStatus = await call(profileOff.tools, 'tower_status', { repoRoot: repo })
+    assert.equal(profileOffStatus.review.mode, 'off')
+    assert.match(profileOffStatus.review.detail, /a profile-level off does not register tower_review/)
   } finally {
     removeTemp(root)
   }

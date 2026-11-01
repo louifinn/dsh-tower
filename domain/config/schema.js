@@ -176,11 +176,11 @@ export const Config = Schema.object({
     // contradiction. The resolver (`resolveTowerConfig`) is the single place
     // that applies the `optional` default, after alias resolution.
     mode: Schema.union(['off', 'optional', 'required']).description(
-      'Review policy. off = review is intentionally unavailable (no tower_review, reviewer spawn refused, merge gate ignores review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
+      'Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
     ),
     requireReview: Schema.boolean()
       .default(false)
-      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. Set only one of the two: true next to a conflicting mode is rejected.'),
+      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required).'),
     maxRoundsPerReviewer: Schema.natural().min(1).default(5).description('Review-round cap per reviewer per mission branch.'),
   })
     .default({})

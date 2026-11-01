@@ -37,10 +37,12 @@ win, profile keys survive when the repo does not set them. `tower_status` report
 `review.mode` is the review policy: `off`, `optional` or `required`. `review.requireReview` is a
 deprecated alias kept for one release (`true` → `required`, `false` → `optional`); prefer
 `review.mode`. When both are set in the same layer, `requireReview:true` next to any mode other than
-`required` is a contradiction and is rejected with `config-invalid` naming both keys, while
-`requireReview:false` stays compatible with `off`/`optional` (both mean "review never blocks a
-merge"). A repository layer is resolved on its own: it may relax review, but a profile with
-`review.mode:off` never registered `tower_review`, so a repository cannot raise its own mode.
+`required` is a contradiction and is rejected with `config-invalid` naming both keys.
+`requireReview:false` never contradicts an explicit mode: `off`, `optional` and `required` all stay
+accepted and the mode wins (`required` still enforces the gate; the resolved alias is mirrored back as
+`true` only for that mode). A repository layer is resolved on its own: it may relax review, but a
+profile with `review.mode:off` never registered `tower_review`, so a repository cannot raise its own
+mode.
 
 The `mode.*` group is session-scoped, not repository-scoped: it is accepted in the repository file
 for schema compatibility but only the profile config controls the Tower-mode prompt and the
@@ -69,8 +71,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `mode.denyTools` | goal/todo/team/workflow/subagent tools | Tools refused while the mode is active (12 defaults). |
 | `mode.storePath` | `$DSH_HOME/tower-mode` | Directory for `modes.json`. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries (1–2000). |
-| `review.mode` | `optional` | Review policy. `off` = review is intentionally unavailable (`tower_review` is not registered, `tower_spawn` refuses the reviewer role, the merge gate ignores review); `optional` = review is available but never blocks a merge (default); `required` = a clean review bound to the branch tip is a merge blocker (`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`). |
-| `review.requireReview` | `false` | Deprecated alias for `review.mode`: `true` → `required`, `false` → `optional`. Prefer `review.mode`. `true` next to a conflicting `review.mode` is rejected with `config-invalid` naming both keys; `false` is compatible with `off`/`optional`. |
+| `review.mode` | `optional` | Review policy. `off` = review is intentionally unavailable: recording a review is refused, `tower_spawn` refuses the reviewer role, the merge gate ignores review, and a profile-level `off` does not register `tower_review` (a repository-level `off` refuses the submission instead); `optional` = review is available but never blocks a merge (default); `required` = a clean review bound to the branch tip is a merge blocker (`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`). |
+| `review.requireReview` | `false` | Deprecated alias for `review.mode`: `true` → `required`, `false` → `optional`. Prefer `review.mode`. `true` next to a non-`required` `review.mode` is rejected with `config-invalid` naming both keys; `false` is accepted next to any explicit `review.mode` (`off`/`optional`/`required`) and never overrides it. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per branch. |
 | `merge.timeoutMs` | `900000` (15 min) | Default `tower_merge` timeout, including hooks. A per-call `timeoutMs` wins. |
 | `merge.maxBufferBytes` | `67108864` (64 MB) | Merge output buffer. |

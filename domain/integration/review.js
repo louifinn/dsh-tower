@@ -6,9 +6,12 @@
 // --------------------
 // `review.mode` is the single policy with exactly three independent values:
 //
-//   off       review is intentionally unavailable: `tower_review` is not
-//             registered, `tower_spawn` refuses the reviewer role, and the merge
-//             gate ignores review blockers;
+//   off       review is intentionally unavailable: recording a review is
+//             refused, `tower_spawn` refuses the reviewer role, and the merge
+//             gate ignores review blockers. Registration is profile-time: a
+//             profile-level off does not mount `tower_review`, while a
+//             repository-level off over a profile that mounted it refuses the
+//             submission with `review-disabled`;
 //   optional  review is available but never blocks a merge (the default, and the
 //             2.0.3+ behavior of `review.requireReview:false`);
 //   required  a clean review bound to the branch tip is a merge blocker (the
@@ -129,7 +132,7 @@ export function reviewPolicyView(config) {
   const mode = reviewModeOf(config)
   const detail =
     mode === 'off'
-      ? 'review.mode:off — review is intentionally unavailable: tower_review is not registered, reviewer spawn is refused, and the merge gate ignores review'
+      ? 'review.mode:off — review is intentionally unavailable: recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off does not register tower_review'
       : mode === 'required'
         ? 'review.mode:required — a clean review bound to the branch tip is a merge blocker'
         : 'review.mode:optional — review is available but never blocks a merge'
