@@ -26,7 +26,7 @@
 | `mode.maxEntries` | `200` | Maximum persisted mode entries. |
 | `mode.lockTimeoutMs` | `5000` | How long saveModes waits for the cross-process modes.lock before giving up. |
 | `review.mode` | `"optional"` | Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker. |
-| `review.requireReview` | `false` | Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required). |
+| `review.requireReview` | `false` | Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required). The Plugins-page control shows the alias when it is the only key and always writes review.mode with review.requireReview:false. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per mission branch. |
 | `merge.timeoutMs` | `900000` | Default tower_merge timeout, including pre-merge hooks. |
 | `merge.maxBufferBytes` | `67108864` | Captured merge output buffer. |

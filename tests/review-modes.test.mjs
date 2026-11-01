@@ -133,8 +133,16 @@ test('review config: resolution materializes the mode and a consistent alias fix
   // resolver applies the default instead.
   assert.equal(Config({ review: { mode: 'off' } }).review.mode.get(), 'off')
   assert.equal(Config({}).review.mode.get(), undefined)
-  assert.equal(Config({}).review.requireReview, false)
+  assert.equal(Config({}).review.requireReview.get(), false)
   assert.equal(resolveTowerConfig(Config({})).review.mode, 'optional')
+  // #M40 R46: both review keys must be volatile. The DSH settings form projects
+  // only fields under a `.volatile()` node, so a non-volatile alias would be
+  // hidden from the Plugins page and a legacy-only profile would render as
+  // Optional instead of its resolved Required. The tuning key stays ordinary.
+  assert.equal(Config.dict.review.dict.mode.meta.volatile, true)
+  assert.equal(Config.dict.review.dict.requireReview.meta.volatile, true)
+  assert.equal(Config.dict.review.dict.maxRoundsPerReviewer.meta.volatile, undefined)
+  assert.equal(Config.dict.review.meta.volatile, undefined, 'the review group itself is not volatile')
   // Legacy upgrade through a schema-materialized config: `Config()` fills the
   // deprecated boolean's default, but the alias must still decide the mode.
   assert.equal(resolveTowerConfig(Config({ review: { requireReview: true } })).review.mode, 'required')
@@ -151,7 +159,7 @@ test('review config: Cordis-materialized shapes resolve without a false contradi
   // policy and `false` never overrides it.
   const cordisRequired = Config({ review: { mode: 'required' } })
   assert.equal(cordisRequired.review.mode.get(), 'required')
-  assert.equal(cordisRequired.review.requireReview, false, 'Config materializes the deprecated default')
+  assert.equal(cordisRequired.review.requireReview.get(), false, 'Config materializes the deprecated default')
   const resolvedRequired = resolveTowerConfig(cordisRequired)
   assert.equal(resolvedRequired.review.mode, 'required', 'mode wins over the materialized false')
   assert.equal(resolvedRequired.review.requireReview, true, 'the resolved alias mirrors the mode')
@@ -161,14 +169,14 @@ test('review config: Cordis-materialized shapes resolve without a false contradi
   // conflict, and the fixed point keeps the more specific mode.
   const cordisOff = Config({ review: { mode: 'off' } })
   assert.equal(cordisOff.review.mode.get(), 'off')
-  assert.equal(cordisOff.review.requireReview, false)
+  assert.equal(cordisOff.review.requireReview.get(), false)
   assert.equal(resolveTowerConfig(cordisOff).review.mode, 'off')
 
   // An explicit `false` next to `required` is accepted too, with `required`
   // winning; the mode is the specific policy, not the boolean.
   const explicit = Config({ review: { mode: 'required', requireReview: false } })
   assert.equal(explicit.review.mode.get(), 'required')
-  assert.equal(explicit.review.requireReview, false, 'explicit false is preserved by the schema')
+  assert.equal(explicit.review.requireReview.get(), false, 'explicit false is preserved by the schema')
   const resolvedExplicit = resolveTowerConfig(explicit)
   assert.equal(resolvedExplicit.review.mode, 'required')
   assert.equal(resolvedExplicit.review.requireReview, true)

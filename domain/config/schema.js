@@ -175,10 +175,17 @@ export const Config = Schema.object({
     // sit next to a legacy `review.requireReview:true` and look like a user
     // contradiction. The resolver (`resolveTowerConfig`) is the single place
     // that applies the `optional` default, after alias resolution.
-    // #M40: `.volatile()` is what makes the field editable from the DSH
+    // #M40: `.volatile()` is what makes a field editable from the DSH
     // Plugins-page settings form. The form projection keeps only fields under a
     // volatile ancestor, and Cordis then hands the runtime a live reference
     // that is updated in place on a settings write (see host/config.js).
+    //
+    // Both review keys are volatile on purpose: the page must show the
+    // *resolved* policy, and `resolveReviewPolicy` lets the deprecated alias
+    // decide when `mode` is absent. A non-volatile alias would be dropped by the
+    // projection, so a profile that sets only `review.requireReview:true` would
+    // render as Optional (and a save could persist a contradiction). The group
+    // itself stays non-volatile so the tuning keys remain ordinary config.
     mode: Schema.union(['off', 'optional', 'required'])
       .volatile()
       .description(
@@ -186,7 +193,8 @@ export const Config = Schema.object({
     ),
     requireReview: Schema.boolean()
       .default(false)
-      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required).'),
+      .volatile()
+      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required). The Plugins-page control shows the alias when it is the only key and always writes review.mode with review.requireReview:false.'),
     maxRoundsPerReviewer: Schema.natural().min(1).default(5).description('Review-round cap per reviewer per mission branch.'),
   })
     .default({})

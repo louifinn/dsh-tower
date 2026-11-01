@@ -15,6 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseCordisPatch } from '../domain/components.js'
+import { resolveTowerConfig } from '../domain/config/schema.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
@@ -172,6 +173,17 @@ function setPath(target, pathParts, value) {
     cursor = cursor[part]
   }
   cursor[pathParts[pathParts.length - 1]] = value
+}
+
+// Apply Host form `set` ops to a plain profile patch, the way the settings form
+// merges the accepted value into the profile.
+function applyOps(profile, ops) {
+  const next = JSON.parse(JSON.stringify(profile ?? {}))
+  for (const op of ops) {
+    assert.equal(op.op, 'set')
+    setPath(next, op.path, op.value)
+  }
+  return next
 }
 
 function makeForm(value, options = {}) {
@@ -364,6 +376,32 @@ test('a resolved required value is reflected as the selected option', async () =
   assert.equal(radios(tree).length, 3)
 })
 
+// R46 P1: the page must show the *resolved* policy, not only `review.mode`.
+// The Host form projects a volatile field even when its sibling is absent, so a
+// profile that still sets only the deprecated alias reaches this component as
+// `{review:{requireReview:true}}` with no `mode`.
+test('the displayed policy comes from the resolved mode, including the legacy alias', () => {
+  for (const [value, expected] of [
+    [{ review: { requireReview: true } }, 'required'],
+    [{ review: { requireReview: false } }, 'optional'],
+    [{ review: {} }, 'optional'],
+    [{}, 'optional'],
+    [{ review: { mode: 'off', requireReview: false } }, 'off'],
+    [{ review: { mode: 'required', requireReview: true } }, 'required'],
+    [{ review: { mode: 'optional', requireReview: false } }, 'optional'],
+  ]) {
+    const checked = radios(mount(makeForm(value)).render()).find((input) => input.props.checked)
+    assert.equal(checked.props.value, expected, JSON.stringify(value))
+    assert.equal(resolveTowerConfig(value).review.mode, expected, `resolver agrees: ${JSON.stringify(value)}`)
+  }
+
+  // Mode-first is the resolver's precedence: only a literal `true` raises the
+  // mode, and `true` beside a non-required mode is a contradiction the runtime
+  // rejects before this page can ever describe it.
+  assert.throws(() => resolveTowerConfig({ review: { mode: 'off', requireReview: true } }), /review\.mode.*review\.requireReview/)
+  assert.throws(() => resolveTowerConfig({ review: { mode: 'optional', requireReview: true } }), /review\.mode.*review\.requireReview/)
+})
+
 // ---------------------------------------------------------------------------
 // 4. Saving through the Host config form.
 // ---------------------------------------------------------------------------
@@ -378,11 +416,73 @@ test('choosing a mode writes review.mode through the Host config form', async ()
 
   assert.equal(form.calls.length, 1)
   assert.deepEqual(form.calls[0], {
-    ops: [{ op: 'set', path: ['review', 'mode'], value: 'required' }],
+    ops: [
+      { op: 'set', path: ['review', 'mode'], value: 'required' },
+      // The deprecated scalar alias is normalized in the same write, so the
+      // stored profile patch can never contradict the selected mode.
+      { op: 'set', path: ['review', 'requireReview'], value: false },
+    ],
     revision: 1,
   })
   assert.equal(radios(tree).find((input) => input.props.checked).props.value, 'required')
   assert.match(textOf(tree), /Saved\./)
+})
+
+test('saving any of the three options writes the mode and normalizes the alias to false', async () => {
+  const cases = [
+    [{ review: { mode: 'optional' } }, 'off'],
+    [{ review: { mode: 'required' } }, 'optional'],
+    [{ review: { mode: 'off' } }, 'required'],
+    // The same holds when the page started from the legacy-only shape.
+    [{ review: { requireReview: true } }, 'off'],
+    [{ review: { requireReview: false } }, 'required'],
+  ]
+  for (const [value, target] of cases) {
+    const form = makeForm(value)
+    const mounted = mount(form)
+    radios(mounted.render())
+      .find((input) => input.props.value === target)
+      .props.onChange()
+    await mounted.flush()
+
+    assert.equal(form.calls.length, 1, JSON.stringify(value))
+    assert.deepEqual(
+      form.calls[0],
+      {
+        ops: [
+          { op: 'set', path: ['review', 'mode'], value: target },
+          { op: 'set', path: ['review', 'requireReview'], value: false },
+        ],
+        revision: 1,
+      },
+      JSON.stringify(value),
+    )
+    const tree = mounted.render()
+    assert.equal(radios(tree).find((input) => input.props.checked).props.value, target)
+  }
+})
+
+test('a legacy-only profile stays valid after a simulated save of every option', async () => {
+  for (const [start, target] of [
+    [{ review: { requireReview: true } }, 'off'],
+    [{ review: { requireReview: true } }, 'optional'],
+    [{ review: { requireReview: false } }, 'required'],
+  ]) {
+    const form = makeForm(start)
+    const mounted = mount(form)
+    radios(mounted.render())
+      .find((input) => input.props.value === target)
+      .props.onChange()
+    await mounted.flush()
+
+    // Replay the accepted ops onto a profile that still stored only the alias.
+    const patched = applyOps({ review: { requireReview: true } }, form.calls[0].ops)
+    assert.equal(patched.review.requireReview, false, 'the save normalizes the alias')
+    assert.doesNotThrow(() => resolveTowerConfig(patched), 'the saved profile must not be config-invalid')
+    const resolved = resolveTowerConfig(patched)
+    assert.equal(resolved.review.mode, target)
+    assert.equal(resolved.review.requireReview, target === 'required')
+  }
 })
 
 test('a refused save keeps the previous selection and explains the failure', async () => {
@@ -398,6 +498,39 @@ test('a refused save keeps the previous selection and explains the failure', asy
   assert.equal(radios(tree).find((input) => input.props.checked).props.value, 'optional')
   assert.match(textOf(tree), /could not be saved/i)
   assert.doesNotMatch(textOf(tree), /Saved\./)
+})
+
+// R46 P2 (documented limitation): the review tool is registered at apply time,
+// so a session whose profile started with review off keeps it absent after a
+// live switch to optional/required. The control says so instead of implying the
+// tool is already available; the merge gate itself does read the new mode.
+test('switching away from a profile that started with review off explains the restart requirement', async () => {
+  const form = makeForm({ review: { mode: 'off' } })
+  const mounted = mount(form)
+  let tree = mounted.render()
+  assert.equal(radios(tree).find((input) => input.props.checked).props.value, 'off')
+  assert.doesNotMatch(textOf(tree), /restart/i)
+  assert.equal(findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-restart-hint')).length, 0)
+
+  radios(tree)
+    .find((input) => input.props.value === 'optional')
+    .props.onChange()
+  await mounted.flush()
+  tree = mounted.render()
+  assert.equal(radios(tree).find((input) => input.props.checked).props.value, 'optional')
+  assert.match(textOf(tree), /merge gate already uses the new choice/i)
+  assert.match(textOf(tree), /restart/i)
+  assert.equal(findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-restart-hint')).length, 1)
+
+  // A profile that did not start off needs no restart: the tool was registered.
+  const started = mount(makeForm({ review: { mode: 'optional' } }))
+  let next = started.render()
+  radios(next)
+    .find((input) => input.props.value === 'required')
+    .props.onChange()
+  await started.flush()
+  next = started.render()
+  assert.doesNotMatch(textOf(next), /restart/i)
 })
 
 // ---------------------------------------------------------------------------

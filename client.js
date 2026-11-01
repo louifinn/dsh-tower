@@ -9,9 +9,15 @@
 // with three states.
 //
 // Saving goes through `ctx.configForms.get('tower-host')` (the Host entry id in
-// cordis.patch.yml). `mutate([{ op: 'set', path: ['review', 'mode'], value }])`
-// writes the profile patch; the Host schema marks `review.mode` volatile, so the
-// accepted value is reflected in place without reloading the plugin.
+// cordis.patch.yml). One `mutate([...])` call writes both review keys:
+// `review.mode` becomes the selected value and the deprecated scalar alias
+// `review.requireReview` is normalized to `false`, so the stored profile patch
+// can never contain a contradiction. The Host schema marks both keys volatile, so
+// the accepted values are reflected in place without reloading the plugin.
+//
+// The displayed selection is the *resolved* policy, not just `review.mode`: the
+// alias decides when `mode` is absent, exactly like `resolveReviewPolicy` in
+// domain/integration/review.js.
 //
 // No build step, no new dependency, no Host/Client package imports: React comes
 // from the browser module table and theme colors use `--dsw-alias-*` tokens.
@@ -41,6 +47,8 @@ window.__ModuleLoader__.load({
       'config.optional.description': 'Review is available, but it never blocks a merge.',
       'config.required.label': 'Required',
       'config.required.description': 'A clean review at the branch tip blocks merge; the reviewer preset is required.',
+      'config.restartHint':
+        'This profile started with review off, so the merge gate already uses the new choice but the review tool appears only after a restart (or a profile reload).',
     }
 
     const ZH = {
@@ -59,6 +67,8 @@ window.__ModuleLoader__.load({
       'config.optional.description': '审查可用，但不会阻止合并。',
       'config.required.label': '必需',
       'config.required.description': '分支末端的干净审查会阻止合并；需要审查代理预设。',
+      'config.restartHint':
+        '此配置启动时审查为关闭状态：合并门禁已使用新的选择，但审查工具需要重启（或重新加载配置）后才会出现。',
     }
 
     function fill(text, params) {
@@ -95,9 +105,25 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // The resolved policy: an explicit `mode` wins; otherwise the deprecated
+    // boolean alias decides (true -> required, false -> optional), like
+    // `resolveReviewPolicy`. Only a literal `true` can raise the mode, which is
+    // also the only value the resolver accepts beside a non-required mode.
     function currentMode(snapshot) {
-      const value = snapshot && snapshot.value && snapshot.value.review ? snapshot.value.review.mode : undefined
-      return MODES.includes(value) ? value : DEFAULT_MODE
+      const review = (snapshot && snapshot.value && snapshot.value.review) || {}
+      if (MODES.includes(review.mode)) return review.mode
+      return review.requireReview === true ? 'required' : DEFAULT_MODE
+    }
+
+    // Both review keys are written together: the selected mode, plus the alias
+    // normalized to `false`. An explicit `false` is required — leaving the key
+    // unset would restore the inherited default, and a stale `true` would
+    // contradict a non-required mode and make `resolveTowerConfig` throw.
+    function reviewOps(mode) {
+      return [
+        { op: 'set', path: ['review', 'mode'], value: mode },
+        { op: 'set', path: ['review', 'requireReview'], value: false },
+      ]
     }
 
     function ReviewPolicySection(props) {
@@ -108,12 +134,22 @@ window.__ModuleLoader__.load({
       })
       const [pending, setPending] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
+      // The policy this page first saw. A session whose profile started with
+      // review off never registered the review tool, so switching to
+      // optional/required takes effect at the merge gate immediately but needs a
+      // restart (or profile reload) before the tool exists. The control states
+      // that limitation instead of pretending the tool appeared.
+      const startMode = React.useRef(null)
 
       React.useEffect(
         function () {
           if (!form) return undefined
           const update = function () {
-            setSnapshot(safeSnapshot(form))
+            const next = safeSnapshot(form)
+            if (startMode.current === null && next && next.status === 'ready') {
+              startMode.current = currentMode(next)
+            }
+            setSnapshot(next)
           }
           update()
           let unsubscribe
@@ -132,6 +168,7 @@ window.__ModuleLoader__.load({
       const status = snapshot && typeof snapshot.status === 'string' ? snapshot.status : 'unavailable'
       const writable = status === 'ready' && snapshot.writable !== false
       const selection = currentMode(snapshot)
+      const restartNeeded = notice === 'saved' && startMode.current === 'off' && selection !== 'off'
 
       function choose(next) {
         if (!form || !writable || pending || next === selection) return
@@ -139,7 +176,7 @@ window.__ModuleLoader__.load({
         setNotice(null)
         let result
         try {
-          result = form.mutate([{ op: 'set', path: ['review', 'mode'], value: next }], snapshot ? snapshot.revision : undefined)
+          result = form.mutate(reviewOps(next), snapshot ? snapshot.revision : undefined)
         } catch {
           setPending(null)
           setNotice('saveFailed')
@@ -178,7 +215,7 @@ window.__ModuleLoader__.load({
             padding: '16px',
             border: '1px solid var(--dsw-alias-border-l2)',
             borderRadius: '8px',
-            background: 'var(--dsw-alias-bg-module)',
+            background: 'var(--dsw-alias-bg-module-platform)',
           },
         },
         h('div', { style: { color: 'var(--dsw-alias-label-primary)', fontWeight: 600 } }, t('config.title')),
@@ -239,6 +276,16 @@ window.__ModuleLoader__.load({
           },
           pending ? t('config.saving') : notice ? t(`config.${notice}`) : t('config.current', { mode: t(`config.${selection}.label`) }),
         ),
+        restartNeeded
+          ? h(
+              'p',
+              {
+                'data-dsh-tower-restart-hint': '',
+                style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' },
+              },
+              t('config.restartHint'),
+            )
+          : null,
       )
     }
 

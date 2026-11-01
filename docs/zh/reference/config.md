@@ -41,8 +41,15 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 （`required` 仍然强制门禁；只有该 mode 才会把解析后的别名镜像回 `true`）。仓库层会独立解析：它可以放宽
 审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，仓库层不能自行提高 mode。
 
+插件页控件显示的正是运行时解析出的策略：`review.mode` 存在时以它为准；只设置了 `review.requireReview`
+的配置会显示为「必需」（`true`）或「可选」（`false`）。保存任何选择都会在同一份 profile patch 中写入
+`review.mode`，并把 `review.requireReview` 置为 `false`，因此该别名不可能与所选 mode 矛盾。
+
 同样的三个选项也出现在插件页的 `dsh-tower` 配置区：**关闭**、**可选**（默认）和 **必需**，每个选项都有一行效果说明。
-该控件通过宿主设置表单写入 profile 配置，因此无需手动编辑文件或重新加载插件，页面就会接受并显示所选值。
+该控件通过宿主设置表单写入 profile 配置，因此无需手动编辑文件，页面就会接受并显示所选值。
+
+但已挂载的工具面无法实时重建：启动时审查为关闭的 profile 没有注册 `tower_review`。通过页面切换到「可选」
+或「必需」会立即改变合并门禁，但审查工具本身需要重启（或重新加载配置）后才会出现；出现这种情况后控件会给出提示。
 
 `mode.*` 分组是会话级的，不是仓库级的：为兼容 schema，它可以在仓库文件中出现，但只有 profile
 配置能控制 Tower 模式提示与模型切换开关。文件格式错误、值不是对象、未知顶层键，或违反声明 schema
@@ -71,7 +78,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
 | `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
 | `review.mode` | `optional` | 审查策略。`off` = 审查被有意关闭（记录审查会被拒绝、`tower_spawn` 拒绝 reviewer 角色、合并门禁忽略审查；profile 级的 `off` 也不会注册 `tower_review`，仓库级的 `off` 则拒绝提交）；`optional` = 审查可用但从不阻塞合并（默认）；`required` = 绑定分支 tip 的 clean 审查是合并门禁（`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`）。 |
-| `review.requireReview` | `false` | `review.mode` 的兼容别名（已弃用）：`true` → `required`，`false` → `optional`。请优先使用 `review.mode`。`true` 与非 `required` 的 `review.mode` 同时设置会以 `config-invalid` 拒绝并点名两个键；`false` 可与任何显式 `review.mode`（`off`/`optional`/`required`）共存，且不会覆盖它。 |
+| `review.requireReview` | `false` | `review.mode` 的兼容别名（已弃用）：`true` → `required`，`false` → `optional`。请优先使用 `review.mode`。`true` 与非 `required` 的 `review.mode` 同时设置会以 `config-invalid` 拒绝并点名两个键；`false` 可与任何显式 `review.mode`（`off`/`optional`/`required`）共存，且不会覆盖它。插件页控件在该别名是唯一键时按它显示，并在保存时写入 `review.mode` 且把 `review.requireReview` 归一化为 `false`。 |
 | `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
 | `merge.timeoutMs` | `900000`（15 分钟） | `tower_merge` 默认超时，包含钩子；单次调用的 `timeoutMs` 优先。 |
 | `merge.maxBufferBytes` | `67108864`（64 MB） | 合并输出缓冲区。 |
