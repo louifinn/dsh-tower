@@ -12,8 +12,8 @@
 分析与决策，再启动 Tower 执行（可选审查）仓库变更。详见[完整指南](guide/scenarios-and-philosophy.md#4-tower-与其他-dsh-工作流模式的区别)。
 
 **为什么 worker 刚完成，`tower_preflight` 就因 `no-review` 失败？**
-只有在 `review.requireReview:true` 开启时才会如此：已完成的 mission 在等待独立审查。spawn 一个
-reviewer；干净审查后门禁就会变绿。默认 `review.requireReview:false` 时审查可选，不会产生
+只有在审查策略为 `required`（`review.mode:required`）时才会如此：已完成的 mission 在等待独立审查。
+spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:optional` 时审查可选，不会产生
 `no-review` blocker。
 
 **需要轮询 worker 吗？**
@@ -35,9 +35,11 @@ reviewer；干净审查后门禁就会变绿。默认 `review.requireReview:fals
 正确：分支已经包含在基线中。此时调用 `tower_merge` 记录已落地的合并，而不是 rebase。
 
 **可以要求强制独立审查吗？**
-可以。在 profile 或仓库配置中设 `review.requireReview:true` 可开启全局审查门禁（默认 `false`，
-即审查可选）。开启后可用 mission 级 `reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true`
-做更窄的豁免。`tower_review` 始终可用并记录结论。
+可以。把审查策略设为 `required` —— 插件页上的一个三态控件，或在 profile/仓库配置中写
+`review.mode:required`（默认 `optional`）。策略为 `required` 时，可用 mission 级
+`reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true` 做更窄的豁免。`optional` 模式下
+`tower_review` 同样可用并记录结论。旧布尔开关是已弃用、保留一个版本的别名；映射关系见
+[安装、升级与迁移](guide/install-upgrade-migration.md)。
 
 **reviewer 能修改文件吗？**
 不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支

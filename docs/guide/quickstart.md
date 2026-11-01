@@ -33,15 +33,25 @@ session. Use `tower_roster` to observe activity; do not poll in a loop.
 
 ## 4. Optional: review
 
-Independent review is optional by default. If you want the strict workflow, enable it in the profile
-or repository config first (`review.requireReview:true`), then:
+The review policy is one tri-state control — `off`, `optional` (the default) or `required` — on the
+Plugins page in the `dsh-tower` configuration section, or `review.mode` in the profile/repository
+config. It is one control, not a component row and not three rows. Set it to `required` for the strict
+workflow, then:
 
 ```
 tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
 ```
 
 Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_diff` and submit
-`tower_review`; with `review.requireReview:true`, a `clean` + `merge` verdict is required to merge.
+`tower_review`; with `review.mode:required`, a `clean` + `merge` verdict is required to merge.
+`optional` records reviews but never blocks a merge, and `off` is a supported mode that does not
+register `tower_review`.
+
+The old boolean review toggle is a one-release alias (`true` → `required`, `false` → `optional`;
+unset → `optional`). Prefer `review.mode`. A profile that started with
+`off` only registers `tower_review` after a restart/reload, although the merge gate changes
+immediately. See [install, upgrade and migration](install-upgrade-migration.md) for the full
+migration.
 
 ## 5. Gate, merge, clean up
 
@@ -51,10 +61,10 @@ tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 ```
 
-With the review gate enabled, `tower_preflight` before review reports `no-review`, and after a clean
-review it should be `ok:true`. With the default (`review.requireReview:false`), no review blocker is
-required. `tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned
-worktrees and branches.
+With `review.mode:required`, `tower_preflight` before review reports `no-review`, and after a clean
+review it should be `ok:true`. With the default (`optional`), no review blocker is required.
+`tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned worktrees and
+branches.
 
 ```
 /tower off
@@ -63,8 +73,8 @@ worktrees and branches.
 ## If something fails
 
 Read the blocker code and use [the blocker reference](../reference/blockers.md). The most common cases:
-`stale-base` (run `tower_rebase`), `no-review` (only with `review.requireReview:true`; spawn a
-reviewer), `merge-hook-failed` (retry, or raise `timeoutMs`), `tip-moved` (only with the review gate;
+`stale-base` (run `tower_rebase`), `no-review` (only with `review.mode:required`; spawn a reviewer),
+`merge-hook-failed` (retry, or raise `timeoutMs`), `tip-moved` (only when the policy is `required`;
 the branch changed after review, review again).
 
 Thrown tool failures carry a `[tower:<code>]` prefix; see [error codes](../reference/errors.md)
@@ -78,7 +88,7 @@ JSON file at `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/c
 
 ```json
 {
-  "review": { "requireReview": true, "maxRoundsPerReviewer": 3 },
+  "review": { "mode": "required", "maxRoundsPerReviewer": 3 },
   "merge": { "timeoutMs": 1800000 },
   "worktrees": { "root": "D:/tower-worktrees" }
 }

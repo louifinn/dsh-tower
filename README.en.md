@@ -16,7 +16,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 
 - **Configurable Tower mode.** `/tower` toggles a session-level stance that narrows the tool surface and injects the Tower protocol. `/tower on|off <instruction>` also forwards your instruction to the model in the same step. By default the model may also enter/leave with `tower_control` and a concrete reason; set `mode.allowAgentControl:false` for human-only control.
 - **Missions with real isolation.** Every mission gets its own branch and Git worktree; workers never touch your checkout.
-- **Review-gated merges.** When `review.requireReview:true`, a reviewer bound to the current branch tip must submit a `clean` / `merge` verdict before merge; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default (the gate is off); use `reviewPolicy:"none"` + reason plus `gates.allowReviewExemption:true` for a single mission when the global gate is on. Multi-route review is recorded per round: while a non-clean round keeps the mission `active`, a later reviewer may still submit its verdict for the same reviewed tip and it appends to that round. A completed `survey` dependency satisfies the dependency gate (a build dependency still must be merged).
+- **Review-gated merges.** The review policy is one tri-state control on the plugin page: `off`, `optional` (the default) or `required` (`review.mode` in config). With `required`, a reviewer bound to the current branch tip must submit a `clean` / `merge` verdict before merge; the merge gate re-checks scope, staleness, task completion, review history, and worktree ownership before a `--no-ff` merge. Independent review is optional by default; use `reviewPolicy:"none"` + reason plus `gates.allowReviewExemption:true` for a single mission when the policy is required. Multi-route review is recorded per round: while a non-clean round keeps the mission `active`, a later reviewer may still submit its verdict for the same reviewed tip and it appends to that round. A completed `survey` dependency satisfies the dependency gate (a build dependency still must be merged). Upgrade note: the old boolean review toggle is a one-release alias; the mapping is in [install, upgrade and migration](docs/guide/install-upgrade-migration.md).
 - **Durable coordination.** Roster, inbox, findings, reviews, and mission state are persisted under `.git/dsh-tower/`, so a restart does not lose the plan.
 - **Bounded state growth.** Terminal missions whose worktree is gone move to `.git/dsh-tower/archive/` once `archive.afterDays`/`archive.maxMissions` says so, keeping their tasks, reviews, findings and completion report; mutations then rewrite only active work. `tower_status includeArchived` lists compact archived summaries, and `tower_doctor` reports archive size, count and policy.
 - **Safe by default.** While Tower mode is active, `create_goal`, `update_goal(resume)`, `todo_write`, the Team task board, and `spawn_teammate` are refused; a paused goal is never resumed automatically.
@@ -100,10 +100,10 @@ tower_init      repoRoot=D:\work\repo            # records the base (current bra
 tower_plan      repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement","commit"],"kind":"build"}]
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # the worker implements and commits in its worktree, calls tower_complete; its final report returns here
-# Optional: enable review.requireReview:true first if you need mandatory independent review
+# Optional: set review.mode:required first if you need mandatory independent review
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # the reviewer inspects read-only and calls tower_review (clean+merge, or p1-Nitems/p2-Nitems)
-tower_preflight repoRoot=D:\work\repo missionId=M1    # review optional by default; with review.requireReview expect no-review before review and ok:true after
+tower_preflight repoRoot=D:\work\repo missionId=M1    # review optional by default (review.mode:optional); with review.mode:required expect no-review before review and ok:true after
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
@@ -138,18 +138,19 @@ planning tools, `tower_status`, and the remaining tools keep working.
 
 Mode entry and `tower_plan` validate the required presets before work starts. The
 worker preset is mandatory; the reviewer preset is required only when
-`review.requireReview` is true, so the reviewer row may be off while review is
-optional and is locked with an explanatory `preset-missing` error when the gate
-is on. `tower-tests` off with `gates.requireTests:true` is refused the same way.
-`tower_doctor` and `tower_recover` are not components and have no config key: they
-are registered for every configuration (#122).
+`review.mode` is `required`, so the reviewer row may be off while the policy is
+`off` or `optional` and is locked with an explanatory `preset-missing` error when
+the policy is `required`. `tower-tests` off with `gates.requireTests:true` is
+refused the same way. `tower_doctor` and `tower_recover` are not components and
+have no config key: they are registered for every configuration (#122).
 
 [Principle 11](PRINCIPLES.md) and
 [ADR 0005](docs/adr/0005-component-surface.md) say a component may exist only for
-a capability whose off state leaves the rest intact; the host, health, recovery,
-review and merge-gate capabilities are never switches. The per-key answer is the
-generated [component surface](docs/reference/component-surface.md), enforced by
-`npm run docs:check:components`.
+a capability whose off state leaves the rest intact; the host, health, recovery
+and merge-gate capabilities are never switches. The review policy is the one
+tri-state configuration control (off/optional/required), not a row. The per-key
+answer is the generated [component surface](docs/reference/component-surface.md),
+enforced by `npm run docs:check:components`.
 
 ## Configuration
 
@@ -164,7 +165,7 @@ generated [component surface](docs/reference/component-surface.md), enforced by
       autoPauseGoal: true
       denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
     review:
-      requireReview: false      # review optional by default; set true to enforce independent review
+      mode: optional            # one tri-state control: off, optional (default) or required
       maxRoundsPerReviewer: 5
     merge:
       timeoutMs: 900000
@@ -179,7 +180,7 @@ generated [component surface](docs/reference/component-surface.md), enforced by
 - `mode.allowAgentControl` defaults to `true` in code; the bundled `cordis.patch.yml` also sets it explicitly to `true` so the model may enter/leave when the user intent or task state warrants it, always stating a reason. Set it to `false` for human-only control. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
 - `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
-- Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected (top-level and inside a group) so typos cannot silently disable security-relevant settings. Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
+- Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected (top-level and inside a group) so typos cannot silently disable security-relevant settings. The three review modes, where the plugin-page control lives, and the one-release alias migration are in [install, upgrade and migration](docs/guide/install-upgrade-migration.md). Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
 ## Tools (29: 22 core + 7 optional)
 
@@ -190,7 +191,7 @@ The list above is the 22 core tools plus 5 of the component-owned optional tools
 ## Safety and guardrails
 
 - **No merge without a green gate.** `tower_preflight` is read-only and reports stable blocker codes; `tower_merge` refuses when any blocker remains.
-- **Review is bound to a commit when enabled.** With `review.requireReview:true`, a moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected.
+- **Review is bound to a commit when required.** With `review.mode:required`, a moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected. `off` is a documented mode that removes `tower_review`; `optional` records reviews but never blocks a merge.
 - **Scope enforcement.** A mission may only change files matched by its declared scope globs; `out-of-scope` blocks the merge.
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.

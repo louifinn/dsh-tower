@@ -28,6 +28,7 @@ off-state sentence.
 | preset | preset | 预设 | A shipped role definition. Never leave the English word in Chinese copy. |
 | worktree | worktree | 工作树 | The isolated checkout a worker runs in. |
 | review | review | 审查 | The review contract and the act of reviewing. Do not use 评审 in plugin-page copy. |
+| review policy | review policy | 审查策略 | The one tri-state control on the plugin-page configuration form: off, optional (default) or required. It is not a component row and never three mutually exclusive rows. |
 | lease | lease | 租约 | Advisory resource coordination. Never 咨询式租约: the lease coordinates, it does not consult. |
 | worker | worker | 执行代理 | The role that executes a mission. "Tower Worker" is a product name and stays as-is. |
 | reviewer | reviewer | 审查代理 | The role that independently reviews a mission. "Tower Reviewer" is a product name and stays as-is. |
@@ -65,3 +66,8 @@ is migrated separately under the same glossary.
    working: a reviewer preset needed for merging is a precondition, not an
    optional extra, and test evidence that cannot be recorded keeps merges blocked
    until the requirement is cleared.
+7. Describe the review policy as one tri-state control (off / optional /
+   required), never as three rows and never as a capability that is permanently
+   on. In required mode it is a merge precondition; in off mode review is
+   intentionally unavailable. The deprecated boolean alias maps true → required,
+   false → optional, and unset → optional.

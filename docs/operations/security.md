@@ -4,15 +4,16 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 
 ## Enforced by the plugin
 
-- **Review binding (when review is enabled).** `tower_review` records the branch tip it inspected;
-  with `review.requireReview:true`, the gate rejects a moved tip (`tip-moved`) unless a clean
-  conflict-free rebase waived it. A reviewer that modifies the branch after spawning is rejected
+- **Review binding (when required).** `tower_review` records the branch tip it inspected; with
+  `review.mode:required`, the gate rejects a moved tip (`tip-moved`) unless a clean conflict-free
+  rebase waived it. A reviewer that modifies the branch after spawning is rejected
   (`reviewer must not modify the mission branch`).
-- **Review is optional by default, enforceable by config.** `review.requireReview:false` is the
-  default; set it to `true` to enforce the independent-review gate. Mission-level
-  `reviewPolicy:"none"` + reason is the narrower exemption when the global gate is on. With the gate
-  off, separation of duties is not enforced by the plugin; use it only for trusted or human-supervised
-  repositories.
+- **Review is optional by default, enforceable by the tri-state policy.** `review.mode` is `off`,
+  `optional` (the default) or `required`. Set it to `required` to enforce the independent-review gate.
+  Mission-level `reviewPolicy:"none"` + reason is the narrower exemption when the policy is required.
+  With `off`, review is intentionally unavailable; with `optional`, separation of duties is not
+  enforced by the plugin, so use it only for trusted or human-supervised repositories. The policy is
+  one control on the plugin page, not a component row.
 - **Role enforcement.** The caller is resolved against the roster. Worker mission updates are limited to
   task/blocker/note; `completed`, `abandoned`, scope widening and blocker clearing are tower-only, and
   completion (with its unread-inbox/commit gates) must go through `tower_complete`. Tower-only tools reject
@@ -84,8 +85,8 @@ intent behind that entry. What it does provide:
 It does **not** defend against: a model that legitimately passes every gate while acting on malicious
 instructions; repository hooks or test commands the repository itself declares; or filesystem/shell
 access outside the worktree by a worker that ignores its instructions. For a higher-assurance team,
-set `mode.allowAgentControl:false`, keep `review.requireReview:true`, review the repository before
-Tower work, and run the host under OS-level isolation.
+set `mode.allowAgentControl:false`, keep the review policy at `review.mode:required`, review the
+repository before Tower work, and run the host under OS-level isolation.
 
 ## Not enforced by the plugin (deployment concerns)
 

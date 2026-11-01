@@ -4,7 +4,7 @@
 
 Tower 不是所有多代理模式的替代品。它是**面向 Git 仓库变更的交付协议**：少量边界清晰的 mission、隔离的写入者、可选独立审查、证据与合并门禁。本页解释这些设计取舍、适用场景，以及什么时候 Agent Teams、Ralph 循环、Workflow 编排或普通并行子代理更合适。
 
-如果只记一句话：**输出是需要经过受控合并落地的仓库变更时用 Tower；输出是探索、重复尝试或程序化扇出时用其他模式。**如果还需要独立审查，开启 `review.requireReview`。
+如果只记一句话：**输出是需要经过受控合并落地的仓库变更时用 Tower；输出是探索、重复尝试或程序化扇出时用其他模式。**如果还需要独立审查，把审查策略设为 `required`；默认为 `optional`。
 
 ## 1. 设计哲学
 
@@ -26,7 +26,7 @@ mission 不是聊天线程或任务卡，而是绑定到分支与 worktree 的�
 
 worker 永远不合并。控制塔运行 preflight；只有之后 `tower_merge` 才执行 `--no-ff` 合并。门禁重新检查 scope、base 新鲜度、任务、worktree 归属、worker 状态、测试与证据。开启审查时，reviewer 还会审查特定分支 tip，门禁检查审查绑定；职责分离（写代码者不批准、批准者不合并）在审查开启时生效。
 
-独立审查默认可选：设 `review.requireReview:true` 才会强制（此时已完成 mission 必须带有绑定 tip 的 clean/merge 审查）。对敏感仓库建议开启；全局开启时仍可用 `reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true` 做单个 mission 豁免。无论开关如何，都可以提交并记录 review。
+审查策略是一个三态控件：`off`、`optional`（默认）或 `required`。设为 `required` 才会强制独立审查（此时已完成 mission 必须带有绑定 tip 的 clean/merge 审查）。对敏感仓库建议设为 `required`；策略为 `required` 时仍可用 `reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true` 做单个 mission 豁免。`optional` 会记录审查但从不阻塞合并；`off` 是受支持的模式，会移除审查工具。该策略是配置，不是组件行：插件页上只有一个控件，不是三个互斥行。
 
 ### 1.5 证据优先于断言
 
@@ -127,7 +127,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 | 隔离 | 每 mission 独立 worktree/分支；单写入者 | 共享工作区；靠任务归属协调 | 每轮新 child；无内置分支/合并契约 | 每步 child；无 Git 隔离 | 子会话；可能共享工作区 |
 | 持久状态 | Git 元数据 + JSON state + 活动日志 + 看板 | Team 任务板 + 会话 | 很少；每轮从零开始 | 运行记录/结果；不是合并账本 | 会话/子代理记录 |
 | 集成权限 | 仅控制塔，经 preflight/merge 门禁（可选再加审查） | 人类/teammate 手动合并或编辑 | 通常由父 agent/worker 应用结果 | 脚本应用结果 | 父 agent 应用结果 |
-| 审查/门禁 | 可选独立审查（`review.requireReview` 开启）+ preflight/merge 门禁 | 审查是协作约定，不是硬门禁 | 无内置审查门禁 | 无内置审查门禁 | 无内置审查门禁 |
+| 审查/门禁 | 可选独立审查（一个 `review.mode` 控件：off/optional/required）+ preflight/merge 门禁 | 审查是协作约定，不是硬门禁 | 无内置审查门禁 | 无内置审查门禁 | 无内置审查门禁 |
 | 并行度 | 多 mission、互斥 scope、合并串行 | 多 teammate、共享任务板 | 顺序轮次（或外部扇出） | 高扇出，由脚本控制 | 高扇出 |
 | 人的角色 | 拥有模式；可检查证据与发布 | 协作者/协调者 | 重复目标的作者 | 编排脚本作者 | 委派者 |
 | 最适合 | 特性交付、迁移、发布绑定变更 | 设计、研究、横切协作 | 迭代搜索/修复，需要新鲜上下文 | 大规模审计、批量分析、确定性流水线 | 快速探索或独立子任务 |
@@ -137,7 +137,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 
 普通 `subagent`/`subagent_fork` 便宜灵活，适合"并行读五个文件"或"试三种方案"。它们不提供写范围、专用 worktree、持久 mission、独立审查或合并门禁。Tower 用这些契约包装同一个子代理原语，因此每个 child 更贵。
 
-只读、短生命周期、或你准备自己集成结果时，用普通子代理；结果必须落到分支并经受控合并时，用 Tower；需要独立审查时再开启 `review.requireReview`。
+只读、短生命周期、或你准备自己集成结果时，用普通子代理；结果必须落到分支并经受控合并时，用 Tower；需要 reviewer 角色把关合并时，再把审查策略设为 `required`。
 
 ### 4.2 Tower vs Agent Teams
 
@@ -161,13 +161,16 @@ Tower 是**仓库交付协议**，mission 数量少，不是高扇出数据平�
 
 Plan mode 决定做什么；Tower 把已决定的计划执行到仓库。进入 Tower 会清除活跃 plan（`mode.planModePolicy:"refuse"` 时拒绝进入），且 Tower 会话不能使用 goal/todo/team/workflow 工具。先规划，再执行；不要指望 Tower 替你发现计划。
 
-### 4.6 审查默认可选
+### 4.6 审查策略是一个三态控件
 
-`review.requireReview:false` 是默认值，因此低风险仓库、临时工作或人类逐轮监督的会话可以在没有
-reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查门禁；此时检查 `no-review`、
-`not-clean`、`review-hold`、`review-not-approved`、`tip-moved`、`review-mission-mismatch`。
-`tower_review` 始终可用并记录结论。只豁免单个 mission 时，在全局开启的前提下用
-`reviewPolicy:"none"` + 理由 + `gates.allowReviewExemption:true`。
+审查策略是一个控件：`off`、`optional`（默认）或 `required`，位于插件页 `dsh-tower` 配置区，
+配置中对应 `review.mode`。它不是组件行，也不是三个互斥行。`optional` 让低风险仓库、临时工作或
+人类逐轮监督的会话可以在没有 reviewer 时合并已完成 mission。`required` 才启用强制独立审查门禁；
+此时检查 `no-review`、`not-clean`、`review-hold`、`review-not-approved`、`tip-moved`、
+`review-mission-mismatch`。`off` 是受支持的模式，不会注册 `tower_review`；`optional` 记录结论但
+从不阻塞合并。只豁免单个 mission 时，在策略为 `required` 的前提下用 `reviewPolicy:"none"` + 理由
++ `gates.allowReviewExemption:true`。已弃用、保留一个版本的布尔别名把 `true` 映射为 `required`，
+`false` 映射为 `optional`；见[安装、升级与迁移](install-upgrade-migration.md)。
 
 ### 4.7 各工作流的具体例子
 
@@ -223,7 +226,7 @@ reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查�
 1. 规划四个 build mission，scope 分别 `src/tokens/**`、`src/email/**`、`src/api/invites/**`、`src/ui/invites/**`；让 API 依赖 token 与 email。
 2. 对独立 mission 启动 worker；API 等依赖完成。
 3. 每个 worker 在自己分支提交，带 checks 完成。
-4. 若开启 `review.requireReview:true`，启动 reviewer 并要求 clean + merge；否则审查可选。
+4. 若策略为 `review.mode:required`，启动 reviewer 并要求 clean + merge；否则审查可选或关闭。
 5. 逐 mission `tower_preflight` + `tower_merge`，处理 scope/base/review blocker。
 6. `tower_teardown`；`MISSIONS.md` 是人类可读记录。
 
@@ -248,14 +251,17 @@ reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查�
 
 ### 场景 E：敏感发布
 
-有外部用户的库发布。为变更、迁移指南、release notes 规划 mission；如发布需要独立审查，开启 `review.requireReview:true`；要求测试，并用 `tower_batch` 只有在所有必需检查齐全时才收口发布证据；按你的发布流程在 Tower 之外合并/打 tag。
+有外部用户的库发布。为变更、迁移指南、release notes 规划 mission；如发布需要独立审查，把策略设为
+`review.mode:required`；要求测试，并用 `tower_batch` 只有在所有必需检查齐全时才收口发布证据；
+按你的发布流程在 Tower 之外合并/打 tag。
 
 ## 6. 实践中的选择路径
 
 1. **输出是 Git 变更吗？** 否 → 普通 agent、Agent Teams、Workflow 或 Ralph。
 2. **你会为它开 PR 吗？** 否 → Tower 太重，用普通 agent。
 3. **切片有稳定 scope 和已知完成定义吗？** 否 → 先规划/探索，再回到 Tower。
-4. **需要合并门禁吗？** 有集成风险的仓库变更 → Tower；如果还需要独立审查，开启 `review.requireReview:true`。两者都不需要时，普通子代理可能足够。
+4. **需要合并门禁吗？** 有集成风险的仓库变更 → Tower；如果还需要独立审查，把审查策略设为
+   `required`。两者都不需要时，普通子代理可能足够。
 5. **需要大量并行分析或重复新鲜尝试吗？** 那个阶段用 Workflow/Ralph；把结果编码成 Tower mission。
 6. **需要横切的人类协作吗？** 用 Agent Teams 决定；用 Tower 执行决定的仓库工作。
 
@@ -263,7 +269,9 @@ reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查�
 
 - **每个 mission 有真实开销**：worktree、spawn、完成检查、可选审查轮次、门禁、合并。mission 应有意义（大致 PR 大小），不要一个函数一个 mission。
 - **合并会串行**：重叠 scope 自动加依赖；独立 mission 仍然逐个合入 base。合并密集的工作不要期待线性加速。
-- **审查不是免费的（开启时）**：每个 mission 需要 reviewer 与 clean 结论；`review.requireReview:false`（默认）让审查可选；开启后豁免是显式且需要理由。
+- **审查不是免费的（策略为 required 时）**：每个 mission 需要 reviewer 与 clean 结论；
+  `review.mode:optional`（默认）让审查不阻塞，`off` 则移除审查工具；策略为 `required` 时，豁免是
+  显式且需要理由。
 - **过细的 mission** 增加协调与合并成本；**过粗的 mission** 失去并行审查收益，scope 冲突概率高。
 - **Tower 不是沙箱**：它是协调协议；Host 权限、仓库 hooks、测试命令仍以 DSH 用户的 OS 权限执行。
 - **不要同时跑两套编排协议**：Tower 模式会拒绝 Team/Workflow/Ralph/subagent 工具并清除 plan mode；请顺序分阶段。
@@ -274,7 +282,7 @@ reviewer 时合并已完成 mission。设为 `true` 才启用强制独立审查�
 - [ ] 工作会产生值得 PR 式审查的仓库变更。
 - [ ] 我能列出 2–8 个 scope 不重叠、依赖顺序大致的 mission。
 - [ ] 每个 mission 有可测试的完成定义（任务、checks/测试、可选审查）。
-- [ ] 如果这次变更需要独立审查，已开启 `review.requireReview`（默认关闭）。
+- [ ] 如果这次变更需要独立审查，审查策略为 `required`（默认为 `optional`）。
 - [ ] 我知道哪些 mission 可并行、哪些必须等待。
 - [ ] 我接受合并门禁开销（以及开启审查时的审查开销），并会检查 `MISSIONS.md`/分支。
 - [ ] 当前没有在同一会话依赖 Team 任务板、Workflow 脚本、Ralph 循环或 plan mode。

@@ -8,14 +8,19 @@
 //      locale/en.json and locale/zh.json — and the same three strings for every
 //      component that ships a generated row label, including the internal
 //      worker preset (#121);
-//   2. a forbidden-to-disable capability (host, health, recovery, review
-//      contract, merge gates) that any group, row or boolean key can disable;
+//   2. a forbidden-to-disable capability (host, health, recovery, merge gates)
+//      that any group, row or boolean key can disable;
 //   3. a component count that moved without a decision in
 //      scripts/surface-baseline.json (the same brake `surface:check` applies);
 //   4. #137: user-facing label copy that leaks a config key, an internal tool id,
 //      a slash command or a module specifier, leaves a term untranslated in
 //      Chinese, drifts from the recorded glossary, or diverges between zh and en
-//      in the root locale, the generated row locales and the ui-bundle locale.
+//      in the root locale, the generated row locales and the ui-bundle locale;
+//   5. #M42: the review policy presented as a row. `review.mode` is one
+//      tri-state configuration control (off/optional/required) on the plugin
+//      page, not a component row and not three mutually exclusive rows; no row
+//      may own the policy, and the reviewer preset row may not be made
+//      incompatible with the off/optional modes.
 //
 // It also refuses the quiet forms of the same drift: a shipped component row
 // missing from the single source of truth, a live config key without a
@@ -72,9 +77,10 @@ a visible row with no label source at all, a group row whose plugin-page
 description omits its off consequence, a forbidden-to-disable capability disabled
 by a group, row or boolean key, a component count that moved without a
 scripts/surface-baseline.json decision, an unclassified config key or component
-row, a stale generated reference, and (#137) any label copy that names a config
-key or internal tool id, leaves a glossary term untranslated, or diverges between
-zh and en.
+row, a stale generated reference, (#137) any label copy that names a config key or
+internal tool id, leaves a glossary term untranslated, or diverges between zh and
+en, and (#M42) the review policy exposed as a row instead of one tri-state
+configuration control.
 Regenerate the table with \`npm run docs:generate:components\` and the row labels
 with \`npm run docs:generate:locale\`.`
 
@@ -650,6 +656,112 @@ export function checkRowLabelSources(patch, rowLocales) {
   return findings
 }
 
+// #M42: the review policy is one tri-state configuration control on the plugin
+// page. These names are the policy-shaped rows the gate refuses to see: a row
+// per mode (or one "review policy" row) is the shape the product replaced.
+export const REVIEW_POLICY_KEY = 'review.mode'
+export const REVIEW_ALIAS_KEY = 'review.requireReview'
+export const REVIEW_REVIEWER_ROW = 'preset-tower-reviewer'
+const REVIEW_POLICY_ROW_IDS = Object.freeze([
+  'review',
+  'review-policy',
+  'review-mode',
+  'review-modes',
+  'tower-review',
+  'tower-review-policy',
+])
+
+/**
+ * #M42: hold the review control to its declared shape. The policy is one
+ * tri-state control (`off`/`optional`/`required`) on the plugin-page
+ * configuration form, not a component row and not three mutually exclusive rows.
+ *
+ * The gate fails when a review-policy-shaped row exists, when a component
+ * `allowedOverrides` or a shipped row's `config:` block owns `review.mode` (or
+ * the deprecated alias), when the non-disableable required-mode gate is not
+ * recorded on the forbidden list, and when a forbidden capability claims the
+ * reviewer preset row as a disabler. The reviewer row is an optional capability:
+ * it may be off while the policy is off or optional, and is only a precondition
+ * (with an explanatory refusal) under required.
+ *
+ * @param {ReturnType<typeof parseComponentSurface>} surface
+ * @param {{ patch?: ReturnType<typeof parseCordisPatch> }} live
+ */
+export function checkReviewPolicySurface(surface, live) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const components = surface?.components ?? []
+  const byName = new Map((surface?.keys ?? []).map((key) => [key.name, key]))
+
+  for (const name of [REVIEW_POLICY_KEY, REVIEW_ALIAS_KEY]) {
+    const key = byName.get(name)
+    if (!key) {
+      record('review-policy-key', `${name} is missing from the component surface; the review policy needs an explicit class`)
+      continue
+    }
+    if (key.class !== 'core') {
+      record(
+        'review-policy-class',
+        `${name} is classified "${key.class}"; the review policy is one tri-state configuration control and its keys must be core, never a switch a row can turn off`,
+      )
+    }
+  }
+
+  const policyRow = components.find((component) => REVIEW_POLICY_ROW_IDS.includes(component.id))
+  if (policyRow) {
+    record(
+      'review-policy-row',
+      `component "${policyRow.id}" is a review-policy row; the review policy is one tri-state control on the plugin-page configuration form, not a component row and never one row per mode`,
+    )
+  }
+
+  const reviewerRow = components.find((component) => component.id === REVIEW_REVIEWER_ROW)
+  if (!reviewerRow) {
+    record(
+      'review-policy-reviewer-row',
+      `${REVIEW_REVIEWER_ROW} is missing from the component surface; the reviewer preset must stay an optional capability the review policy may leave unused`,
+    )
+  }
+
+  for (const component of components) {
+    for (const override of component.allowedOverrides ?? []) {
+      if (override !== REVIEW_POLICY_KEY && override !== REVIEW_ALIAS_KEY) continue
+      record(
+        'review-policy-switch',
+        `component "${component.id}" lists ${override} in allowedOverrides; the review policy is one tri-state configuration control and no component row may own it`,
+      )
+    }
+  }
+
+  for (const row of live?.patch?.rows ?? []) {
+    for (const override of row.configOverrides ?? []) {
+      if (override.key !== REVIEW_POLICY_KEY && override.key !== REVIEW_ALIAS_KEY) continue
+      record(
+        'review-policy-switch',
+        `row "${row.id}" sets ${override.key} in cordis.patch.yml; the review policy is one tri-state configuration control, not a per-row switch`,
+      )
+    }
+  }
+
+  const gate = (surface?.forbidden ?? []).find((capability) => (capability.gatedBy ?? []).includes(REVIEW_POLICY_KEY))
+  if (!gate) {
+    record(
+      'review-policy-gate',
+      `no forbidden capability records the required-mode review gate via gatedBy ${REVIEW_POLICY_KEY}; required mode must keep its review evidence and exemption path non-disableable`,
+    )
+  }
+
+  for (const capability of surface?.forbidden ?? []) {
+    if (!(capability.rowIds ?? []).includes(REVIEW_REVIEWER_ROW)) continue
+    record(
+      'review-policy-exclusive',
+      `forbidden capability "${capability.id}" lists ${REVIEW_REVIEWER_ROW} as a row it may disable; a component may not be mutually exclusive with the review policy, which is one control, not a row`,
+    )
+  }
+
+  return findings
+}
+
 /**
  * Run every component-surface rule against one repository root.
  * @param {string} root
@@ -735,6 +847,8 @@ export async function checkComponents(root) {
     findings.push(finding('registry-unreadable', 'error', live.registryError))
   }
   findings.push(...checkForbidden(surface, { booleans: live.booleans, registry: live.registry, patch: live.patch }))
+  // #M42: the review policy is one tri-state configuration control, not a row.
+  findings.push(...checkReviewPolicySurface(surface, live))
 
   // The decision record must exist: the ADR is where the policy is argued.
   if (!fs.existsSync(path.join(root, surface.adr))) {
