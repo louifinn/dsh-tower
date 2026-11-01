@@ -42,8 +42,9 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   mode is rejected with `config-invalid`; `false` never overrides an explicit mode. Saving from the
   plugin page always writes `review.mode` and normalizes the alias to `false`. The policy is not a
   component row and there are no mutually exclusive review rows: `preset-tower-reviewer` remains an
-  optional capability, required only when the mode is `required` (planning and mode entry otherwise
-  refuse the combination with `preset-missing`).
+  optional capability the policy may leave unused. The row may be off while `review.mode` is `off`
+  or `optional`; when `review.mode` is `required` and the reviewer row is off, planning and mode
+  entry refuse the combination with an explanatory `preset-missing` error.
   A profile that starts with the policy `off` never registered `tower_review`; switching to
   `optional` or `required` changes the merge gate immediately, but the tool appears only after a DSH
   restart (or a profile reload), and the plugin page states that after such a save.

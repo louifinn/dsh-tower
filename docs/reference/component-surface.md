@@ -40,8 +40,13 @@ row is a section of its parent and is not independently switchable.
 
 ## Forbidden to disable
 
-The host, the health contract, the recovery escape, the review contract and the
-merge gates are configuration or code, never switches. `npm run
+The host, the health contract, the recovery escape and the merge gates are
+configuration or code, never switches. The review gate in `required` mode is
+also non-disableable: a completed mission still needs the review evidence bound
+to the branch tip, and the exemption path stays explicit. The policy itself is
+not a never-switch — `review.mode` is the one tri-state control on the
+plugin-page config form (`off`, `optional` or `required`) — and only the gate it
+turns on in `required` mode is non-disableable. `npm run
 docs:check:components` derives the live disablers from `host/tool-registry.js`
 and `cordis.patch.yml`; a disabler that is not recorded here fails the gate.
 

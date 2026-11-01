@@ -13,6 +13,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { parseComponentSurface, renderComponentSurface } from '../domain/components.js'
+import { readBaseline } from '../scripts/lib/surface.mjs'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8')
 
@@ -71,6 +74,39 @@ test('the plugin page still has exactly one tri-state control, not one row per m
     'the policy is one radio group; a second group would be a second control',
   )
   assert.ok(!/review-policy-row|review_policy_row/.test(client))
+})
+
+test('the generated reference keeps the review gate non-disableable without calling the policy a never-switch (#M43)', () => {
+  const surface = parseComponentSurface(read('scripts/component-surface.json'))
+  const reference = read('docs/reference/component-surface.md')
+  // The page is generated, never hand-edited: the committed file must be exactly
+  // the rendering of the source of truth.
+  assert.equal(reference, renderComponentSurface(surface, { baselineDate: readBaseline(root).date }))
+
+  // Only the host, the health contract, the recovery escape and the merge gates
+  // are named as never-switches; the review contract is not on that list.
+  const section = reference.split('## Forbidden to disable')[1].split('## Gateable tools')[0]
+  const intro = section.split('| Capability |')[0]
+  assert.match(intro, /The host, the health contract, the recovery escape and the merge gates are/)
+  assert.match(intro, /never switches/)
+  assert.doesNotMatch(intro, /review contract/)
+  assert.match(intro, /review gate in `required` mode is\s+also non-disableable/)
+  assert.match(intro, /review evidence bound\s+to the branch tip/)
+  assert.match(intro, /exemption path stays explicit/)
+  assert.match(intro, /one tri-state control/)
+  assert.match(intro, /plugin-page config form/)
+
+  // The policy rows stay policy, and the required-mode gate stays recorded.
+  assert.match(section, /\| the review gate in required mode \|/)
+  assert.doesNotMatch(section, /\| the review contract \|/)
+  assert.match(reference, /\| `review\.mode` \| `core` \|/)
+  assert.match(reference, /\| `review\.requireReview` \| `core` \|/)
+
+  // The module header states the same distinction, so the source comment cannot
+  // drift back to calling the review contract a forbidden capability.
+  const header = read('domain/components.js').split('\n').slice(0, 20).join('\n')
+  assert.doesNotMatch(header, /review contract/)
+  assert.match(header, /tri-state control/)
 })
 
 test('the deprecated key is confined to the alias-migration documents (#M42)', () => {

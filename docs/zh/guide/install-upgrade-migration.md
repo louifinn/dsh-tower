@@ -40,8 +40,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   `review.requireReview` 是已弃用、保留一个版本的别名：`true` 解析为 `required`，`false` 解析为
   `optional`，不设置则为 `optional`。`true` 与非 `required` 的显式 mode 同时出现会以 `config-invalid`
   拒绝；`false` 不会覆盖显式 mode。从插件页保存时总是写入 `review.mode`，并把别名归一化为 `false`。
-  该策略不是组件行，也不存在互斥的审查行：`preset-tower-reviewer` 仍是可选能力，只在 mode 为
-  `required` 时成为前置条件（否则规划与模式进入会以 `preset-missing` 拒绝该组合）。
+  该策略不是组件行，也不存在互斥的审查行：`preset-tower-reviewer` 仍是策略可以不使用的可选能力。
+  `review.mode` 为 `off` 或 `optional` 时该行可以关闭；当 `review.mode` 为 `required` 且该 reviewer
+  行关闭时，规划与模式进入会以带解释的 `preset-missing` 错误拒绝该组合。
   以 `off` 启动的 profile 从未注册 `tower_review`；切换到 `optional` 或 `required` 会立即改变合并门禁，
   但工具本身要等 DSH 重启（或 profile 重载）后才出现，插件页在保存后会说明这一点。
   升级方式：把 `review.requireReview: true|false` 替换为 `review.mode: required|optional`；仅当同一份
