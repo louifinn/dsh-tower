@@ -28,6 +28,7 @@ import { writeBoard, boardFile } from './board.js'
 import { archiveIndex, archivedMission } from './archive.js'
 import { recordSpawnOutcome, recordInterrupt, reserveRoster, recordSpawn, rosterView } from './spawn.js'
 import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recording.js'
+import { resolveLegacySurveyRead } from './sharedCheckout.js'
 
 export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
@@ -193,6 +194,9 @@ export class Tower {
       paths: this.paths,
       now: this.deps.clock?.now ? this.deps.clock.now() : Date.now(),
       persist: options.persist,
+      // A legacy survey planned but never provisioned recorded no base; the
+      // loader resolves it once, from this checkout, before the pure migration.
+      resolveLegacySurvey: (rawState) => resolveLegacySurveyRead(this, rawState),
     })
     this.stateLoad = { ...loaded.version, migration: loaded.migration }
     return loaded.state

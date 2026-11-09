@@ -5,7 +5,14 @@ import { assertPort, definePort } from './contract.js'
 
 /**
  * @typedef {object} StatePort
- * @property {(input: { store: unknown, paths: unknown, now?: number, persist?: boolean, migrations?: readonly unknown[] }) => Promise<any>} loadStateFile
+ * @property {(input: {
+ *   store: unknown,
+ *   paths: unknown,
+ *   now?: number,
+ *   persist?: boolean,
+ *   migrations?: readonly unknown[],
+ *   resolveLegacySurvey?: (rawState: Record<string, any>) => Promise<{ readCommit: string, readDirty: string[] } | null>,
+ * }) => Promise<any>} loadStateFile
  */
 
 export const STATE_PORT = definePort('StatePort', ['loadStateFile'])

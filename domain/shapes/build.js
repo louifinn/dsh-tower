@@ -176,9 +176,10 @@ export function isLegacy(mission) {
 
 /**
  * @param {Record<string, any>} mission
+ * @param {Record<string, any>} [_options] shared migration context; a build needs none
  * @returns {Record<string, any>}
  */
-export function migrateLegacy(mission) {
+export function migrateLegacy(mission, _options = {}) {
   return { ...mission, kind: 'build' }
 }
 
@@ -189,6 +190,7 @@ export const buildShape = Object.freeze({
   isTerminal,
   canTransition,
   isLegacy,
+  needsLegacyRead: () => false,
   migrateLegacy,
   canMerge: true,
   canRebase: true,

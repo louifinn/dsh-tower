@@ -191,20 +191,59 @@ export function isLegacy(mission) {
 }
 
 /**
+ * The commit a legacy (v3, branch-shaped) survey recorded, in fallback order:
+ * the v4 field, the worktree it was based on, then the mission-level base
+ * commit. A survey planned and never provisioned (or whose spawn failed before
+ * provisioning) has none of the three.
  * @param {Record<string, any>} mission
+ * @returns {string | null}
+ */
+export function legacyReadCommit(mission) {
+  const recorded = mission.readCommit ?? mission.worktree?.baseCommit ?? mission.baseCommit
+  return typeof recorded === 'string' && recorded.length > 0 ? recorded : null
+}
+
+/**
+ * True when a legacy survey has no base of its own: the state loader must
+ * resolve one from the repository before migration can anchor the survey.
+ * @param {Record<string, any>} mission
+ * @returns {boolean}
+ */
+export function needsLegacyRead(mission) {
+  return legacyReadCommit(mission) === null
+}
+
+/**
+ * @param {Record<string, any>} mission
+ * @param {{ legacySurveyRead?: { readCommit?: unknown, readDirty?: unknown } | null }} [options]
  * @returns {Record<string, any>}
  */
-export function migrateLegacy(mission) {
-  const readCommit = mission.readCommit ?? mission.worktree?.baseCommit ?? mission.baseCommit
+export function migrateLegacy(mission, options = {}) {
+  const recorded = legacyReadCommit(mission)
+  // The loader resolves the state base once for the whole document; only a
+  // survey that recorded no base of its own may consume that resolution. A
+  // recorded commit always wins, so re-running the step is a fixed point.
+  const resolved = recorded === null ? options.legacySurveyRead : null
+  const readCommit = recorded ?? resolved?.readCommit
   if (typeof readCommit !== 'string' || readCommit.length === 0) {
-    throw new Error(`survey ${String(mission.id)} has no recorded base commit to read`)
+    throw new Error(
+      `survey ${String(mission.id)} has no recorded base commit to read; the state loader must resolve the base ref for a planned-but-never-provisioned survey`,
+    )
   }
+  const readDirty =
+    recorded === null
+      ? Array.isArray(resolved?.readDirty)
+        ? resolved.readDirty.filter((entry) => typeof entry === 'string')
+        : []
+      : Array.isArray(mission.readDirty)
+        ? [...mission.readDirty]
+        : []
   const next = /** @type {Record<string, any>} */ ({
     ...mission,
     kind: 'survey',
     scope: [],
     readCommit,
-    readDirty: Array.isArray(mission.readDirty) ? [...mission.readDirty] : [],
+    readDirty,
   })
   if (next.status === 'merged') next.status = 'completed'
   delete next.worktree
@@ -224,6 +263,7 @@ export const surveyShape = Object.freeze({
   canTransition,
   isLegacy,
   migrateLegacy,
+  needsLegacyRead,
   canMerge: false,
   canRebase: false,
   provisioning: /** @type {const} */ ('shared'),

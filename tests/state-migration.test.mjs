@@ -14,6 +14,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
@@ -288,6 +289,69 @@ test('read-only loads migrate in memory without rewriting the file; the first lo
     // A later mutation does not migrate again.
     await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'After that', scope: ['src/**'] }] })
     assert.equal(activityFor(tower).filter((entry) => entry.type === 'state.migrated').length, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('the real load path anchors a planned-but-never-provisioned legacy survey (#149)', async () => {
+  const { root, repo } = makeRepo()
+  try {
+    const { tools } = makeCtx()
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const baseBranch = readState(tower.paths.state).base
+    const baseCommit = git(repo, ['rev-parse', baseBranch])
+    // Park the checkout on another branch with its own commit: HEAD is no
+    // longer the state base. The migration must still load, anchored at the
+    // base ref rather than at HEAD.
+    git(repo, ['checkout', '-b', 'parked'])
+    fs.appendFileSync(path.join(repo, 'README.md'), 'parked work\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'parked work'])
+    // A tracked edit at load time is the survey's evidence; it must be captured.
+    fs.appendFileSync(path.join(repo, 'README.md'), 'dirty\n')
+
+    const fixturePath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'fixtures',
+      'state-v3-shape-migration-unprovisioned.json',
+    )
+    const legacy = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+    legacy.base = baseBranch
+    legacy.repoRoot = repo
+    legacy.towerAgentId = 'tower-agent'
+    const text = JSON.stringify(legacy, null, 2)
+    fs.writeFileSync(tower.paths.state, text)
+
+    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    assert.equal(status.revision, legacy.revision, 'a read-only load never rewrites the v3 file')
+    const survey = status.missions.find((mission) => mission.id === 'M2')
+    assert.equal(survey.kind, 'survey')
+    assert.equal(survey.readCommit, baseCommit, 'anchored at the state base, not at HEAD')
+    assert.deepEqual(survey.readDirty, ['README.md'], 'the tracked status at load time is recorded, never fabricated empty')
+    assert.equal(survey.status, 'planned')
+    assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text, 'the original v3 document stays byte-identical')
+
+    // A second load of the same document is the same fixed point.
+    const again = await call(tools, 'tower_status', { repoRoot: repo })
+    assert.deepEqual(again.missions, status.missions)
+
+    // The migrated survey is usable: a state write persists v4 and keeps the
+    // resolved evidence, with the pre-migration document backed up.
+    await call(tools, 'tower_mission', { repoRoot: repo, missionId: 'M2', note: 'inspected after migration' })
+    const persisted = readState(tower.paths.state)
+    assert.equal(persisted.schemaVersion, SCHEMA_VERSION)
+    const persistedSurvey = persisted.missions.find((mission) => mission.id === 'M2')
+    assert.equal(persistedSurvey.kind, 'survey')
+    assert.equal(persistedSurvey.readCommit, baseCommit)
+    assert.deepEqual(persistedSurvey.readDirty, ['README.md'])
+    assert.ok(backupsFor(tower).includes('state.json.v3.bak'), 'the v3 document is backed up before the rewrite')
+    const reloaded = await call(tools, 'tower_status', { repoRoot: repo })
+    const reloadedSurvey = reloaded.missions.find((mission) => mission.id === 'M2')
+    assert.equal(reloadedSurvey.kind, 'survey')
+    assert.equal(reloadedSurvey.readCommit, baseCommit)
+    assert.deepEqual(reloadedSurvey.readDirty, ['README.md'])
   } finally {
     removeTemp(root)
   }
