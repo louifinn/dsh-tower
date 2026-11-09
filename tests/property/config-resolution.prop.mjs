@@ -19,7 +19,7 @@
 // The properties below pin those promises:
 //
 //   * totality: every generated valid config resolves without throwing, and the
-//     resolved object always carries all 15 documented surfaces with `section`
+//     resolved object always carries all 14 documented surfaces with `section`
 //     and `mode.promptSection` as strings and `gates`/`tests` as objects;
 //   * fixed point: `resolve(resolve(raw))` deep-equals `resolve(raw)` for every
 //     generated valid config. One pass materializes every resolved field,

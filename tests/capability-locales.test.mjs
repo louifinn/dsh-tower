@@ -69,6 +69,7 @@ const ROW_DISPLAY_SOURCE = {
   'tower-archive': 'archive subpath locale',
   'tower-hmr': 'hmr subpath locale',
   'preset-tower-reviewer': 'preset-reviewer subpath locale',
+  'tower-survey': 'preset-survey subpath locale',
   'tower-ui': 'ui-bundle package locale meta',
 }
 
@@ -79,6 +80,9 @@ const META_LABELED_ROWS = new Set(['tower-ui'])
 const componentIdBySpecifier = new Map(
   CAPABILITY_LOCALES.map(({ specifier, component }) => [specifier, component]),
 )
+// Preset-declaring rows (worker/reviewer/survey) source their label from their
+// own preset subpath locale, not from the optional-capability map.
+const presetComponents = new Set(PRESET_LOCALES.map(({ component }) => component))
 
 test('every optional capability subpath resolves its locale files through the package exports', () => {
   assert.equal(capabilityPaths.length, CAPABILITY_LOCALES.length * CAPABILITY_LOCALE_LANGUAGES.length)
@@ -228,10 +232,16 @@ test('coverage: every visible component row has a display-metadata source', () =
     .sort()
   assert.deepEqual(Object.keys(ROW_DISPLAY_SOURCE).sort(), visible)
 
-  const capabilityRows = visible.filter((id) => id.startsWith('tower-') && !META_LABELED_ROWS.has(id))
+  const capabilityRows = visible.filter(
+    (id) => id.startsWith('tower-') && !META_LABELED_ROWS.has(id) && !presetComponents.has(id),
+  )
   assert.deepEqual(capabilityRows, [...componentIdBySpecifier.values()].sort())
   for (const { specifier } of CAPABILITY_LOCALES) {
     assert.equal(ROW_DISPLAY_SOURCE[componentIdBySpecifier.get(specifier)], `${specifier} subpath locale`)
+  }
+  for (const { specifier, component, mandatory } of PRESET_LOCALES) {
+    if (mandatory) continue
+    assert.equal(ROW_DISPLAY_SOURCE[component], `${specifier} subpath locale`)
   }
   // The mandatory group reads the package root meta. Both preset rows are
   // package specifiers now, so the reviewer's source is a generated label too;
@@ -290,7 +300,7 @@ test('the generated row locale files are in sync with the generator', () => {
     cwd: root,
     encoding: 'utf8',
   })
-  assert.match(output, /20 files in sync/)
+  assert.match(output, /22 files in sync/)
   // And the committed files are byte-for-byte the rendering, not a hand edit.
   const expected = renderRowLocaleFiles(root)
   assert.deepEqual([...expected.keys()].sort(), rowPaths.slice().sort())
@@ -316,7 +326,7 @@ test('the generator --check fails when a committed row locale file drifts (fixtu
     assert.equal(result.status, 0, result.stderr)
     result = run('--check')
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /20 files in sync/)
+    assert.match(result.stdout, /22 files in sync/)
 
     fs.writeFileSync(
       path.join(fixture, 'locale', 'batch', 'en.json'),

@@ -7,11 +7,56 @@ import {
   completionReport,
   applyCompletion,
 } from '../domain/missions/completion.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { sweepArchive } from './archive.js'
+import { trackedFingerprint } from './sharedCheckout.js'
 
 export { normalizeChecks }
+
+/**
+ * Read the primitives the shape's completion invariants need. Which reads happen
+ * is declared by the shape, so this layer never asks "is this a survey?".
+ * @param {any} tower
+ * @param {import('../types/index.js').Mission} mission
+ * @param {any} invariants
+ * @returns {Promise<{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[] }>}
+ */
+async function completionFacts(tower, mission, invariants) {
+  const worktree = /** @type {any} */ (mission.worktree)
+  /** @type {{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[], readCommit?: string }} */
+  const facts = { commits: 0, clean: true, dirtyPaths: [], head: '', trackedChanged: [] }
+  if (invariants.requiresWorktree) await tower.assertWorktree(worktree)
+  if (invariants.requiresCommits) {
+    facts.commits = await tower.deps.vcs.countCommits(worktree.path, worktree.baseCommit)
+  }
+  if (invariants.requiresClean) {
+    facts.clean = await tower.deps.vcs.isClean(worktree.path)
+    if (!facts.clean) {
+      facts.dirtyPaths = (await tower.git(worktree.path, ['status', '--porcelain']))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.slice(3).trim())
+    }
+  }
+  facts.readCommit = /** @type {string | undefined} */ (mission.readCommit)
+  if (invariants.requiresHeadMatch || invariants.requiresTrackedStatus) {
+    // A survey reads the shared checkout: HEAD and the tracked fingerprint must
+    // match the plan-time record exactly (a path that changed either way counts).
+    facts.head = await tower.revParse(tower.root, 'HEAD')
+    const current = trackedFingerprint(await tower.git(tower.root, ['status', '--porcelain']))
+    const planned = new Set(mission.readDirty ?? [])
+    const currentSet = new Set(current)
+    facts.trackedChanged = [
+      ...new Set([
+        ...current.filter((path) => !planned.has(path)),
+        ...(mission.readDirty ?? []).filter((path) => !currentSet.has(path)),
+      ]),
+    ].sort()
+  }
+  return facts
+}
 
 export async function checkCompletion(tower, input) {
   const state = await tower.load()
@@ -25,24 +70,12 @@ export async function checkCompletion(tower, input) {
     input,
     maxReportBytes: tower.config.gates?.maxReportBytes,
   })
-  await tower.assertWorktree(mission.worktree)
-  const commits = await tower.deps.vcs.countCommits(mission.worktree.path, mission.worktree.baseCommit)
-  if (commits < 1) {
-    throw new TowerToolError(
-      'invalid-argument',
-      `mission branch has no commits since ${String(mission.worktree.baseCommit).slice(0, 12)}`,
-    )
+  const invariants = shapeFor(mission.kind).completion
+  if (invariants.requiresWorktree && !mission.worktree) {
+    throw new TowerToolError('invalid-argument', `mission ${mission.id} has no worktree`)
   }
-  if (!(await tower.deps.vcs.isClean(mission.worktree.path))) {
-    const dirty = (await tower.git(mission.worktree.path, ['status', '--porcelain']))
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => line.slice(3).trim())
-    throw new TowerToolError(
-      'worktree-dirty',
-      `mission ${mission.id} worktree has uncommitted changes (${dirty.slice(0, 8).join(', ')}${dirty.length > 8 ? ', …' : ''}); commit, remove, or record them before tower_complete`,
-    )
-  }
+  const facts = await completionFacts(tower, mission, invariants)
+  const { commits } = invariants.check({ mission, ...facts })
   const unread = tower.unreadFor(state, worker.name)
   assertCompletionInbox({ mission, worker, unread })
   return { state, mission, worker, commits }
@@ -69,7 +102,7 @@ export async function complete(tower, input) {
       now,
       maxReportBytes: tower.config.gates?.maxReportBytes,
     })
-    const applied = applyCompletion({ mission, report: storedReport, now })
+    const applied = applyCompletion({ mission, report: storedReport, now, result: input.result })
     await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now

@@ -28,6 +28,8 @@ const REQUIRED_FILES = [
   ...presetLocalePaths(),
   'host/preset-worker.js',
   'host/preset-reviewer.js',
+  'host/preset-survey.js',
+  'survey.js',
   'ui-bundle/index.js',
   'ui-bundle/package.json',
   'ui-bundle/cordis.patch.yml',

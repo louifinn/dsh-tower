@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 
 import * as worker from '../worker.js'
 import * as reviewer from '../reviewer.js'
+import * as survey from '../survey.js'
 import * as skills from '../skills.js'
 import { Config, resolveTowerConfig } from '../host/config.js'
 
@@ -57,6 +58,32 @@ test('reviewer preset: read-only surface with diff and review', () => {
     assert.ok(state.allow.includes(allowed), `reviewer should allow ${allowed}`)
   }
   assert.match(state.section.text, /read-only/i)
+  assert.doesNotMatch(state.section.text, /Commit your work/)
+})
+
+test('survey preset: read-only surface that can still acknowledge the inbox (#148)', () => {
+  const { ctx, state } = mockCtx()
+  survey.apply(ctx)
+  for (const denied of ['write', 'edit', 'pwsh', 'tower_spawn', 'tower_merge', 'tower_rebase', 'tower_review', 'tower_diff']) {
+    assert.equal(state.allow.includes(denied), false, `survey must not allow ${denied}`)
+  }
+  for (const allowed of [
+    'read',
+    'glob',
+    'grep',
+    'skill',
+    'tower_mission',
+    'tower_status',
+    'tower_finding',
+    'tower_findings',
+    'tower_inbox',
+    'tower_complete',
+  ]) {
+    assert.ok(state.allow.includes(allowed), `survey should allow ${allowed}`)
+  }
+  // tower_inbox acknowledges Tower state, not a repository file, so exposing it
+  // preserves the structural read-only guarantee while unblocking completion.
+  assert.match(state.section.text, /tower_inbox/)
   assert.doesNotMatch(state.section.text, /Commit your work/)
 })
 

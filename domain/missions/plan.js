@@ -6,6 +6,7 @@
 import { TowerToolError } from '../errors.js'
 import { plannedEvents } from '../events.js'
 import { normalizeScope, validateTitle } from '../scope.js'
+import { SHAPE_KINDS, shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
@@ -28,15 +29,30 @@ function isPlainObject(value) {
 
 /**
  * Validate and normalize one `tower_plan` mission entry.
+ *
+ * The shape owns the kind-specific plan fields: a build normalizes its scope, a
+ * survey records the commit it reads (`read.commit`, resolved by app/plan from
+ * `state.base`) plus the tracked-status fingerprint captured at the same moment.
  * @param {any} input
  * @param {number} index
+ * @param {{ commit?: string, dirty?: string[] }} [read]
  * @returns {any}
  */
-export function normalizeMissionInput(input, index) {
+export function normalizeMissionInput(input, index, read = {}) {
   if (!isPlainObject(input)) fail(`missions[${index}] must be an object`)
   const title = validateTitle(input.title)
-  const kind = input.kind === 'survey' ? 'survey' : 'build'
-  const scope = normalizeScope(input.scope ?? [], { allowEmpty: kind === 'survey' })
+  const kind = input.kind === undefined ? 'build' : input.kind
+  if (typeof kind !== 'string' || !SHAPE_KINDS.includes(kind)) {
+    fail(`missions[${index}].kind must be one of ${SHAPE_KINDS.join('|')}`)
+  }
+  const shape = shapeFor(kind)
+  /** @type {string[]} */
+  const scopeInput = input.scope ?? []
+  if (!Array.isArray(scopeInput)) fail(`missions[${index}].scope must be an array of globs`)
+  if (!shape.ownsScope && scopeInput.length > 0) {
+    fail(`missions[${index}] is a ${shape.kind}: it reads a commit and does not own a write scope`)
+  }
+  const scope = shape.ownsScope ? normalizeScope(scopeInput) : []
   /** @type {Array<{ text: string, status: string }>} */
   const tasks = []
   if (input.tasks !== undefined) {
@@ -80,19 +96,25 @@ export function normalizeMissionInput(input, index) {
   if (reviewPolicy === 'none' && reviewExemptionReason.length === 0) {
     fail(`missions[${index}].reviewPolicy "none" requires a non-empty reviewExemptionReason`)
   }
-  return { title, kind, scope, tasks, deps, context, references, reviewPolicy, reviewExemptionReason }
+  const fields = /** @type {any} */ (/** @type {any} */ (shape).planFields)({
+    scope,
+    readCommit: read.commit,
+    readDirty: read.dirty,
+  })
+  return { title, kind, ...fields, tasks, deps, context, references, reviewPolicy, reviewExemptionReason }
 }
 
 /**
  * Validate the plan envelope and normalize every mission entry.
  * @param {any} input
+ * @param {{ commit?: string, dirty?: string[] }} [read]
  * @returns {any[]}
  */
-export function normalizePlanMissions(input) {
+export function normalizePlanMissions(input, read = {}) {
   if (!Array.isArray(input.missions) || input.missions.length === 0) {
     fail('tower_plan needs at least one mission')
   }
-  return input.missions.map((mission, index) => normalizeMissionInput(mission, index))
+  return input.missions.map((mission, index) => normalizeMissionInput(mission, index, read))
 }
 
 /**
@@ -147,6 +169,8 @@ export function newMission(id, input, now) {
     scopeGeneration: 1,
     createdAt: now,
     updatedAt: now,
+    ...(input.readCommit === undefined ? {} : { readCommit: input.readCommit }),
+    ...(input.readDirty === undefined ? {} : { readDirty: input.readDirty }),
   }))
 }
 

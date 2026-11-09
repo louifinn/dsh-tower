@@ -34,7 +34,6 @@ for (const code of [
   'blockers-present',
   'branch-missing',
   'stale-base',
-  'read-only-survey',
   'out-of-scope',
   'base-dirty',
   'deps-unmerged',

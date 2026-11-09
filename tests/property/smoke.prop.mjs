@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict'
 
 import { normalizeScope } from '../../domain/scope.js'
+import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { resolveTowerConfig, assertKnownKeys } from '../../domain/config/schema.js'
 import { stateShapeError } from '../../domain/state/schema.js'
 import { assertStateSemantics } from '../../domain/state/semantics.js'
@@ -37,7 +38,7 @@ runProperty({
   classify: (state) => `missions=${countBucket(state.missions.length)} roster=${countBucket(state.roster.length)}`,
   predicate: (state) => {
     assert.equal(stateShapeError(state), null)
-    assert.equal(assertStateSemantics(state, '').schemaVersion, 3)
+    assert.equal(assertStateSemantics(state, '').schemaVersion, SCHEMA_VERSION)
   },
 })
 

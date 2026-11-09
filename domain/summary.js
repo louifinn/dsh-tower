@@ -2,6 +2,7 @@
 // @ts-check
 import { FINDING_STATUSES } from './mission.js'
 import { completionReportBytes } from './missions/completion.js'
+import { shapeFor } from './shapes/index.js'
 
 /** @typedef {import('../types/index.js').Finding} Finding */
 /** @typedef {import('../types/index.js').FindingSummary} FindingSummary */
@@ -31,7 +32,8 @@ function taskCounts(tasks) {
  * @returns {MissionSummary}
  */
 export function missionSummary(mission) {
-  return {
+  const shape = shapeFor(mission.kind)
+  return /** @type {MissionSummary} */ ({
     id: mission.id,
     title: mission.title,
     kind: mission.kind,
@@ -39,24 +41,16 @@ export function missionSummary(mission) {
     scope: mission.scope,
     deps: mission.deps,
     owner: mission.owner ?? null,
-    worktree: mission.worktree
-      ? {
-          path: mission.worktree.path,
-          branch: mission.worktree.branch,
-          baseCommit: mission.worktree.baseCommit,
-        }
-      : null,
+    ...shape.summary(mission),
     blockers: mission.blockers ?? [],
     tasks: taskCounts(mission.tasks ?? []),
     scopeGeneration: mission.scopeGeneration ?? 1,
     ownerGeneration: mission.ownerGeneration ?? 0,
     pauseCause: mission.pauseCause ?? null,
     reviewPolicy: mission.reviewPolicy ?? 'required-clean',
-    mergedCommit: mission.mergedCommit ?? null,
-    mergedAt: mission.mergedAt ?? null,
     reportBytes: completionReportBytes(mission.completionReport),
     updatedAt: mission.updatedAt,
-  }
+  })
 }
 
 /**

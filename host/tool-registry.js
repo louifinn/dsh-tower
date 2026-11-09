@@ -54,7 +54,7 @@ import { registerFindingsTool } from '../tools/findings.js'
 import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
-import { COMPONENT_TOOLS, componentEnabled, componentReport, holdComponent, disabledReason } from './capability-registry.js'
+import { COMPONENT_TOOLS, componentEnabled, componentReport, holdComponent, disabledReason, presetAvailable, PRESET_ROW_COMPONENTS } from './capability-registry.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import { createDefaultDeps } from '../adapters/default.js'
@@ -580,6 +580,15 @@ export function registerCoreTowerTools(ctx, options = {}) {
     components: {
       enabled: (id) => componentEnabled(id),
       reason: (id) => disabledReason(id),
+      // Preset rows are declarative and invisible to the code registry, so the
+      // synchronous `enabled` probe cannot answer for them. Callers that gate a
+      // shape read this async probe, which returns null when `agentPresets` is
+      // absent (unknown, not disabled).
+      available: async (id) => {
+        const presetId = PRESET_ROW_COMPONENTS[id]
+        if (presetId) return presetAvailable(ctx, presetId)
+        return componentEnabled(id)
+      },
     },
     events: {
       emit(name, payload) {

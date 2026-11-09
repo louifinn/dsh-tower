@@ -1,4 +1,5 @@
 // Mission planning use case.
+import { TowerToolError } from '../domain/errors.js'
 import { nextMissionNumber, addAutoDeps, assertAcyclic } from '../domain/planning.js'
 import {
   normalizePlanMissions,
@@ -7,15 +8,57 @@ import {
   newMission,
   applyPlan,
 } from '../domain/missions/plan.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { sweepArchive } from './archive.js'
+import { readFacts } from './sharedCheckout.js'
+
+/**
+ * Planning a shape whose optional component is off must fail with an actionable
+ * message, not silently plan work nothing can execute. Preset rows are only
+ * visible through the async probe: the synchronous `enabled` switch cannot see
+ * a declarative agent-preset registration.
+ * @param {any} tower
+ * @param {any} input
+ * @returns {Promise<void>}
+ */
+async function assertShapeComponents(tower, input) {
+  const components = tower.deps?.components
+  if (!components) return
+  for (const mission of input?.missions ?? []) {
+    const required = shapeFor(mission?.kind).requiredComponent
+    if (!required) continue
+    if (typeof components.available === 'function') {
+      // null means "cannot tell" (no agent-presets service): let the plan pass,
+      // exactly as a host without the component port did before shapes existed.
+      if ((await components.available(required)) !== false) continue
+    } else if (components.enabled(required) === true) continue
+    throw new TowerToolError(
+      'invalid-argument',
+      `the ${required} component is off: surveys cannot be planned; build missions are unaffected`,
+      { nextAction: `enable the ${required} component and plan the survey again` },
+    )
+  }
+}
+
+/**
+ * @param {any} input
+ * @returns {boolean}
+ */
+function planNeedsRead(input) {
+  return (input?.missions ?? []).some((mission) => shapeFor(mission?.kind).fields.readCommit)
+}
 
 export async function plan(tower, input = {}) {
-  const prepared = normalizePlanMissions(input)
   return tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const now = Date.now()
+    // A survey records the commit it reads and the tracked-status fingerprint at
+    // plan time; a build plan reads nothing extra.
+    await assertShapeComponents(tower, input)
+    const read = planNeedsRead(input) ? await readFacts(tower, state.base) : {}
+    const prepared = normalizePlanMissions(input, read)
     // Archived ids stay in the known set: a new mission must not reuse an id
     // and a merged dependency may live in the archive index (#73).
     const archive = await tower.archiveIndex()

@@ -84,6 +84,19 @@ plugin-page form, not a row and not one row per mode; the review gate in
 non-disableable. The component and config-key counts do not move (11 visible
 components, 54 keys).
 
+#148/#149 grow the surface by exactly one key and one visible component,
+recorded in [ADR 0006](../adr/0006-mission-shapes.md): config keys 54 → 55,
+sections stay 14, components 11 → 12. A first cut of the shape work added three
+keys and a `survey` section, then contracted 57 → 55 before release in a second
+dated decision: a survey's preset is shape-owned
+(`SHAPES.survey.spawn.defaultPreset`), so a `spawn.surveyPreset` key could only
+disagree with the registry, and `survey.sandbox` advertised a placement W1 does
+not implement. What remains is `spawn.surveyModel`, the optional model route for
+survey workers (the survey row owns the capability, not the key name). The
+`tower-survey` row is the switch: off means surveys cannot be planned and no
+survey agent is dispatched; build missions are unaffected. No existing key
+changed class.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -116,6 +129,7 @@ components, 54 keys).
 | `git.timeoutMs` | tuning | Default Git command timeout outside merge. |
 | `worktrees.root` | tuning | Default worktree placement. |
 | `spawn.workerPreset` | core | Chooses the tool surface a worker receives. |
+| `spawn.surveyModel` | tuning | Optional model route for survey agents. |
 | `spawn.reviewerPreset` | core | Chooses the read-only reviewer surface. |
 | `spawn.maxDepth` | tuning | Subagent depth requested at spawn. |
 | `spawn.provider` | tuning | Provider route for spawned agents. |

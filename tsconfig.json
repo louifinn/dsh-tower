@@ -26,6 +26,7 @@
     "worker.js",
     "reviewer.js",
     "skills.js",
+    "survey.js",
     "tests/type-contracts.ts",
     "tests/tool-schema-types.ts"
   ]

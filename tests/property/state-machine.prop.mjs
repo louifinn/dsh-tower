@@ -88,6 +88,7 @@ import { stateArb } from './arbitraries/index.mjs'
 import { runProperty } from './helpers/harness.mjs'
 import { TowerToolError } from '../../domain/errors.js'
 import { validateState } from '../../domain/state.js'
+import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { mergeGateBlockers, rebaseWaived } from '../../domain/gate.js'
 import { DEFAULT_MAX_REPORT_BYTES, applyCompletion, assertCompletionRequest, completionReport } from '../../domain/missions/completion.js'
 import { applyFindingUpdate } from '../../domain/missions/findings.js'
@@ -218,7 +219,7 @@ function compareIds(left, right) {
  */
 function prepareBaseState(state) {
   const base = structuredClone(state)
-  base.schemaVersion = 3
+  base.schemaVersion = SCHEMA_VERSION
   for (const key of ['missions', 'roster', 'reviews', 'findings', 'messages', 'batches']) {
     if (!Array.isArray(base[key])) base[key] = []
   }
@@ -227,6 +228,10 @@ function prepareBaseState(state) {
   const highestFindingId = base.findings.reduce((max, finding) => Math.max(max, idNumber(finding.id)), 0)
   base.reviewSeq = Math.max(Number.isInteger(base.reviewSeq) ? base.reviewSeq : 0, highestReviewId)
   base.findingSeq = Math.max(Number.isInteger(base.findingSeq) ? base.findingSeq : 0, highestFindingId)
+  // The reference model transcribes the build lifecycle (including the merged
+  // status and the merge/rebase commands). Survey shapes have their own status
+  // sets and no merge edge; they are covered by tests/shape-registry.test.mjs.
+  base.missions = base.missions.filter((mission) => mission.kind !== 'survey')
   return base
 }
 
@@ -1158,7 +1163,7 @@ function frozenState(options = {}) {
   }
   if (options.pauseCause !== undefined && options.pauseCause !== null) mission.pauseCause = options.pauseCause
   return {
-    schemaVersion: 3,
+    schemaVersion: SCHEMA_VERSION,
     revision: 7,
     base: 'main',
     repoRoot: '/tmp/tower-property',

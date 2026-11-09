@@ -12,8 +12,11 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { SCHEMA_VERSION } from '../mission.js'
+import { SHAPE_KINDS, shapeFor } from '../shapes/index.js'
 
-/** @typedef {{ from: number, to: number, migrate: (state: Record<string, any>) => Record<string, any> }} StateMigration */
+/** @typedef {{ readCommit: string, readDirty: string[] }} LegacySurveyRead */
+/** @typedef {{ legacySurveyRead?: LegacySurveyRead | null }} MigrationContext */
+/** @typedef {{ from: number, to: number, migrate: (state: Record<string, any>, context?: MigrationContext) => Record<string, any> }} StateMigration */
 
 /**
  * @param {unknown} value
@@ -57,10 +60,61 @@ export function migrateV2ToV3(state) {
   return { ...state, caseInsensitive: null }
 }
 
+/**
+ * v3 -> v4. Mission state becomes per-shape (#149). Every mission is stamped with
+ * its kind; a legacy branch-shaped survey keeps the commit it read (the
+ * worktree's base commit) and drops the worktree/branch/merge fields it no
+ * longer owns. Build missions keep their document unchanged.
+ *
+ * The step is pure and one-way. Re-running it on a v4 document is a fixed point:
+ * every mission already has a kind, so the same shape migration rewrites it to
+ * the same values.
+ *
+ * A legacy survey planned but never provisioned records no base commit at all
+ * (2.6.0 wrote neither `baseCommit` nor a worktree at plan time). The loader
+ * resolves the state base once and passes it as `context.legacySurveyRead`; the
+ * survey shape consumes it only when it has no recorded base of its own.
+ * @param {Record<string, any>} state
+ * @param {MigrationContext} [context]
+ * @returns {Record<string, any>}
+ */
+export function migrateV3ToV4(state, context = {}) {
+  const next = { ...state }
+  next.missions = (Array.isArray(next.missions) ? next.missions : []).map((mission) => {
+    if (!isPlainObject(mission)) return mission
+    const shape = SHAPE_KINDS.map((kind) => shapeFor(kind)).find((candidate) => candidate.isLegacy(mission))
+    return shape ? shape.migrateLegacy(mission, context) : mission
+  })
+  return next
+}
+
+/**
+ * True when a pre-v4 document contains at least one legacy mission whose shape
+ * cannot anchor its read from the document alone (a survey planned but never
+ * provisioned). The load path must resolve the repository base before migration
+ * runs; a document that recorded its own commit needs no resolver, and a
+ * current-version document is never re-migrated.
+ * @param {unknown} state
+ * @returns {boolean}
+ */
+export function legacySurveyNeedsRead(state) {
+  if (!isPlainObject(state)) return false
+  const document = /** @type {Record<string, any>} */ (state)
+  const version = document.schemaVersion
+  if (!Number.isInteger(version) || version < 1 || version >= SCHEMA_VERSION) return false
+  const missions = Array.isArray(document.missions) ? document.missions : []
+  return missions.some((mission) => {
+    if (!isPlainObject(mission)) return false
+    const shape = SHAPE_KINDS.map((kind) => shapeFor(kind)).find((candidate) => candidate.isLegacy(mission))
+    return typeof shape?.needsLegacyRead === 'function' && shape.needsLegacyRead(mission)
+  })
+}
+
 /** Ordered registry: entry 0 moves 1 -> 2, entry 1 moves 2 -> 3, and so on. */
 export const STATE_MIGRATIONS = Object.freeze([
   Object.freeze({ from: 1, to: 2, migrate: migrateV1ToV2 }),
   Object.freeze({ from: 2, to: 3, migrate: migrateV2ToV3 }),
+  Object.freeze({ from: 3, to: 4, migrate: migrateV3ToV4 }),
 ])
 
 /**
@@ -91,16 +145,20 @@ export function migrationChain(from, to = SCHEMA_VERSION, migrations = STATE_MIG
 
 /**
  * Apply the registry to a parsed document. Pure: the input object is never
- * touched and the returned document has the target `schemaVersion`.
+ * touched and the returned document has the target `schemaVersion`. The same
+ * `MigrationContext` object reaches every step, so a step may consume a value
+ * the loader resolved once (the legacy survey read).
  *
  * @param {Record<string, any>} state
- * @param {{ statePath?: string, to?: number, migrations?: readonly StateMigration[] }} [options]
+ * @param {{ statePath?: string, to?: number, migrations?: readonly StateMigration[] } & MigrationContext} [options]
  * @returns {{ state: Record<string, any>, from: number, to: number, steps: Array<{ from: number, to: number }> }}
  */
 export function migrateState(state, options = {}) {
   const where = options.statePath ? ` at ${options.statePath}` : ''
   const to = options.to ?? SCHEMA_VERSION
   const migrations = options.migrations ?? STATE_MIGRATIONS
+  /** @type {MigrationContext} */
+  const context = { legacySurveyRead: options.legacySurveyRead }
   const from = state?.schemaVersion
   const chain = migrationChain(from, to, migrations)
   if (!chain || chain.length === 0) {
@@ -120,7 +178,7 @@ export function migrateState(state, options = {}) {
     /** @type {Record<string, any>} */
     let next
     try {
-      next = step.migrate(current)
+      next = step.migrate(current, context)
     } catch (error) {
       throw new TowerToolError(
         'state-migration-failed',

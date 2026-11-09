@@ -18,6 +18,7 @@
 // prepare stale, so the whole prepare is retried, never partially applied.
 import path from 'node:path'
 import { validateState } from '../domain/state.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
 import {
   alreadyMergedResult,
   applyLandedMerge,
@@ -238,6 +239,8 @@ async function prepareFromState(tower, input, deps) {
     if (archived.ok && archived.entry) mission = archived.entry.mission
   }
   if (!mission) return { result: missionMissingResult(input.missionId) }
+  // A branchless shape has no merge to prepare; refuse before any git work.
+  assertActionSupported(mission, 'merge')
 
   // Reconcile a stale merge intent: Git runs here, outside every state lock.
   if (state.mergeIntent && state.mergeIntent.missionId === mission.id) {

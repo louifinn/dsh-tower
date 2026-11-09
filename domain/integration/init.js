@@ -2,7 +2,8 @@
 // policy, snapshot decisions, and the initial/existing result projections. All
 // fs/git work and state persistence stay in app/init.js.
 // @ts-check
-import { SCHEMA_VERSION, TERMINAL_STATUSES } from '../mission.js'
+import { SCHEMA_VERSION } from '../mission.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
@@ -72,7 +73,7 @@ export function claimCaller(owner, caller) {
  * @returns {string | null} refusal message, or null when reanchor may proceed
  */
 export function reanchorBlockedMessage(missions) {
-  const active = missions.filter((mission) => !TERMINAL_STATUSES.has(mission.status))
+  const active = missions.filter((mission) => !shapeFor(mission.kind).isTerminal(mission.status))
   return active.length > 0 ? `cannot reanchor base while ${active.length} mission(s) are not merged or abandoned` : null
 }
 

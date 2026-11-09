@@ -63,6 +63,7 @@ export const CAPABILITY_LOCALES = [
 export const PRESET_LOCALES = [
   { specifier: 'preset-worker', component: 'preset-tower-worker', mandatory: true },
   { specifier: 'preset-reviewer', component: 'preset-tower-reviewer', mandatory: false },
+  { specifier: 'preset-survey', component: 'tower-survey', mandatory: false },
 ]
 
 /** Every row that ships a generated subpath locale resource. */

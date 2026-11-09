@@ -115,6 +115,17 @@ export function createdWorktreeResult(mission, worktree) {
 }
 
 /**
+ * A shared-checkout shape (survey) provisions no branch and no worktree: the
+ * agent reads the recorded commit in the main checkout.
+ * @param {Mission} mission
+ * @param {string} cwd
+ * @returns {{ mission: Mission, worktree: null, cwd: string, created: false, provisioning: 'shared' }}
+ */
+export function sharedProvisionResult(mission, cwd) {
+  return { mission, worktree: null, cwd, created: false, provisioning: /** @type {const} */ ('shared') }
+}
+
+/**
  * @param {string} branch
  * @param {string} wtPath
  * @returns {string}

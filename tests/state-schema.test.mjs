@@ -107,7 +107,7 @@ test('declarative StateSchema accepts a full valid state and returns it unchange
 test('schema tolerance: minimal legacy rows, reserved roster rows and extra fields stay valid', () => {
   const minimal = {
     schemaVersion: SCHEMA_VERSION,
-    missions: [{ id: 'M1', status: 'planned', tasks: [], deps: [] }],
+    missions: [{ id: 'M1', kind: 'build', status: 'planned', tasks: [], deps: [] }],
     roster: [{ name: 'reviewer-m1', role: 'reviewer', state: 'reserved' }],
     futureField: { anything: true },
   }
@@ -134,7 +134,7 @@ test('key structural and semantic failures keep historical state-corrupt message
     [
       'unknown mission status',
       { ...base, missions: [{ ...base.missions[0], status: 'launched' }] },
-      'mission M1 has unknown status launched at state.json',
+      'mission M1 has unknown status launched for a build mission at state.json',
     ],
     [
       'unknown review status',

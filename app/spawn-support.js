@@ -1,5 +1,7 @@
 // tower_spawn support (#56 P3c): briefing assembly, agent options, and the
 // wait/result settling path. Split out of tools/spawn.js; no I/O of its own.
+import { shapeFor } from '../domain/shapes/index.js'
+import { isWorkerRole } from '../domain/vocabulary.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
 
 /**
@@ -17,22 +19,24 @@ export function buildAgentOptions(model) {
  * @param {{ role: string, towerRoot: string, context: any, worktree: any, instructions: string | undefined }} input
  */
 export function buildSpawnBriefing({ role, towerRoot, context, worktree, instructions }) {
-  const mission = {
-    ...context.mission,
-    worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit },
-  }
+  // Only a shape that owns a worktree gets the git checkout projection; a survey
+  // reads the shared checkout and must not see a worktree record it does not own.
+  const shape = shapeFor(context.mission.kind)
+  const mission = shape.fields.worktree
+    ? { ...context.mission, worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit } }
+    : { ...context.mission }
   const briefing = {
     repoRoot: towerRoot,
     base: context.base,
     mission,
     deps: context.deps,
-    worktree,
+    worktree: worktree ?? null,
     instructions,
     reviews: context.reviews,
     findings: context.findings,
     completionReport: context.completionReport,
   }
-  return role === 'worker' ? workerBriefing(briefing) : reviewerBriefing(briefing)
+  return isWorkerRole(role) ? workerBriefing(briefing) : reviewerBriefing(briefing)
 }
 
 /**

@@ -5,6 +5,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS, FINDING_TYPES } from '../mission.js'
+import { isReviewerRole } from '../roles.js'
 import { countFindings, findingSummary } from '../summary.js'
 
 /** @typedef {import('../../types/index.js').Finding} Finding */
@@ -158,7 +159,7 @@ export function readFindingsView(findings, input) {
  * @returns {{ noteAdded: boolean }}
  */
 export function applyFindingUpdate({ finding, input, actor, now }) {
-  if (actor.role === 'reviewer') {
+  if (isReviewerRole(actor.role)) {
     fail('reviewers may list and read findings, but only the tower or a worker may change finding status', 'not-authorized')
   }
   let noteAdded = false

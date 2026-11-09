@@ -69,6 +69,7 @@ const SECTION_KEYS = {
     'provider',
     'workerModel',
     'reviewerModel',
+    'surveyModel',
     'maxLiveWorkers',
     'staleMs',
     'maxWaitMs',
@@ -216,12 +217,13 @@ export const Config = Schema.object({
     .default({})
     .description('Worktree placement.'),
   spawn: Schema.object({
-    workerPreset: Schema.string().default('tower-worker').description('Agent preset for worker missions.'),
+    workerPreset: Schema.string().default('tower-worker').description('Agent preset for build workers.'),
     reviewerPreset: Schema.string().default('tower-reviewer').description('Agent preset for reviewers.'),
     maxDepth: Schema.natural().min(1).default(1).description('Subagent depth requested when spawning tower agents.'),
     provider: Schema.string().description('Subagent provider id; empty picks spawn, then the first registered provider.'),
     workerModel: ModelSchema().description('Model route for workers; omitted inherits the parent session.'),
     reviewerModel: ModelSchema().description('Model route for reviewers; omitted inherits the parent session (recommended).'),
+    surveyModel: ModelSchema().description('Model route for survey workers; omitted inherits the parent session.'),
     maxLiveWorkers: Schema.natural()
       .min(1)
       .max(64)
@@ -428,6 +430,9 @@ export function assertKnownKeys(raw, label) {
     }
     if ((group === 'spawn') && value.reviewerModel && typeof value.reviewerModel === 'object') {
       assertModelKeys(value.reviewerModel, `${label} spawn.reviewerModel`)
+    }
+    if ((group === 'spawn') && value.surveyModel && typeof value.surveyModel === 'object') {
+      assertModelKeys(value.surveyModel, `${label} spawn.surveyModel`)
     }
   }
 }

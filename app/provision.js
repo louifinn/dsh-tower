@@ -9,12 +9,14 @@
 import path from 'node:path'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import {
   baseCommitChoice,
   createdWorktreeResult,
   existingWorktreeResult,
   hasMissionId,
   provisionActivityText,
+  sharedProvisionResult,
   worktreeBranch,
   worktreePath,
   worktreeRecord,
@@ -30,6 +32,11 @@ async function prepareProvision(tower, input) {
   const state = await tower.load()
   const mission = state.missions.find((entry) => entry.id === input.missionId)
   if (!mission) fail(`unknown mission "${input.missionId}"`, 'mission-not-found')
+  // A shared-checkout shape reads one commit in the main checkout: no branch,
+  // no directory, no recorded worktree (#148 D1/D2).
+  if (shapeFor(mission.kind).provisioning === 'shared') {
+    return { early: sharedProvisionResult(mission, tower.root) }
+  }
   if (mission.worktree) {
     await tower.assertWorktree(mission.worktree)
     return { early: existingWorktreeResult(mission, mission.worktree) }

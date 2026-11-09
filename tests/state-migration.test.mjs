@@ -14,6 +14,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
@@ -116,7 +117,7 @@ function v1Fixture() {
 }
 
 test('the migration registry is ordered, contiguous and ends at SCHEMA_VERSION', () => {
-  assert.equal(SCHEMA_VERSION, 3, 'the registry reaches schema version 3 (#72 added 2, #90 adds 3)')
+  assert.equal(SCHEMA_VERSION, 4, 'the registry reaches schema version 4 (#72 added 2, #90 adds 3, #149 adds 4)')
   assert.ok(Array.isArray(STATE_MIGRATIONS))
   assert.ok(Object.isFrozen(STATE_MIGRATIONS))
   let version = 1
@@ -146,11 +147,15 @@ test('prepareState migrates a v1 fixture, validates the target schema and is ide
   assert.deepEqual(prepared.migrated, [
     { from: 1, to: 2 },
     { from: 2, to: 3 },
+    { from: 3, to: 4 },
   ])
   assert.equal(prepared.state.schemaVersion, SCHEMA_VERSION)
   assert.equal(prepared.state.revision, 0, 'the migration backfills a missing revision')
   assert.deepEqual(prepared.state.missions[0].tasks, [])
   assert.deepEqual(prepared.state.missions[0].deps, [])
+  // v3 -> v4 stamps every mission with its shape: an absent kind is a build, and
+  // the legacy branch-shaped document keeps its worktree fields untouched.
+  assert.equal(prepared.state.missions[0].kind, 'build')
   // v2 -> v3 backfills the detected case mode as unknown; a migration must not
   // read the filesystem, so the next tower_init probes and records it (#90).
   assert.equal(prepared.state.caseInsensitive, null)
@@ -174,7 +179,7 @@ test('v2 -> v3 backfills the case mode as unknown and preserves a recorded value
   const snapshot = JSON.stringify(unrecorded)
   const migrated = prepareState(unrecorded, 'state.json')
   assert.equal(migrated.changed, true)
-  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }])
+  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }, { from: 3, to: 4 }])
   assert.equal(migrated.state.caseInsensitive, null, 'a migration must not guess at the filesystem')
   assert.equal(JSON.stringify(unrecorded), snapshot, 'the pre-migration document is not mutated')
 
@@ -212,6 +217,7 @@ test('a migration that throws is state-migration-failed and leaves its input unt
     // The injected registry must still reach SCHEMA_VERSION; otherwise the gap
     // is classified as unmigratable before the throwing step can run.
     { from: 2, to: 3, migrate: (state) => state },
+    { from: 3, to: 4, migrate: (state) => state },
   ]
   assert.throws(
     () => prepareState(legacy, 'state.json', { migrations }),
@@ -288,6 +294,69 @@ test('read-only loads migrate in memory without rewriting the file; the first lo
   }
 })
 
+test('the real load path anchors a planned-but-never-provisioned legacy survey (#149)', async () => {
+  const { root, repo } = makeRepo()
+  try {
+    const { tools } = makeCtx()
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const baseBranch = readState(tower.paths.state).base
+    const baseCommit = git(repo, ['rev-parse', baseBranch])
+    // Park the checkout on another branch with its own commit: HEAD is no
+    // longer the state base. The migration must still load, anchored at the
+    // base ref rather than at HEAD.
+    git(repo, ['checkout', '-b', 'parked'])
+    fs.appendFileSync(path.join(repo, 'README.md'), 'parked work\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'parked work'])
+    // A tracked edit at load time is the survey's evidence; it must be captured.
+    fs.appendFileSync(path.join(repo, 'README.md'), 'dirty\n')
+
+    const fixturePath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'fixtures',
+      'state-v3-shape-migration-unprovisioned.json',
+    )
+    const legacy = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+    legacy.base = baseBranch
+    legacy.repoRoot = repo
+    legacy.towerAgentId = 'tower-agent'
+    const text = JSON.stringify(legacy, null, 2)
+    fs.writeFileSync(tower.paths.state, text)
+
+    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    assert.equal(status.revision, legacy.revision, 'a read-only load never rewrites the v3 file')
+    const survey = status.missions.find((mission) => mission.id === 'M2')
+    assert.equal(survey.kind, 'survey')
+    assert.equal(survey.readCommit, baseCommit, 'anchored at the state base, not at HEAD')
+    assert.deepEqual(survey.readDirty, ['README.md'], 'the tracked status at load time is recorded, never fabricated empty')
+    assert.equal(survey.status, 'planned')
+    assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text, 'the original v3 document stays byte-identical')
+
+    // A second load of the same document is the same fixed point.
+    const again = await call(tools, 'tower_status', { repoRoot: repo })
+    assert.deepEqual(again.missions, status.missions)
+
+    // The migrated survey is usable: a state write persists v4 and keeps the
+    // resolved evidence, with the pre-migration document backed up.
+    await call(tools, 'tower_mission', { repoRoot: repo, missionId: 'M2', note: 'inspected after migration' })
+    const persisted = readState(tower.paths.state)
+    assert.equal(persisted.schemaVersion, SCHEMA_VERSION)
+    const persistedSurvey = persisted.missions.find((mission) => mission.id === 'M2')
+    assert.equal(persistedSurvey.kind, 'survey')
+    assert.equal(persistedSurvey.readCommit, baseCommit)
+    assert.deepEqual(persistedSurvey.readDirty, ['README.md'])
+    assert.ok(backupsFor(tower).includes('state.json.v3.bak'), 'the v3 document is backed up before the rewrite')
+    const reloaded = await call(tools, 'tower_status', { repoRoot: repo })
+    const reloadedSurvey = reloaded.missions.find((mission) => mission.id === 'M2')
+    assert.equal(reloadedSurvey.kind, 'survey')
+    assert.equal(reloadedSurvey.readCommit, baseCommit)
+    assert.deepEqual(reloadedSurvey.readDirty, ['README.md'])
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('a state written by a newer plugin is refused and left byte-identical', async () => {
   const { root, repo } = makeRepo()
   try {
@@ -354,6 +423,7 @@ test('a throwing migration leaves the original file byte-identical and keeps the
         },
       },
       { from: 2, to: 3, migrate: (state) => state },
+      { from: 3, to: 4, migrate: (state) => state },
     ]
 
     await assert.rejects(
@@ -393,6 +463,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
       migrations: [
         { from: 1, to: 2 },
         { from: 2, to: 3 },
+        { from: 3, to: 4 },
       ],
       status: 'migratable',
     })

@@ -5,6 +5,8 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { completedEvent } from '../events.js'
+import { shapeFor } from '../shapes/index.js'
+import { isWorkerRole } from '../vocabulary.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
@@ -113,7 +115,7 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
   if (!worker || worker.missionId !== mission.id) {
     fail(`agent ${input.agentId} is not assigned to mission ${mission.id}`)
   }
-  if (worker.role !== 'worker') fail(`agent ${worker.name} is a ${worker.role}, not a worker`)
+  if (!isWorkerRole(worker.role)) fail(`agent ${worker.name} is a ${worker.role}, not a worker`)
   if (['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(worker.state)) {
     fail(`agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`)
   }
@@ -140,7 +142,6 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
   if (blockers.length > 0) {
     fail(`mission ${mission.id} has unresolved blockers: ${blockers.join('; ')}`)
   }
-  if (!mission.worktree) fail(`mission ${mission.id} has no worktree`)
   return worker
 }
 
@@ -168,12 +169,47 @@ export function completionReport({ report, worker, checks, now, maxReportBytes }
 }
 
 /**
+ * Normalize the optional survey result (#148 D6). Only a shape that accepts a
+ * result may carry one; the value stays small so the state document does not
+ * become an evidence dump.
+ * @param {unknown} result
+ * @returns {any}
+ */
+export function normalizeResult(result) {
+  if (result === undefined || result === null) return null
+  if (!isPlainObject(result)) fail('result must be an object')
+  const value = /** @type {Record<string, any>} */ (result)
+  /** @type {Record<string, any>} */
+  const normalized = {}
+  for (const key of ['paths', 'symbols']) {
+    if (value[key] === undefined) continue
+    if (!Array.isArray(value[key])) fail(`result.${key} must be an array of strings`)
+    if (value[key].length > 200) fail(`result.${key} supports at most 200 entries`)
+    normalized[key] = value[key].map((entry) => {
+      if (typeof entry !== 'string' || entry.trim().length === 0) fail(`result.${key} entries must be non-empty strings`)
+      return entry.trim()
+    })
+  }
+  if (value.notes !== undefined) {
+    if (typeof value.notes !== 'string') fail('result.notes must be a string')
+    normalized.notes = value.notes.trim().slice(0, 4000)
+  }
+  return normalized
+}
+
+/**
  * Apply the completion transition to the mission draft and describe the domain
  * fact. Persistence stays in app/checkCompletion.js.
- * @param {{ mission: Mission, report: any, now: number }} params
+ * @param {{ mission: Mission, report: any, now: number, result?: any }} params
  * @returns {{ state: Mission, events: Array<{ type: string, missionId: string }> }}
  */
-export function applyCompletion({ mission, report, now }) {
+export function applyCompletion({ mission, report, now, result }) {
+  const shape = shapeFor(mission.kind)
+  const normalized = normalizeResult(result)
+  if (normalized !== null) {
+    if (!shape.acceptsResult) fail(`mission ${mission.id} is a ${shape.kind}; a completion result is survey evidence only`)
+    mission.result = normalized
+  }
   mission.status = 'completed'
   mission.completionReport = report
   mission.updatedAt = now

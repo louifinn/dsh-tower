@@ -6,13 +6,13 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { abandonedEvent, completedEvent } from '../events.js'
-import { MISSION_STATUSES, TERMINAL_STATUSES, canTransition, pauseCauseError } from '../mission.js'
+import { pauseCauseError } from '../mission.js'
 import { normalizeScope, scopesOverlap } from '../scope.js'
+import { shapeFor } from '../shapes/index.js'
+import { isReviewerRole, isWorkerRole } from '../vocabulary.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
-
-const TERMINAL = TERMINAL_STATUSES
 
 /**
  * @param {string} message
@@ -42,8 +42,8 @@ export function normalizePauseCause(value) {
  * @returns {void}
  */
 export function assertMissionActor(mission, actor, input) {
-  const workerRequest = actor.role === 'worker'
-  if (actor.role === 'reviewer') {
+  const workerRequest = isWorkerRole(actor.role)
+  if (isReviewerRole(actor.role)) {
     fail('only the tower or a worker may update a mission; reviewers submit tower_review', 'not-authorized')
   }
   if (workerRequest && mission.owner && mission.owner !== actor.name) {
@@ -82,14 +82,15 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   /** @type {Array<{ type: string, missionId: string }>} */
   const events = []
 
+  const shape = shapeFor(mission.kind)
   if (input.status !== undefined) {
-    if (typeof input.status !== 'string' || !MISSION_STATUSES.includes(input.status)) {
-      fail(`unknown mission status "${input.status}"`)
+    if (typeof input.status !== 'string' || !shape.statuses.includes(input.status)) {
+      fail(`unknown mission status "${input.status}" for a ${shape.kind} mission`)
     }
     if (input.status === 'merged') {
       fail('merged is recorded only by tower_merge, not by a generic mission patch', 'invalid-transition')
     }
-    if (!canTransition(mission.status, input.status)) {
+    if (!shape.canTransition(mission.status, input.status)) {
       fail(`mission ${mission.id} cannot move from ${mission.status} to ${input.status}`, 'invalid-transition')
     }
     if (input.status === 'paused') {
@@ -144,7 +145,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     if (typeof input.blocker !== 'string' || input.blocker.trim().length === 0) {
       fail('blocker must be a non-empty string')
     }
-    if (TERMINAL.has(mission.status)) {
+    if (shape.isTerminal(mission.status)) {
       fail(`mission ${mission.id} is ${mission.status}; a blocker cannot reopen a terminal mission`)
     }
     const blockers = /** @type {string[]} */ (mission.blockers)
@@ -168,16 +169,21 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   }
 
   if (input.scope !== undefined) {
+    if (!shape.ownsScope) {
+      fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
+    }
     if (!['active', 'completed'].includes(mission.status)) {
       fail(`scope can only be widened for active or completed missions, not ${mission.status}`)
     }
-    const scope = normalizeScope(input.scope, { allowEmpty: mission.kind === 'survey' })
-    const others = state.missions.filter(
-      (entry) => entry.id !== mission.id && !TERMINAL.has(entry.status) && entry.kind !== 'survey',
-    )
+    const scope = normalizeScope(input.scope)
+    const others = state.missions.filter((entry) => {
+      if (entry.id === mission.id) return false
+      const other = shapeFor(entry.kind)
+      return other.ownsScope && !other.isTerminal(entry.status)
+    })
     const caseInsensitive = state.caseInsensitive === true
     for (const other of others) {
-      if (mission.kind !== 'survey' && scopesOverlap(scope, other.scope, { caseInsensitive })) {
+      if (scopesOverlap(scope, other.scope, { caseInsensitive })) {
         fail(`widened scope overlaps mission ${other.id}; retire it or add an explicit ordering`)
       }
     }

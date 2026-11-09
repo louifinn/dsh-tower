@@ -21,7 +21,7 @@ test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
 const { loadModes } = await import('../host/modeStore.js')
-const { __testResetComponentRegistry } = await import('../host/capability-registry.js')
+const { __testResetComponentRegistry, presetAvailable } = await import('../host/capability-registry.js')
 const batch = await import('../host/capability-batch.js')
 const board = await import('../host/capability-board.js')
 const missionArchive = await import('../host/capability-archive.js')
@@ -541,6 +541,45 @@ test('#121: tower_status also names a disabled component', async () => {
     ),
     JSON.stringify(status.components),
   )
+})
+
+test('#148: survey row availability comes from the real agent-presets service', async () => {
+  const withPresets = (ids) => ({
+    get: (name) => (name === 'agentPresets' ? { list: async () => ids.map((id) => ({ id })) } : undefined),
+  })
+  assert.equal(await presetAvailable(withPresets(['tower-worker', 'tower-survey']), 'tower-survey'), true)
+  assert.equal(await presetAvailable(withPresets(['tower-worker']), 'tower-survey'), false)
+  // No service, or a throwing service: unknown (null), never a silent "off".
+  assert.equal(await presetAvailable({ get: () => undefined }, 'tower-survey'), null)
+  const broken = { get: () => ({ list: async () => { throw new Error('unavailable') } }) }
+  assert.equal(await presetAvailable(broken, 'tower-survey'), null)
+
+  // The plan path goes through tool-registry's `components.available` probe:
+  // the row absent refuses the survey, the row present plans it.
+  const presets = [{ id: 'tower-worker' }]
+  const profile = makeCtx({ agentPresets: { list: async () => presets } })
+  compose(profile.ctx)
+  const { root, repo } = makeRepo()
+  try {
+    const agent = makeAgent('agent-survey-probe')
+    await profile.tools.get('tower_init').execute({ repoRoot: repo }, { agent })
+    await assert.rejects(
+      () =>
+        profile.tools
+          .get('tower_plan')
+          .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row absent', kind: 'survey' }] }, { agent }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message),
+    )
+    presets.push({ id: 'tower-survey' })
+    const planned = await profile.tools
+      .get('tower_plan')
+      .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row present', kind: 'survey' }] }, { agent })
+    assert.equal(planned.missions[0].kind, 'survey')
+  } finally {
+    removeTemp(root)
+  }
 })
 
 test('#121: tower-tests off still rejects gates.requireTests true', async () => {

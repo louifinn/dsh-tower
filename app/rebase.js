@@ -8,6 +8,7 @@
 // reviewed-tip waiver semantics the merge gate depends on.
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
 import { liveAgentFor } from '../domain/integration/liveness.js'
 import {
   alreadyMergedRebaseResult,
@@ -55,6 +56,7 @@ async function prepareRebase(tower, input) {
   const state = await tower.load()
   const mission = findMission(state, input.missionId)
   if (!mission) fail(`unknown mission "${input.missionId}"`)
+  assertActionSupported(mission, 'rebase')
   if (!mission.worktree) fail(`mission ${mission.id} has no worktree to rebase`)
   const activity = input.activity ?? {}
   const busy = liveAgentFor(state, mission.id, activity)

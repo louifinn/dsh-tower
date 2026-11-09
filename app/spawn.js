@@ -96,6 +96,9 @@ export async function recordSpawn(tower, input) {
     const now = Date.now()
     const entry = recordSpawnEntry({
       roster: state.roster,
+      // The live-worker count resolves each roster row's kind, so the whole
+      // mission list is required: a survey row is not a build worker (#148).
+      missions: state.missions,
       mission,
       input,
       spawnTip,

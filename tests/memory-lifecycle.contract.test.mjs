@@ -100,6 +100,7 @@ async function runScriptedLifecycle() {
     state.missions.push({
       id: MISSION_ID,
       title: 'Scripted in-memory lifecycle',
+      kind: 'build',
       scope: ['tests/**'],
       deps: [],
       status: 'planned',

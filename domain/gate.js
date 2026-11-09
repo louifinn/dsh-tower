@@ -1,6 +1,6 @@
 // Pure completion gate checks (#49). No repository I/O.
 // @ts-check
-import { isTerminal } from './mission.js'
+import { shapeFor } from './shapes/index.js'
 import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
 /** @typedef {import('../types/index.js').Blocker} Blocker */
@@ -10,39 +10,15 @@ import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integr
 /** @typedef {import('../types/index.js').TowerConfig} TowerConfig */
 
 /**
+ * Pre-merge completion blockers. The shape owns the vocabulary: a survey is
+ * terminal when completed and is never merged, so it has no
+ * "closed mission owns a branch" blocker.
  * @param {Mission} mission
  * @param {TowerConfig} [config]
  * @returns {Blocker[]}
  */
 export function completionBlockers(mission, config = {}) {
-  /** @type {Blocker[]} */
-  const blockers = []
-  /** @type {(code: string, detail: string) => void} */
-  const push = (code, detail) => {
-    blockers.push({ code, detail })
-  }
-  if (isTerminal(mission.status)) {
-    push(
-      'branch-owned-by-closed-missions',
-      `mission ${mission.id} is ${mission.status}; a merge never flips a closed mission — re-plan the work under a new title`,
-    )
-  }
-  if (mission.status !== 'completed') {
-    push('mission-not-completed', `mission ${mission.id} is ${mission.status}; completion is required`)
-  }
-  const openTasks = (mission.tasks ?? []).filter((task) => task.status === 'open')
-  if (openTasks.length > 0) {
-    push('tasks-open', `${openTasks.length} open task(s): ${openTasks.map((task) => task.text).join('; ')}`)
-  }
-  const presentBlockers = mission.blockers ?? []
-  if (presentBlockers.length > 0) push('blockers-present', presentBlockers.join('; '))
-  if (config.gates?.requireChecks === true) {
-    const checks = mission.completionReport?.checks ?? []
-    if (checks.length === 0) {
-      push('no-check-evidence', `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`)
-    }
-  }
-  return blockers
+  return shapeFor(mission.kind).completionBlockers(mission, config)
 }
 
 /**

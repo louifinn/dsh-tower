@@ -36,11 +36,21 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 
 import { TowerToolError } from '../../domain/errors.js'
-import { MISSION_STATUSES, TERMINAL_STATUSES, TRANSITIONS, canTransition, isTerminal } from '../../domain/mission.js'
+import { MISSION_STATUSES } from '../../domain/mission.js'
+import { shapeFor } from '../../domain/shapes/index.js'
 import { applyMissionUpdate } from '../../domain/missions/lifecycle.js'
 import { stateArb } from './arbitraries/index.mjs'
 import { runProperty } from './helpers/harness.mjs'
 import { MODEL_CONFIG, MODEL_STATUSES, MODEL_TERMINAL_STATUSES, MODEL_TRANSITIONS } from './model/tables.mjs'
+
+// The build shape is the lifecycle this property models; survey has its own
+// (no `merged`) property in tests/shape-registry.test.mjs. Wrappers keep the
+// independent model/tables.mjs comparison readable.
+const buildShape = shapeFor('build')
+const TRANSITIONS = buildShape.transitions
+const TERMINAL_STATUSES = new Set(buildShape.statuses.filter((status) => buildShape.isTerminal(status)))
+const canTransition = (from, to) => buildShape.canTransition(from, to)
+const isTerminal = (status) => buildShape.isTerminal(status)
 
 const NOW = 1_700_000_000_000
 const NOTE = 'terminal absorption probe'
@@ -217,14 +227,21 @@ const terminalStateArb = stateArb.filter((state) =>
   (state.missions ?? []).some((mission) => MODEL_TERMINAL_STATUSES.has(mission.status)),
 )
 
+// The status-patch matrix is the build vocabulary (`merged` is a build-only
+// status). A survey's terminal absorption is covered by
+// tests/shape-registry.test.mjs, where `merged` is not a legal target at all.
+const buildTerminalStateArb = terminalStateArb.filter((state) =>
+  (state.missions ?? []).some((mission) => mission.kind !== 'survey' && MODEL_TERMINAL_STATUSES.has(mission.status)),
+)
+
 /** A trimmed, non-empty free-text value (blank input is not a legal note/blocker). */
 const textArb = fc.string({ minLength: 1, maxLength: 40 }).map((raw) => raw.trim()).filter((text) => text.length > 0)
 
 runProperty({
   name: 'terminal absorption: a generated terminal mission rejects every status patch and keeps the state byte-identical',
-  arbitrary: fc.tuple(terminalStateArb, fc.constantFrom(...MODEL_STATUSES)),
+  arbitrary: fc.tuple(buildTerminalStateArb, fc.constantFrom(...MODEL_STATUSES)),
   predicate: ([state, target]) => {
-    const mission = state.missions.find((entry) => MODEL_TERMINAL_STATUSES.has(entry.status))
+    const mission = state.missions.find((entry) => entry.kind !== 'survey' && MODEL_TERMINAL_STATUSES.has(entry.status))
     assert.ok(mission, 'the filtered arbitrary produced no terminal mission')
     assertTerminalStatusPatchRejected({ label: `generated ${mission.id} ${mission.status} -> ${target}`, mission, state, target })
     assert.equal(canTransition(mission.status, target), false, `${mission.status} -> ${target}: terminal edge declared`)

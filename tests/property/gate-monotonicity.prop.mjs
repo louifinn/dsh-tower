@@ -47,7 +47,7 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 
 import { completionBlockers, mergeGateBlockers } from '../../domain/gate.js'
-import { isTerminal } from '../../domain/mission.js'
+import { shapeFor } from '../../domain/shapes/index.js'
 import { ROSTER_INACTIVE_STATES } from '../../domain/roster.js'
 import {
   OTHER_TIP,
@@ -152,7 +152,7 @@ runProperty({
 
 runProperty({
   name: 'completion monotone: a completed mission moved back to active only adds mission-not-completed',
-  arbitrary: completionEvidenceArb.filter(({ mission }) => !isTerminal(mission.status)),
+  arbitrary: completionEvidenceArb.filter(({ mission }) => !shapeFor(mission.kind).isTerminal(mission.status)),
   predicate: ({ mission, config }) => {
     const before = completionCodes({ mission, config })
     const after = completionCodes({
