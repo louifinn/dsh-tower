@@ -145,7 +145,11 @@ export async function precheckWorkerOwnership({
   const replacing = effectiveTakeover ? sameMission : []
   const remaining = budgetWorkers.filter((entry) => !replacing.includes(entry))
   const max = Math.min(Number(maxLiveWorkers) || 4, budget)
-  if (remaining.length >= max) {
+  // The new mission's shape decides whether this spawn consumes a build slot: a
+  // survey does not, so it is allowed while every build slot is busy (#148).
+  const mission = state.missions.find((entry) => entry.id === missionId)
+  const countsTowardBudget = shapeFor(mission?.kind).spawn.countsTowardWorkerBudget !== false
+  if (countsTowardBudget && remaining.length >= max) {
     throw new TowerToolError(
       'worker-limit',
       'live worker limit reached (' + max + '); stop a worker with tower_interrupt or raise spawn.maxLiveWorkers',

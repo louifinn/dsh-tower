@@ -47,11 +47,11 @@ export function registerSpawnTool(ctx, deps) {
       const context = await tower.missionContext(args.missionId)
       assertSpawnableMission({ role, context, config })
       const shape = shapeFor(context.mission.kind)
-      const surveyPreset = 'defaultPreset' in shape.spawn ? shape.spawn.defaultPreset : null
-      const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : (surveyPreset ?? config.spawn.workerPreset)
+      const shapePreset = 'defaultPreset' in shape.spawn ? shape.spawn.defaultPreset : null
+      const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : (shapePreset ?? config.spawn.workerPreset)
       const model = isReviewerRole(role)
         ? config.spawn.reviewerModel
-        : (surveyPreset ? config.spawn.surveyModel : config.spawn.workerModel)
+        : (shapePreset ? config.spawn.surveyModel : config.spawn.workerModel)
       const spawned = await enqueueSpawn(tower.root, async () => {
         const observed = await observeActivity(ctx, tower)
         await tower.reconcileObservedInactive(observed.activity)

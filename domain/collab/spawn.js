@@ -8,6 +8,7 @@
 import { TowerToolError } from '../errors.js'
 import { ROSTER_INACTIVE, countLiveWorkers, workerEntries } from '../roster.js'
 import { isWorkerRole } from '../roles.js'
+import { shapeFor } from '../shapes/index.js'
 import { clearStale } from './roster.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -15,10 +16,11 @@ import { clearStale } from './roster.js'
 
 /**
  * @param {string} message
+ * @param {string} [code]
  * @returns {never}
  */
-function fail(message) {
-  throw new TowerToolError('invalid-argument', message)
+function fail(message, code = 'invalid-argument') {
+  throw new TowerToolError(code, message)
 }
 
 export { isWorkerRole } from '../roles.js'
@@ -99,10 +101,15 @@ export function reserveRosterEntry({ roster, input, now }) {
 /**
  * Validate and apply a spawn record. Mutates the roster (retiring prior worker
  * rows and inserting/reusing the entry) and the mission owner/status/gen.
- * @param {{ roster: RosterEntry[], mission: Mission, input: any, spawnTip: string | null, maxLiveWorkers: unknown, now: number }} params
+ *
+ * `missions` is the state's mission list, not just the spawned mission: the live
+ * worker count resolves every roster row's kind through the shape registry, so a
+ * survey row must not be counted as a build worker (#148). Callers that omit it
+ * (direct domain tests) keep the historical roster-only treatment.
+ * @param {{ roster: RosterEntry[], missions?: Mission[], mission: Mission, input: any, spawnTip: string | null, maxLiveWorkers: unknown, now: number }} params
  * @returns {RosterEntry}
  */
-export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWorkers, now }) {
+export function recordSpawnEntry({ roster, missions = [], mission, input, spawnTip, maxLiveWorkers, now }) {
   const reserved = roster.find((entry) => entry.name === input.name && entry.state === 'reserved' && !entry.agentId)
   if (!reserved && roster.some((entry) => entry.name === input.name)) {
     fail(`roster name already used: ${input.name}`)
@@ -125,7 +132,7 @@ export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWork
     spawnedAt: now,
   }
   if (isWorkerRole(input.role)) {
-    const snapshot = /** @type {any} */ ({ roster })
+    const snapshot = /** @type {any} */ ({ roster, missions })
     const previous = workerEntries(snapshot, mission.id)
     const live = previous.find((row) => !ROSTER_INACTIVE.has(row.state) && row.state !== 'reserved')
     if (live && !input.takeover) {
@@ -143,9 +150,17 @@ export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWork
       old.outcomeAt = now
       clearStale(old)
     }
-    const max = liveWorkerLimit(maxLiveWorkers)
-    if (countLiveWorkers(snapshot) >= max) {
-      fail(`live worker limit reached (${max}); stop a worker or raise spawn.maxLiveWorkers`)
+    // A shape that does not count toward the live-worker budget (the read-only
+    // survey) must pass even when every build slot is busy; otherwise the
+    // precheck and the record-level check disagree (#148).
+    if (shapeFor(mission.kind).spawn.countsTowardWorkerBudget !== false) {
+      const max = liveWorkerLimit(maxLiveWorkers)
+      if (countLiveWorkers(snapshot) >= max) {
+        fail(
+          `live worker limit reached (${max}); stop a worker or raise spawn.maxLiveWorkers`,
+          'worker-limit',
+        )
+      }
     }
     const generation = (mission.ownerGeneration ?? 0) + 1
     entry.generation = generation

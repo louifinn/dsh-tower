@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 57,
+      "value": 55,
       "decisions": [
         {
           "from": 64,
@@ -26,12 +26,19 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148/#149: the shape redesign adds the survey routing keys spawn.surveyPreset (core) and spawn.surveyModel (tuning), plus survey.sandbox (tuning) in the new survey section. tower-survey is the capability row; the preset/model names only route the read-only agent."
+        },
+        {
+          "from": 57,
+          "to": 55,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "Review round 2 contracts the shape surface before release: spawn.surveyPreset could never be read (a survey's preset is shape-owned, so the key could only disagree with the registry) and survey.sandbox advertised a placement W1 does not implement. Only spawn.surveyModel remains as the optional model route; both removals are recorded here rather than silently shrinking the two-way surface."
         }
       ]
     },
     "sections": {
       "seed": 15,
-      "value": 15,
+      "value": 14,
       "decisions": [
         {
           "from": 15,
@@ -39,6 +46,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148/#149 restore the section count to its seed: survey.sandbox needs a home, so the survey section returns the 15 sections that #121 shrank to 14. Net zero against the seed; no other section changed."
+        },
+        {
+          "from": 15,
+          "to": 14,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "Review round 2 removes the survey section with its only key: survey.sandbox advertised a detached read-only checkout W1 does not implement. The section existed only to hold that key, so the count returns to 14."
         }
       ]
     },

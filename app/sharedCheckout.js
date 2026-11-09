@@ -6,6 +6,8 @@
 // build artefacts it never touched.
 // @ts-check
 
+import { TowerToolError } from '../domain/errors.js'
+
 /**
  * @param {string} porcelain `git status --porcelain` output
  * @returns {string[]} sorted tracked changed paths
@@ -34,6 +36,17 @@ export function trackedFingerprint(porcelain) {
  */
 export async function readFacts(tower, ref) {
   const commit = await tower.revParse(tower.root, ref)
+  // A survey reads the shared checkout as it stands, so the checkout must be at
+  // the base it records. Otherwise every later completion check would compare
+  // against a commit the worker never saw (or block it for the wrong reason).
+  const head = await tower.revParse(tower.root, 'HEAD')
+  if (head !== commit) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `the shared checkout is not at ${ref}: HEAD is ${head.slice(0, 12)} but ${ref} reads ${commit.slice(0, 12)}`,
+      { nextAction: `check out ${ref} in the shared checkout and plan the survey again` },
+    )
+  }
   const porcelain = await tower.git(tower.root, ['status', '--porcelain'])
   return { commit, dirty: trackedFingerprint(porcelain) }
 }

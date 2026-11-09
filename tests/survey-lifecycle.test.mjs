@@ -91,6 +91,32 @@ test('survey planning records the commit it reads, owns no scope and no worktree
   }
 })
 
+test('planning a survey refuses when the shared checkout is not at the recorded base', async () => {
+  const { root, repo, tower } = await setup('dsh-tower-survey-head-')
+  try {
+    git(repo, ['checkout', '-b', 'other'])
+    fs.writeFileSync(path.join(repo, 'other.txt'), 'other\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'other'])
+    const moved = git(repo, ['rev-parse', 'HEAD'])
+    await assert.rejects(
+      () => planSurvey(tower),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /the shared checkout is not at /.test(error.message) &&
+        error.message.includes(`HEAD is ${moved.slice(0, 12)}`) &&
+        /check out .* in the shared checkout and plan the survey again/.test(error.nextAction ?? ''),
+    )
+    const state = await tower.load()
+    assert.deepEqual(state.missions, [], 'a refused plan writes no mission')
+    // A build plan reads no commit, so it is unaffected by the moved checkout.
+    const built = await tower.plan({ missions: [{ title: 'Build anyway', scope: ['src/**'] }] })
+    assert.equal(built.missions[0].kind, 'build')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('survey provisioning is the shared checkout: no worktree, no branch, no commit budget', async () => {
   const { root, repo, tower } = await setup('dsh-tower-survey-shared-')
   try {

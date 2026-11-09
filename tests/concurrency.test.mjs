@@ -12,6 +12,8 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
 import { validateState } from '../app/tower.js'
+import { countLiveWorkers } from '../domain/roster.js'
+import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -32,7 +34,7 @@ function seedRepo(prefix = 'dsh-tower-concurrency-') {
   return { root, repo }
 }
 
-function fakeSubagents() {
+function fakeSubagents({ pendingResults = false } = {}) {
   let seq = 0
   const activations = []
   return {
@@ -43,7 +45,11 @@ function fakeSubagents() {
       activations.push(input)
       return {
         childId: `child-${seq}`,
-        result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
+        // A pending result models a child that is still running: `tower_spawn`
+        // returns immediately and never records an inactive outcome.
+        result: pendingResults
+          ? new Promise(() => {})
+          : Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
       }
     },
     async sendMessage() {},
@@ -53,10 +59,16 @@ function fakeSubagents() {
   }
 }
 
-function makeCtx() {
+function makeCtx(options = {}) {
+  // Component enablement is process-local; mount only the rows a fixture asks
+  // for so one test cannot leak tower-survey into the next.
+  __testResetComponentRegistry()
+  for (const id of options.components ?? []) registerComponent(id)
   const tools = new Map()
-  const subagents = fakeSubagents()
-  const agentPresets = { list: async () => [{ id: 'tower-worker' }, { id: 'tower-reviewer' }] }
+  const subagents = fakeSubagents(options)
+  const agentPresets = {
+    list: async () => [{ id: 'tower-worker' }, { id: 'tower-reviewer' }, { id: 'tower-survey' }],
+  }
   const ctx = {
     effect(fn) {
       const dispose = fn()
@@ -144,6 +156,77 @@ test('spawn.maxLiveWorkers caps live roster workers and allows the limit', async
       after.roster.filter((entry) => entry.role === 'worker').length,
       2,
       'raising spawn.maxLiveWorkers to 2 must allow a second worker entry',
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a live survey worker does not consume the build worker budget (#148)', async () => {
+  const { root, repo } = seedRepo('dsh-tower-concurrency-survey-')
+  // Keep every spawned child "running": a resolved fake result would let the
+  // background recordOutcome mark the row inactive between assertions.
+  const { tools } = makeCtx({ pendingResults: true, components: ['tower-survey'] })
+  try {
+    writeRepoConfig(repo, { spawn: { maxLiveWorkers: 1 } })
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    const planned = await tools.get('tower_plan').execute(
+      {
+        repoRoot: repo,
+        missions: [
+          { title: 'Survey one', kind: 'survey' },
+          { title: 'Build two', scope: ['two/**'] },
+          { title: 'Build three', scope: ['three/**'] },
+          { title: 'Survey four', kind: 'survey' },
+          { title: 'Survey five', kind: 'survey' },
+        ],
+      },
+      exec,
+    )
+    assert.deepEqual(
+      planned.missions.map((mission) => mission.kind),
+      ['survey', 'build', 'build', 'survey', 'survey'],
+    )
+
+    // A survey starts first in the shared checkout with the only build slot free.
+    const surveyOne = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker' }, exec)
+    assert.equal(surveyOne.provisioning, 'shared')
+    assert.equal(surveyOne.worktree ?? null, null)
+
+    // The live survey is not counted, so a build worker still fits in one slot.
+    await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M2', role: 'worker' }, exec)
+
+    // The build slot is now full: a second build is refused with worker-limit.
+    await assert.rejects(
+      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M3', role: 'worker' }, exec),
+      (error) => {
+        assert.equal(error.code, 'worker-limit', error.message)
+        assert.match(error.message, /live worker limit reached \(1\)/)
+        return true
+      },
+    )
+
+    // A survey is still allowed while every build slot is busy.
+    const surveyFour = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M4', role: 'worker' }, exec)
+    assert.equal(surveyFour.provisioning, 'shared')
+    assert.equal(surveyFour.worktree ?? null, null)
+
+    // State-aware count: the two live surveys do not consume the build budget.
+    const state = await Tower.open(repo).then((tower) => tower.load())
+    assert.equal(countLiveWorkers(state), 1)
+    for (const name of ['worker-m1', 'worker-m4']) {
+      const entry = state.roster.find((row) => row.name === name)
+      assert.equal(entry.state, 'active', `${name} must stay a live survey row`)
+    }
+
+    // Single-owner and takeover rules are shape-independent and still apply.
+    await assert.rejects(
+      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker' }, exec),
+      (error) => error.code === 'invalid-transition' && /already has a live worker/.test(error.message),
+    )
+    await assert.rejects(
+      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker', takeover: true }, exec),
+      (error) => error.code === 'takeover-refused' && /not in the live catalog/.test(error.message),
     )
   } finally {
     removeTemp(root)

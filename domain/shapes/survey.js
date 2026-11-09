@@ -208,6 +208,7 @@ export function migrateLegacy(mission) {
   })
   if (next.status === 'merged') next.status = 'completed'
   delete next.worktree
+  delete next.worktreeRemovedAt
   delete next.branch
   delete next.baseCommit
   delete next.mergedCommit

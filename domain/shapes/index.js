@@ -106,32 +106,37 @@ export function provisioningFor(kind) {
  */
 export function assertActionSupported(mission, action) {
   const shape = shapeFor(mission.kind)
+  // Derived from the shape, never from a hard-coded kind: a new shape that has
+  // no branch gets the same refusals without touching this function.
+  const evidence = shape.fields.readCommit
+    ? `readCommit ${String(mission.readCommit ?? '').slice(0, 12)}`
+    : 'recorded evidence'
   if (action === 'merge' && !shape.canMerge) {
     throw new TowerToolError(
       'invalid-transition',
-      `mission ${mission.id} is a survey: it has no branch to merge and is never merged; a completed survey already satisfies its dependents`,
-      { nextAction: 'use tower_complete to finish the survey; its readCommit is the evidence' },
+      `mission ${mission.id} is a ${shape.kind}: it has no branch to merge and is never merged; a completed ${shape.kind} already satisfies its dependents`,
+      { nextAction: `use tower_complete to finish the ${shape.kind}; its ${evidence} is the evidence` },
     )
   }
   if (action === 'rebase' && !shape.canRebase) {
     throw new TowerToolError(
       'invalid-transition',
-      `mission ${mission.id} is a survey: it has no branch to rebase; it reads one fixed commit`,
-      { nextAction: 're-plan the survey if the base moved; the recorded readCommit is immutable' },
+      `mission ${mission.id} is a ${shape.kind}: it has no branch to rebase; a ${shape.kind} does not move`,
+      { nextAction: `re-plan the ${shape.kind} if the base moved; the recorded ${evidence} is immutable` },
     )
   }
   if (action === 'preflight' && !shape.canMerge) {
     throw new TowerToolError(
       'invalid-transition',
-      `mission ${mission.id} is a survey: it has no merge gate; tower_complete checks HEAD, tracked files and zero commits`,
-      { nextAction: 'use tower_complete to finish the survey; surveys are not preflighted or merged' },
+      `mission ${mission.id} is a ${shape.kind}: it has no merge gate; tower_complete checks HEAD, tracked files and zero commits`,
+      { nextAction: `use tower_complete to finish the ${shape.kind}; ${shape.kind}s are not preflighted or merged` },
     )
   }
   if (action === 'diff' && !shape.canMerge) {
     throw new TowerToolError(
       'invalid-transition',
-      `mission ${mission.id} is a survey: it has no branch diff; it read commit ${String(mission.readCommit ?? '').slice(0, 12)}`,
-      { nextAction: 'inspect the recorded readCommit directly, or the survey result recorded at completion' },
+      `mission ${mission.id} is a ${shape.kind}: it has no branch diff; its ${evidence} is the evidence`,
+      { nextAction: `inspect the recorded ${evidence} directly, or the ${shape.kind} result recorded at completion` },
     )
   }
 }

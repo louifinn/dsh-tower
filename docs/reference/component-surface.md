@@ -36,7 +36,7 @@ row is a section of its parent and is not independently switchable.
 | `tower-hmr` | visible | row | Development-only tooling: tower_reload and /tower reload are unavailable, so a linked-profile reload has to be triggered outside Tower. A normal profile behaves exactly as before; the row ships disabled on purpose. |
 | `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
 | `preset-tower-reviewer` | visible | row | Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.mode is off or optional (merge is unaffected; off does not use the preset at all); with review.mode required, planning/mode entry is locked with an explanatory error. |
-| `tower-survey` | visible | row | Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected; survey.sandbox keeps its tuning meaning. |
+| `tower-survey` | visible | row | Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected. |
 | `tower-ui` | visible | row | The Tower web UI plugin does not load in this profile: no Tower tool cards, composer-dock summary or status strip. Host tools, missions, state and the MISSIONS.md board are unaffected. |
 
 ## Forbidden to disable
@@ -107,7 +107,6 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `worktrees.root` | `optional-config` | Default worktree placement. |
 | `spawn.workerPreset` | `core` | Chooses the worker tool surface; a dependency, never a switch. |
 | `spawn.reviewerPreset` | `core` | Chooses the read-only reviewer surface; a dependency, never a switch. |
-| `spawn.surveyPreset` | `core` | Chooses the read-only survey surface; a dependency of the optional tower-survey row, never a switch. |
 | `spawn.maxDepth` | `optional-config` | Subagent depth requested at spawn. |
 | `spawn.provider` | `optional-config` | Provider route for spawned agents. |
 | `spawn.workerModel` | `optional-config` | Optional model route for workers. |
@@ -118,7 +117,6 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.maxWaitMs` | `optional-config` | Upper bound for a blocking spawn wait. |
 | `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. Tuning exemption: Tuning the safety level inside the optional tower-leases row; with leases off the Host refuses requireLease instead of removing the spawn capability. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `send.maxPerMinute` | `optional-config` | Message rate limit; zero disables it. |
-| `survey.sandbox` | `optional-config` | none = read the shared checkout; detached = show the survey a disposable detached worktree. Tuning inside the optional tower-survey row, not a capability switch. |
 | `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. Tuning exemption: Tuning, not capability: the send component always exists and the switch only picks a delivery default. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. Tuning exemption: Tuning when the admission check runs inside the optional tower-tests row, which still owns whether test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.timeoutMs` | `optional-config` | Per-command discovery timeout. |

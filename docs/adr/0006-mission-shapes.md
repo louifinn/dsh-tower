@@ -48,21 +48,26 @@ waiver fails. `docs/reference/shapes.md` is generated from the registry.
 
 ## Surface budget
 
-The shape redesign grows the config surface by exactly three keys and one
-section, all recorded in `scripts/surface-baseline.json`:
+The shape redesign grows the config surface by exactly one key, recorded in
+`scripts/surface-baseline.json`:
 
-- `spawn.surveyPreset` (core): the read-only preset a survey spawn receives; the
-  survey row owns the capability, the preset name is the routing knob.
 - `spawn.surveyModel` (tuning): an optional independent model route, mirroring
   `spawn.workerModel`/`spawn.reviewerModel`.
-- `survey.sandbox` (tuning): `none` (default) reads the shared checkout;
-  `detached` creates a disposable detached worktree at `readCommit`. It never
-  participates in `state.base`, never becomes a branch, and is never merged.
-- the `survey` section exists only to hold `survey.sandbox`.
+
+An earlier cut of this work also added `spawn.surveyPreset` (core) and
+`survey.sandbox` (tuning) in a new `survey` section. Review contracted the
+surface back before release (config 57 → 55, sections 15 → 14): a shape owns its
+preset (`SHAPES.survey.spawn.defaultPreset`), so a `spawn.surveyPreset` key could
+only disagree with the registry; and `survey.sandbox` advertised a detached
+read-only checkout that W1 does not implement. Neither is a tuning knob a user
+should see; the completion invariants (HEAD, tracked-status fingerprint, zero
+commits) are the read-only guarantee, not a placement option.
 
 The `tower-survey` row is a visible optional component (components 11 → 12): off
 means surveys cannot be planned (an actionable code) and no survey agent can be
-dispatched; build missions are unaffected.
+dispatched; build missions are unaffected. It is a declarative preset row: the
+host resolves its availability through the async `agentPresets` probe, not the
+process-local code registry.
 
 ## Rejected alternatives
 

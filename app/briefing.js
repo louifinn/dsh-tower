@@ -88,11 +88,12 @@ export function workerBriefing({
   }
   lines.push('')
   lines.push('Rules:')
-  lines.push(`- Pass workdir="${cwd}" on every shell command; never edit the main checkout.`)
-  lines.push('- Stay inside the declared scope; out-of-scope changes are rejected later.')
   if (shape.fields.worktree) {
+    lines.push(`- Pass workdir="${cwd}" on every shell command; never edit the main checkout.`)
+    lines.push('- Stay inside the declared scope; out-of-scope changes are rejected later.')
     lines.push('- Commit your work on the mission branch. Do not merge, push, or spawn other agents.')
   } else {
+    lines.push(`- Read the shared checkout at ${cwd}; it is the main checkout, not your own worktree.`)
     lines.push(
       '- Make no commits: this mission reads one fixed commit. Do not write, edit, merge, push, rebase, or spawn other agents.',
     )
@@ -106,7 +107,11 @@ export function workerBriefing({
   lines.push(
     `- When the work is finished and every task is closed, call tower_complete({repoRoot:"${repoRoot}",missionId:"${mission.id}",report:"<full handoff>",checks:[{name,command,exitCode,evidence}]}).${resultHint} Unread inbox messages block completion, so read them with tower_inbox first.`,
   )
-  lines.push('- Your final message is the full handoff: files changed, how you verified, what remains.')
+  lines.push(
+    shape.fields.worktree
+      ? '- Your final message is the full handoff: files changed, how you verified, what remains.'
+      : '- Your final message is the full handoff: what you inspected, how you verified it, what remains.',
+  )
   if (instructions) {
     lines.push('')
     lines.push('Extra tower instructions:')

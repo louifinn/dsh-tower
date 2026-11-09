@@ -63,7 +63,8 @@ export function terminalTimestamp(mission) {
  * Select the terminal missions the policy wants moved out of state.json.
  *
  * Eligibility:
- *   - status is `merged` or `abandoned` (terminal);
+ *   - the mission's shape reports its status as terminal (`merged`/`abandoned`
+ *     for a build, `completed`/`abandoned` for a survey);
  *   - the worktree is gone (never provisioned, or removed by teardown);
  *   - the caller did not protect it (open batch members, live agents).
  *

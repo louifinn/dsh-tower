@@ -84,15 +84,18 @@ plugin-page form, not a row and not one row per mode; the review gate in
 non-disableable. The component and config-key counts do not move (11 visible
 components, 54 keys).
 
-#148/#149 grow the surface by exactly three keys, one section and one visible
-component, recorded in [ADR 0006](../adr/0006-mission-shapes.md): config keys
-54 → 57, sections 14 → 15, components 11 → 12. `spawn.surveyPreset` routes the
-read-only preset and `spawn.surveyModel` is its optional model route (the survey
-row owns the capability, not these names); `survey.sandbox` (`none` default,
-`detached` for a disposable read-only checkout) is tuning and is the only key in
-the new `survey` section. The `tower-survey` row is the switch: off means surveys
-cannot be planned and no survey agent is dispatched; build missions are
-unaffected. No existing key changed class.
+#148/#149 grow the surface by exactly one key and one visible component,
+recorded in [ADR 0006](../adr/0006-mission-shapes.md): config keys 54 → 55,
+sections stay 14, components 11 → 12. A first cut of the shape work added three
+keys and a `survey` section, then contracted 57 → 55 before release in a second
+dated decision: a survey's preset is shape-owned
+(`SHAPES.survey.spawn.defaultPreset`), so a `spawn.surveyPreset` key could only
+disagree with the registry, and `survey.sandbox` advertised a placement W1 does
+not implement. What remains is `spawn.surveyModel`, the optional model route for
+survey workers (the survey row owns the capability, not the key name). The
+`tower-survey` row is the switch: off means surveys cannot be planned and no
+survey agent is dispatched; build missions are unaffected. No existing key
+changed class.
 
 ## Config keys
 
@@ -126,7 +129,6 @@ unaffected. No existing key changed class.
 | `git.timeoutMs` | tuning | Default Git command timeout outside merge. |
 | `worktrees.root` | tuning | Default worktree placement. |
 | `spawn.workerPreset` | core | Chooses the tool surface a worker receives. |
-| `spawn.surveyPreset` | core | Chooses the read-only tool surface a survey agent receives. |
 | `spawn.surveyModel` | tuning | Optional model route for survey agents. |
 | `spawn.reviewerPreset` | core | Chooses the read-only reviewer surface. |
 | `spawn.maxDepth` | tuning | Subagent depth requested at spawn. |
@@ -137,7 +139,6 @@ unaffected. No existing key changed class.
 | `spawn.staleMs` | tuning | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | tuning | Upper bound for a blocking spawn wait. |
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
-| `survey.sandbox` | tuning | `none` reads the shared checkout; `detached` uses a disposable read-only worktree at `readCommit`. |
 | `send.maxPerMinute` | tuning | Message rate limit; zero disables it. |
 | `send.interruptDefault` | tuning | Default for the interrupt-before-deliver flag. |
 | `tests.admission` | core | Chooses when repository code is executed. |

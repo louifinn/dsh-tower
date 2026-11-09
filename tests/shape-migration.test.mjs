@@ -49,7 +49,7 @@ test('v3 -> v4 converts a branch-shaped survey and keeps the build document inta
   assert.deepEqual(survey.readDirty, [])
   assert.equal(survey.status, 'completed')
   assert.deepEqual(survey.scope, [])
-  for (const field of ['worktree', 'branch', 'baseCommit', 'mergedCommit', 'mergedAt']) {
+  for (const field of ['worktree', 'worktreeRemovedAt', 'branch', 'baseCommit', 'mergedCommit', 'mergedAt']) {
     assert.equal(field in survey, false, `survey must not carry ${field}`)
   }
   // Older surveys without a worktree fall back to the recorded mission baseCommit,

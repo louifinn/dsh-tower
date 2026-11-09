@@ -94,7 +94,7 @@
       "id": "tower-survey",
       "scope": "visible",
       "kind": "row",
-      "fallback": "Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected; survey.sandbox keeps its tuning meaning."
+      "fallback": "Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected."
     },
     {
       "id": "tower-ui",
@@ -274,11 +274,6 @@
       "note": "Chooses the read-only reviewer surface; a dependency, never a switch."
     },
     {
-      "name": "spawn.surveyPreset",
-      "class": "core",
-      "note": "Chooses the read-only survey surface; a dependency of the optional tower-survey row, never a switch."
-    },
-    {
       "name": "spawn.maxDepth",
       "class": "optional-config",
       "note": "Subagent depth requested at spawn."
@@ -333,11 +328,6 @@
       "name": "send.maxPerMinute",
       "class": "optional-config",
       "note": "Message rate limit; zero disables it."
-    },
-    {
-      "name": "survey.sandbox",
-      "class": "optional-config",
-      "note": "none = read the shared checkout; detached = show the survey a disposable detached worktree. Tuning inside the optional tower-survey row, not a capability switch."
     },
     {
       "name": "send.interruptDefault",
