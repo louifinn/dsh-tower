@@ -16,6 +16,7 @@ import {
   overwrittenPaths,
   staleBaseBlocker,
 } from '../domain/integration/gate.js'
+import { surveyStaleWarnings } from './freshness.js'
 
 export async function evaluateGate(tower, input) {
     const state = await tower.load()
@@ -86,6 +87,21 @@ export async function evaluateGate(tower, input) {
       push(blocker.code, blocker.detail)
     }
 
+    // #148 W2: survey evidence freshness is advisory by default. The stable
+    // warning shape is what plan/preflight report; `gates.requireFreshSurvey`
+    // promotes the same code to a blocker for repositories that need the read
+    // to describe the exact base they start from.
+    const sandboxWarnings = await surveyStaleWarnings(tower, {
+      mission,
+      state,
+      missions: state.missions,
+      archived: archivedMissions,
+      baseCommit: mission.baseCommit ?? null,
+    })
+    if (tower.config.gates?.requireFreshSurvey === true) {
+      for (const warning of sandboxWarnings) blockers.push({ ...warning, detail: warning.message })
+    }
+
     const branch = worktree ? worktree.branch : null
     const latest = latestReview(reviewsForBranch(reviews, branch))
     // #140: `mergeGateBlockers` is pure and may not read the component registry, so
@@ -129,6 +145,7 @@ export async function evaluateGate(tower, input) {
         review: latest,
         blockers,
       }),
+      warnings: sandboxWarnings,
       ...(archivedEntry ? { archived: true } : {}),
     }
   }

@@ -37,6 +37,7 @@ for (const code of [
   'out-of-scope',
   'base-dirty',
   'deps-unmerged',
+  'survey-stale',
   'no-review',
   'review-mission-mismatch',
   'not-clean',

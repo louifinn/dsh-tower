@@ -93,8 +93,20 @@
     {
       "id": "tower-survey",
       "scope": "visible",
+      "kind": "group",
+      "fallback": "Declared by the tower-survey group: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched, because both the read-only and the sandbox preset are nested dependencies of this row. Build missions and every existing capability are unaffected. survey.sandbox stays tuning: it chooses shared vs detached placement, never whether surveys exist."
+    },
+    {
+      "id": "preset-tower-survey",
+      "scope": "internal",
       "kind": "row",
-      "fallback": "Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected."
+      "fallback": "Declared by dsh-tower/preset-survey: the shared-checkout survey preset is a dependency of the tower-survey group, never its own switch. With the group off, a shared survey cannot be dispatched."
+    },
+    {
+      "id": "preset-tower-survey-sandbox",
+      "scope": "internal",
+      "kind": "row",
+      "fallback": "Declared by dsh-tower/preset-survey-sandbox: the detached-sandbox survey preset is a dependency of the tower-survey group, never its own switch. It is selected only when survey.sandbox is detached; with the group off, a detached survey cannot be dispatched."
     },
     {
       "id": "tower-ui",
@@ -299,6 +311,11 @@
       "note": "Optional model route for survey workers."
     },
     {
+      "name": "survey.sandbox",
+      "class": "optional-config",
+      "note": "Tuning, not a capability: shared (read-only in the shared checkout) or detached (a disposable detached sandbox that may write and run commands). The tower-survey row is still the switch."
+    },
+    {
       "name": "spawn.maxLiveWorkers",
       "class": "core",
       "note": "Resource-safety cap on live workers."
@@ -391,6 +408,11 @@
       "name": "gates.allowReviewExemption",
       "class": "forbidden-to-disable",
       "note": "The review-exemption path is part of the review and merge contract."
+    },
+    {
+      "name": "gates.requireFreshSurvey",
+      "class": "forbidden-to-disable",
+      "note": "Promotes the survey-stale dependency warning to a merge blocker; the gate itself is part of the merge contract and defaults to advisory."
     },
     {
       "name": "gates.maxReportBytes",
@@ -488,6 +510,7 @@
         "gates.requireChecks",
         "gates.requireTests",
         "gates.allowReviewExemption",
+        "gates.requireFreshSurvey",
         "gates.maxReportBytes"
       ]
     }

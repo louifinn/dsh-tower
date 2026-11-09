@@ -13,7 +13,7 @@ export function registerCompleteTool(ctx, deps) {
   define(ctx, {
     name: 'tower_complete',
     description:
-      'Worker-only: report mission completion. Enforced by the store: every task done or dropped, no blockers, the current owner, the mission branch has at least one commit since its spawn base, and no unread inbox messages. checks records verifiable evidence (name/command/exitCode/evidence); gates.requireChecks can require at least one before merge. Stores the full report, capped at gates.maxReportBytes (default 32768 UTF-8 bytes); a larger report is rejected with invalid-argument and an actionable nextAction, never truncated. Persists reportBytes on the stored report. completion means ready for preflight and optional review, not merged.',
+      'Worker-only: report mission completion. Enforced by the store: every task done or dropped, no blockers, the current owner, the mission branch has at least one commit since its spawn base (zero commits plus HEAD pinned to readCommit for a survey; zero commits in its detached sandbox with HEAD pinned for a sandboxed survey), and no unread inbox messages. checks records verifiable evidence (name/command/exitCode/evidence); gates.requireChecks can require at least one before merge. result is survey-only evidence ({paths?,symbols?,plan?,notes?}); a build completion that carries one is refused. Stores the full report, capped at gates.maxReportBytes (default 32768 UTF-8 bytes); a larger report is rejected with invalid-argument and an actionable nextAction, never truncated. Persists reportBytes on the stored report. completion means ready for preflight and optional review, not merged.',
     parameters: CompleteInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
@@ -47,6 +47,7 @@ export function registerCompleteTool(ctx, deps) {
         missionId: args.missionId,
         agentId: String(exec.agent.id),
         report: args.report,
+        result: args.result,
         checks,
       })
     },

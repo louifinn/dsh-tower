@@ -47,7 +47,18 @@ export function missionContextView({ state, mission }) {
     findings: findings.map((finding) => findingSummary(finding)),
     deps: (mission.deps ?? []).map((id) => {
       const dep = byId.get(id)
-      return dep ? { id, title: dep.title, status: dep.status } : { id, title: null, status: 'unknown' }
+      if (!dep) return { id, title: null, status: 'unknown' }
+      return {
+        id,
+        title: dep.title,
+        kind: dep.kind,
+        status: dep.status,
+        readCommit: dep.readCommit ?? null,
+        // #148 D6: a survey's completion evidence travels with the dependency
+        // context so a dependent build worker sees what was found, not only that
+        // the survey finished. Formatting/clipping is the briefing's job.
+        result: dep.result ?? null,
+      }
     }),
   }
 }

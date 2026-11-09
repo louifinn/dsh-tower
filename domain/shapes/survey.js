@@ -1,9 +1,14 @@
 // The survey shape (#148/#149): a read of one commit, not a write of a branch.
 //
-// A survey has no worktree, no branch and no commit of its own. It runs in the
-// shared checkout with a read-only preset allow-list, records the commit it read
-// plus the tracked-status fingerprint captured at plan time, and completes with
-// zero commits while HEAD and the fingerprint are unchanged.
+// A survey has no worktree, no branch and no commit of its own. By default it
+// runs in the shared checkout with a read-only preset allow-list. With
+// `survey.sandbox: 'detached'` the read moves into a disposable detached git
+// worktree at the recorded commit (#148 W2): the sandbox preset may write and
+// run commands there, but the sandbox has no branch, never merges, is removed
+// when the mission completes or is abandoned, and must still end at the
+// recorded commit with zero commits. Both placements record the commit read
+// plus the tracked-status fingerprint captured at plan time; only the shared
+// placement enforces the fingerprint as a completion invariant.
 // @ts-check
 import { TowerToolError } from '../errors.js'
 
@@ -64,8 +69,9 @@ export function planFields(context) {
 }
 
 /**
- * Completion invariants for a survey: zero commits, same HEAD, same tracked
- * files. The app layer supplies the observed primitives.
+ * Completion invariants for a survey that reads the shared checkout: zero
+ * commits, same HEAD, same tracked files. The app layer supplies the observed
+ * primitives.
  * @param {{ mission: Mission, head: string, readCommit: string, trackedChanged: string[] }} context
  * @returns {{ commits: number }}
  */
@@ -85,6 +91,96 @@ export function checkCompletion({ mission, head, readCommit, trackedChanged }) {
     )
   }
   return { commits: 0 }
+}
+
+/**
+ * Completion invariants for a detached survey sandbox: the disposable checkout
+ * is allowed to contain write/shell side effects, but it may not commit and it
+ * must still be at the recorded commit. The sandbox itself is removed after a
+ * successful completion.
+ * @param {{ mission: Mission, head: string, readCommit: string, commits: number, sandbox: string }} context
+ * @returns {{ commits: number }}
+ */
+export function checkSandboxCompletion({ mission, head, readCommit, commits, sandbox }) {
+  if (!sandbox || sandbox !== mission.sandbox) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `detached survey ${mission.id} has no recorded sandbox; re-provision the survey or abandon it`,
+      { nextAction: 'run tower_spawn to create the detached sandbox again, then complete' },
+    )
+  }
+  if (commits !== 0) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `survey ${mission.id} made ${commits} commit(s) in its detached sandbox; a survey reads one commit and records no commit of its own`,
+      { nextAction: `reset --hard ${String(readCommit).slice(0, 12)} in ${sandbox}; the sandbox is disposable but its HEAD must stay at the recorded commit` },
+    )
+  }
+  if (head !== readCommit) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `survey ${mission.id} moved the detached sandbox HEAD from ${String(readCommit).slice(0, 12)} to ${String(head).slice(0, 12)}; a survey reads one commit and makes no commits`,
+      { nextAction: `reset --hard ${String(readCommit).slice(0, 12)} in ${sandbox}; the sandbox is removed on completion` },
+    )
+  }
+  return { commits: 0 }
+}
+
+/**
+ * Resolve the survey placement from tuning config (#148 W2). The shape owns the
+ * decision so generic layers never compare `mission.kind` or read the raw key.
+ * @param {Mission | null | undefined} [_mission]
+ * @param {TowerConfig} [config]
+ * @returns {'shared' | 'detached'}
+ */
+export function resolveProvisioning(_mission, config = /** @type {TowerConfig} */ ({})) {
+  return config.survey?.sandbox === 'detached' ? 'detached' : 'shared'
+}
+
+/**
+ * The preset that executes a survey in the resolved placement. Shared surveys
+ * stay strictly read-only; a detached sandbox gets a preset that may write and
+ * run commands inside the disposable checkout.
+ * @param {Mission | null | undefined} [_mission]
+ * @param {TowerConfig} [config]
+ * @returns {'tower-survey' | 'tower-survey-sandbox'}
+ */
+export function resolvePreset(_mission, config = /** @type {TowerConfig} */ ({})) {
+  return resolveProvisioning(undefined, config) === 'detached' ? 'tower-survey-sandbox' : 'tower-survey'
+}
+
+/** Shared-checkout completion invariants (the default placement). */
+const SHARED_COMPLETION = Object.freeze({
+  requiresWorktree: false,
+  requiresSandbox: false,
+  requiresCommits: false,
+  requiresClean: false,
+  requiresHeadMatch: true,
+  requiresTrackedStatus: true,
+  check: /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
+})
+
+/** Detached-sandbox completion invariants. */
+const SANDBOX_COMPLETION = Object.freeze({
+  requiresWorktree: false,
+  requiresSandbox: true,
+  requiresCommits: true,
+  requiresClean: false,
+  requiresHeadMatch: true,
+  requiresTrackedStatus: false,
+  check: /** @type {(ctx: any) => { commits: number }} */ (checkSandboxCompletion),
+})
+
+/**
+ * The completion invariants for the placement resolved from config. The app
+ * layer reads only the declared flags and primitives; it never branches on the
+ * placement itself.
+ * @param {Mission} mission
+ * @param {TowerConfig} [config]
+ * @returns {typeof SHARED_COMPLETION | typeof SANDBOX_COMPLETION}
+ */
+export function resolveCompletion(mission, config = /** @type {TowerConfig} */ ({})) {
+  return resolveProvisioning(mission, config) === 'detached' ? SANDBOX_COMPLETION : SHARED_COMPLETION
 }
 
 /**
@@ -127,8 +223,10 @@ export function dependencySatisfied(dep) {
 }
 
 /**
- * Worker spawn constraints: a survey worker runs in the shared checkout with the
- * Tower-owned read-only preset, so no branch or worktree is provisioned.
+ * Worker spawn constraints: a survey worker runs in the shared checkout (or,
+ * with `survey.sandbox: 'detached'`, in a disposable detached worktree) and
+ * never provisions a branch. The concrete placement/preset is resolved by
+ * `resolveProvisioning`/`resolvePreset`.
  * @type {{ provisioning: 'shared', missionStatuses: readonly string[], worktree: false, defaultPreset: string, countsTowardWorkerBudget: boolean }}
  */
 export const spawn = Object.freeze({
@@ -140,7 +238,9 @@ export const spawn = Object.freeze({
 })
 
 /**
- * Mission briefing lines that are specific to the survey shape.
+ * Mission briefing lines that are specific to the survey shape. A detached
+ * sandbox is named explicitly so the worker never edits the main checkout and
+ * knows the checkout is disposable but the recorded commit is pinned.
  * @param {Mission} mission
  * @param {{ repoRoot: string, worktree?: unknown }} context
  * @returns {string[]}
@@ -148,6 +248,13 @@ export const spawn = Object.freeze({
 export function briefing(mission, context) {
   const short = String(mission.readCommit ?? '').slice(0, 12)
   const fingerprint = (mission.readDirty ?? []).length
+  if (mission.sandbox) {
+    return [
+      `Read and work in the disposable detached sandbox: ${mission.sandbox} (no branch, no commit of your own; the sandbox is removed when the mission completes)`,
+      `The sandbox HEAD is pinned to ${short}. Write and shell side effects stay inside the sandbox; completion requires HEAD to still be ${short} and zero new commits.`,
+      `Pass workdir="${mission.sandbox}" on every shell command; never modify the main checkout ${context.repoRoot}.`,
+    ]
+  }
   return [
     `Read only: commit ${short} in the shared checkout ${context.repoRoot} (no branch, no worktree, no commits)`,
     `Completion invariants: HEAD must still be ${short} and the tracked-status set captured at plan time (${fingerprint} path(s)) must be unchanged. Complete with zero commits.`,
@@ -162,6 +269,7 @@ export function briefing(mission, context) {
 export function summary(mission) {
   return {
     worktree: null,
+    sandbox: mission.sandbox ?? null,
     readCommit: mission.readCommit ?? null,
     readDirty: [...(mission.readDirty ?? [])],
     mergedCommit: null,
@@ -248,6 +356,9 @@ export function migrateLegacy(mission, options = {}) {
   if (next.status === 'merged') next.status = 'completed'
   delete next.worktree
   delete next.worktreeRemovedAt
+  delete next.sandbox
+  delete next.sandboxCleanupError
+  delete next.sandboxRemovedAt
   delete next.branch
   delete next.baseCommit
   delete next.mergedCommit
@@ -269,20 +380,16 @@ export const surveyShape = Object.freeze({
   provisioning: /** @type {const} */ ('shared'),
   ownsScope: false,
   // Document dimensions this shape owns; the state validator reads these.
-  fields: Object.freeze({ worktree: false, readCommit: true, merge: false }),
+  fields: Object.freeze({ worktree: false, readCommit: true, merge: false, sandbox: true }),
   // A survey needs its optional component row; a build does not.
   requiredComponent: 'tower-survey',
   // Only a survey records `result` evidence on completion.
   acceptsResult: true,
   planFields,
-  completion: Object.freeze({
-    requiresWorktree: false,
-    requiresCommits: false,
-    requiresClean: false,
-    requiresHeadMatch: true,
-    requiresTrackedStatus: true,
-    check: /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
-  }),
+  resolveProvisioning,
+  resolvePreset,
+  resolveCompletion,
+  completion: SHARED_COMPLETION,
   completionBlockers,
   dependencySatisfied,
   spawn,

@@ -89,11 +89,37 @@ export function canRebase(kind) {
 }
 
 /**
+ * Resolve how a mission of this kind is provisioned. A shape may resolve the
+ * placement from tuning config (#148 W2: a survey is `shared` by default and
+ * `detached` with `survey.sandbox: 'detached'`); a shape without a resolver keeps
+ * its static placement.
  * @param {string | null | undefined} kind
+ * @param {import('../../types/index.js').TowerConfig} [config]
  * @returns {'branch-worktree' | 'shared' | 'detached'}
  */
-export function provisioningFor(kind) {
-  return shapeFor(kind).provisioning
+export function provisioningFor(kind, config = {}) {
+  const shape = shapeFor(kind)
+  if ('resolveProvisioning' in shape && typeof shape.resolveProvisioning === 'function') {
+    return shape.resolveProvisioning(undefined, config)
+  }
+  return shape.provisioning
+}
+
+/**
+ * Resolve the agent preset that executes this kind in the configured placement.
+ * A build keeps its `spawn.defaultPreset`; a survey switches between the
+ * read-only preset and the sandbox preset so the allow-list follows the
+ * resolved placement rather than a hard-coded kind.
+ * @param {string | null | undefined} kind
+ * @param {import('../../types/index.js').TowerConfig} [config]
+ * @returns {string | null}
+ */
+export function defaultPresetFor(kind, config = {}) {
+  const shape = shapeFor(kind)
+  if ('resolvePreset' in shape && typeof shape.resolvePreset === 'function') {
+    return shape.resolvePreset(undefined, config)
+  }
+  return 'defaultPreset' in shape.spawn ? shape.spawn.defaultPreset : null
 }
 
 /**

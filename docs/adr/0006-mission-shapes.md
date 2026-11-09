@@ -102,3 +102,42 @@ process-local code registry.
   and an actionable next step.
 - The shape audit is part of `npm run check`; a new kind or role comparison in a
   generic layer fails CI unless a justified waiver is recorded.
+
+## Addendum: W2 detached sandbox and dependency semantics (#148)
+
+W1 implemented the shared-checkout survey only. W2 adds the placement it left
+out, without changing the default or the shared path:
+
+- `survey.sandbox` (`none`|`detached`, default `none`) is tuning, recorded in
+  `scripts/surface-baseline.json` (config keys 55 → 56, sections 14 → 15). The
+  shape resolves the placement (`resolveProvisioning`) and the preset
+  (`resolvePreset`); no generic layer reads the key or compares a kind.
+  `spawn.surveyPreset` stays removed because the preset follows the registry and
+  the resolved placement.
+- `detached` provisions `git worktree add --detach <worktreeRoot>/<id>-sandbox
+  <readCommit>` with no branch and records `mission.sandbox`. It never records
+  `baseCommit`, never participates in stale-base, review or merge, and the
+  completion invariant is sandbox HEAD === `readCommit` plus zero commits.
+  Expected write/shell side effects in the disposable checkout are ignored;
+  the shared placement keeps the tracked-status fingerprint invariant.
+- The sandbox preset (`tower-survey-sandbox`) allows read/write/edit/pwsh plus
+  the mission tools and still denies spawn/merge/rebase/review/diff. Both survey
+  presets are internal children of the one visible `tower-survey` group row, so
+  the component count does not move (12) and turning the capability off removes
+  both.
+- Cleanup is advisory: completion, abandon and `tower_teardown` remove the
+  sandbox with a bounded retry. A failure keeps `mission.sandbox`, records
+  `sandboxCleanupError` and names the `git worktree remove --force <path>`
+  remedy in the activity log; the transition itself is not rolled back. Archival
+  defers a mission whose sandbox is still present instead of moving the only
+  record of the path out of hot state.
+- `gates.requireFreshSurvey` (default `false`) controls dependency freshness. A
+  build depending on a survey whose `readCommit` is not ancestor-or-equal of the
+  build base gets a `survey-stale` warning in plan/preflight with
+  `{code,missionId,depId,readCommit,baseCommit,message}`; only when the gate is
+  `true` does the same code block the merge. The ancestor check is the existing
+  `isAncestor` (`git merge-base --is-ancestor`, which is true for equal commits).
+- A build briefing carries each survey dependency's recorded `result`
+  (`paths`/`symbols`/`plan`/`notes`) with bounded formatting, so the dependent
+  worker sees the evidence rather than only the terminal status. `result`
+  remains survey-only at completion.

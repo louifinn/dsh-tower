@@ -28,6 +28,7 @@ app/briefing.js
 app/checkCompletion.js
 app/enrichedMissions.js
 app/findings.js
+app/freshness.js
 app/gate.js
 app/init.js
 app/merge.js
@@ -41,6 +42,7 @@ app/rebase.js
 app/recording.js
 app/review.js
 app/roster.js
+app/sandbox.js
 app/sharedCheckout.js
 app/spawn-prechecks.js
 app/spawn-support.js
@@ -170,6 +172,7 @@ host/hmr.js
 host/modeState.js
 host/modeStore.js
 host/preset-reviewer.js
+host/preset-survey-sandbox.js
 host/preset-survey.js
 host/preset-worker.js
 host/presets.js
@@ -192,6 +195,8 @@ locale/leases/en.json
 locale/leases/zh.json
 locale/preset-reviewer/en.json
 locale/preset-reviewer/zh.json
+locale/preset-survey-sandbox/en.json
+locale/preset-survey-sandbox/zh.json
 locale/preset-survey/en.json
 locale/preset-survey/zh.json
 locale/preset-worker/en.json
@@ -256,6 +261,7 @@ skills.js
 skills/tower-recovery.md
 skills/tower-review.md
 skills/tower-worker-protocol.md
+survey-sandbox.js
 survey.js
 tools/adopt.js
 tools/batch.js

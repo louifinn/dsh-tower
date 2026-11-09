@@ -137,13 +137,14 @@ test('a composed but not mounted section is reported with its entry state', () =
 })
 
 test('the presets claim all preset ids', () => {
-  assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-survey', 'tower-worker'])
+  assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-survey', 'tower-survey-sandbox', 'tower-worker'])
   assert.deepEqual(
     PRESET_ROWS.map((row) => [row.id, row.name, row.order]),
     [
       ['tower-worker', 'Tower Worker', 60],
       ['tower-reviewer', 'Tower Reviewer', 61],
       ['tower-survey', 'Tower Survey', 62],
+      ['tower-survey-sandbox', 'Tower Survey Sandbox', 63],
     ],
   )
 })
@@ -153,11 +154,12 @@ test('each preset row must mount with its label and no activation diagnostic', (
     { id: 'tower-worker', name: 'Tower Worker', order: 60 },
     { id: 'tower-reviewer', name: 'Tower Reviewer', order: 61 },
     { id: 'tower-survey', name: 'Tower Survey', order: 62 },
+    { id: 'tower-survey-sandbox', name: 'Tower Survey Sandbox', order: 63 },
   ]
   assert.deepEqual(checkPresetRows(loaded), [])
 
   // A preset that mounts but whose definition fails to activate is a failure.
-  assert.deepEqual(checkPresetRows([loaded[0], { ...loaded[1], broken: 'row tower-reviewer-fs is not active' }, loaded[2]]), [
+  assert.deepEqual(checkPresetRows([loaded[0], { ...loaded[1], broken: 'row tower-reviewer-fs is not active' }, loaded[2], loaded[3]]), [
     'preset: tower-reviewer failed to mount: row tower-reviewer-fs is not active',
   ])
   // So is a missing preset, or one that lost its name/order.
@@ -166,8 +168,13 @@ test('each preset row must mount with its label and no activation diagnostic', (
   assert.ok(checkPresetRows([{ ...loaded[0], order: 99 }, loaded[1]]).some((line) => /order 99/.test(line)))
 })
 
-test('the two preset rows resolve distinct Plugins-page labels', () => {
-  assert.deepEqual(PRESET_SPECIFIERS, ['dsh-tower/preset-worker', 'dsh-tower/preset-reviewer', 'dsh-tower/preset-survey'])
+test('every preset row resolves a distinct Plugins-page label', () => {
+  assert.deepEqual(PRESET_SPECIFIERS, [
+    'dsh-tower/preset-worker',
+    'dsh-tower/preset-reviewer',
+    'dsh-tower/preset-survey',
+    'dsh-tower/preset-survey-sandbox',
+  ])
   const labels = {
     'dsh-tower/preset-worker': {
       title: { en: 'Tower Worker preset', zh: 'Tower Worker 预设' },
@@ -180,6 +187,13 @@ test('the two preset rows resolve distinct Plugins-page labels', () => {
     'dsh-tower/preset-survey': {
       title: { en: 'Tower Survey preset', zh: 'Tower Survey 预设' },
       description: { en: 'Declares the Tower Survey preset: read-only inspection of one commit. When off: surveys cannot be planned.', zh: '声明 Tower Survey 预设：只读勘察一个提交。关闭后：无法规划勘察。' },
+    },
+    'dsh-tower/preset-survey-sandbox': {
+      title: { en: 'Tower Survey Sandbox preset', zh: 'Tower Survey Sandbox 预设' },
+      description: {
+        en: 'The detached-survey dependency: a disposable sandbox that may write and run commands inside its checkout while reading one recorded commit, with no branch and no commit of its own. Mandatory dependency, not a switch: A detached survey cannot be dispatched; shared surveys and build missions keep working.',
+        zh: '分离勘察的依赖项：一个一次性沙箱，可在读取一个已记录提交时于检出中写入并运行命令，没有分支，也没有自己的提交。强制依赖，不是开关：无法派发分离勘察；共享检出勘察与普通构建任务线继续工作。',
+      },
     },
   }
   assert.deepEqual(checkPresetLabels(labels), [])

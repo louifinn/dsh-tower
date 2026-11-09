@@ -80,7 +80,7 @@ test('mission-context projection sorts/slices reviews, findings and deps', () =>
   })
   assert.deepEqual(view.findings.map((entry) => entry.id), ['F3', 'F2', 'F1'])
   assert.deepEqual(view.deps, [
-    { id: 'M2', title: 'Dep', status: 'merged' },
+    { id: 'M2', title: 'Dep', kind: 'build', status: 'merged', readCommit: null, result: null },
     { id: 'M9', title: null, status: 'unknown' },
   ])
   assert.equal(missionContextView({ state: { ...state, reviews: [] }, mission: { ...target, worktree: null } }).reviews.length, 0)

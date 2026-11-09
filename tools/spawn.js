@@ -2,7 +2,7 @@
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
-import { shapeFor } from '../domain/shapes/index.js'
+import { defaultPresetFor, shapeFor } from '../domain/shapes/index.js'
 import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OUTCOME, isCompletedStopReason, isReviewerRole, isSpawnAdmission, isWorkerRole } from '../domain/vocabulary.js'
 import {
   assertSpawnableMission,
@@ -33,7 +33,7 @@ export function registerSpawnTool(ctx, deps) {
   define(ctx, {
     name: 'tower_spawn',
     description:
-      'Spawn a worker or reviewer for a mission. Workers use the mission shape\'s preset (tower-worker for a build, tower-survey for a read-only survey); reviewers require a completed build mission and use the read-only tower-reviewer preset, and the reviewer role is refused when review.mode is off. A build provisions (or reuses) the mission git worktree and branch; a survey runs in the shared checkout because it reads one commit. Generates a self-contained briefing and starts a background subagent. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns record the branch tip so a reviewer that modifies the branch cannot submit a review. Returns immediately unless wait=true.', parameters: SpawnInput,
+      'Spawn a worker or reviewer for a mission. Workers use the mission shape\'s preset (tower-worker for a build, tower-survey for a read-only shared survey, tower-survey-sandbox for a detached survey with survey.sandbox=detached); reviewers require a completed build mission and use the read-only tower-reviewer preset, and the reviewer role is refused when review.mode is off. A build provisions (or reuses) the mission git worktree and branch; a shared survey runs in the shared checkout because it reads one commit; a detached survey provisions (or reuses) a disposable detached worktree at its readCommit with no branch. Generates a self-contained briefing (including dependency survey result evidence) and starts a background subagent. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns record the branch tip so a reviewer that modifies the branch cannot submit a review. Returns immediately unless wait=true.', parameters: SpawnInput,
     aliases: {"missionId":["id"],"waitMs":["wait_ms"]},
     requiresMissionId: true, board: true, output: output(SCHEMAS.spawn),
     async execute(args, exec) {
@@ -47,11 +47,11 @@ export function registerSpawnTool(ctx, deps) {
       const context = await tower.missionContext(args.missionId)
       assertSpawnableMission({ role, context, config })
       const shape = shapeFor(context.mission.kind)
-      const shapePreset = 'defaultPreset' in shape.spawn ? shape.spawn.defaultPreset : null
+      // #148 W2: the shape resolves its preset from tuning config, so a detached
+      // survey gets the sandbox preset and a shared survey stays read-only.
+      const shapePreset = defaultPresetFor(context.mission.kind, config)
       const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : (shapePreset ?? config.spawn.workerPreset)
-      const model = isReviewerRole(role)
-        ? config.spawn.reviewerModel
-        : (shapePreset ? config.spawn.surveyModel : config.spawn.workerModel)
+      const model = isReviewerRole(role) ? config.spawn.reviewerModel : shape.fields.readCommit ? config.spawn.surveyModel : config.spawn.workerModel
       const spawned = await enqueueSpawn(tower.root, async () => {
         const observed = await observeActivity(ctx, tower)
         await tower.reconcileObservedInactive(observed.activity)
@@ -62,25 +62,22 @@ export function registerSpawnTool(ctx, deps) {
         }
         const view = await tower.rosterView()
         const name = resolveRosterName({ role, missionId: args.missionId, requested: args.name, roster: view.roster })
-        const takeover = await precheckWorkerOwnership({
-          role, tower, ctx, view, missionId: args.missionId, takeover: args.takeover,
-          maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity,
-        })
+        const takeover = await precheckWorkerOwnership({ role, tower, ctx, view, missionId: args.missionId, takeover: args.takeover, maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity })
         const { subagents, provider } = await precheckSpawnServices({
           tower, ctx, config, preset, actor, exec, inspectLeases: deps.inspectLeases,
           // #131: the app layer only needs the row fact; the root owns the registry.
           leaseComponent: deps.leaseComponent,
         })
 
-        const provisioned = await tower.provision({
-          missionId: args.missionId,
-          worktreeRoot: args.worktreeRoot,
-          includeDirtyBase: args.includeDirtyBase !== false,
-        })
+        const provisioned = await tower.provision({ missionId: args.missionId, worktreeRoot: args.worktreeRoot, includeDirtyBase: args.includeDirtyBase !== false })
         const { mission, worktree } = provisioned
         const cwd = provisioned.cwd ?? worktree.path
         const branch = worktree?.branch ?? null
-        const briefing = buildSpawnBriefing({ role, towerRoot: tower.root, context, worktree, instructions: args.instructions })
+        // The briefing must describe the checkout that actually exists: a
+        // detached sandbox is recorded only after provision, so use the
+        // provisioned mission (the pre-provision context has no sandbox path).
+        const briefingContext = /** @type {any} */ ({ ...context, mission })
+        const briefing = buildSpawnBriefing({ role, towerRoot: tower.root, context: briefingContext, worktree, instructions: args.instructions })
         const agentOptions = buildAgentOptions(model)
 
         if (shape.fields.worktree && isWorkerRole(role) && isSpawnAdmission(tower.config.tests?.admission)) {
@@ -143,8 +140,7 @@ export function registerSpawnTool(ctx, deps) {
               // best effort; the error below is the actionable one
             }
           }
-          await tower
-            .recordSpawnOutcome({
+          await tower.recordSpawnOutcome({
               missionId: mission.id,
               name,
               state: SPAWN_OUTCOME.failed,
@@ -167,6 +163,7 @@ export function registerSpawnTool(ctx, deps) {
           maxDepth: config.spawn.maxDepth ?? 1,
           ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
           worktree: worktree ? { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit } : null,
+          sandbox: provisioned.sandbox ?? null,
           provisioning: provisioned.provisioning ?? shape.provisioning,
           created: provisioned.created,
           briefingChars: briefing.length,

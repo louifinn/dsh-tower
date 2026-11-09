@@ -12,6 +12,7 @@ import {
   canMerge,
   canRebase,
   canTransition,
+  defaultPresetFor,
   isShapeKind,
   isTerminal,
   provisioningFor,
@@ -93,14 +94,23 @@ test('capabilities are structural: a survey can not merge or rebase', () => {
   assert.equal(canRebase('survey'), false)
   assert.equal(provisioningFor('build'), 'branch-worktree')
   assert.equal(provisioningFor('survey'), 'shared')
+  // #148 W2: placement and preset resolve from tuning config, never from a
+  // generic kind comparison. The default stays the shared read-only path.
+  assert.equal(provisioningFor('survey', { survey: { sandbox: 'detached' } }), 'detached')
+  assert.equal(provisioningFor('survey', { survey: { sandbox: 'none' } }), 'shared')
+  // Build missions keep using config.spawn.workerPreset; only shapes that own a preset name one.
+  assert.equal(defaultPresetFor('build'), null)
+  assert.equal(defaultPresetFor('survey'), 'tower-survey')
+  assert.equal(defaultPresetFor('survey', { survey: { sandbox: 'detached' } }), 'tower-survey-sandbox')
+  assert.equal(defaultPresetFor('survey', { survey: { sandbox: 'none' } }), 'tower-survey')
   assert.equal(SHAPES.build.requiredComponent, null)
   assert.equal(SHAPES.survey.requiredComponent, 'tower-survey')
   assert.equal(SHAPES.build.acceptsResult, false)
   assert.equal(SHAPES.survey.acceptsResult, true)
   assert.equal(SHAPES.build.ownsScope, true)
   assert.equal(SHAPES.survey.ownsScope, false)
-  assert.deepEqual(SHAPES.build.fields, { worktree: true, readCommit: false, merge: true })
-  assert.deepEqual(SHAPES.survey.fields, { worktree: false, readCommit: true, merge: false })
+  assert.deepEqual(SHAPES.build.fields, { worktree: true, readCommit: false, merge: true, sandbox: false })
+  assert.deepEqual(SHAPES.survey.fields, { worktree: false, readCommit: true, merge: false, sandbox: true })
 })
 
 test('assertActionSupported refuses every build-only action on a survey with an actionable message', () => {
@@ -133,12 +143,31 @@ test('completion invariants are data, not conditionals in the use case', () => {
   assert.deepEqual(
     {
       worktree: SHAPES.survey.completion.requiresWorktree,
+      sandbox: SHAPES.survey.completion.requiresSandbox,
       commits: SHAPES.survey.completion.requiresCommits,
       clean: SHAPES.survey.completion.requiresClean,
       head: SHAPES.survey.completion.requiresHeadMatch,
       tracked: SHAPES.survey.completion.requiresTrackedStatus,
     },
-    { worktree: false, commits: false, clean: false, head: true, tracked: true },
+    { worktree: false, sandbox: false, commits: false, clean: false, head: true, tracked: true },
+  )
+  // The resolved placement declares the sandbox invariant set instead.
+  const detached = SHAPES.survey.resolveCompletion({ id: 'M7', kind: 'survey' }, { survey: { sandbox: 'detached' } })
+  assert.deepEqual(
+    {
+      worktree: detached.requiresWorktree,
+      sandbox: detached.requiresSandbox,
+      commits: detached.requiresCommits,
+      clean: detached.requiresClean,
+      head: detached.requiresHeadMatch,
+      tracked: detached.requiresTrackedStatus,
+    },
+    { worktree: false, sandbox: true, commits: true, clean: false, head: true, tracked: false },
+  )
+  assert.equal(
+    SHAPES.survey.resolveCompletion({ id: 'M7', kind: 'survey' }, { survey: { sandbox: 'none' } }),
+    SHAPES.survey.completion,
+    'the shared placement keeps the static read-only invariant set',
   )
   assert.equal(
     SHAPES.survey.completion.check({

@@ -27,6 +27,7 @@
     "reviewer.js",
     "skills.js",
     "survey.js",
+    "survey-sandbox.js",
     "tests/type-contracts.ts",
     "tests/tool-schema-types.ts"
   ]

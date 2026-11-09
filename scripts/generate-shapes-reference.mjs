@@ -14,7 +14,11 @@ const target = path.join(root, 'docs', 'reference', 'shapes.md')
 const rows = SHAPE_KINDS.map((kind) => {
   const shape = shapeFor(kind)
   const hasTerminal = shape.statuses.some((status) => shape.isTerminal(status))
-  return `| \`${kind}\` | \`${shape.statuses.join('`, `')}\` | ${hasTerminal ? 'yes' : 'no'} | \`${shape.provisioning}\` | ${shape.canMerge} | ${shape.canRebase} | ${shape.ownsScope} | ${shape.requiredComponent ?? '—'} | ${shape.acceptsResult} |`
+  // #148 W2: a shape with a sandbox dimension resolves its placement from
+  // tuning config, so the reference names both placements instead of the static
+  // default only.
+  const provisioning = shape.fields.sandbox ? '`shared` | `detached`' : `\`${shape.provisioning}\``
+  return `| \`${kind}\` | \`${shape.statuses.join('`, `')}\` | ${hasTerminal ? 'yes' : 'no'} | ${provisioning} | ${shape.canMerge} | ${shape.canRebase} | ${shape.ownsScope} | ${shape.requiredComponent ?? '—'} | ${shape.acceptsResult} |`
 })
 
 const transitions = SHAPE_KINDS.map((kind) => {
@@ -57,6 +61,17 @@ ${rows.join('\n')}
 
 ${transitions.join('\n\n')}
 
+## Survey placement (#148 W2)
+
+\`survey.sandbox\` is tuning, not a component: the \`tower-survey\` row stays the
+switch. The shape resolves both the placement and the preset, so generic layers
+never read the raw key or compare a kind.
+
+| \`survey.sandbox\` | Provisioning | Preset | Completion invariants |
+|---|---|---|---|
+| \`none\` (default) | \`shared\`: no checkout, the agent reads the main checkout | \`tower-survey\` (strictly read-only: no write, edit, or shell tool) | HEAD equals \`readCommit\`, tracked-status fingerprint unchanged, zero commits |
+| \`detached\` | \`detached\`: \`git worktree add --detach <worktreeRoot>/<id>-sandbox <readCommit>\` (no branch, no \`baseCommit\`, never merged) | \`tower-survey-sandbox\` (read/write/edit/pwsh plus the mission tools; spawn/merge/rebase/review/diff still absent) | sandbox HEAD equals \`readCommit\`, zero commits; disposable write/shell side effects are ignored; sandbox removed on completion, abandon or teardown with a bounded retry |
+
 ## Completion invariants
 
 | Kind | Invariants | Check |
@@ -78,8 +93,8 @@ ${invariants.join('\n')}
 |---|---|---|
 | Mission lifecycle | \`shape.statuses\`, \`shape.transitions\`, \`shape.isTerminal\` | No kind literal outside \`domain/shapes/\`; no global terminal set. |
 | Role | \`domain/roles.js\` predicates | No role literal outside \`domain/roles.js\`. |
-| Provisioning | \`shape.provisioning\` | Only a build shape may create a worktree/branch; a survey plans in the shared checkout. |
-| Read-only | Survey preset allow-list plus \`shape.completion\` | A survey completes with HEAD unchanged, the tracked-status set unchanged, and zero commits. |
+| Provisioning | \`shape.provisioning\` / \`shape.resolveProvisioning\` | Only a build shape may create a worktree/branch; a survey reads in the shared checkout by default or in a disposable detached sandbox when \`survey.sandbox: 'detached'\`. |
+| Read-only | Preset allow-list plus \`shape.resolveCompletion\` | A shared survey completes with HEAD unchanged, the tracked-status set unchanged, and zero commits; a detached survey may dirty its sandbox but must keep its HEAD pinned and make zero commits. |
 | Dependency | \`shape.dependencySatisfied\` | A completed survey satisfies a dependent build; a merged build satisfies it too. |
 | Archive / reanchor / planning | \`shape.isTerminal\` | A terminal shape leaves open work and does not block reanchor; terminal surveys archive. |
 | Evidence | \`shape.acceptsResult\` | Only a survey may record a completion result. |

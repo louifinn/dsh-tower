@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Tower Survey preset",
-    "description": "Read-only inspection of one recorded commit in the shared checkout: read, glob, grep, skill, and the Tower mission/status/finding/inbox/complete tools. A survey has no branch, worktree, commit, or merge, and completes with zero commits. When off: Surveys cannot be planned (planning one is refused with an actionable code) and no survey agent can be dispatched. Build missions and every other capability keep working."
+    "description": "The shared-checkout survey dependency: read, glob, grep, skill, and the Tower mission/status/finding/inbox/complete tools, with no write, edit, or shell tool. Mandatory dependency, not a switch: A shared survey cannot be dispatched; build missions and every other capability keep working."
   }
 }

@@ -97,6 +97,16 @@ survey workers (the survey row owns the capability, not the key name). The
 survey agent is dispatched; build missions are unaffected. No existing key
 changed class.
 
+#148 W2 implements the detached survey sandbox, so it restores exactly the
+placement key that W1 correctly withheld: `survey.sandbox` (`none`|`detached`,
+default `none`) returns as tuning, and `gates.requireFreshSurvey` (default
+`false`) joins it as merge-gate strictness; config keys 55 → 57 and sections
+14 → 15. It
+is not a capability: the `tower-survey` row stays the single switch and the
+sandbox preset is an internal child of it, so the visible component count does
+not move (12). `spawn.surveyPreset` stays removed: the shape resolves the preset
+from `survey.sandbox`, so the key could still only disagree with the registry.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -130,6 +140,7 @@ changed class.
 | `worktrees.root` | tuning | Default worktree placement. |
 | `spawn.workerPreset` | core | Chooses the tool surface a worker receives. |
 | `spawn.surveyModel` | tuning | Optional model route for survey agents. |
+| `survey.sandbox` | tuning | Placement only: shared read-only checkout (default) or a disposable detached sandbox. The tower-survey row is still the switch. |
 | `spawn.reviewerPreset` | core | Chooses the read-only reviewer surface. |
 | `spawn.maxDepth` | tuning | Subagent depth requested at spawn. |
 | `spawn.provider` | tuning | Provider route for spawned agents. |
@@ -149,6 +160,7 @@ changed class.
 | `gates.requireChecks` | core | Requires completion evidence before merge. |
 | `gates.requireTests` | core | Requires a test receipt before merge. |
 | `gates.allowReviewExemption` | core | Allows a review exemption and its reason. |
+| `gates.requireFreshSurvey` | core | Promotes the survey-stale dependency warning to a merge blocker; `false` keeps it advisory. |
 | `gates.maxReportBytes` | tuning | Report size cap; the refusal itself is not configurable. |
 | `docs.boardLocation` | tuning | Chooses where the board is written; whether it is written is the tower-board row. |
 | `archive.afterDays` | tuning | Archive age threshold; archival itself is the tower-archive row. |

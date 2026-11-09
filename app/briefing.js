@@ -6,6 +6,29 @@ function clip(text, max = 2000) {
   return value.length > max ? `${value.slice(0, max)}\n… truncated` : value
 }
 
+/**
+ * Dependency lines shared by the worker and reviewer briefings. A survey
+ * dependency carries its recorded result (#148 D6) alongside its status, with
+ * bounded formatting so a large evidence set cannot crowd out the mission.
+ * @param {any[]} deps
+ * @returns {string[]}
+ */
+function dependencyLines(deps) {
+  const lines = []
+  for (const dep of deps) {
+    lines.push(`- ${dep.id} ${dep.title ?? ''} (${dep.status}${dep.kind ? `, ${dep.kind}` : ''})`)
+    const result = dep.result
+    if (!result || typeof result !== 'object') continue
+    const evidence = []
+    if (Array.isArray(result.paths) && result.paths.length > 0) evidence.push(`paths: ${result.paths.slice(0, 20).join(', ')}`)
+    if (Array.isArray(result.symbols) && result.symbols.length > 0) evidence.push(`symbols: ${result.symbols.slice(0, 20).join(', ')}`)
+    if (Array.isArray(result.plan) && result.plan.length > 0) evidence.push(`plan: ${clip(result.plan.slice(0, 20).join('; '), 1200)}`)
+    if (typeof result.notes === 'string' && result.notes.trim()) evidence.push(`notes: ${clip(result.notes.trim(), 1200)}`)
+    if (evidence.length > 0) lines.push(`  evidence: ${evidence.join(' | ')}`)
+  }
+  return lines
+}
+
 export function workerBriefing({
   repoRoot,
   base,
@@ -45,7 +68,7 @@ export function workerBriefing({
   }
   if (deps.length > 0) {
     lines.push('Dependencies:')
-    for (const dep of deps) lines.push(`- ${dep.id} ${dep.title ?? ''} (${dep.status})`)
+    lines.push(...dependencyLines(deps))
   }
   if (mission.context) {
     lines.push('Context (verbatim from the user):')
@@ -92,6 +115,10 @@ export function workerBriefing({
     lines.push(`- Pass workdir="${cwd}" on every shell command; never edit the main checkout.`)
     lines.push('- Stay inside the declared scope; out-of-scope changes are rejected later.')
     lines.push('- Commit your work on the mission branch. Do not merge, push, or spawn other agents.')
+  } else if (shape.fields.sandbox && mission.sandbox) {
+    lines.push(`- Pass workdir="${cwd}" on every shell command; that checkout is a disposable detached sandbox, not the main checkout.`)
+    lines.push('- You may write files and run commands inside the sandbox, but never commit: completion requires the sandbox HEAD to still equal the recorded commit and zero new commits.')
+    lines.push(`- Stay inside the sandbox; never edit the main checkout ${repoRoot}. Do not merge, push, or spawn other agents.`)
   } else {
     lines.push(`- Read the shared checkout at ${cwd}; it is the main checkout, not your own worktree.`)
     lines.push(
@@ -148,7 +175,7 @@ export function reviewerBriefing({
   }
   if (deps.length > 0) {
     lines.push('Dependencies:')
-    for (const dep of deps) lines.push(`- ${dep.id} ${dep.title ?? ''} (${dep.status})`)
+    lines.push(...dependencyLines(deps))
   }
   if (mission.context) {
     lines.push('Context (verbatim from the user):')

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tower Survey Sandbox preset",
+    "description": "The detached-survey dependency: a disposable sandbox that may write and run commands inside its checkout while reading one recorded commit, with no branch and no commit of its own. Mandatory dependency, not a switch: A detached survey cannot be dispatched; shared surveys and build missions keep working."
+  }
+}

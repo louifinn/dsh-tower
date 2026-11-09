@@ -75,7 +75,7 @@ const ROW_DISPLAY_SOURCE = {
 
 // #134: the tower-ui row ships in ui-bundle/ and is labelled by that package's
 // own meta block; it is the one visible row that is not a dsh-tower subpath.
-const META_LABELED_ROWS = new Set(['tower-ui'])
+const META_LABELED_ROWS = new Set(['tower-ui', 'tower-survey'])
 
 const componentIdBySpecifier = new Map(
   CAPABILITY_LOCALES.map(({ specifier, component }) => [specifier, component]),
@@ -300,7 +300,7 @@ test('the generated row locale files are in sync with the generator', () => {
     cwd: root,
     encoding: 'utf8',
   })
-  assert.match(output, /22 files in sync/)
+  assert.match(output, /24 files in sync/)
   // And the committed files are byte-for-byte the rendering, not a hand edit.
   const expected = renderRowLocaleFiles(root)
   assert.deepEqual([...expected.keys()].sort(), rowPaths.slice().sort())
@@ -326,7 +326,7 @@ test('the generator --check fails when a committed row locale file drifts (fixtu
     assert.equal(result.status, 0, result.stderr)
     result = run('--check')
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /22 files in sync/)
+    assert.match(result.stdout, /24 files in sync/)
 
     fs.writeFileSync(
       path.join(fixture, 'locale', 'batch', 'en.json'),

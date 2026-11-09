@@ -95,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 55 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 57 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 55)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 55)
+  assert.equal(report.surface.keys.length, 57)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 57)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -163,8 +163,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 55)
-  assert.equal(baseline.surfaces.configKeys.value, 55)
+  assert.equal(surface.keys.length, 57)
+  assert.equal(baseline.surfaces.configKeys.value, 57)
   assert.equal(realMergedPatch().visible.length, 12)
   assert.equal(baseline.surfaces.components.value, 12)
 })
@@ -346,12 +346,17 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
       'tower-hmr',
       'preset-tower-reviewer',
       'tower-survey',
+      'preset-tower-survey',
+      'preset-tower-survey-sandbox',
     ],
   )
   assert.equal(patch.rows.find((row) => row.id === 'tower').kind, 'group')
   assert.equal(patch.rows.find((row) => row.id === 'tower-host').scope, 'internal')
   assert.equal(patch.rows.find((row) => row.id === 'preset-tower-worker').scope, 'internal')
   assert.ok(!patch.rows.some((row) => row.id === 'tower-worker-policy'), 'plugin ids are not components')
+  assert.equal(patch.rows.find((row) => row.id === 'tower-survey').kind, 'group')
+  assert.equal(patch.rows.find((row) => row.id === 'preset-tower-survey').scope, 'internal')
+  assert.equal(patch.rows.find((row) => row.id === 'preset-tower-survey-sandbox').scope, 'internal')
 
   // #138: the row's own scalar config is captured as full key paths, while the
   // row metadata and the nested `plugins:` configs are not.

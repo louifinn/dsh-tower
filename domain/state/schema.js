@@ -35,9 +35,10 @@ const BuildMissionSchema = Type.Object(
     testRuns: Type.Optional(Type.Array(Type.Unknown())),
     worktree: Type.Optional(Type.Union([WorktreeSchema, Type.Null()])),
     // A build mission reads a base and writes a branch; it never carries the
-    // survey fingerprint.
+    // survey fingerprint or a detached survey sandbox.
     readCommit: Type.Optional(Type.Never()),
     readDirty: Type.Optional(Type.Never()),
+    sandbox: Type.Optional(Type.Never()),
   },
   optional,
 )
@@ -53,6 +54,9 @@ const SurveyMissionSchema = Type.Object(
     reviewPolicy: Type.Optional(Type.String()),
     readCommit: Type.String(),
     readDirty: Type.Optional(Type.Array(Type.String())),
+    // #148 W2: an optional path to the disposable detached sandbox. Absent for
+    // a shared-checkout survey and for every build.
+    sandbox: Type.Optional(Type.String()),
     // A survey reads one commit in the shared checkout: no branch shape.
     worktree: Type.Optional(Type.Never()),
     branch: Type.Optional(Type.Never()),
@@ -188,11 +192,16 @@ function firstShapeMessage(state, where) {
         if (mission.readDirty !== undefined && !Array.isArray(mission.readDirty)) {
           return `mission ${id} has an invalid readDirty fingerprint${where}`
         }
+        if (mission.sandbox !== undefined && (typeof mission.sandbox !== 'string' || mission.sandbox.length === 0)) {
+          return `mission ${id} has an invalid sandbox path${where}`
+        }
         if (mission.worktree !== undefined && mission.worktree !== null) {
           return `mission ${id} is a survey and may not have a worktree record${where}`
         }
       } else if (mission.readCommit !== undefined || mission.readDirty !== undefined) {
         return `mission ${id} is a build and may not have readCommit/readDirty${where}`
+      } else if (mission.sandbox !== undefined) {
+        return `mission ${id} is a build and may not have a sandbox${where}`
       }
     }
     if (mission.worktree !== undefined && mission.worktree !== null && !isPlainObject(mission.worktree)) {

@@ -144,10 +144,34 @@ export async function sweepArchive(tower, state, options = {}) {
     force: options.force === true,
     protectedIds,
   })
-  if (selected.length === 0) return { archived: [], written: false, error: null }
+  // #148 W2: never archive a mission whose disposable sandbox is still on disk.
+  // Archiving would move the only record of the path out of hot state while the
+  // checkout leaks; the mission stays hot (protected) until cleanup succeeds on
+  // a later mutate or tower_teardown, and this sweep names the caused path.
+  const sandboxPending = selected
+    .filter((mission) => typeof /** @type {any} */ (mission).sandbox === 'string' && /** @type {any} */ (mission).sandbox.length > 0)
+    .map((mission) => ({ missionId: mission.id, sandbox: /** @type {any} */ (mission).sandbox }))
+  const pendingIds = new Set(sandboxPending.map((entry) => entry.missionId))
+  const archivable = selected.filter((mission) => !pendingIds.has(mission.id))
+  for (const entry of sandboxPending) {
+    await tower.deps.store.appendJsonl(tower.paths.activity, {
+      at: now,
+      type: 'archive',
+      missionId: entry.missionId,
+      text: `deferred: detached sandbox at ${entry.sandbox} is still present; cleanup retries on tower_teardown`,
+    }).catch(() => {})
+  }
+  if (archivable.length === 0) {
+    return {
+      archived: [],
+      written: false,
+      error: null,
+      ...(sandboxPending.length > 0 ? { sandboxPending } : {}),
+    }
+  }
 
   const archivedYear = archiveYearFor(now)
-  const entries = selected.map((mission) =>
+  const entries = archivable.map((mission) =>
     archivedEntry(mission, {
       archivedAt: now,
       archivedYear,
@@ -165,9 +189,9 @@ export async function sweepArchive(tower, state, options = {}) {
   if (!written.ok) return { archived: [], written: false, error: written.error ?? 'archive write failed' }
 
   // The archive now holds the full record: compact state.json in the same lock.
-  const ids = new Set(selected.map((mission) => mission.id))
+  const ids = new Set(archivable.map((mission) => mission.id))
   const branches = new Set(
-    selected
+    archivable
       .map((mission) => mission.worktree?.branch)
       .filter((branch) => typeof branch === 'string'),
   )
@@ -184,7 +208,7 @@ export async function sweepArchive(tower, state, options = {}) {
   state.revision += 1
   state.updatedAt = now
 
-  for (const mission of selected) {
+  for (const mission of archivable) {
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'archive',
@@ -199,5 +223,6 @@ export async function sweepArchive(tower, state, options = {}) {
     files: written.files,
     error: null,
     year: archivedYear,
+    ...(sandboxPending.length > 0 ? { sandboxPending } : {}),
   }
 }

@@ -1,15 +1,19 @@
 # Blockers and failure codes
 
-`tower_preflight` returns `{ok:false, blockers:[{code, detail}]}`. `tower_merge` and `tower_rebase`
+`tower_preflight` returns `{ok:false, blockers:[{code, detail}], warnings:[...]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
-tables below define 31 stable blocker/failure codes.
+tables below define 32 stable blocker/failure codes.
+
+`survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and
+becomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries
+`{code, missionId, depId, readCommit, baseCommit, message}` so a caller can act without parsing prose.
 
 The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`,
 `review-not-approved`, `tip-moved`, `review-exemption-invalid`) exist only when `review.mode` is
 `required`. With `off` or `optional` no review blocker is produced; `off` additionally removes
 `tower_review` and refuses reviewer spawn.
 
-## Gate blockers (25)
+## Gate blockers (26)
 
 | Code | Meaning / next action |
 |---|---|
@@ -23,6 +27,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. On a case-sensitive checkout a case-only mismatch is still rejected and the detail names the scope entry it would match if case were folded. |
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
 | `deps-unmerged` | A dependency mission is not satisfied: a build dependency must be `merged`/`abandoned`, while a survey dependency is satisfied at `completed` (archived entries included). |
+| `survey-stale` | A build dependency on a survey whose `readCommit` is not ancestor-or-equal of the build base. Default: a `warnings[]` entry, plan and preflight only. With `gates.requireFreshSurvey:true` the same code blocks the merge; re-plan the survey against the current base, or record why the read is still valid. |
 | `no-review` | `review.mode:required` and no review exists on the branch: spawn a reviewer (or disable the review gate). |
 | `review-mission-mismatch` | `review.mode:required` and the latest review belongs to another mission. |
 | `not-clean` | `review.mode:required` and latest review is `p1-Nitems`/`p2-Nitems`; another round is required. Verdicts from later routes of the same round are appended to it instead of flipping the mission again. |

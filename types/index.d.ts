@@ -153,6 +153,8 @@ export interface RebaseRecord {
 export interface SurveyResult {
   paths?: string[]
   symbols?: string[]
+  /** Ordered plan / next steps the read recommends (bounded array of strings). */
+  plan?: string[]
   notes?: string
   [key: string]: unknown
 }
@@ -203,6 +205,7 @@ export interface BuildMission extends MissionBase {
   mergedAt?: number | null
   readCommit?: never
   readDirty?: never
+  sandbox?: never
 }
 
 /** A survey reads one commit in the shared checkout; it never merges. */
@@ -211,6 +214,15 @@ export interface SurveyMission extends MissionBase {
   readCommit: string
   readDirty?: string[]
   result?: SurveyResult | null
+  /**
+   * #148 W2: the disposable detached sandbox path when `survey.sandbox` is
+   * `detached`. It has no branch and is removed on completion/abandon; a
+   * cleanup failure keeps the path plus `sandboxCleanupError` so the record and
+   * the filesystem do not silently disagree.
+   */
+  sandbox?: string
+  sandboxCleanupError?: string
+  sandboxRemovedAt?: number
   worktree?: never
   branch?: never
   baseCommit?: never
@@ -369,6 +381,8 @@ export interface MissionSummary {
   readCommit?: string | null
   /** Survey projection: the tracked-status fingerprint captured at plan time. */
   readDirty?: string[]
+  /** Survey projection: the disposable detached sandbox path (null otherwise). */
+  sandbox?: string | null
   /** Size of the completion report without loading its body; null when absent. */
   reportBytes: number | null
   updatedAt?: number
