@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 55,
+      "value": 57,
       "decisions": [
         {
           "from": 64,
@@ -33,12 +33,26 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "Review round 2 contracts the shape surface before release: spawn.surveyPreset could never be read (a survey's preset is shape-owned, so the key could only disagree with the registry) and survey.sandbox advertised a placement W1 does not implement. Only spawn.surveyModel remains as the optional model route; both removals are recorded here rather than silently shrinking the two-way surface."
+        },
+        {
+          "from": 55,
+          "to": 56,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 implements the detached survey sandbox, so survey.sandbox returns as one tuning key: none (read-only shared checkout, the default and unchanged W1 behavior) or detached (a disposable detached worktree with a write/shell-capable preset). It is placement tuning, not a capability row or a second routing key; spawn.surveyPreset stays removed because the shape resolves the preset."
+        },
+        {
+          "from": 56,
+          "to": 57,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 D5 adds gates.requireFreshSurvey (default false): the survey-stale dependency warning is advisory by default and becomes a merge blocker only when this gate is true. It is a merge-gate strictness key like the other gates.* entries, not a component."
         }
       ]
     },
     "sections": {
       "seed": 15,
-      "value": 14,
+      "value": 15,
       "decisions": [
         {
           "from": 15,
@@ -53,6 +67,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "Review round 2 removes the survey section with its only key: survey.sandbox advertised a detached read-only checkout W1 does not implement. The section existed only to hold that key, so the count returns to 14."
+        },
+        {
+          "from": 14,
+          "to": 15,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 restores the survey section for its one tuning key, survey.sandbox (placement: none|detached). The section count returns to the 15 of the earlier shape cut; no other section changed and no component row was added (the sandbox preset is an internal child of the existing tower-survey group)."
         }
       ]
     },

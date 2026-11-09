@@ -67,6 +67,7 @@ export const CompleteInput = Type.Object({
     Type.Object({
       paths: Type.Optional(Type.Array(Type.String(), { maxItems: 200, description: 'Survey only: paths the read touched or found relevant.' })),
       symbols: Type.Optional(Type.Array(Type.String(), { maxItems: 200, description: 'Survey only: symbols the read identified.' })),
+      plan: Type.Optional(Type.Array(Type.String(), { maxItems: 200, description: 'Survey only: the ordered plan or next steps the read recommends.' })),
       notes: Type.Optional(Type.String({ description: 'Survey only: short free-form evidence (max 4000 chars).' })),
     }, { additionalProperties: false, description: 'Survey evidence; a build completion may not carry one.' }),
   ),

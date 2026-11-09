@@ -13,7 +13,7 @@ one-argument `isTerminal`/`canTransition` calls.
 | Kind | Statuses | Has terminal | Provisioning | Can merge | Can rebase | Owns scope | Component | Accepts result |
 |---|---|---|---|---|---|---|---|---|
 | `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true | — | false |
-| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` | false | false | false | tower-survey | true |
+| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` | `detached` | false | false | false | tower-survey | true |
 
 ## Transitions
 
@@ -40,12 +40,29 @@ one-argument `isTerminal`/`canTransition` calls.
 | `paused` | `active`, `abandoned` |
 | `abandoned` | terminal |
 
+## Survey placement (#148 W2)
+
+`survey.sandbox` is tuning, not a component: the `tower-survey` row stays the
+switch. The shape resolves both the placement and the preset, so generic layers
+never read the raw key or compare a kind.
+
+The decision is made once, at provisioning time. A mission with a recorded
+`mission.sandbox` keeps the detached placement and its completion invariants
+even if `survey.sandbox` later changes — a config flip can neither skip the
+sandbox HEAD/zero-commit checks nor strand the disposable checkout. A survey
+that never got a sandbox keeps the shared invariants for the same reason.
+
+| `survey.sandbox` | Provisioning | Preset | Completion invariants |
+|---|---|---|---|
+| `none` (default) | `shared`: no checkout, the agent reads the main checkout | `tower-survey` (strictly read-only: no write, edit, or shell tool) | HEAD equals `readCommit`, tracked-status fingerprint unchanged, zero commits |
+| `detached` | `detached`: `git worktree add --detach <worktreeRoot>/<id>-sandbox <readCommit>` (no branch, no `baseCommit`, never merged) | `tower-survey-sandbox` (read/write/edit/pwsh plus the mission tools; spawn/merge/rebase/review/diff still absent) | sandbox HEAD equals `readCommit`, zero commits; disposable write/shell side effects are ignored; sandbox removed on completion, abandon or teardown with a bounded retry |
+
 ## Completion invariants
 
 | Kind | Invariants | Check |
 |---|---|---|
 | `build` | requiresWorktree=true, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false | `checkCompletion` |
-| `survey` | requiresWorktree=false, requiresCommits=false, requiresClean=false, requiresHeadMatch=true, requiresTrackedStatus=true | `checkCompletion` |
+| `survey` | requiresWorktree=false, requiresSandbox=false, requiresCommits=false, requiresClean=false, requiresHeadMatch=true, requiresTrackedStatus=true | `checkCompletion` |
 
 ## Role
 
@@ -62,8 +79,8 @@ one-argument `isTerminal`/`canTransition` calls.
 |---|---|---|
 | Mission lifecycle | `shape.statuses`, `shape.transitions`, `shape.isTerminal` | No kind literal outside `domain/shapes/`; no global terminal set. |
 | Role | `domain/roles.js` predicates | No role literal outside `domain/roles.js`. |
-| Provisioning | `shape.provisioning` | Only a build shape may create a worktree/branch; a survey plans in the shared checkout. |
-| Read-only | Survey preset allow-list plus `shape.completion` | A survey completes with HEAD unchanged, the tracked-status set unchanged, and zero commits. |
+| Provisioning | `shape.provisioning` / `shape.resolveProvisioning` | Only a build shape may create a worktree/branch; a survey reads in the shared checkout by default or in a disposable detached sandbox when `survey.sandbox: 'detached'`. A recorded `mission.sandbox` is authoritative once provisioning has happened. |
+| Read-only | Preset allow-list plus `shape.resolveCompletion` | A shared survey completes with HEAD unchanged, the tracked-status set unchanged, and zero commits; a detached survey may dirty its sandbox but must keep its HEAD pinned and make zero commits. Invariants follow the recorded sandbox, not current config. |
 | Dependency | `shape.dependencySatisfied` | A completed survey satisfies a dependent build; a merged build satisfies it too. |
 | Archive / reanchor / planning | `shape.isTerminal` | A terminal shape leaves open work and does not block reanchor; terminal surveys archive. |
 | Evidence | `shape.acceptsResult` | Only a survey may record a completion result. |

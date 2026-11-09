@@ -181,7 +181,7 @@ export function normalizeResult(result) {
   const value = /** @type {Record<string, any>} */ (result)
   /** @type {Record<string, any>} */
   const normalized = {}
-  for (const key of ['paths', 'symbols']) {
+  for (const key of ['paths', 'symbols', 'plan']) {
     if (value[key] === undefined) continue
     if (!Array.isArray(value[key])) fail(`result.${key} must be an array of strings`)
     if (value[key].length > 200) fail(`result.${key} supports at most 200 entries`)

@@ -37,7 +37,7 @@ const LEGACY_KEYS = ['section', 'allowAgentControl']
 // #121: the `tools` group is gone. Every capability that used to be a
 // `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
 // component row is the switch. What remains here is genuine tuning policy.
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
+const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'survey', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
 
 const SECTION_KEYS = {
   init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
@@ -76,8 +76,12 @@ const SECTION_KEYS = {
     'requireLease',
   ],
   send: ['maxPerMinute', 'interruptDefault'],
+  // #148 W2: where a survey reads. This is tuning, not a component: the
+  // tower-survey row is the switch; the placement decides whether write/shell
+  // side effects are rejected (shared) or absorbed by a disposable checkout.
+  survey: ['sandbox'],
   tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
-  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
+  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'requireFreshSurvey', 'maxReportBytes'],
   docs: ['boardLocation'],
   archive: ['afterDays', 'maxMissions'],
   leases: ['ttlMs'],
@@ -253,6 +257,15 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Message delivery policy.'),
+  survey: Schema.object({
+    sandbox: Schema.union(['none', 'detached'])
+      .default('none')
+      .description(
+        'Where a survey reads. none = the shared checkout with a read-only preset (writes and shell commands are impossible); detached = a disposable detached git worktree created at the recorded commit, with a sandbox preset that may write and run commands inside it. A detached sandbox is removed when the survey completes or is abandoned; it has no branch, never participates in merge/stale-base, and cannot commit its evidence.',
+      ),
+  })
+    .default({})
+    .description('Survey placement. Tuning only: the tower-survey component row is the capability switch.'),
   tests: Schema.object({
     // #136: no `enabled` switch. The `tower-tests` component row *is* the
     // switch; a second boolean could only disagree with it, and a row-off
@@ -279,6 +292,9 @@ export const Config = Schema.object({
     allowReviewExemption: Schema.boolean()
       .default(false)
       .description('Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers.'),
+    requireFreshSurvey: Schema.boolean()
+      .default(false)
+      .description('Promote the advisory survey-stale dependency warning to a merge blocker: a build may only merge when every survey dependency read a commit that is an ancestor-or-equal of the build base. Default false (warning only).'),
     maxReportBytes: Schema.natural()
       .min(1024)
       .max(16 * 1024 * 1024)
@@ -514,6 +530,7 @@ export function resolveTowerConfig(rawConfig) {
     worktrees: clone(parsed.worktrees ?? {}),
     spawn: clone(parsed.spawn ?? {}),
     send: clone(parsed.send ?? {}),
+    survey: clone(parsed.survey ?? {}),
     tests: clone(parsed.tests ?? {}),
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),

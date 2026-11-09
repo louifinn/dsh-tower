@@ -11,6 +11,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { workerBriefing, reviewerBriefing } from '../app/briefing.js'
+import { buildSpawnBriefing } from '../app/spawn-support.js'
 import { Tower } from '../host/tower.js'
 
 function git(cwd, args) {
@@ -93,6 +94,87 @@ test('worker briefing: prior reviews, findings, completion report and rules are 
   assert.ok(text.includes('tower_mission({repoRoot:"'))
   assert.ok(text.includes('tower_complete({repoRoot:"'))
   assert.match(text, /Extra tower instructions:\nkeep the diff tiny/)
+})
+
+test('detached survey briefing: the sandbox is the workdir, never the main checkout', () => {
+  // R56 P2-1: a detached survey has no worktree, so before the fix the generic
+  // rule used repoRoot as the workdir while calling it a disposable sandbox.
+  const repoRoot = path.join(os.tmpdir(), 'tower-briefing-detached-repo')
+  const sandbox = path.join(os.tmpdir(), 'tower-briefing-detached-sandbox')
+  const text = workerBriefing(
+    fixture({
+      repoRoot,
+      mission: {
+        id: 'M2',
+        title: 'Detached read',
+        kind: 'survey',
+        scope: [],
+        tasks: [{ text: 'read it', status: 'open' }],
+        readCommit: BASE_COMMIT,
+        readDirty: [],
+        sandbox,
+      },
+      deps: [],
+      worktree: null,
+    }),
+  )
+  assert.ok(text.includes(`Pass workdir="${sandbox}" on every shell command`))
+  assert.ok(!text.includes(`workdir="${repoRoot}"`), 'the detached survey must never be told to workdir the main checkout')
+  assert.ok(text.includes(`never edit the main checkout ${repoRoot}`))
+  // R56 P3: a writable sandbox is not a read-only survey.
+  assert.match(text, /Scope \(only files you may touch\): \(none declared — the detached survey sandbox is disposable/)
+  assert.ok(!text.includes('survey is read-only'))
+})
+
+test('shared survey briefing: workdir is the main checkout and the scope stays read-only', () => {
+  const repoRoot = path.join(os.tmpdir(), 'tower-briefing-shared-repo')
+  const text = workerBriefing(
+    fixture({
+      repoRoot,
+      mission: {
+        id: 'M3',
+        title: 'Shared read',
+        kind: 'survey',
+        scope: [],
+        tasks: [{ text: 'read it', status: 'open' }],
+        readCommit: BASE_COMMIT,
+        readDirty: [],
+      },
+      deps: [],
+      worktree: null,
+    }),
+  )
+  assert.ok(text.includes(`Read the shared checkout at ${repoRoot}`))
+  assert.match(text, /Scope \(only files you may touch\): \(none — survey is read-only\)/)
+})
+
+test('detached survey spawn briefing names the provisioned sandbox the child runs in', async () => {
+  // Keep the prompt and the activation cwd consistent: tools/spawn.js starts the
+  // child in provisioned.cwd, which is the sandbox for a detached survey.
+  const { root, repo } = seedRepo('dsh-tower-briefing-detached-')
+  try {
+    const dir = path.join(repo, '.git', 'dsh-tower')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config.json'), `${JSON.stringify({ survey: { sandbox: 'detached' } })}\n`)
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Detached read', kind: 'survey', tasks: ['read it'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    assert.equal(provisioned.provisioning, 'detached')
+    assert.equal(provisioned.cwd, provisioned.sandbox)
+    const context = await tower.missionContext('M1')
+    const briefing = buildSpawnBriefing({
+      role: 'worker',
+      towerRoot: tower.root,
+      context,
+      worktree: provisioned.worktree,
+      instructions: undefined,
+    })
+    assert.ok(briefing.includes(`Pass workdir="${provisioned.cwd}" on every shell command`))
+    assert.ok(!briefing.includes(`workdir="${tower.root}"`))
+  } finally {
+    removeTemp(root)
+  }
 })
 
 test('reviewer briefing: completion checks and prior rounds are injected with a read-only rule', () => {

@@ -36,7 +36,9 @@ row is a section of its parent and is not independently switchable.
 | `tower-hmr` | visible | row | Development-only tooling: tower_reload and /tower reload are unavailable, so a linked-profile reload has to be triggered outside Tower. A normal profile behaves exactly as before; the row ships disabled on purpose. |
 | `preset-tower-worker` | internal | row | Declared by dsh-tower/preset-worker: tower_spawn fails without the worker preset. A mandatory dependency, never a switch. |
 | `preset-tower-reviewer` | visible | row | Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.mode is off or optional (merge is unaffected; off does not use the preset at all); with review.mode required, planning/mode entry is locked with an explanatory error. |
-| `tower-survey` | visible | row | Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected. |
+| `tower-survey` | visible | group | Declared by the tower-survey group: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched, because both the read-only and the sandbox preset are nested dependencies of this row. Build missions and every existing capability are unaffected. survey.sandbox stays tuning: it chooses shared vs detached placement, never whether surveys exist. |
+| `preset-tower-survey` | internal | row | Declared by dsh-tower/preset-survey: the shared-checkout survey preset is a dependency of the tower-survey group, never its own switch. With the group off, a shared survey cannot be dispatched. |
+| `preset-tower-survey-sandbox` | internal | row | Declared by dsh-tower/preset-survey-sandbox: the detached-sandbox survey preset is a dependency of the tower-survey group, never its own switch. It is selected only when survey.sandbox is detached; with the group off, a detached survey cannot be dispatched. |
 | `tower-ui` | visible | row | The Tower web UI plugin does not load in this profile: no Tower tool cards, composer-dock summary or status strip. Host tools, missions, state and the MISSIONS.md board are unaffected. |
 
 ## Forbidden to disable
@@ -112,6 +114,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.workerModel` | `optional-config` | Optional model route for workers. |
 | `spawn.reviewerModel` | `optional-config` | Optional independent model route for reviewers. |
 | `spawn.surveyModel` | `optional-config` | Optional model route for survey workers. |
+| `survey.sandbox` | `optional-config` | Tuning, not a capability: shared (read-only in the shared checkout) or detached (a disposable detached sandbox that may write and run commands). The tower-survey row is still the switch. |
 | `spawn.maxLiveWorkers` | `core` | Resource-safety cap on live workers. |
 | `spawn.staleMs` | `optional-config` | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | `optional-config` | Upper bound for a blocking spawn wait. |
@@ -126,6 +129,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `gates.requireChecks` | `forbidden-to-disable` | Requires completion evidence before merge; a merge gate. |
 | `gates.requireTests` | `forbidden-to-disable` | Requires a test receipt before merge; a merge gate. With the tower-tests row off, planning/mode entry refuse the combination. |
 | `gates.allowReviewExemption` | `forbidden-to-disable` | The review-exemption path is part of the review and merge contract. |
+| `gates.requireFreshSurvey` | `forbidden-to-disable` | Promotes the survey-stale dependency warning to a merge blocker; the gate itself is part of the merge contract and defaults to advisory. |
 | `gates.maxReportBytes` | `forbidden-to-disable` | The report cap is part of the completion contract; the refusal itself is never configurable away. |
 | `docs.boardLocation` | `optional-config` | Chooses where the board is written; whether it is written is the tower-board component row (#133). |
 | `archive.afterDays` | `optional-config` | Archive age threshold inside the optional tower-archive component (#135). |

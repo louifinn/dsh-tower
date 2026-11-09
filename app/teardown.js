@@ -21,6 +21,58 @@ import {
   teardownRemovedDecision,
 } from '../domain/integration/teardown.js'
 import { sweepArchive } from './archive.js'
+import { cleanupSandbox } from './sandbox.js'
+
+/**
+ * Disposable detached survey sandboxes (#148 W2). A terminal survey may still
+ * carry a sandbox after a failed cleanup; teardown retries with the same bounded
+ * removal as completion. Run before the worktree phase so its state revisions
+ * never invalidate the worktree claims.
+ * @param {any} tower
+ * @param {any} input
+ * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ */
+async function teardownSandboxes(tower, input) {
+  const state = await tower.load()
+  const activity = input.activity ?? {}
+  const exclude = new Set(input.exclude ?? [])
+  const decisions = []
+  const removed = []
+  for (const mission of state.missions) {
+    const sandbox = typeof /** @type {any} */ (mission).sandbox === 'string' ? /** @type {any} */ (mission).sandbox : null
+    if (!sandbox) continue
+    if (exclude.has(mission.id)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: 'excluded' })
+      continue
+    }
+    if (hasLiveAgent(state, mission.id, activity)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: 'live agent' })
+      continue
+    }
+    if (!['completed', 'abandoned'].includes(mission.status)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: `mission is ${mission.status}` })
+      continue
+    }
+    if (input.dryRun === true) {
+      decisions.push({ missionId: mission.id, action: 'remove', sandbox, reason: 'eligible' })
+      continue
+    }
+    const outcome = await cleanupSandbox(tower, mission.id)
+    if (!outcome) {
+      decisions.push({ missionId: mission.id, action: 'removed', sandbox, reason: 'sandbox was already gone' })
+      removed.push(mission.id)
+      continue
+    }
+    if (outcome.ok) removed.push(mission.id)
+    decisions.push({
+      missionId: mission.id,
+      action: outcome.ok ? 'removed' : 'keep',
+      sandbox,
+      ...(outcome.ok ? {} : { reason: `sandbox cleanup failed after ${outcome.attempts} attempt(s): ${outcome.error}` }),
+    })
+  }
+  return { decisions, removed }
+}
 
 /**
  * Phase 1 (#51): decide every keep/remove outcome without holding the state
@@ -87,8 +139,19 @@ async function claimRemoval(tower, candidate, expectedRevision, input) {
 }
 
 export async function teardown(tower, input) {
+  // Sandbox cleanup runs first: it owns its own short locks and revisions, so
+  // the worktree prepare/act/commit phases below see a stable revision.
+  const sandboxes = await teardownSandboxes(tower, input)
   const prepared = await prepareTeardown(tower, input)
-  if (prepared.dryRun) return { ok: true, dryRun: true, removed: [], decisions: prepared.decisions }
+  if (prepared.dryRun) {
+    return {
+      ok: true,
+      dryRun: true,
+      removed: [],
+      decisions: [...sandboxes.decisions, ...prepared.decisions],
+      sandboxesRemoved: [],
+    }
+  }
 
   const removed = []
   let expectedRevision = prepared.stateRevision
@@ -197,7 +260,8 @@ export async function teardown(tower, input) {
     ok: true,
     dryRun: false,
     removed,
-    decisions: prepared.decisions,
+    decisions: [...sandboxes.decisions, ...prepared.decisions],
+    sandboxesRemoved: sandboxes.removed,
     archived: archive.archived,
     ...(archive.error ? { archiveError: archive.error } : {}),
   }

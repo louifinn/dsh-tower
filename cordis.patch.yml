@@ -110,27 +110,53 @@
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:
               sampleOverCapGlobResults: false
-    # #148 D7: the read-only survey preset is its own optional row. Off means a
-    # survey cannot be planned (tower_plan refuses with an actionable code) and a
-    # survey cannot be dispatched; build missions are unaffected. Read-only is
-    # structural: the preset allow-list has no write, edit, or shell tool.
+    # #148 D7/W2: one visible survey capability row. The group is the switch:
+    # both the read-only preset and the detached-sandbox preset are nested
+    # dependencies of it, so the sandbox placement is tuning and adds no second
+    # visible component. Off means a survey cannot be planned (tower_plan refuses
+    # with an actionable code) and no survey agent can be dispatched; build
+    # missions are unaffected. Read-only remains structural for the shared
+    # placement (the preset allow-list has no write, edit, or shell tool); the
+    # sandbox preset exists only for `survey.sandbox: 'detached'`.
     - id: tower-survey
-      name: 'dsh-tower/preset-survey'
+      name: cordis:group
+      group: true
       config:
-        id: tower-survey
-        name: Tower Survey
-        description: Read-only inspection of one recorded commit in the shared checkout.
-        order: 62
-        plugins:
-          - id: tower-survey-policy
-            name: 'dsh-tower/survey'
-          - id: tower-survey-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              write: false
-              edit: false
-              readImage: false
-          - id: tower-survey-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
+        - id: preset-tower-survey
+          name: 'dsh-tower/preset-survey'
+          config:
+            id: tower-survey
+            name: Tower Survey
+            description: Read-only inspection of one recorded commit in the shared checkout.
+            order: 62
+            plugins:
+              - id: tower-survey-policy
+                name: 'dsh-tower/survey'
+              - id: tower-survey-fs
+                name: '@deepseek-ai/dsh-tool-fs'
+                config:
+                  write: false
+                  edit: false
+                  readImage: false
+              - id: tower-survey-fs-search
+                name: '@deepseek-ai/dsh-tool-fs-search'
+                config:
+                  sampleOverCapGlobResults: false
+        - id: preset-tower-survey-sandbox
+          name: 'dsh-tower/preset-survey-sandbox'
+          config:
+            id: tower-survey-sandbox
+            name: Tower Survey Sandbox
+            description: Disposable detached checkout for a survey that may write or run commands while reading one recorded commit.
+            order: 63
+            plugins:
+              - id: tower-survey-sandbox-policy
+                name: 'dsh-tower/survey-sandbox'
+              - id: tower-survey-sandbox-fs
+                name: '@deepseek-ai/dsh-tool-fs'
+              - id: tower-survey-sandbox-fs-search
+                name: '@deepseek-ai/dsh-tool-fs-search'
+                config:
+                  sampleOverCapGlobResults: false
+              - id: tower-survey-sandbox-pwsh
+                name: '@deepseek-ai/dsh-tool-pwsh'

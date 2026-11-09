@@ -12,6 +12,7 @@ import { shapeFor } from '../domain/shapes/index.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { sweepArchive } from './archive.js'
+import { surveyStaleWarnings } from './freshness.js'
 import { readFacts } from './sharedCheckout.js'
 
 /**
@@ -72,6 +73,24 @@ export async function plan(tower, input = {}) {
 
     const created = assigned.map((mission) => newMission(mission.id, mission, now))
     const applied = applyPlan(state, created)
+    // #148 W2: report survey evidence freshness at plan time. New builds have no
+    // provisioned base yet, so the warning compares against the state base; it
+    // is advisory here and never blocks the plan. Archived survey dependencies
+    // keep their read commit on the archive index, so they are checked too.
+    const archivedMissions = new Map(
+      (archive.ok ? archive.missions : []).map((entry) => [entry.id, entry]),
+    )
+    const warnings = []
+    for (const mission of created) {
+      warnings.push(
+        ...(await surveyStaleWarnings(tower, {
+          mission,
+          state,
+          missions: state.missions,
+          archived: archivedMissions,
+        })),
+      )
+    }
     const swept = await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
@@ -89,6 +108,7 @@ export async function plan(tower, input = {}) {
     return {
       revision: state.revision,
       missions: created.map((mission) => fullMission(mission)),
+      ...(warnings.length > 0 ? { warnings } : {}),
       ...(swept.archived.length > 0 ? { archived: swept.archived } : {}),
       ...(swept.error ? { archiveError: swept.error } : {}),
     }

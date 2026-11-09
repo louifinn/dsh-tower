@@ -197,7 +197,7 @@ export const buildShape = Object.freeze({
   provisioning: /** @type {const} */ ('branch-worktree'),
   ownsScope: true,
   // Document dimensions this shape owns; the state validator reads these.
-  fields: Object.freeze({ worktree: true, readCommit: false, merge: true }),
+  fields: Object.freeze({ worktree: true, readCommit: false, merge: true, sandbox: false }),
   requiredComponent: null,
   acceptsResult: false,
   planFields,

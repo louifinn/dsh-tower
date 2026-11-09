@@ -38,6 +38,19 @@ function assertMissionShapeFields(mission, where) {
       }
     }
   }
+  if (shape.fields.worktree) {
+    if (mission.sandbox !== undefined) {
+      fail(`mission ${mission.id} is a ${shape.kind} and may not have a sandbox${where}`)
+    }
+  } else if (shape.fields.sandbox) {
+    // A detached survey sandbox is a recorded path, never a worktree record: it
+    // has no branch, base commit or merge projection.
+    if (mission.sandbox !== undefined && (typeof mission.sandbox !== 'string' || mission.sandbox.length === 0)) {
+      fail(`mission ${mission.id} has an invalid sandbox path${where}`)
+    }
+  } else if (mission.sandbox !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not have a sandbox${where}`)
+  }
   if (shape.fields.readCommit) {
     if (typeof mission.readCommit !== 'string' || mission.readCommit.length === 0) {
       fail(`mission ${mission.id} is a ${shape.kind} and needs a readCommit${where}`)
