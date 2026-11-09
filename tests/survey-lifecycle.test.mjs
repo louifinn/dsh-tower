@@ -275,6 +275,71 @@ test('survey off refuses planning with an actionable code and leaves builds alon
   }
 })
 
+test('survey completion is blocked by unread mail until tower_inbox acknowledges it (#148)', async () => {
+  const { root, tower } = await setup('dsh-tower-survey-inbox-')
+  try {
+    const mission = await planSurvey(tower)
+    const agentId = await activate(tower, mission.id)
+    const workerName = `worker-${mission.id.toLowerCase()}`
+    // A broadcast (or a direct steer) is unread for the survey roster name.
+    await tower.recordMessage({ from: 'tower', to: 'all', subject: 'Please acknowledge', body: 'one steer' })
+    await assert.rejects(
+      () => tower.complete({ missionId: mission.id, agentId, report: 'read-only' }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        new RegExp(`cannot complete with 1 unread inbox message\\(s\\) for ${workerName}`).test(error.message) &&
+        /call tower_inbox until unread is 0/.test(error.message),
+    )
+    // The survey allow-list includes tower_inbox, so a survey can acknowledge and finish.
+    const page = await tower.inbox({ reader: workerName })
+    assert.equal(page.messages.length, 1)
+    assert.equal(page.unreadRemaining, 0)
+    const done = await tower.complete({ missionId: mission.id, agentId, report: 'read-only' })
+    assert.equal(done.mission.status, 'completed')
+    assert.equal(done.commits, 0)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('survey planning uses the async availability probe, not the sync switch (#148)', async () => {
+  const { root, repo } = await setup('dsh-tower-survey-available-')
+  try {
+    // A real host exposes preset rows only through `available`; there is no
+    // `enabled` on those rows. The refusal must still fire.
+    const probed = []
+    const offTower = await Tower.open(repo, {
+      ...defaultDeps,
+      components: {
+        available: async (id) => {
+          probed.push(id)
+          return id !== 'tower-survey'
+        },
+      },
+    })
+    await assert.rejects(
+      () => offTower.plan({ missions: [{ title: 'Survey through the probe', kind: 'survey' }] }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message),
+    )
+    assert.deepEqual(probed, ['tower-survey'], 'the async probe is what gates the shape')
+
+    // `true` allows the plan; `null` is "unknown" (no agent-presets service) and
+    // must stay permissive, exactly as the previous host behaviour was.
+    for (const [label, available] of [
+      ['an available row', async () => true],
+      ['an unknown probe', async () => null],
+    ]) {
+      const tower = await Tower.open(repo, { ...defaultDeps, components: { available } })
+      const planned = await tower.plan({ missions: [{ title: `Survey with ${label}`, kind: 'survey' }] })
+      assert.equal(planned.missions[0].kind, 'survey', label)
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('a completed survey is terminal for archive, reanchor and open work', async () => {
   const { root, repo, tower } = await setup('dsh-tower-survey-terminal-')
   try {

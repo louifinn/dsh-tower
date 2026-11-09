@@ -13,7 +13,8 @@ const target = path.join(root, 'docs', 'reference', 'shapes.md')
 
 const rows = SHAPE_KINDS.map((kind) => {
   const shape = shapeFor(kind)
-  return `| \`${kind}\` | \`${shape.statuses.join('`, `')}\` | ${shape.isTerminal('completed') ? 'yes' : 'no'} | \`${shape.provisioning}\` | ${shape.canMerge} | ${shape.canRebase} | ${shape.ownsScope} | ${shape.requiredComponent ?? '—'} | ${shape.acceptsResult} |`
+  const hasTerminal = shape.statuses.some((status) => shape.isTerminal(status))
+  return `| \`${kind}\` | \`${shape.statuses.join('`, `')}\` | ${hasTerminal ? 'yes' : 'no'} | \`${shape.provisioning}\` | ${shape.canMerge} | ${shape.canRebase} | ${shape.ownsScope} | ${shape.requiredComponent ?? '—'} | ${shape.acceptsResult} |`
 })
 
 const transitions = SHAPE_KINDS.map((kind) => {

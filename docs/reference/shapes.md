@@ -12,7 +12,7 @@ one-argument `isTerminal`/`canTransition` calls.
 
 | Kind | Statuses | Has terminal | Provisioning | Can merge | Can rebase | Owns scope | Component | Accepts result |
 |---|---|---|---|---|---|---|---|---|
-| `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | no | `branch-worktree` | true | true | true | — | false |
+| `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true | — | false |
 | `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` | false | false | false | tower-survey | true |
 
 ## Transitions

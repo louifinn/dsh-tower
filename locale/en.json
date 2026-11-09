@@ -61,7 +61,7 @@
     },
     "tower-survey": {
       "title": "Tower Survey preset",
-      "summary": "Read-only inspection of one recorded commit in the shared checkout: read, glob, grep, skill, and the Tower mission/status/finding/complete tools. A survey has no branch, worktree, commit, or merge, and completes with zero commits.",
+      "summary": "Read-only inspection of one recorded commit in the shared checkout: read, glob, grep, skill, and the Tower mission/status/finding/inbox/complete tools. A survey has no branch, worktree, commit, or merge, and completes with zero commits.",
       "disables": "Surveys cannot be planned (planning one is refused with an actionable code) and no survey agent can be dispatched. Build missions and every other capability keep working."
     },
     "tower-ui": {
