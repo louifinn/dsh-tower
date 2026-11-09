@@ -31,11 +31,18 @@ function seedRepo(prefix = 'dsh-tower-dep-result-') {
   return { root, repo }
 }
 
-async function setup(prefix) {
+async function setup(prefix, config = null) {
   const { root, repo } = seedRepo(prefix)
+  if (config) writeRepoConfig(repo, config)
   const tower = await Tower.open(repo)
   await tower.init({})
   return { root, repo, tower }
+}
+
+function writeRepoConfig(repo, config) {
+  const dir = path.join(repo, '.git', 'dsh-tower')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`)
 }
 
 test('a build briefing carries the survey dependency result with bounded formatting', async () => {
@@ -104,6 +111,100 @@ test('a build briefing carries the survey dependency result with bounded formatt
     assert.ok(text.includes('symbols: seed, shapeFor'))
     assert.ok(text.includes('plan: document the split; add a regression test'))
     assert.ok(text.includes('notes: the seed commit is enough'))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('an archived survey dependency still carries its read commit and result into the briefing', async () => {
+  // The archive index is the only record left after a terminal survey is swept
+  // out of state.json. Its readCommit and bounded result must travel with the
+  // dependency, or a dependent build briefing shows `status: unknown` with no
+  // evidence (#73 + #148 D6).
+  const { root, repo, tower } = await setup('dsh-tower-dep-result-archived-', {
+    archive: { afterDays: 0, maxMissions: 0 },
+  })
+  try {
+    const plannedSurvey = await tower.plan({ missions: [{ title: 'Survey then archive', kind: 'survey' }] })
+    const survey = plannedSurvey.missions[0]
+    await tower.recordSpawn({
+      missionId: survey.id,
+      name: `worker-${survey.id.toLowerCase()}`,
+      role: 'worker',
+      agentId: 'agent-survey',
+      parentSessionId: 'session-dep-result-archived',
+      cwd: tower.root,
+      branch: null,
+    })
+    if ((await tower.load()).missions.find((entry) => entry.id === survey.id).status !== 'active') {
+      await tower.mission({ id: survey.id, status: 'active' })
+    }
+    await tower.complete({
+      missionId: survey.id,
+      agentId: 'agent-survey',
+      report: 'read the seed commit',
+      result: {
+        paths: ['README.md'],
+        symbols: ['seed'],
+        plan: ['document the archived handoff'],
+        notes: 'kept on the index',
+      },
+    })
+
+    const state = await tower.load()
+    assert.equal(
+      state.missions.some((entry) => entry.id === survey.id),
+      false,
+      'archive.afterDays: 0 sweeps the terminal survey out of state.json',
+    )
+    const index = await tower.archiveIndex()
+    const archived = index.missions.find((entry) => entry.id === survey.id)
+    assert.ok(archived, 'the survey is on the archive index')
+    assert.equal(archived.readCommit, survey.readCommit)
+    assert.deepEqual(archived.result, {
+      paths: ['README.md'],
+      symbols: ['seed'],
+      plan: ['document the archived handoff'],
+      notes: 'kept on the index',
+    })
+
+    const plannedBuild = await tower.plan({
+      missions: [{ title: 'Build on the archived survey', scope: ['src/**'], deps: [survey.id] }],
+    })
+    const build = plannedBuild.missions[0]
+    const context = await tower.missionContext(build.id)
+    assert.deepEqual(context.deps, [
+      {
+        id: survey.id,
+        title: 'Survey then archive',
+        kind: 'survey',
+        status: 'completed',
+        readCommit: survey.readCommit,
+        result: {
+          paths: ['README.md'],
+          symbols: ['seed'],
+          plan: ['document the archived handoff'],
+          notes: 'kept on the index',
+        },
+      },
+    ])
+
+    const text = workerBriefing({
+      repoRoot: tower.root,
+      base: context.base,
+      mission: context.mission,
+      deps: context.deps,
+      worktree: { path: path.join(tower.root, '..', 'M1'), branch: 'tower/m1-build', baseCommit: context.mission.baseCommit },
+      instructions: 'use the archived survey evidence',
+      reviews: context.reviews,
+      findings: context.findings,
+      completionReport: context.completionReport,
+    })
+    assert.match(text, /- M\d+ Survey then archive \(completed, survey\)/)
+    assert.ok(text.includes('evidence: paths: README.md'))
+    assert.ok(text.includes('symbols: seed'))
+    assert.ok(text.includes('plan: document the archived handoff'))
+    assert.ok(text.includes('notes: kept on the index'))
   } finally {
     removeTemp(root)
   }

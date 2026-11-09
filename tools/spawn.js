@@ -49,7 +49,7 @@ export function registerSpawnTool(ctx, deps) {
       const shape = shapeFor(context.mission.kind)
       // #148 W2: the shape resolves its preset from tuning config, so a detached
       // survey gets the sandbox preset and a shared survey stays read-only.
-      const shapePreset = defaultPresetFor(context.mission.kind, config)
+      const shapePreset = defaultPresetFor(context.mission.kind, config, context.mission)
       const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : (shapePreset ?? config.spawn.workerPreset)
       const model = isReviewerRole(role) ? config.spawn.reviewerModel : shape.fields.readCommit ? config.spawn.surveyModel : config.spawn.workerModel
       const spawned = await enqueueSpawn(tower.root, async () => {

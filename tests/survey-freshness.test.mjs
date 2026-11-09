@@ -93,6 +93,76 @@ test('isAncestor covers equal, ancestor, descendant and unrelated histories', as
   }
 })
 
+test('an archived survey dependency still warns and blocks on a stale read', async () => {
+  // The archive index keeps `readCommit`, so `requireFreshSurvey` must not fail
+  // open just because the survey left state.json (#73 + #148 W2).
+  const { root, repo, tower } = await setup('dsh-tower-freshness-archived-')
+  try {
+    const oldBase = git(repo, ['rev-parse', 'HEAD'])
+    fs.writeFileSync(path.join(repo, 'newer.txt'), 'newer\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'newer base'])
+    const surveyRead = git(repo, ['rev-parse', 'HEAD'])
+
+    // Archive as soon as the survey is terminal, before the dependent build is
+    // planned, so the dependency resolves only through the index.
+    writeRepoConfig(repo, { archive: { afterDays: 0, maxMissions: 0 } })
+    const archiving = await Tower.open(repo)
+    const survey = await completeSurvey(archiving, repo)
+    assert.equal(
+      (await archiving.load()).missions.some((entry) => entry.id === survey.id),
+      false,
+      'the survey was archived immediately',
+    )
+    const archived = (await archiving.archiveIndex()).missions.find((entry) => entry.id === survey.id)
+    assert.equal(archived.readCommit, surveyRead)
+
+    // Rewind the base below the survey's read; the archived evidence no longer
+    // describes the commit the build starts from.
+    git(repo, ['reset', '--hard', oldBase])
+    const planning = await archiving.plan({
+      missions: [{ title: 'Build on the archived survey', scope: ['src/**'], deps: [survey.id] }],
+    })
+    const build = planning.missions[0]
+    const stale = planning.warnings?.find((warning) => warning.code === 'survey-stale')
+    assert.ok(stale, 'plan checks an archived survey dependency')
+    assert.deepEqual(
+      {
+        missionId: stale.missionId,
+        depId: stale.depId,
+        readCommit: stale.readCommit,
+        baseCommit: stale.baseCommit,
+      },
+      { missionId: build.id, depId: survey.id, readCommit: surveyRead, baseCommit: oldBase },
+    )
+
+    // Advisory by default: the same warning appears at preflight but does not block.
+    const gate = await archiving.evaluateGate({ missionId: build.id, activity: {} })
+    const warning = gate.warnings.find((entry) => entry.code === 'survey-stale')
+    assert.ok(warning, 'preflight reports the archived stale dependency')
+    assert.equal(warning.depId, survey.id)
+    assert.equal(gate.blockers.some((blocker) => blocker.code === 'survey-stale'), false)
+
+    // With the gate enabled the archived dependency is promoted like a live one,
+    // so the check cannot fail open after archiving.
+    writeRepoConfig(repo, {
+      archive: { afterDays: 0, maxMissions: 0 },
+      gates: { requireFreshSurvey: true },
+    })
+    const strict = await Tower.open(repo)
+    const strictGate = await strict.evaluateGate({ missionId: build.id, activity: {} })
+    const blocker = strictGate.blockers.find((entry) => entry.code === 'survey-stale')
+    assert.ok(blocker, 'requireFreshSurvey promotes an archived stale dependency to a blocker')
+    assert.equal(blocker.missionId, build.id)
+    assert.equal(blocker.depId, survey.id)
+    assert.equal(blocker.readCommit, surveyRead)
+    assert.equal(blocker.baseCommit, oldBase)
+    assert.equal(blocker.detail, blocker.message)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('survey-stale warns by default at plan and preflight and blocks only when required', async () => {
   const { root, repo, tower } = await setup('dsh-tower-freshness-gate-')
   try {

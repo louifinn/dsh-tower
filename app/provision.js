@@ -83,7 +83,7 @@ async function prepareProvision(tower, input) {
   const state = await tower.load()
   const mission = state.missions.find((entry) => entry.id === input.missionId)
   if (!mission) fail(`unknown mission "${input.missionId}"`, 'mission-not-found')
-  const provisioning = provisioningFor(mission.kind, tower.config)
+  const provisioning = provisioningFor(mission.kind, tower.config, mission)
   // A shared-checkout shape reads one commit in the main checkout: no branch,
   // no directory, no recorded worktree (#148 D1/D2).
   if (provisioning === 'shared') {

@@ -311,6 +311,49 @@ test('archival defers a terminal mission whose sandbox is still present', async 
   }
 })
 
+test('completion follows the recorded sandbox after survey.sandbox flips to none', async () => {
+  // A config edit between spawn and completion is a supported operator action.
+  // The checkout that was actually provisioned must decide the completion
+  // invariants: flipping to the shared placement must not skip the HEAD/commit
+  // checks or forget to remove the sandbox.
+  const { root, repo, tower } = await setup('dsh-tower-sandbox-flip-', { survey: { sandbox: 'detached' } })
+  try {
+    const mission = await planSurvey(tower)
+    const provisioned = await tower.provision({ missionId: mission.id })
+    const sandbox = provisioned.sandbox
+    await activate(tower, mission.id)
+
+    writeRepoConfig(repo, { survey: { sandbox: 'none' } })
+    const flipped = await Tower.open(repo)
+
+    git(sandbox, ['config', 'user.email', 'sandbox@test'])
+    git(sandbox, ['config', 'user.name', 'Sandbox Test'])
+    git(sandbox, ['commit', '--allow-empty', '-m', 'sandbox work'])
+    await assert.rejects(
+      () => flipped.complete({ missionId: mission.id, agentId: 'agent-survey', report: 'done' }),
+      (error) =>
+        error.code === 'invalid-argument' && /made 1 commit\(s\) in its detached sandbox/.test(error.message),
+    )
+    // The refusal used the recorded sandbox facts, and nothing was removed.
+    assert.equal((await stored(flipped, mission.id)).sandbox, sandbox)
+    assert.equal(fs.existsSync(sandbox), true)
+
+    git(sandbox, ['reset', '--hard', (await stored(flipped, mission.id)).readCommit])
+    const result = await flipped.complete({ missionId: mission.id, agentId: 'agent-survey', report: 'reset and done' })
+    assert.equal(result.mission.status, 'completed')
+    assert.equal(result.commits, 0)
+    assert.equal(result.sandboxCleanup.ok, true)
+    assert.equal(result.sandboxCleanup.removed, true)
+    assert.equal(result.mission.sandbox, undefined)
+    assert.equal(fs.existsSync(sandbox), false)
+    const after = await stored(flipped, mission.id)
+    assert.equal('sandbox' in after, false)
+    assert.equal(typeof after.sandboxRemovedAt, 'number')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('the default shared survey stays strictly read-only and rejects tracked writes', async () => {
   const { root, repo, tower } = await setup('dsh-tower-sandbox-shared-')
   try {

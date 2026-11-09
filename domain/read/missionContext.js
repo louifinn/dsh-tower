@@ -10,10 +10,13 @@ import { fullMission, findingSummary } from '../summary.js'
  * @param {object} input
  * @param {TowerState} input.state
  * @param {Mission} input.mission
+ * @param {Array<Record<string, any>> | Map<string, Record<string, any>>} [input.archived] archive index entries (or a by-id map) so a dependency that has already been archived keeps its evidence
  * @returns {object}
  */
-export function missionContextView({ state, mission }) {
+export function missionContextView({ state, mission, archived = [] }) {
   const byId = new Map(state.missions.map((entry) => [entry.id, entry]))
+  const archivedById =
+    archived instanceof Map ? archived : new Map(archived.map((entry) => [entry.id, entry]))
   const branch = mission.worktree ? mission.worktree.branch : null
   const reviews = branch
     ? (state.reviews ?? [])
@@ -46,7 +49,7 @@ export function missionContextView({ state, mission }) {
     })),
     findings: findings.map((finding) => findingSummary(finding)),
     deps: (mission.deps ?? []).map((id) => {
-      const dep = byId.get(id)
+      const dep = byId.get(id) ?? archivedById.get(id)
       if (!dep) return { id, title: null, status: 'unknown' }
       return {
         id,

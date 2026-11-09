@@ -141,3 +141,12 @@ out, without changing the default or the shared path:
   (`paths`/`symbols`/`plan`/`notes`) with bounded formatting, so the dependent
   worker sees the evidence rather than only the terminal status. `result`
   remains survey-only at completion.
+- Placement is decided at provisioning time, not at completion time: a recorded
+  `mission.sandbox` wins over current `survey.sandbox` config for provisioning,
+  preset and completion invariants. Flipping the key after a sandbox was created
+  therefore cannot skip the sandbox HEAD/zero-commit checks or strand the
+  disposable checkout, and a survey that never got a sandbox keeps the shared
+  invariants.
+- The archive index keeps a survey's `readCommit` and bounded `result`, so an
+  archived survey dependency still carries its evidence into a build briefing
+  and `gates.requireFreshSurvey` cannot fail open after archiving (#73).

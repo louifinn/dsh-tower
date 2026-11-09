@@ -75,10 +75,21 @@ export async function plan(tower, input = {}) {
     const applied = applyPlan(state, created)
     // #148 W2: report survey evidence freshness at plan time. New builds have no
     // provisioned base yet, so the warning compares against the state base; it
-    // is advisory here and never blocks the plan.
+    // is advisory here and never blocks the plan. Archived survey dependencies
+    // keep their read commit on the archive index, so they are checked too.
+    const archivedMissions = new Map(
+      (archive.ok ? archive.missions : []).map((entry) => [entry.id, entry]),
+    )
     const warnings = []
     for (const mission of created) {
-      warnings.push(...(await surveyStaleWarnings(tower, { mission, state, missions: state.missions })))
+      warnings.push(
+        ...(await surveyStaleWarnings(tower, {
+          mission,
+          state,
+          missions: state.missions,
+          archived: archivedMissions,
+        })),
+      )
     }
     const swept = await sweepArchive(tower, state, { now })
     state.revision += 1

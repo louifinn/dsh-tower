@@ -127,13 +127,21 @@ export function checkSandboxCompletion({ mission, head, readCommit, commits, san
 }
 
 /**
- * Resolve the survey placement from tuning config (#148 W2). The shape owns the
- * decision so generic layers never compare `mission.kind` or read the raw key.
- * @param {Mission | null | undefined} [_mission]
+ * Resolve the survey placement (#148 W2). The shape owns the decision so
+ * generic layers never compare `mission.kind` or read the raw key.
+ *
+ * A sandbox already recorded on the mission is authoritative: provisioned
+ * state must win over current config, otherwise flipping `survey.sandbox`
+ * between provision and completion would silently move the mission to the
+ * shared checkout (or make the completion invariants disagree with the
+ * checkout that actually exists). Config only decides initial provisioning.
+ * @param {Mission | null | undefined} [mission]
  * @param {TowerConfig} [config]
  * @returns {'shared' | 'detached'}
  */
-export function resolveProvisioning(_mission, config = /** @type {TowerConfig} */ ({})) {
+export function resolveProvisioning(mission, config = /** @type {TowerConfig} */ ({})) {
+  const recorded = mission && typeof mission.sandbox === 'string' ? mission.sandbox.trim() : ''
+  if (recorded.length > 0) return 'detached'
   return config.survey?.sandbox === 'detached' ? 'detached' : 'shared'
 }
 
@@ -141,12 +149,12 @@ export function resolveProvisioning(_mission, config = /** @type {TowerConfig} *
  * The preset that executes a survey in the resolved placement. Shared surveys
  * stay strictly read-only; a detached sandbox gets a preset that may write and
  * run commands inside the disposable checkout.
- * @param {Mission | null | undefined} [_mission]
+ * @param {Mission | null | undefined} [mission]
  * @param {TowerConfig} [config]
  * @returns {'tower-survey' | 'tower-survey-sandbox'}
  */
-export function resolvePreset(_mission, config = /** @type {TowerConfig} */ ({})) {
-  return resolveProvisioning(undefined, config) === 'detached' ? 'tower-survey-sandbox' : 'tower-survey'
+export function resolvePreset(mission, config = /** @type {TowerConfig} */ ({})) {
+  return resolveProvisioning(mission, config) === 'detached' ? 'tower-survey-sandbox' : 'tower-survey'
 }
 
 /** Shared-checkout completion invariants (the default placement). */
@@ -172,15 +180,19 @@ const SANDBOX_COMPLETION = Object.freeze({
 })
 
 /**
- * The completion invariants for the placement resolved from config. The app
- * layer reads only the declared flags and primitives; it never branches on the
- * placement itself.
+ * The completion invariants for the checkout the mission was provisioned in.
+ * Placement is read from the recorded `mission.sandbox`, never from current
+ * config: a detached sandbox still enforces its HEAD/zero-commit invariants and
+ * is removed after a config flip to `none`, and a survey that never got a
+ * sandbox keeps the shared invariants even if config now asks for `detached`.
+ * The config parameter stays in the shape contract for symmetry with other
+ * hooks, but is intentionally not consulted here.
  * @param {Mission} mission
- * @param {TowerConfig} [config]
+ * @param {TowerConfig} [_config]
  * @returns {typeof SHARED_COMPLETION | typeof SANDBOX_COMPLETION}
  */
-export function resolveCompletion(mission, config = /** @type {TowerConfig} */ ({})) {
-  return resolveProvisioning(mission, config) === 'detached' ? SANDBOX_COMPLETION : SHARED_COMPLETION
+export function resolveCompletion(mission, _config = /** @type {TowerConfig} */ ({})) {
+  return resolveProvisioning(mission) === 'detached' ? SANDBOX_COMPLETION : SHARED_COMPLETION
 }
 
 /**

@@ -129,7 +129,7 @@ export function workerBriefing({
     `- Update progress: tower_mission({repoRoot:"${repoRoot}",id:"${mission.id}",task_done:"..."}) or blocker:"...".`,
   )
   const resultHint = shape.acceptsResult
-    ? ' Optionally record evidence as result:{paths?:string[],symbols?:string[],notes?:string}.'
+    ? ' Optionally record evidence as result:{paths?:string[],symbols?:string[],plan?:string[],notes?:string}.'
     : ''
   lines.push(
     `- When the work is finished and every task is closed, call tower_complete({repoRoot:"${repoRoot}",missionId:"${mission.id}",report:"<full handoff>",checks:[{name,command,exitCode,evidence}]}).${resultHint} Unread inbox messages block completion, so read them with tower_inbox first.`,

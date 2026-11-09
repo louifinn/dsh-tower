@@ -98,11 +98,16 @@ test('capabilities are structural: a survey can not merge or rebase', () => {
   // generic kind comparison. The default stays the shared read-only path.
   assert.equal(provisioningFor('survey', { survey: { sandbox: 'detached' } }), 'detached')
   assert.equal(provisioningFor('survey', { survey: { sandbox: 'none' } }), 'shared')
+  // A checked-out sandbox recorded on the mission is authoritative: flipping the
+  // tuning key after provisioning cannot move the mission to another checkout.
+  const provisioned = { id: 'M7', kind: 'survey', readCommit: 'abc1234', sandbox: '/tmp/M7-sandbox' }
+  assert.equal(provisioningFor('survey', { survey: { sandbox: 'none' } }, provisioned), 'detached')
   // Build missions keep using config.spawn.workerPreset; only shapes that own a preset name one.
   assert.equal(defaultPresetFor('build'), null)
   assert.equal(defaultPresetFor('survey'), 'tower-survey')
   assert.equal(defaultPresetFor('survey', { survey: { sandbox: 'detached' } }), 'tower-survey-sandbox')
   assert.equal(defaultPresetFor('survey', { survey: { sandbox: 'none' } }), 'tower-survey')
+  assert.equal(defaultPresetFor('survey', { survey: { sandbox: 'none' } }, provisioned), 'tower-survey-sandbox')
   assert.equal(SHAPES.build.requiredComponent, null)
   assert.equal(SHAPES.survey.requiredComponent, 'tower-survey')
   assert.equal(SHAPES.build.acceptsResult, false)
@@ -151,8 +156,12 @@ test('completion invariants are data, not conditionals in the use case', () => {
     },
     { worktree: false, sandbox: false, commits: false, clean: false, head: true, tracked: true },
   )
-  // The resolved placement declares the sandbox invariant set instead.
-  const detached = SHAPES.survey.resolveCompletion({ id: 'M7', kind: 'survey' }, { survey: { sandbox: 'detached' } })
+  // The recorded sandbox is authoritative: a provisioned detached survey keeps
+  // the sandbox invariant set even after config flips back to `none`.
+  const detached = SHAPES.survey.resolveCompletion(
+    { id: 'M7', kind: 'survey', sandbox: '/tmp/M7-sandbox' },
+    { survey: { sandbox: 'none' } },
+  )
   assert.deepEqual(
     {
       worktree: detached.requiresWorktree,
@@ -165,9 +174,9 @@ test('completion invariants are data, not conditionals in the use case', () => {
     { worktree: false, sandbox: true, commits: true, clean: false, head: true, tracked: false },
   )
   assert.equal(
-    SHAPES.survey.resolveCompletion({ id: 'M7', kind: 'survey' }, { survey: { sandbox: 'none' } }),
+    SHAPES.survey.resolveCompletion({ id: 'M7', kind: 'survey' }, { survey: { sandbox: 'detached' } }),
     SHAPES.survey.completion,
-    'the shared placement keeps the static read-only invariant set',
+    'a survey with no recorded sandbox keeps the shared invariant set even if config now asks for detached',
   )
   assert.equal(
     SHAPES.survey.completion.check({
