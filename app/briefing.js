@@ -42,7 +42,11 @@ export function workerBriefing({
 }) {
   const completion = /** @type {import('../types/index.js').CompletionReport | null} */ (completionReport)
   const shape = shapeFor(mission.kind)
-  const cwd = worktree?.path ?? repoRoot
+  // The checkout the worker actually runs in: a recorded detached sandbox wins
+  // over the (absent) worktree, then a build worktree, then the shared main
+  // checkout. The spawn cwd uses the same precedence, so the prompt matches the
+  // process the agent is started in.
+  const cwd = mission.sandbox ?? worktree?.path ?? repoRoot
   const lines = []
   lines.push(`# Tower mission ${mission.id} — ${mission.title}`)
   lines.push('')
@@ -59,9 +63,15 @@ export function workerBriefing({
   )
   lines.push('')
   lines.push(`Kind: ${mission.kind}`)
-  lines.push(
-    `Scope (only files you may touch): ${mission.scope.length > 0 ? mission.scope.join(', ') : '(none — survey is read-only)'}`,
-  )
+  // The empty scope means different things by shape: a build still owns its
+  // worktree, a detached survey owns a disposable writable sandbox, and only a
+  // shared survey is strictly read-only.
+  const emptyScope = shape.fields.worktree
+    ? '(none declared — stay inside your worktree)'
+    : shape.fields.sandbox && mission.sandbox
+      ? '(none declared — the detached survey sandbox is disposable: write and run commands inside it, but never commit or leave it)'
+      : '(none — survey is read-only)'
+  lines.push(`Scope (only files you may touch): ${mission.scope.length > 0 ? mission.scope.join(', ') : emptyScope}`)
   if (mission.tasks.length > 0) {
     lines.push('Tasks:')
     for (const task of mission.tasks) lines.push(`- [${task.status}] ${task.text}`)
@@ -116,7 +126,7 @@ export function workerBriefing({
     lines.push('- Stay inside the declared scope; out-of-scope changes are rejected later.')
     lines.push('- Commit your work on the mission branch. Do not merge, push, or spawn other agents.')
   } else if (shape.fields.sandbox && mission.sandbox) {
-    lines.push(`- Pass workdir="${cwd}" on every shell command; that checkout is a disposable detached sandbox, not the main checkout.`)
+    lines.push(`- Pass workdir="${mission.sandbox}" on every shell command; that checkout is a disposable detached sandbox, not the main checkout.`)
     lines.push('- You may write files and run commands inside the sandbox, but never commit: completion requires the sandbox HEAD to still equal the recorded commit and zero new commits.')
     lines.push(`- Stay inside the sandbox; never edit the main checkout ${repoRoot}. Do not merge, push, or spawn other agents.`)
   } else {
