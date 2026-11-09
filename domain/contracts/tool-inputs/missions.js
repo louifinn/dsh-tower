@@ -17,7 +17,7 @@ export const PlanInput = Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
-      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must merge before this one.' })),
+      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'survey = read-only investigation that reserves no scope.' })),
       context: Type.Optional(Type.String({ description: "The user's own key sentences, verbatim (max 4096 chars)." })),
       references: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Read-only pointers/files the worker should read (max 20); copied into the briefing.' })),
@@ -63,6 +63,13 @@ export const CompleteInput = Type.Object({
   missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
   id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
   report: Type.String({ description: 'Full completion report for the tower and the next review round.' }),
+  result: Type.Optional(
+    Type.Object({
+      paths: Type.Optional(Type.Array(Type.String(), { maxItems: 200, description: 'Survey only: paths the read touched or found relevant.' })),
+      symbols: Type.Optional(Type.Array(Type.String(), { maxItems: 200, description: 'Survey only: symbols the read identified.' })),
+      notes: Type.Optional(Type.String({ description: 'Survey only: short free-form evidence (max 4000 chars).' })),
+    }, { additionalProperties: false, description: 'Survey evidence; a build completion may not carry one.' }),
+  ),
   checks: Type.Optional(
     Type.Array(
       Type.Object({

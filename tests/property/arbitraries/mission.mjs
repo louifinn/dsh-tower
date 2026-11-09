@@ -101,5 +101,20 @@ const reviewFieldsArb = fc
 
 /** One mission document. The id is *not* guaranteed unique across missions. */
 export const missionArb = fc
-  .tuple(missionBaseArb, reviewFieldsArb)
-  .map(([mission, reviewFields]) => ({ ...mission, ...reviewFields }))
+  .tuple(
+    missionBaseArb,
+    reviewFieldsArb,
+    commitShaArb,
+    fc.array(fc.stringMatching(/^[A-Za-z0-9._/-]{1,40}$/), { maxLength: 3 }),
+  )
+  .map(([mission, reviewFields, readCommit, readDirty]) => {
+    const next = { ...mission, ...reviewFields }
+    if (next.kind === 'survey') {
+      next.scope = []
+      next.status = next.status === 'merged' ? 'completed' : next.status
+      delete next.worktree
+      next.readCommit = readCommit
+      next.readDirty = [...new Set(readDirty)]
+    }
+    return next
+  })

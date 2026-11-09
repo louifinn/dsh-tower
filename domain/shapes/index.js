@@ -1,0 +1,137 @@
+// The one shape registry (#149). A *shape* is the contract a mission kind
+// carries: its status vocabulary and transitions, what it provisions, how it
+// completes, how dependencies are satisfied, and what its briefing and summary
+// say. Generic layers resolve a shape once through `shapeFor()` and never
+// compare `mission.kind`.
+//
+// `isTerminal(kind, status)` and `canTransition(kind, from, to)` are the only
+// entry points for status policy; the old global `TERMINAL_STATUSES` and
+// `TRANSITIONS` tables are gone.
+// @ts-check
+import { TowerToolError } from '../errors.js'
+import { buildShape } from './build.js'
+import { surveyShape } from './survey.js'
+
+/** @typedef {import('../../types/index.js').Mission} Mission */
+
+/** @type {Readonly<Record<string, typeof buildShape | typeof surveyShape>>} */
+export const SHAPES = Object.freeze({
+  build: buildShape,
+  survey: surveyShape,
+})
+
+/** Ordered kind vocabulary; the first kind is the default for absent kinds. */
+/** @type {readonly string[]} */
+export const SHAPE_KINDS = Object.freeze(Object.keys(SHAPES))
+
+/**
+ * Resolve a mission kind to its shape.
+ *
+ * A document written before schema v4 may omit `kind`; the v3 -> v4 migration
+ * stamps `build`, and pure helpers that tolerate partial mission snapshots still
+ * resolve an absent kind as the build shape. An unknown non-empty kind is never
+ * guessed.
+ * @param {string | null | undefined} kind
+ * @returns {typeof buildShape | typeof surveyShape}
+ */
+export function shapeFor(kind) {
+  if (kind === undefined || kind === null || kind === '') return SHAPES.build
+  const shape = SHAPES[kind]
+  if (!shape) {
+    throw new TowerToolError('invalid-argument', `unknown mission kind "${kind}"; expected one of ${SHAPE_KINDS.join('|')}`)
+  }
+  return shape
+}
+
+/**
+ * @param {unknown} kind
+ * @returns {boolean}
+ */
+export function isShapeKind(kind) {
+  return typeof kind === 'string' && Object.hasOwn(SHAPES, kind)
+}
+
+/**
+ * The only terminality entry point.
+ * @param {string | null | undefined} kind
+ * @param {string} status
+ * @returns {boolean}
+ */
+export function isTerminal(kind, status) {
+  return shapeFor(kind).isTerminal(status)
+}
+
+/**
+ * The only transition entry point.
+ * @param {string | null | undefined} kind
+ * @param {string} from
+ * @param {string} to
+ * @returns {boolean}
+ */
+export function canTransition(kind, from, to) {
+  return shapeFor(kind).canTransition(from, to)
+}
+
+/**
+ * @param {string | null | undefined} kind
+ * @returns {boolean}
+ */
+export function canMerge(kind) {
+  return shapeFor(kind).canMerge
+}
+
+/**
+ * @param {string | null | undefined} kind
+ * @returns {boolean}
+ */
+export function canRebase(kind) {
+  return shapeFor(kind).canRebase
+}
+
+/**
+ * @param {string | null | undefined} kind
+ * @returns {'branch-worktree' | 'shared' | 'detached'}
+ */
+export function provisioningFor(kind) {
+  return shapeFor(kind).provisioning
+}
+
+/**
+ * Refuse branch-shaped actions for a shape that has no branch. The message tells
+ * the caller what to do instead, so the refusal is actionable rather than a bare
+ * "invalid transition".
+ * @param {Mission} mission
+ * @param {'merge' | 'rebase' | 'preflight' | 'diff'} action
+ * @returns {void}
+ */
+export function assertActionSupported(mission, action) {
+  const shape = shapeFor(mission.kind)
+  if (action === 'merge' && !shape.canMerge) {
+    throw new TowerToolError(
+      'invalid-transition',
+      `mission ${mission.id} is a survey: it has no branch to merge and is never merged; a completed survey already satisfies its dependents`,
+      { nextAction: 'use tower_complete to finish the survey; its readCommit is the evidence' },
+    )
+  }
+  if (action === 'rebase' && !shape.canRebase) {
+    throw new TowerToolError(
+      'invalid-transition',
+      `mission ${mission.id} is a survey: it has no branch to rebase; it reads one fixed commit`,
+      { nextAction: 're-plan the survey if the base moved; the recorded readCommit is immutable' },
+    )
+  }
+  if (action === 'preflight' && !shape.canMerge) {
+    throw new TowerToolError(
+      'invalid-transition',
+      `mission ${mission.id} is a survey: it has no merge gate; tower_complete checks HEAD, tracked files and zero commits`,
+      { nextAction: 'use tower_complete to finish the survey; surveys are not preflighted or merged' },
+    )
+  }
+  if (action === 'diff' && !shape.canMerge) {
+    throw new TowerToolError(
+      'invalid-transition',
+      `mission ${mission.id} is a survey: it has no branch diff; it read commit ${String(mission.readCommit ?? '').slice(0, 12)}`,
+      { nextAction: 'inspect the recorded readCommit directly, or the survey result recorded at completion' },
+    )
+  }
+}

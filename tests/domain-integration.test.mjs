@@ -94,7 +94,6 @@ import {
   outOfScopeBlocker,
   overwrittenPaths,
   staleBaseBlocker,
-  surveyChangedFilesBlocker,
 } from '../domain/integration/gate.js'
 
 test('merge results preserve the app-facing blocker codes and messages', () => {
@@ -466,8 +465,6 @@ test('preflight blockers are computed from snapshots without repository I/O', ()
   })
   assert.equal(noWorktreeBlocker('M1').code, 'branch-missing')
   assert.equal(staleBaseBlocker({ branch: 'b', base: 'main', baseTip: 'abcdef0123' }).detail, 'b does not contain base "main" tip abcdef0123; run tower_rebase first')
-  assert.equal(surveyChangedFilesBlocker({ missionId: 'M1', changedFiles: [] }), null)
-  assert.equal(surveyChangedFilesBlocker({ missionId: 'M1', changedFiles: ['a'] }).code, 'read-only-survey')
   assert.equal(outOfScopeBlocker({ mission: { scope: ['src/**'] }, changedFiles: ['src/a', 'docs/b'] }).code, 'out-of-scope')
   assert.equal(outOfScopeBlocker({ mission: { scope: ['**'] }, changedFiles: ['src/a'] }), null)
   assert.deepEqual(overwrittenPaths(['a', 'b', 'c'], ['x', 'b']), ['b'])

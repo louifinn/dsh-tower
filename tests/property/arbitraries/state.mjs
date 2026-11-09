@@ -9,6 +9,7 @@
 // fixture builds one deliberately (tests/property/no-illegal-path.prop.mjs).
 import fc from 'fast-check'
 
+import { SCHEMA_VERSION } from '../../../domain/mission.js'
 import { branchNameArb, commitShaArb, snapshotRefArb } from './commitSha.mjs'
 import { findingArb } from './finding.mjs'
 import { missionArb, rosterNameArb } from './mission.mjs'
@@ -129,7 +130,7 @@ function buildStateArb(options = {}) {
       rebaseIntent: fc.constant(null),
     })
     .map((state) => ({
-      schemaVersion: 3,
+      schemaVersion: SCHEMA_VERSION,
       ...state,
     }))
 }

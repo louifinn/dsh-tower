@@ -136,13 +136,14 @@ test('a composed but not mounted section is reported with its entry state', () =
   assert.deepEqual(failures, ['bundle: entry tower-skills is not active (entry state 1)'])
 })
 
-test('the presets claim both preset ids', () => {
-  assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-worker'])
+test('the presets claim all preset ids', () => {
+  assert.deepEqual(PRESET_IDS, ['tower-reviewer', 'tower-survey', 'tower-worker'])
   assert.deepEqual(
     PRESET_ROWS.map((row) => [row.id, row.name, row.order]),
     [
       ['tower-worker', 'Tower Worker', 60],
       ['tower-reviewer', 'Tower Reviewer', 61],
+      ['tower-survey', 'Tower Survey', 62],
     ],
   )
 })
@@ -151,11 +152,12 @@ test('each preset row must mount with its label and no activation diagnostic', (
   const loaded = [
     { id: 'tower-worker', name: 'Tower Worker', order: 60 },
     { id: 'tower-reviewer', name: 'Tower Reviewer', order: 61 },
+    { id: 'tower-survey', name: 'Tower Survey', order: 62 },
   ]
   assert.deepEqual(checkPresetRows(loaded), [])
 
   // A preset that mounts but whose definition fails to activate is a failure.
-  assert.deepEqual(checkPresetRows([...loaded.slice(0, 1), { ...loaded[1], broken: 'row tower-reviewer-fs is not active' }]), [
+  assert.deepEqual(checkPresetRows([loaded[0], { ...loaded[1], broken: 'row tower-reviewer-fs is not active' }, loaded[2]]), [
     'preset: tower-reviewer failed to mount: row tower-reviewer-fs is not active',
   ])
   // So is a missing preset, or one that lost its name/order.
@@ -165,7 +167,7 @@ test('each preset row must mount with its label and no activation diagnostic', (
 })
 
 test('the two preset rows resolve distinct Plugins-page labels', () => {
-  assert.deepEqual(PRESET_SPECIFIERS, ['dsh-tower/preset-worker', 'dsh-tower/preset-reviewer'])
+  assert.deepEqual(PRESET_SPECIFIERS, ['dsh-tower/preset-worker', 'dsh-tower/preset-reviewer', 'dsh-tower/preset-survey'])
   const labels = {
     'dsh-tower/preset-worker': {
       title: { en: 'Tower Worker preset', zh: 'Tower Worker 预设' },
@@ -174,6 +176,10 @@ test('the two preset rows resolve distinct Plugins-page labels', () => {
     'dsh-tower/preset-reviewer': {
       title: { en: 'Tower Reviewer preset', zh: 'Tower Reviewer 预设' },
       description: { en: 'Declares the Tower Reviewer preset: read-only review. When off: nothing reviews.', zh: '声明 Tower Reviewer 预设：只读审查。关闭后：没有审查。' },
+    },
+    'dsh-tower/preset-survey': {
+      title: { en: 'Tower Survey preset', zh: 'Tower Survey 预设' },
+      description: { en: 'Declares the Tower Survey preset: read-only inspection of one commit. When off: surveys cannot be planned.', zh: '声明 Tower Survey 预设：只读勘察一个提交。关闭后：无法规划勘察。' },
     },
   }
   assert.deepEqual(checkPresetLabels(labels), [])

@@ -37,7 +37,7 @@ const LEGACY_KEYS = ['section', 'allowAgentControl']
 // #121: the `tools` group is gone. Every capability that used to be a
 // `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
 // component row is the switch. What remains here is genuine tuning policy.
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
+const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'survey', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
 
 const SECTION_KEYS = {
   init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
@@ -65,16 +65,19 @@ const SECTION_KEYS = {
   spawn: [
     'workerPreset',
     'reviewerPreset',
+    'surveyPreset',
     'maxDepth',
     'provider',
     'workerModel',
     'reviewerModel',
+    'surveyModel',
     'maxLiveWorkers',
     'staleMs',
     'maxWaitMs',
     'requireLease',
   ],
   send: ['maxPerMinute', 'interruptDefault'],
+  survey: ['sandbox'],
   tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
   docs: ['boardLocation'],
@@ -216,12 +219,14 @@ export const Config = Schema.object({
     .default({})
     .description('Worktree placement.'),
   spawn: Schema.object({
-    workerPreset: Schema.string().default('tower-worker').description('Agent preset for worker missions.'),
+    workerPreset: Schema.string().default('tower-worker').description('Agent preset for build workers.'),
     reviewerPreset: Schema.string().default('tower-reviewer').description('Agent preset for reviewers.'),
+    surveyPreset: Schema.string().default('tower-survey').description('Agent preset for survey workers: the Tower-owned read-only allow-list preset.'),
     maxDepth: Schema.natural().min(1).default(1).description('Subagent depth requested when spawning tower agents.'),
     provider: Schema.string().description('Subagent provider id; empty picks spawn, then the first registered provider.'),
     workerModel: ModelSchema().description('Model route for workers; omitted inherits the parent session.'),
     reviewerModel: ModelSchema().description('Model route for reviewers; omitted inherits the parent session (recommended).'),
+    surveyModel: ModelSchema().description('Model route for survey workers; omitted inherits the parent session.'),
     maxLiveWorkers: Schema.natural()
       .min(1)
       .max(64)
@@ -251,6 +256,13 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Message delivery policy.'),
+  survey: Schema.object({
+    sandbox: Schema.union(['none', 'detached'])
+      .default('none')
+      .description('none = a survey reads the shared checkout; detached = show it a disposable detached worktree at the read commit. A survey never writes, commits, or merges either way.'),
+  })
+    .default({})
+    .description('Survey read placement. Whether surveys can be planned at all is the tower-survey component row.'),
   tests: Schema.object({
     // #136: no `enabled` switch. The `tower-tests` component row *is* the
     // switch; a second boolean could only disagree with it, and a row-off
@@ -408,7 +420,7 @@ export function assertKnownKeys(raw, label) {
   if (unknown.length > 0) {
     throw new TowerToolError(
       'config-unknown-key',
-      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, archive?, leases?, dev? }`,
+      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, survey?, tests?, gates?, docs?, archive?, leases?, dev? }`,
     )
   }
   for (const [group, allowed] of Object.entries(SECTION_KEYS)) {
@@ -428,6 +440,9 @@ export function assertKnownKeys(raw, label) {
     }
     if ((group === 'spawn') && value.reviewerModel && typeof value.reviewerModel === 'object') {
       assertModelKeys(value.reviewerModel, `${label} spawn.reviewerModel`)
+    }
+    if ((group === 'spawn') && value.surveyModel && typeof value.surveyModel === 'object') {
+      assertModelKeys(value.surveyModel, `${label} spawn.surveyModel`)
     }
   }
 }
@@ -509,6 +524,7 @@ export function resolveTowerConfig(rawConfig) {
     worktrees: clone(parsed.worktrees ?? {}),
     spawn: clone(parsed.spawn ?? {}),
     send: clone(parsed.send ?? {}),
+    survey: clone(parsed.survey ?? {}),
     tests: clone(parsed.tests ?? {}),
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),

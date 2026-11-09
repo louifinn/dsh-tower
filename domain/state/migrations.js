@@ -12,6 +12,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { SCHEMA_VERSION } from '../mission.js'
+import { SHAPE_KINDS, shapeFor } from '../shapes/index.js'
 
 /** @typedef {{ from: number, to: number, migrate: (state: Record<string, any>) => Record<string, any> }} StateMigration */
 
@@ -57,10 +58,33 @@ export function migrateV2ToV3(state) {
   return { ...state, caseInsensitive: null }
 }
 
+/**
+ * v3 -> v4. Mission state becomes per-shape (#149). Every mission is stamped with
+ * its kind; a legacy branch-shaped survey keeps the commit it read (the
+ * worktree's base commit) and drops the worktree/branch/merge fields it no
+ * longer owns. Build missions keep their document unchanged.
+ *
+ * The step is pure and one-way. Re-running it on a v4 document is a fixed point:
+ * every mission already has a kind, so the same shape migration rewrites it to
+ * the same values.
+ * @param {Record<string, any>} state
+ * @returns {Record<string, any>}
+ */
+export function migrateV3ToV4(state) {
+  const next = { ...state }
+  next.missions = (Array.isArray(next.missions) ? next.missions : []).map((mission) => {
+    if (!isPlainObject(mission)) return mission
+    const shape = SHAPE_KINDS.map((kind) => shapeFor(kind)).find((candidate) => candidate.isLegacy(mission))
+    return shape ? shape.migrateLegacy(mission) : mission
+  })
+  return next
+}
+
 /** Ordered registry: entry 0 moves 1 -> 2, entry 1 moves 2 -> 3, and so on. */
 export const STATE_MIGRATIONS = Object.freeze([
   Object.freeze({ from: 1, to: 2, migrate: migrateV1ToV2 }),
   Object.freeze({ from: 2, to: 3, migrate: migrateV2ToV3 }),
+  Object.freeze({ from: 3, to: 4, migrate: migrateV3ToV4 }),
 ])
 
 /**

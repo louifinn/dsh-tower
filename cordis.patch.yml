@@ -110,3 +110,27 @@
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:
               sampleOverCapGlobResults: false
+    # #148 D7: the read-only survey preset is its own optional row. Off means a
+    # survey cannot be planned (tower_plan refuses with an actionable code) and a
+    # survey cannot be dispatched; build missions are unaffected. Read-only is
+    # structural: the preset allow-list has no write, edit, or shell tool.
+    - id: tower-survey
+      name: 'dsh-tower/preset-survey'
+      config:
+        id: tower-survey
+        name: Tower Survey
+        description: Read-only inspection of one recorded commit in the shared checkout.
+        order: 62
+        plugins:
+          - id: tower-survey-policy
+            name: 'dsh-tower/survey'
+          - id: tower-survey-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+              readImage: false
+          - id: tower-survey-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false

@@ -3,6 +3,8 @@
 import { TowerToolError } from '../domain/errors.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
+import { shapeFor } from '../domain/shapes/index.js'
+import { isReviewerRole, isWorkerRole } from '../domain/vocabulary.js'
 
 /**
  * Pick a unique roster name before any activation.
@@ -34,11 +36,18 @@ export function resolveRosterName({ role, missionId, requested, roster }) {
  * @param {{ role: string, context: any, config?: any }} input
  */
 export function assertSpawnableMission({ role, context, config }) {
-  if (role === 'reviewer') {
+  const shape = shapeFor(context.mission.kind)
+  if (isReviewerRole(role)) {
     if (reviewUnavailable(config)) {
       throw new TowerToolError(
         'review-disabled',
         'review.mode is off, so review is unavailable and a reviewer cannot be spawned',
+      )
+    }
+    if (!shape.canMerge) {
+      throw new TowerToolError(
+        'invalid-transition',
+        `mission ${context.mission.id} is a ${shape.kind}: it has no branch to review and is never reviewed`,
       )
     }
     if (!context.mission.worktree) {
@@ -48,7 +57,7 @@ export function assertSpawnableMission({ role, context, config }) {
       throw new TowerToolError('reviewer-prerequisite', `reviewer requires a completed mission; ${context.mission.id} is ${context.mission.status}`)
     }
   }
-  if (role === 'worker' && ['merged', 'abandoned'].includes(context.mission.status)) {
+  if (isWorkerRole(role) && !shape.spawn.missionStatuses.includes(context.mission.status)) {
     throw new TowerToolError(
       'invalid-transition',
       `mission ${context.mission.id} is ${context.mission.status}; a worker can only be spawned for a planned or active mission`,
@@ -83,10 +92,16 @@ export async function precheckWorkerOwnership({
   observeActivity,
 }) {
   let effectiveTakeover = takeover === true
-  if (role !== 'worker') return effectiveTakeover
+  if (!isWorkerRole(role)) return effectiveTakeover
+  // #148: a read-only survey worker must not consume a build worker slot, but
+  // the single-owner rule still applies to every worker entry.
+  const state = await tower.load()
+  const kinds = new Map(state.missions.map((entry) => [entry.id, entry.kind]))
+  const budgeted = (entry) => shapeFor(kinds.get(entry.missionId)).spawn.countsTowardWorkerBudget !== false
   const liveWorkers = view.roster.filter(
-    (entry) => entry.role === 'worker' && !ROSTER_INACTIVE_STATES.includes(entry.state),
+    (entry) => isWorkerRole(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state),
   )
+  const budgetWorkers = liveWorkers.filter(budgeted)
   const sameMission = liveWorkers.filter((entry) => entry.missionId === missionId)
   if (sameMission.length > 1) {
     throw new TowerToolError(
@@ -128,7 +143,7 @@ export async function precheckWorkerOwnership({
     }
   }
   const replacing = effectiveTakeover ? sameMission : []
-  const remaining = liveWorkers.filter((entry) => !replacing.includes(entry))
+  const remaining = budgetWorkers.filter((entry) => !replacing.includes(entry))
   const max = Math.min(Number(maxLiveWorkers) || 4, budget)
   if (remaining.length >= max) {
     throw new TowerToolError(

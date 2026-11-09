@@ -7,6 +7,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { ROSTER_INACTIVE, countLiveWorkers, workerEntries } from '../roster.js'
+import { isWorkerRole } from '../roles.js'
 import { clearStale } from './roster.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -20,13 +21,7 @@ function fail(message) {
   throw new TowerToolError('invalid-argument', message)
 }
 
-/**
- * @param {unknown} role
- * @returns {boolean}
- */
-export function isWorkerRole(role) {
-  return role === 'worker'
-}
+export { isWorkerRole } from '../roles.js'
 
 /**
  * The configured live-worker ceiling, defaulting to four.

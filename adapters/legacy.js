@@ -12,6 +12,7 @@
 import { fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { isShapeKind } from '../domain/shapes/index.js'
 
 const SCHEMA_VERSION = 1
 const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
@@ -163,7 +164,7 @@ function validateMissions(payload, format) {
     if (typeof mission.status !== 'string' || !statuses.includes(mission.status)) {
       return { error: `mission ${mission.id} has unknown status ${JSON.stringify(mission.status)}`, missions: [], missionIds: [], paused: [] }
     }
-    if (mission.kind !== undefined && mission.kind !== 'build' && mission.kind !== 'survey') {
+    if (mission.kind !== undefined && !isShapeKind(mission.kind)) {
       return { error: `mission ${mission.id} has unknown kind ${JSON.stringify(mission.kind)}`, missions: [], missionIds: [], paused: [] }
     }
     for (const problem of [

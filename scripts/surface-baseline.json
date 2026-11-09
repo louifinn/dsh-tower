@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 54,
+      "value": 57,
       "decisions": [
         {
           "from": 64,
@@ -19,13 +19,28 @@
           "date": "2026-11-03",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "#M39: one new key, review.mode (off/optional/required), replaces the deprecated review.requireReview boolean as the review policy. It is not a fifth component row: the reviewer preset row stays a capability, and the mode decides whether it is required (required) or unused (off). review.requireReview remains accepted for one release as a normalized alias, so it is a deprecated key rather than a removed one and the surface grows by exactly one."
+        },
+        {
+          "from": 54,
+          "to": 57,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149: the shape redesign adds the survey routing keys spawn.surveyPreset (core) and spawn.surveyModel (tuning), plus survey.sandbox (tuning) in the new survey section. tower-survey is the capability row; the preset/model names only route the read-only agent."
         }
       ]
     },
     "sections": {
       "seed": 15,
-      "value": 14,
-      "decisions": []
+      "value": 15,
+      "decisions": [
+        {
+          "from": 15,
+          "to": 15,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149 restore the section count to its seed: survey.sandbox needs a home, so the survey section returns the 15 sections that #121 shrank to 14. Net zero against the seed; no other section changed."
+        }
+      ]
     },
     "tools": {
       "seed": 27,
@@ -45,7 +60,7 @@
     },
     "components": {
       "seed": 4,
-      "value": 11,
+      "value": 12,
       "decisions": [
         {
           "from": 4,
@@ -81,6 +96,13 @@
           "date": "2026-11-02",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "#134: the gate reads every shipped cordis.patch.yml, so the tower-ui row in ui-bundle/cordis.patch.yml joins the counted surface. The row was always shipped and unclassified; counting it is not new surface, it is the existing surface becoming visible to the policy."
+        },
+        {
+          "from": 11,
+          "to": 12,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149: tower-survey is a visible optional row: off means surveys cannot be planned and no survey agent is dispatched; build missions are unaffected."
         }
       ]
     }

@@ -54,6 +54,7 @@ const SURFACES = [
   'git',
   'worktrees',
   'spawn',
+  'survey',
   'send',
   'tests',
   'gates',
@@ -99,7 +100,7 @@ runProperty({
   arbitrary: configArb,
   predicate: (raw) => {
     const resolved = resolve(raw)
-    assert.deepEqual(Object.keys(resolved).sort(), [...SURFACES].sort(), 'resolution must expose exactly the 15 surfaces')
+    assert.deepEqual(Object.keys(resolved).sort(), [...SURFACES].sort(), 'resolution must expose exactly the 16 surfaces')
     assert.equal(typeof resolved.section, 'string', 'section is always a string')
     assert.equal(typeof resolved.mode, 'object', 'mode is always an object')
     assert.ok(resolved.mode !== null && !Array.isArray(resolved.mode))

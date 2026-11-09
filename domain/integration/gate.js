@@ -3,6 +3,7 @@
 // performs every read and owns the result assembly.
 // @ts-check
 import { caseInsensitiveScopeMatch, fileInScope } from '../scope.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -59,21 +60,6 @@ export function staleBaseBlocker({ branch, base, baseTip }) {
 
 /**
  * @param {object} input
- * @param {string} input.missionId
- * @param {string[]} input.changedFiles
- * @returns {Blocker | null}
- */
-export function surveyChangedFilesBlocker({ missionId, changedFiles }) {
-  return changedFiles.length > 0
-    ? {
-        code: 'read-only-survey',
-        detail: `survey ${missionId} is read-only but ${changedFiles.length} file(s) changed: ${changedFiles.slice(0, 5).join(', ')}`,
-      }
-    : null
-}
-
-/**
- * @param {object} input
  * @param {Mission} input.mission
  * @param {string[]} input.changedFiles
  * @param {boolean} [input.caseInsensitive] the checkout's detected comparison mode
@@ -124,18 +110,16 @@ export function baseDirtyBlocker(wouldOverwrite) {
 }
 
 /**
- * Whether a dependency already satisfies the gate. A build mission must be
- * merged (or abandoned), but a survey is terminal-success at `completed`: it is
- * read-only and has no branch to merge, so requiring `merged` would keep the
- * dependent mission blocked forever (#107). Archived entries carry `kind` for
- * the same decision.
+ * Whether a dependency already satisfies the gate. Each shape owns the answer:
+ * a build dependency must be merged (or abandoned), a survey dependency is
+ * terminal-success at `completed` (it has no branch to merge). Archived entries
+ * carry `kind` for the same decision.
  * @param {{ kind?: string, status?: string } | null | undefined} dep
  * @returns {boolean}
  */
 export function dependencySatisfied(dep) {
-  if (!dep) return false
-  if (dep.status === 'merged' || dep.status === 'abandoned') return true
-  return dep.kind === 'survey' && dep.status === 'completed'
+  if (!dep || typeof dep.status !== 'string') return false
+  return shapeFor(dep.kind).dependencySatisfied(/** @type {any} */ (dep))
 }
 
 /**

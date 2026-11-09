@@ -3,7 +3,7 @@
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 32 个稳定 blocker/failure code。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 31 个稳定 blocker/failure code。
 
 下列审查 blocker（`no-review`、`review-mission-mismatch`、`not-clean`、`review-hold`、
 `review-not-approved`、`tip-moved`、`review-exemption-invalid`）只在 `review.mode` 为 `required`
@@ -20,7 +20,6 @@
 | `no-check-evidence` | 启用了 `gates.requireChecks` 且完成报告没有 `checks`。把 completed mission 退回 `active`，带 checks 重新调用 `tower_complete`，然后重新审查。 |
 | `branch-missing` | 还没有 worktree/分支：先 spawn worker。 |
 | `stale-base` | 分支不包含基线 tip：执行 `tower_rebase`。 |
-| `read-only-survey` | survey mission 修改了文件；survey mission 必须只读。 |
 | `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。在大小写敏感的检出上，仅大小写不同的路径仍会被拒绝，detail 会指出折叠大小写后本可匹配的 scope 条目。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未满足：build 依赖须 `merged`/`abandoned`；survey 依赖在 `completed` 即视为满足（含归档记录）。 |
@@ -63,4 +62,4 @@
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 32 个（26 个门禁 + 4 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 31 个（25 个门禁 + 4 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。

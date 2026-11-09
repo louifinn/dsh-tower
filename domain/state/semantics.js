@@ -1,12 +1,9 @@
-// Semantic state-file checks (#56 P4).
-//
-// `stateShapeError` proves the structural contract; this module owns the policy
-// the shape cannot express: unique ids, status/verdict vocabularies, the review
-// exemption, roster/agent uniqueness, worktree records and the revision
-// counter. Messages keep the historical `[tower:state-corrupt]` wording.
+// State semantics that a structural schema cannot express: uniqueness,
+// status vocabularies, review exemption and per-kind mission fields (#149).
 // @ts-check
+import { FINDING_STATUSES, MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 import { TowerToolError } from '../errors.js'
-import { FINDING_STATUSES, MERGE_VERDICTS, MISSION_STATUSES, REVIEW_STATUS_RE } from '../mission.js'
+import { isShapeKind, shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
@@ -19,11 +16,39 @@ function fail(message) {
 }
 
 /**
- * @param {unknown} value
- * @returns {boolean}
+ * A build mission may carry a worktree/branch/merge projection; a survey may
+ * not, and carries the read fingerprint instead. The shape declares which
+ * dimensions its document owns, so this module never compares kinds.
+ * @param {Record<string, any>} mission
+ * @param {string} where
+ * @returns {void}
  */
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+function assertMissionShapeFields(mission, where) {
+  if (!isShapeKind(mission.kind)) {
+    fail(`mission ${mission.id} has unknown kind ${String(mission.kind)}${where}`)
+  }
+  const shape = shapeFor(mission.kind)
+  if (!shape.fields.worktree) {
+    if (mission.worktree !== undefined && mission.worktree !== null) {
+      fail(`mission ${mission.id} is a ${shape.kind} and may not have a worktree record${where}`)
+    }
+    for (const key of ['branch', 'baseCommit', 'mergedCommit', 'mergedAt']) {
+      if (mission[key] !== undefined && mission[key] !== null) {
+        fail(`mission ${mission.id} is a ${shape.kind} and may not have ${key}${where}`)
+      }
+    }
+  }
+  if (shape.fields.readCommit) {
+    if (typeof mission.readCommit !== 'string' || mission.readCommit.length === 0) {
+      fail(`mission ${mission.id} is a ${shape.kind} and needs a readCommit${where}`)
+    }
+    if (mission.readDirty === undefined) return
+    if (!Array.isArray(mission.readDirty) || mission.readDirty.some((entry) => typeof entry !== 'string')) {
+      fail(`mission ${mission.id} has an invalid readDirty fingerprint${where}`)
+    }
+  } else if (mission.readCommit !== undefined || mission.readDirty !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not have readCommit/readDirty${where}`)
+  }
 }
 
 /**
@@ -43,6 +68,14 @@ function assertWorktreeRecord(mission, where) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
  * @param {unknown} state
  * @param {string} where
  * @returns {TowerState}
@@ -56,8 +89,9 @@ export function assertStateSemantics(state, where) {
   for (const mission of record.missions) {
     if (missionIds.has(mission.id)) fail(`duplicate mission id ${mission.id}${where}`)
     missionIds.add(mission.id)
-    if (!MISSION_STATUSES.includes(mission.status)) {
-      fail(`mission ${mission.id} has unknown status ${mission.status}${where}`)
+    const shape = shapeFor(mission.kind)
+    if (!shape.statuses.includes(mission.status)) {
+      fail(`mission ${mission.id} has unknown status ${mission.status} for a ${shape.kind} mission${where}`)
     }
     if (mission.reviewPolicy !== undefined && !['required-clean', 'none'].includes(mission.reviewPolicy)) {
       fail(`mission ${mission.id} has unknown reviewPolicy ${mission.reviewPolicy}${where}`)
@@ -65,6 +99,7 @@ export function assertStateSemantics(state, where) {
     if (mission.reviewPolicy === 'none' && !String(mission.reviewExemptionReason ?? '').trim()) {
       fail(`mission ${mission.id} has reviewPolicy none without a reason${where}`)
     }
+    assertMissionShapeFields(mission, where)
     assertWorktreeRecord(mission, where)
   }
   if (record.roster !== undefined) {

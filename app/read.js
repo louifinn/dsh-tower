@@ -1,5 +1,6 @@
 // Read-only dashboard/detail use cases.
 import { TowerToolError } from '../domain/errors.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
 import { diffView, missionDetailView, statusView } from '../domain/read/views.js'
 import { archiveView, archivedSummary } from './archive.js'
 
@@ -91,6 +92,7 @@ export async function diff(tower, input = {}) {
   const state = await tower.load()
   const mission = state.missions.find((entry) => entry.id === input.missionId)
   if (!mission) fail(`unknown mission "${input.missionId}"`, 'mission-not-found')
+  assertActionSupported(mission, 'diff')
   if (!mission.worktree) fail(`mission ${mission.id} has no worktree to diff`)
   await tower.assertWorktree(mission.worktree)
   const baseTip = await tower.revParse(tower.root, state.base)

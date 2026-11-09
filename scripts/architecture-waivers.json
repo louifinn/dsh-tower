@@ -1,7 +1,6 @@
 {
   "$comment": "Justified architecture-gate exemptions (#80). Every entry needs rule, path, reason, and owner or ref. Scripts/architecture.mjs fails with waiver-contract when an entry is not justified. domain-pure, host-scope and no-lib-from-core cannot be waived at all, and domain/** accepts no waiver. Since #70 the retired lib/ layer has no waivers: host/** owns ambient state by rule, and only the two I/O adapters below are exempt.",
-  "waivers": [
-    {
+  "waivers": [    {
       "rule": "child-process-surface",
       "path": "adapters/vcs-git.js",
       "reason": "The git adapter is the single process-spawning boundary; no other module implements VcsPort with a child process.",
@@ -15,5 +14,6 @@
       "owner": "louifinn",
       "ref": "#50"
     }
-  ]
+  ],
+  "shapeWaivers": []
 }

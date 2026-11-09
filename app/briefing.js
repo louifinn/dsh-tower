@@ -1,4 +1,5 @@
 // Mission briefings: pure text builders for worker/reviewer prompts.
+import { shapeFor } from '../domain/shapes/index.js'
 
 function clip(text, max = 2000) {
   const value = String(text ?? '')
@@ -17,13 +18,22 @@ export function workerBriefing({
   completionReport = null,
 }) {
   const completion = /** @type {import('../types/index.js').CompletionReport | null} */ (completionReport)
+  const shape = shapeFor(mission.kind)
+  const cwd = worktree?.path ?? repoRoot
   const lines = []
   lines.push(`# Tower mission ${mission.id} — ${mission.title}`)
   lines.push('')
   lines.push(`You are the tower worker for mission ${mission.id} in repository ${repoRoot}.`)
   lines.push('')
-  lines.push(`Work ONLY in this git worktree: ${worktree.path}`)
-  lines.push(`Branch: ${worktree.branch} (based on ${base} @ ${String(worktree.baseCommit).slice(0, 12)})`)
+  lines.push(
+    ...shape.briefing(mission, {
+      repoRoot,
+      base,
+      worktree,
+      readCommit: /** @type {string | undefined} */ (mission.readCommit),
+      readDirty: mission.readDirty,
+    }),
+  )
   lines.push('')
   lines.push(`Kind: ${mission.kind}`)
   lines.push(
@@ -57,6 +67,11 @@ export function workerBriefing({
       for (const check of completion.checks ?? []) lines.push(`- ${check.name}${check.exitCode !== undefined ? ` (exit ${check.exitCode})` : ''}`)
     }
   }
+  if (mission.result) {
+    lines.push('')
+    lines.push('Recorded evidence (from a previous completion):')
+    lines.push(`- ${JSON.stringify(mission.result)}`)
+  }
   if (reviews.length > 0) {
     lines.push('')
     lines.push('Previous review rounds for this branch (newest first) — address every finding:')
@@ -73,14 +88,23 @@ export function workerBriefing({
   }
   lines.push('')
   lines.push('Rules:')
-  lines.push(`- Pass workdir="${worktree.path}" on every shell command; never edit the main checkout.`)
+  lines.push(`- Pass workdir="${cwd}" on every shell command; never edit the main checkout.`)
   lines.push('- Stay inside the declared scope; out-of-scope changes are rejected later.')
-  lines.push('- Commit your work on the mission branch. Do not merge, push, or spawn other agents.')
+  if (shape.fields.worktree) {
+    lines.push('- Commit your work on the mission branch. Do not merge, push, or spawn other agents.')
+  } else {
+    lines.push(
+      '- Make no commits: this mission reads one fixed commit. Do not write, edit, merge, push, rebase, or spawn other agents.',
+    )
+  }
   lines.push(
     `- Update progress: tower_mission({repoRoot:"${repoRoot}",id:"${mission.id}",task_done:"..."}) or blocker:"...".`,
   )
+  const resultHint = shape.acceptsResult
+    ? ' Optionally record evidence as result:{paths?:string[],symbols?:string[],notes?:string}.'
+    : ''
   lines.push(
-    `- When the work is finished and every task is closed, call tower_complete({repoRoot:"${repoRoot}",missionId:"${mission.id}",report:"<full handoff>",checks:[{name,command,exitCode,evidence}]}). Unread inbox messages block completion, so read them with tower_inbox first.`,
+    `- When the work is finished and every task is closed, call tower_complete({repoRoot:"${repoRoot}",missionId:"${mission.id}",report:"<full handoff>",checks:[{name,command,exitCode,evidence}]}).${resultHint} Unread inbox messages block completion, so read them with tower_inbox first.`,
   )
   lines.push('- Your final message is the full handoff: files changed, how you verified, what remains.')
   if (instructions) {

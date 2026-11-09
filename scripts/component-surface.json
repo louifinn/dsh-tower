@@ -91,6 +91,12 @@
       "fallback": "Declared by dsh-tower/preset-reviewer: the reviewer cannot be dispatched. Supported while review.mode is off or optional (merge is unaffected; off does not use the preset at all); with review.mode required, planning/mode entry is locked with an explanatory error."
     },
     {
+      "id": "tower-survey",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "Declared by dsh-tower/preset-survey: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent is dispatched. Build missions and every existing capability are unaffected; survey.sandbox keeps its tuning meaning."
+    },
+    {
       "id": "tower-ui",
       "scope": "visible",
       "kind": "row",
@@ -268,6 +274,11 @@
       "note": "Chooses the read-only reviewer surface; a dependency, never a switch."
     },
     {
+      "name": "spawn.surveyPreset",
+      "class": "core",
+      "note": "Chooses the read-only survey surface; a dependency of the optional tower-survey row, never a switch."
+    },
+    {
       "name": "spawn.maxDepth",
       "class": "optional-config",
       "note": "Subagent depth requested at spawn."
@@ -286,6 +297,11 @@
       "name": "spawn.reviewerModel",
       "class": "optional-config",
       "note": "Optional independent model route for reviewers."
+    },
+    {
+      "name": "spawn.surveyModel",
+      "class": "optional-config",
+      "note": "Optional model route for survey workers."
     },
     {
       "name": "spawn.maxLiveWorkers",
@@ -317,6 +333,11 @@
       "name": "send.maxPerMinute",
       "class": "optional-config",
       "note": "Message rate limit; zero disables it."
+    },
+    {
+      "name": "survey.sandbox",
+      "class": "optional-config",
+      "note": "none = read the shared checkout; detached = show the survey a disposable detached worktree. Tuning inside the optional tower-survey row, not a capability switch."
     },
     {
       "name": "send.interruptDefault",
@@ -423,21 +444,31 @@
       "capability": "the Tower host",
       "reason": "Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it. The visible `tower` anchor is the all-off boundary, and the host section nested under it may never become its own switch.",
       "tools": [],
-      "rowIds": ["tower-host"]
+      "rowIds": [
+        "tower-host"
+      ]
     },
     {
       "id": "health",
       "capability": "tower_doctor (read-only health contract)",
       "reason": "Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the tool is registered for every configuration.",
-      "tools": ["tower_doctor"],
-      "rowIds": ["tower-doctor"]
+      "tools": [
+        "tower_doctor"
+      ],
+      "rowIds": [
+        "tower-doctor"
+      ]
     },
     {
       "id": "recovery",
       "capability": "tower_recover (stale state-lock escape)",
       "reason": "The escape hatch must exist whenever the lock it repairs can be left behind. #122 removed exposeRecovery and the exposeOperational master switch; the tool is registered for every configuration.",
-      "tools": ["tower_recover"],
-      "rowIds": ["tower-recover"]
+      "tools": [
+        "tower_recover"
+      ],
+      "rowIds": [
+        "tower-recover"
+      ]
     },
     {
       "id": "review",
@@ -445,15 +476,30 @@
       "reason": "The policy is one tri-state configuration control on the plugin-page form, not a component row: review.mode is off, optional (default) or required, and off is a documented mode that removes tower_review and makes the merge gate ignore review. What no group, row or boolean key may switch off is the gate once the mode is required: a completed mission still needs a clean review bound to the branch tip, and the exemption path stays explicit. review.requireReview is a deprecated one-release alias, not a switch. The reviewer preset row remains a capability the policy may leave unused, never a way to weaken required mode.",
       "tools": [],
       "rowIds": [],
-      "gatedBy": ["review.mode", "review.maxRoundsPerReviewer", "gates.allowReviewExemption"]
+      "gatedBy": [
+        "review.mode",
+        "review.maxRoundsPerReviewer",
+        "gates.allowReviewExemption"
+      ]
     },
     {
       "id": "merge-gates",
       "capability": "the merge gates",
       "reason": "gates.* decides delivery; a component may not bypass it.",
-      "tools": ["tower_complete", "tower_merge"],
-      "rowIds": ["tower-gates", "tower-merge-gates"],
-      "gatedBy": ["gates.requireChecks", "gates.requireTests", "gates.allowReviewExemption", "gates.maxReportBytes"]
+      "tools": [
+        "tower_complete",
+        "tower_merge"
+      ],
+      "rowIds": [
+        "tower-gates",
+        "tower-merge-gates"
+      ],
+      "gatedBy": [
+        "gates.requireChecks",
+        "gates.requireTests",
+        "gates.allowReviewExemption",
+        "gates.maxReportBytes"
+      ]
     }
   ]
 }

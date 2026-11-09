@@ -2,14 +2,14 @@
 
 `tower_preflight` returns `{ok:false, blockers:[{code, detail}]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
-tables below define 32 stable blocker/failure codes.
+tables below define 31 stable blocker/failure codes.
 
 The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`,
 `review-not-approved`, `tip-moved`, `review-exemption-invalid`) exist only when `review.mode` is
 `required`. With `off` or `optional` no review blocker is produced; `off` additionally removes
 `tower_review` and refuses reviewer spawn.
 
-## Gate blockers (26)
+## Gate blockers (25)
 
 | Code | Meaning / next action |
 |---|---|
@@ -20,7 +20,6 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `no-check-evidence` | `gates.requireChecks` is enabled and the completion report has no `checks`. Return the completed mission to `active`, re-run `tower_complete` with checks, then review again. |
 | `branch-missing` | No worktree/branch yet: spawn a worker first. |
 | `stale-base` | The branch does not contain the base tip: run `tower_rebase`. |
-| `read-only-survey` | Survey mission changed files; survey missions must be read-only. |
 | `out-of-scope` | Changed files outside the mission scope; widen scope deliberately or revert. On a case-sensitive checkout a case-only mismatch is still rejected and the detail names the scope entry it would match if case were folded. |
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
 | `deps-unmerged` | A dependency mission is not satisfied: a build dependency must be `merged`/`abandoned`, while a survey dependency is satisfied at `completed` (archived entries included). |

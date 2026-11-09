@@ -59,6 +59,11 @@
       "summary": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Usable while review before merging is optional; a precondition for merging once review before merging is required.",
       "disables": "The reviewer cannot be started. That is supported while review before merging is optional; once review before merging is required, planning and entering Tower mode are refused with an explanation."
     },
+    "tower-survey": {
+      "title": "Tower Survey preset",
+      "summary": "Read-only inspection of one recorded commit in the shared checkout: read, glob, grep, skill, and the Tower mission/status/finding/complete tools. A survey has no branch, worktree, commit, or merge, and completes with zero commits.",
+      "disables": "Surveys cannot be planned (planning one is refused with an actionable code) and no survey agent can be dispatched. Build missions and every other capability keep working; survey.sandbox keeps its tuning meaning."
+    },
     "tower-ui": {
       "title": "Tower UI",
       "summary": "Adds Tower cards for tool results, a compact status summary above the message box, and a short status strip, in the web client.",

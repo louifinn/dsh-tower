@@ -7,6 +7,7 @@
 import { TowerToolError } from '../errors.js'
 import { reviewedEvent } from '../events.js'
 import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
+import { isReviewerRole } from '../roles.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
@@ -47,7 +48,7 @@ export function resolveReviewActor({ mission, caller, actorRole, agentId, breakG
     return { reviewerName: 'tower', reviewerRole: 'tower' }
   }
   if (caller) {
-    if (caller.role !== 'reviewer') {
+    if (!isReviewerRole(caller.role)) {
       fail(`agent ${caller.name} is a ${caller.role}; only an assigned reviewer or the tower (break-glass) may review`)
     }
     if (caller.missionId !== mission.id) {
@@ -99,10 +100,10 @@ export function normalizeReviewVerdict(input) {
  * @returns {void}
  */
 export function assertReviewerSpawnTip(caller, tip) {
-  if (caller && caller.role === 'reviewer' && !String(caller.spawnTip ?? '').trim()) {
+  if (caller && isReviewerRole(caller.role) && !String(caller.spawnTip ?? '').trim()) {
     fail(`reviewer ${caller.name} has no recorded spawn tip; re-spawn the reviewer before reviewing`)
   }
-  if (caller && caller.role === 'reviewer' && caller.spawnTip !== tip) {
+  if (caller && isReviewerRole(caller.role) && caller.spawnTip !== tip) {
     fail(
       `reviewer ${caller.name} modified the mission branch after it was spawned (${String(caller.spawnTip).slice(0, 7)} -> ${tip.slice(0, 7)}); reviewers must be read-only — spawn a fresh reviewer`,
     )

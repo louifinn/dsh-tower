@@ -11,7 +11,7 @@
 // writing the files, and the lock that makes them atomic with state.json, live
 // in `adapters/archive.js` and `app/archive.js`.
 // @ts-check
-import { isTerminal } from '../mission.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Finding} Finding */
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -85,7 +85,7 @@ export function selectForArchive(missions, policy = {}, options = {}) {
   const afterDays = Number.isFinite(policy?.afterDays) ? /** @type {number} */ (policy.afterDays) : 30
   const maxMissions = Number.isFinite(policy?.maxMissions) ? /** @type {number} */ (policy.maxMissions) : 100
   const eligible = missions.filter(
-    (mission) => isTerminal(mission.status) && !hasLiveWorktree(mission) && !protectedIds.has(mission.id),
+    (mission) => shapeFor(mission.kind).isTerminal(mission.status) && !hasLiveWorktree(mission) && !protectedIds.has(mission.id),
   )
   if (eligible.length === 0) return []
   if (options.force === true) return eligible

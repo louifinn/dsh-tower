@@ -12,7 +12,7 @@ export function registerPreflightTool(ctx, deps) {
   define(ctx, {
     name: 'tower_preflight',
     description:
-      'Read-only merge gate for one mission: returns ok plus stable blocker codes (branch-missing, deps-unmerged, read-only-survey, stale-base, out-of-scope, base-dirty, branch-owned-by-closed-missions, and mission/worker guards). Review blockers (no-review, review-hold, not-clean, review-not-approved, tip-moved, review-mission-mismatch) apply only when review.mode is required; review.mode off and optional skip them. Never changes anything.',
+      'Read-only merge gate for one mission: returns ok plus stable blocker codes (branch-missing, deps-unmerged, stale-base, out-of-scope, base-dirty, branch-owned-by-closed-missions, and mission/worker guards). Review blockers (no-review, review-hold, not-clean, review-not-approved, tip-moved, review-mission-mismatch) apply only when review.mode is required; review.mode off and optional skip them. A survey has no merge gate: it is refused with invalid-transition (tower_complete checks HEAD, tracked files and zero commits). Never changes anything.',
     parameters: PreflightInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
@@ -20,7 +20,7 @@ export function registerPreflightTool(ctx, deps) {
     async execute(args) {
       const tower = await deps.openTower(args.repoRoot)
       const { activity, parentStatus } = await observeActivity(ctx, tower)
-      const gate = await tower.evaluateGate({ missionId: args.missionId, activity, parentStatus })
+      const gate = await tower.evaluateGate({ missionId: args.missionId, activity, parentStatus, action: 'preflight' })
       return {
         ok: gate.ok,
         blockers: gate.blockers,

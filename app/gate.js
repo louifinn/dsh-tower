@@ -3,6 +3,7 @@ import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { completionBlockers, mergeGateBlockers } from '../domain/gate.js'
 import { fullMission } from '../domain/summary.js'
 import { latestReview, reviewsForBranch } from '../domain/integration/review.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
 import {
   baseDirtyBlocker,
   baseWrongBranchBlocker,
@@ -14,7 +15,6 @@ import {
   outOfScopeBlocker,
   overwrittenPaths,
   staleBaseBlocker,
-  surveyChangedFilesBlocker,
 } from '../domain/integration/gate.js'
 
 export async function evaluateGate(tower, input) {
@@ -31,6 +31,9 @@ export async function evaluateGate(tower, input) {
       }
     }
     if (!mission) return missingMissionGateResult(input.missionId)
+    // A shape without a branch has no merge gate at all; refuse before doing
+    // any git work so the caller gets one actionable code (#148 D4).
+    assertActionSupported(mission, input.action === 'merge' ? 'merge' : 'preflight')
     const archiveIndex = await tower.archiveIndex()
     const archivedMissions = new Map(
       (archiveIndex.ok ? archiveIndex.missions : []).map((entry) => [entry.id, entry]),
@@ -66,20 +69,14 @@ export async function evaluateGate(tower, input) {
           const blocker = staleBaseBlocker({ branch: worktree.branch, base: state.base, baseTip })
           push(blocker.code, blocker.detail)
         }
-        if (mission.kind === 'survey') {
-          const blocker = surveyChangedFilesBlocker({ missionId: mission.id, changedFiles })
-          if (blocker) push(blocker.code, blocker.detail)
-        }
-        if (mission.kind !== 'survey') {
-          const blocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
-          if (blocker) push(blocker.code, blocker.detail)
-        }
+        const scopeBlocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
+        if (scopeBlocker) push(scopeBlocker.code, scopeBlocker.detail)
         const dirty = (await tower.git(tower.root, ['status', '--porcelain']))
           .split('\n')
           .filter(Boolean)
           .map((line) => line.slice(3).trim())
-        const blocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
-        if (blocker) push(blocker.code, blocker.detail)
+        const dirtyBlocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
+        if (dirtyBlocker) push(dirtyBlocker.code, dirtyBlocker.detail)
       } catch (error) {
         push('branch-missing', String(error?.message ?? error))
       }

@@ -1,4 +1,8 @@
-// Pure mission vocabulary and transition rules (#49). No fs, git, or config.
+// Pure mission vocabulary (#49). No fs, git, or config.
+//
+// Per-kind status policy lives in `./shapes/` (#149): this module keeps only the
+// vocabulary every kind shares. `isTerminal(kind, status)` and
+// `canTransition(kind, from, to)` are exported from `./shapes/index.js`.
 // @ts-check
 
 /** @typedef {import('../types/index.js').FindingSeverity} FindingSeverity */
@@ -7,9 +11,17 @@
 /** @typedef {import('../types/index.js').MergeVerdict} MergeVerdict */
 /** @typedef {import('../types/index.js').MissionStatus} MissionStatus */
 
-/** @type {readonly MissionStatus[]} */
-export const MISSION_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned']
-export const SCHEMA_VERSION = 3
+import { SHAPE_KINDS, shapeFor } from './shapes/index.js'
+
+/**
+ * The union of every shape's status vocabulary, in registry order. A build
+ * mission can be `merged`; a survey cannot, but the union names the word.
+ * @type {readonly MissionStatus[]}
+ */
+export const MISSION_STATUSES = /** @type {import('../types/index.js').MissionStatus[]} */ (
+  [...new Set(SHAPE_KINDS.flatMap((kind) => shapeFor(kind).statuses))]
+)
+export const SCHEMA_VERSION = 4
 /** @type {readonly MergeVerdict[]} */
 export const MERGE_VERDICTS = ['merge', 'fix-then-merge', 'hold']
 // #115: the review status vocabulary is one runtime source. The validator
@@ -24,8 +36,6 @@ export const REVIEW_STATUSES = [
   ...REVIEW_STATUS_PRIORITIES.flatMap((priority) => REVIEW_STATUS_ITEMS.map((count) => `${priority}-${count}items`)),
 ]
 export const REVIEW_STATUS_RE = new RegExp(`^(?:clean|(?:${REVIEW_STATUS_PRIORITIES.join('|')})-\\d+items)$`)
-/** @type {ReadonlySet<string>} */
-export const TERMINAL_STATUSES = new Set(['merged', 'abandoned'])
 /** @type {readonly FindingType[]} */
 export const FINDING_TYPES = ['bug', 'improve', 'vuln', 'idea']
 /** @type {readonly FindingSeverity[]} */
@@ -41,33 +51,6 @@ export const FINDING_TRANSITIONS = {
 }
 /** @type {readonly string[]} */
 export const PAUSE_CAUSES = ['user', 'failure', 'resource', 'dependency']
-/** @type {Record<string, readonly string[] | undefined>} */
-export const TRANSITIONS = {
-  planned: ['active', 'abandoned'],
-  active: ['completed', 'blocked', 'paused', 'abandoned'],
-  blocked: ['active', 'paused', 'completed', 'abandoned'],
-  paused: ['active', 'abandoned'],
-  completed: ['active', 'abandoned'],
-  merged: [],
-  abandoned: [],
-}
-
-/**
- * @param {string} status
- * @returns {boolean}
- */
-export function isTerminal(status) {
-  return TERMINAL_STATUSES.has(status)
-}
-
-/**
- * @param {string} from
- * @param {string} to
- * @returns {boolean}
- */
-export function canTransition(from, to) {
-  return (TRANSITIONS[from] ?? []).includes(to)
-}
 
 /**
  * @param {string | null | undefined} [value]

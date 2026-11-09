@@ -116,7 +116,7 @@ function v1Fixture() {
 }
 
 test('the migration registry is ordered, contiguous and ends at SCHEMA_VERSION', () => {
-  assert.equal(SCHEMA_VERSION, 3, 'the registry reaches schema version 3 (#72 added 2, #90 adds 3)')
+  assert.equal(SCHEMA_VERSION, 4, 'the registry reaches schema version 4 (#72 added 2, #90 adds 3, #149 adds 4)')
   assert.ok(Array.isArray(STATE_MIGRATIONS))
   assert.ok(Object.isFrozen(STATE_MIGRATIONS))
   let version = 1
@@ -146,11 +146,15 @@ test('prepareState migrates a v1 fixture, validates the target schema and is ide
   assert.deepEqual(prepared.migrated, [
     { from: 1, to: 2 },
     { from: 2, to: 3 },
+    { from: 3, to: 4 },
   ])
   assert.equal(prepared.state.schemaVersion, SCHEMA_VERSION)
   assert.equal(prepared.state.revision, 0, 'the migration backfills a missing revision')
   assert.deepEqual(prepared.state.missions[0].tasks, [])
   assert.deepEqual(prepared.state.missions[0].deps, [])
+  // v3 -> v4 stamps every mission with its shape: an absent kind is a build, and
+  // the legacy branch-shaped document keeps its worktree fields untouched.
+  assert.equal(prepared.state.missions[0].kind, 'build')
   // v2 -> v3 backfills the detected case mode as unknown; a migration must not
   // read the filesystem, so the next tower_init probes and records it (#90).
   assert.equal(prepared.state.caseInsensitive, null)
@@ -174,7 +178,7 @@ test('v2 -> v3 backfills the case mode as unknown and preserves a recorded value
   const snapshot = JSON.stringify(unrecorded)
   const migrated = prepareState(unrecorded, 'state.json')
   assert.equal(migrated.changed, true)
-  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }])
+  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }, { from: 3, to: 4 }])
   assert.equal(migrated.state.caseInsensitive, null, 'a migration must not guess at the filesystem')
   assert.equal(JSON.stringify(unrecorded), snapshot, 'the pre-migration document is not mutated')
 
@@ -212,6 +216,7 @@ test('a migration that throws is state-migration-failed and leaves its input unt
     // The injected registry must still reach SCHEMA_VERSION; otherwise the gap
     // is classified as unmigratable before the throwing step can run.
     { from: 2, to: 3, migrate: (state) => state },
+    { from: 3, to: 4, migrate: (state) => state },
   ]
   assert.throws(
     () => prepareState(legacy, 'state.json', { migrations }),
@@ -354,6 +359,7 @@ test('a throwing migration leaves the original file byte-identical and keeps the
         },
       },
       { from: 2, to: 3, migrate: (state) => state },
+      { from: 3, to: 4, migrate: (state) => state },
     ]
 
     await assert.rejects(
@@ -393,6 +399,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
       migrations: [
         { from: 1, to: 2 },
         { from: 2, to: 3 },
+        { from: 3, to: 4 },
       ],
       status: 'migratable',
     })

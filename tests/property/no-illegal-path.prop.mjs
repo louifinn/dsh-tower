@@ -52,6 +52,7 @@ import fc from 'fast-check'
 import { TowerToolError } from '../../domain/errors.js'
 import { ROSTER_INACTIVE_STATES } from '../../domain/roster.js'
 import { validateState } from '../../domain/state.js'
+import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { completionBlockers, mergeGateBlockers } from '../../domain/gate.js'
 import { applyMergeSuccess } from '../../domain/integration/merge.js'
 import { isReviewExempt, latestReview, reviewExemptionInvalid, reviewsForBranch } from '../../domain/integration/review.js'
@@ -61,6 +62,7 @@ import {
   applyCompletion,
 } from '../../domain/missions/completion.js'
 import { applyMissionUpdate } from '../../domain/missions/lifecycle.js'
+import { shapeFor } from '../../domain/shapes/index.js'
 import {
   applyReviewOutcome,
   normalizeReviewVerdict,
@@ -144,7 +146,7 @@ function missionAt(state, index) {
  */
 function prepareSequenceState(state) {
   const base = structuredClone(state)
-  base.schemaVersion = 3
+  base.schemaVersion = SCHEMA_VERSION
   base.base = 'main'
   base.revision = Number.isInteger(base.revision) && base.revision >= 0 ? base.revision : 0
   base.updatedAt = NOW
@@ -164,6 +166,20 @@ function prepareSequenceState(state) {
     ...base.findings.map((finding) => idNumber(finding?.id)),
     0,
   )
+  // These command sequences drive the build lifecycle (a branch, a worktree,
+  // commits, a merge). Survey missions have no branch/worktree and no merge edge;
+  // their lifecycle is covered by tests/shape-registry.test.mjs and
+  // tests/survey-lifecycle.test.mjs.
+  base.missions = base.missions.filter((mission) => mission.kind !== 'survey')
+  if (base.missions.length === 0 && Array.isArray(state.missions) && state.missions.length > 0) {
+    // Keep the sequences non-vacuous: repurpose a generated survey row as the
+    // build mission they drive (its read fingerprint is not a build field).
+    const fallback = structuredClone(state.missions[0])
+    fallback.kind = 'build'
+    delete fallback.readCommit
+    delete fallback.readDirty
+    base.missions = [fallback]
+  }
   base.missions = base.missions.map((mission, index) => {
     const status = OPEN_SEQUENCE_STATUSES[index % OPEN_SEQUENCE_STATUSES.length]
     const id = String(mission.id)
@@ -585,7 +601,7 @@ function frozenState({ status = 'completed', patch = {}, review = null } = {}) {
     ...patch,
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: SCHEMA_VERSION,
     revision: 11,
     base: 'main',
     repoRoot: '/repo',
@@ -648,6 +664,12 @@ function attemptCompletion(state) {
       input: { agentId: workerAgentId(mission.id), report: REPORT },
       maxReportBytes: MAX_REPORT_BYTES,
     })
+    // The worktree requirement is a completion invariant of the mission's shape
+    // (app/checkCompletion reads shape.completion.requiresWorktree before the
+    // shape's check()); the domain admission request itself is shape-agnostic.
+    if (shapeFor(mission.kind).completion.requiresWorktree && !mission.worktree) {
+      throw new TowerToolError('invalid-argument', `mission ${mission.id} has no worktree`)
+    }
     const report = completionReport({
       report: REPORT,
       worker,
