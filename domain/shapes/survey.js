@@ -24,10 +24,12 @@ export const SURVEY_STATUSES = Object.freeze(['planned', 'active', 'completed', 
  * @type {Readonly<Record<string, readonly string[]>>}
  */
 export const SURVEY_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'abandoned']),
+  planned: Object.freeze(['active', 'blocked', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
-  blocked: Object.freeze(['active', 'paused', 'completed', 'abandoned']),
-  paused: Object.freeze(['active', 'abandoned']),
+  // W3: `blocked` is derived from open blockers; clearing them is the only way
+  // out, and a blocker always wins over a pause (hence paused -> blocked).
+  blocked: Object.freeze(['active', 'abandoned']),
+  paused: Object.freeze(['active', 'blocked', 'abandoned']),
   completed: Object.freeze([]),
   abandoned: Object.freeze([]),
 })
@@ -206,7 +208,13 @@ export function completionBlockers(mission, config = /** @type {TowerConfig} */ 
   /** @type {Blocker[]} */
   const blockers = []
   if (mission.status !== 'completed') {
-    blockers.push({ code: 'mission-not-completed', detail: `mission ${mission.id} is ${mission.status}; completion is required` })
+    blockers.push({
+      code: 'mission-not-completed',
+      detail:
+        mission.status === 'blocked'
+          ? `mission ${mission.id} is blocked: ${(mission.blockers ?? []).join('; ')}; clear the blockers to resume it`
+          : `mission ${mission.id} is ${mission.status}; completion is required`,
+    })
   }
   const open = (mission.tasks ?? []).filter((task) => task.status === 'open')
   if (open.length > 0) {

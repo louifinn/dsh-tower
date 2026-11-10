@@ -306,6 +306,10 @@ export interface RosterEntry {
   missionId?: string | null
   parentSessionId?: string | null
   spawnTip?: string | null
+  /** The commit a reviewer's verdict is stamped with (#149 W3). */
+  reviewCommit?: string | null
+  /** The disposable detached checkout the reviewer reads, when recorded. */
+  reviewCheckout?: string | null
   stale?: boolean
   [key: string]: unknown
 }

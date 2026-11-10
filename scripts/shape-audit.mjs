@@ -5,7 +5,10 @@
 //   - a comparison against a kind literal ('build' | 'survey'),
 //   - a comparison against a role literal ('worker' | 'reviewer' | 'tower'),
 //   - the global TERMINAL_STATUSES / TRANSITIONS identifiers,
-//   - a one-argument isTerminal(...) or one-argument canTransition(...) call.
+//   - a one-argument isTerminal(...) or one-argument canTransition(...) call,
+//   - reading a review tip from a live worktree HEAD (review evidence is a commit),
+//   - comparing a batch status against a literal outside the batch owner module,
+//   - naming the lease ledger outside the lease adapter.
 //
 // Exemptions live in scripts/architecture-waivers.json under `shapeWaivers` and
 // require a reason plus an owner or a ref, exactly like the architecture gate.
@@ -22,11 +25,68 @@ export const WAIVER_FILE = 'scripts/architecture-waivers.json'
 export const WAIVER_KEY = 'shapeWaivers'
 export const SCAN_DIRS = ['domain', 'app', 'tools', 'host', 'adapters', 'ports']
 export const SHAPE_DIR = 'domain/shapes'
+/**
+ * The fitness rules this audit enforces. `docs/reference/shapes.md` is generated
+ * from this list, so a verdict cannot name a rule the audit does not run.
+ */
+export const RULES = [
+  {
+    id: 'kind-literal',
+    rule: 'Generic layers never compare mission.kind with a literal.',
+    owner: 'domain/shapes/<kind>.js',
+  },
+  {
+    id: 'role-literal',
+    rule: 'Generic layers use the vocabulary role predicates, never a role literal.',
+    owner: 'domain/roles.js',
+  },
+  {
+    id: 'global-status-vocabulary',
+    rule: 'No module reaches for the global TERMINAL_STATUSES/TRANSITIONS tables.',
+    owner: 'domain/shapes/<kind>.js',
+  },
+  {
+    id: 'shape-entry-point',
+    rule: 'isTerminal(kind, status) and canTransition(kind, from, to) are the only entry points.',
+    owner: 'domain/shapes/index.js',
+  },
+  {
+    id: 'review-tip-read',
+    rule: 'A review never reads a live worktree HEAD; verdicts are stamped with a recorded commit.',
+    owner: 'app/reviewCheckout.js',
+  },
+  {
+    id: 'batch-status-literal',
+    rule: 'Batch status literals live in domain/batch.js; every other layer uses its constants.',
+    owner: 'domain/batch.js',
+  },
+  {
+    id: 'lease-ledger',
+    rule: 'Only adapters/leases.js reads or writes the lease ledger.',
+    owner: 'adapters/leases.js',
+  },
+  {
+    id: 'blocked-status-write',
+    rule: 'blocked is derived from open blockers; only domain/missions/lifecycle.js writes it.',
+    owner: 'domain/missions/lifecycle.js',
+  },
+]
+/** Rules whose implementation module necessarily names the vocabulary it owns. */
+export const RULE_EXEMPT_PATHS = {
+  'batch-status-literal': ['domain/batch.js'],
+  'lease-ledger': ['adapters/leases.js'],
+  'blocked-status-write': ['domain/missions/lifecycle.js'],
+}
 
 const KIND_PATTERN = /(?:\bkind\b\s*[!=]==?\s*['"](?:build|survey)['"])|(?:['"](?:build|survey)['"]\s*[!=]==?\s*\bkind\b)/
 const ROLE_PATTERN = /(?:\brole\b\s*[!=]==?\s*['"](?:worker|reviewer|tower)['"])|(?:['"](?:worker|reviewer|tower)['"]\s*[!=]==?\s*\brole\b)/
 const GLOBAL_VOCAB_PATTERN = /\b(?:TERMINAL_STATUSES|TRANSITIONS)\b/
 const CALL_PATTERN = /(?<!\.)\b(isTerminal|canTransition)\s*\(([^()]*)\)/g
+const REVIEW_TIP_PATTERN = /\brevParse\s*\(\s*[^)]*worktree\.path\s*,\s*['"]HEAD['"]\s*\)/
+const BATCH_STATUS_PATTERN =
+  /(?:\bbatch\.status\s*[!=]==?\s*['"](?:open|closed|abandoned|created|active|pending)['"])|(?:['"](?:open|closed|abandoned|created|active|pending)['"]\s*[!=]==?\s*\bbatch\.status\b)/
+const LEASE_LEDGER_PATTERN = /['"](?:leases\.json|leases\.json\.lock|leases\.lock)['"]/
+const BLOCKED_WRITE_PATTERN = /(?:\bstatus\s*=\s*['"]blocked['"])|(?:['"]status['"]\s*:\s*['"]blocked['"])/
 
 /**
  * Count top-level arguments in a call's argument text.
@@ -66,6 +126,30 @@ export function inspectSource(source) {
     }
     if (GLOBAL_VOCAB_PATTERN.test(line)) {
       violations.push({ rule: 'global-status-vocabulary', detail: `${at}: ${line.trim()} — use shape.isTerminal(status) / shape.transitions` })
+    }
+    if (REVIEW_TIP_PATTERN.test(line)) {
+      violations.push({
+        rule: 'review-tip-read',
+        detail: `${at}: ${line.trim()} — stamp reviews with a recorded commit (tower.branchTip(mission)) instead of a live worktree HEAD`,
+      })
+    }
+    if (BATCH_STATUS_PATTERN.test(line)) {
+      violations.push({
+        rule: 'batch-status-literal',
+        detail: `${at}: ${line.trim()} — use BATCH_STATUS / canTransitionBatch from domain/batch.js`,
+      })
+    }
+    if (LEASE_LEDGER_PATTERN.test(line)) {
+      violations.push({
+        rule: 'lease-ledger',
+        detail: `${at}: ${line.trim()} — the lease ledger is owned by adapters/leases.js`,
+      })
+    }
+    if (BLOCKED_WRITE_PATTERN.test(line)) {
+      violations.push({
+        rule: 'blocked-status-write',
+        detail: `${at}: ${line.trim()} — blocked is derived from open blockers: use markBlocked(mission, text)`,
+      })
     }
     for (const match of line.matchAll(CALL_PATTERN)) {
       const expected = match[1] === 'isTerminal' ? 2 : 3
@@ -111,6 +195,8 @@ export function scan(repoRoot) {
       if (relative.startsWith(`${SHAPE_DIR}/`)) continue
       const source = fs.readFileSync(file, 'utf8')
       for (const violation of inspectSource(source)) {
+        const exempt = RULE_EXEMPT_PATHS[violation.rule] ?? []
+        if (exempt.includes(relative)) continue
         results.push({ path: relative, ...violation })
       }
     }

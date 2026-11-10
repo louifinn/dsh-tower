@@ -94,23 +94,6 @@ export function normalizeReviewVerdict(input) {
 }
 
 /**
- * A reviewer may only review the tip it was spawned on.
- * @param {RosterEntry | undefined} caller
- * @param {string} tip
- * @returns {void}
- */
-export function assertReviewerSpawnTip(caller, tip) {
-  if (caller && isReviewerRole(caller.role) && !String(caller.spawnTip ?? '').trim()) {
-    fail(`reviewer ${caller.name} has no recorded spawn tip; re-spawn the reviewer before reviewing`)
-  }
-  if (caller && isReviewerRole(caller.role) && caller.spawnTip !== tip) {
-    fail(
-      `reviewer ${caller.name} modified the mission branch after it was spawned (${String(caller.spawnTip).slice(0, 7)} -> ${tip.slice(0, 7)}); reviewers must be read-only — spawn a fresh reviewer`,
-    )
-  }
-}
-
-/**
  * The latest review of one branch. Higher rounds win; routes that share a round
  * are ordered by submission sequence, so "latest" is the most recently recorded
  * verdict (#108).

@@ -21,7 +21,7 @@ import { SHAPE_KINDS, shapeFor } from './shapes/index.js'
 export const MISSION_STATUSES = /** @type {import('../types/index.js').MissionStatus[]} */ (
   [...new Set(SHAPE_KINDS.flatMap((kind) => shapeFor(kind).statuses))]
 )
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 /** @type {readonly MergeVerdict[]} */
 export const MERGE_VERDICTS = ['merge', 'fix-then-merge', 'hold']
 // #115: the review status vocabulary is one runtime source. The validator

@@ -150,3 +150,67 @@ out, without changing the default or the shared path:
 - The archive index keeps a survey's `readCommit` and bounded `result`, so an
   archived survey dependency still carries its evidence into a build briefing
   and `gates.requireFreshSurvey` cannot fail open after archiving (#73).
+
+## Addendum: W3 review, batch, leases and paused-vs-blocked (#149)
+
+W3 audited four state dimensions that are not mission kinds. None became a
+shape: each has one owning module, and each verdict names a fitness rule that
+`npm run shape:audit` enforces (generated into `docs/reference/shapes.md`).
+
+- **Review — commit-stamped evidence (`app/review.js`, `app/reviewCheckout.js`,
+  `domain/missions/review.js`).** A verdict is evidence about a commit, not about
+  a mutable worktree. `tower_spawn` provisions a disposable detached checkout of
+  the mission branch tip for the reviewer and records `reviewCommit` /
+  `reviewCheckout` on the roster row. `tower_review` stamps `reviewedCommit` with
+  that recorded commit, refuses if the checkout HEAD moved, and the merge gate
+  compares the stamp to the current branch tip with the existing `tip-moved`
+  blocker. `tower_diff` shows a reviewer the same recorded commit. The old
+  after-the-fact "reviewer modified the branch" check (`assertReviewerSpawnTip`)
+  is deleted: a stale worker write can no longer affect what a review decided.
+  The checkout is removed when the verdict is recorded and retried by
+  `tower_teardown`. A tower break-glass verdict stamps the current branch tip
+  because there is no checkout. Fitness rule: `review-tip-read`.
+- **Batch — correctly generic second lifecycle (`domain/batch.js`,
+  `domain/collab/batch.js`, `app/batch.js`).** A batch is finite evidence over
+  missions, not a mission kind, so it stays generic — but its second state
+  machine is now owned by one module: `BATCH_STATUS`, `BATCH_TRANSITIONS`
+  (`open → closed | abandoned`), `canTransitionBatch`, `isBatchTerminal` and
+  `normalizeBatchStatus` (legacy `created`/`active`/`pending` read as `open`).
+  `createBatch`/`closeBatch`/`abandonBatch` share one guarded transition and
+  state semantics validates the stored status, so an unknown or invented batch
+  status fails as state corruption. Receipt verification is unchanged. Fitness
+  rule: `batch-status-literal`.
+- **Leases — advisory coordination, never authority (`adapters/leases.js`,
+  `app/spawn-prechecks.js`).** Lease acquisition is not OS-enforced exclusivity,
+  and the docs say so. There is exactly one enforcement point: the fail-closed
+  spawn admission when `spawn.requireLease` names a lease, which refuses a
+  missing lease and a lease held by another actor with an actionable remedy. The
+  prior contract deadlocked: an expired lease held by a crashed process could
+  never be released because a token mismatch was refused even with `force`. Now
+  `force: true` releases an **expired** lease (explicit crash recovery) while a
+  live lease still refuses a foreign token, and `acquire` never takes over
+  automatically. Fitness rule: `lease-ledger`.
+- **Paused vs blocked — two distinct stopped semantics
+  (`domain/missions/lifecycle.js`, `domain/state/semantics.js`).** `blocked` is
+  derived machine state: it means "open blockers exist". `paused` is a deliberate
+  stop with a `pauseCause` (`user`|`failure`|`resource`|`dependency`). They never
+  coexist: a recorded blocker clears a pause and moves the mission to `blocked`;
+  `clear_blockers` clears them and resumes the mission (to `active`, or to
+  `completed` in the same patch); pausing or completing is refused while blockers
+  are open; `status: "blocked"` is refused and machine writers go through
+  `markBlocked(mission, text)` (merge/rebase conflicts use it). The state
+  invariant `status === "blocked" ⇔ open blockers exist` (for non-terminal
+  missions) is checked on every load/validation, and migration v4→v5 normalizes
+  recorded states: a blocked mission without a blocker gets an explicit legacy
+  blocker, blockers under another non-terminal status become `blocked`, and a
+  superseded `pauseCause` is removed. It is not a per-kind rule: both shapes
+  declare `blocked`/`paused` in their own transition tables. Fitness rule:
+  `blocked-status-write`.
+- Because the stopped-status invariant is new, the persisted schema version is
+  now **5** (`SCHEMA_VERSION = 5` in `domain/mission.js`); the v4→v5 migration is
+  pure and idempotent like its predecessors.
+- The audit grew four rules (`review-tip-read`, `batch-status-literal`,
+  `lease-ledger`, `blocked-status-write`) with mutation tests proving each rule
+  fails on a seeded violation. `scripts/shape-audit.mjs` exports `RULES`, and
+  `scripts/generate-shapes-reference.mjs` refuses to generate if a verdict names
+  a rule the audit does not run.

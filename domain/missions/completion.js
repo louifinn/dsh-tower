@@ -123,6 +123,12 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
     fail(`agent ${worker.name} is not the current owner of mission ${mission.id} (owner: ${mission.owner})`)
   }
   if (mission.status === 'completed') fail(`mission ${mission.id} is already completed`)
+  // `blocked` is derived from open blockers, so name them instead of a generic
+  // status error: clearing them is the one recovery path (#149 W3).
+  const blockers = mission.blockers ?? []
+  if (blockers.length > 0) {
+    fail(`mission ${mission.id} has unresolved blockers: ${blockers.join('; ')}; clear the blockers to resume it`)
+  }
   if (!['active', 'planned'].includes(mission.status)) {
     fail(`mission ${mission.id} is ${mission.status}; it cannot be completed from that state`)
   }
@@ -137,10 +143,6 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
         .map((task) => task.text)
         .join('; ')}`,
     )
-  }
-  const blockers = mission.blockers ?? []
-  if (blockers.length > 0) {
-    fail(`mission ${mission.id} has unresolved blockers: ${blockers.join('; ')}`)
   }
   return worker
 }

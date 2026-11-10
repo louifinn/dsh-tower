@@ -1,12 +1,14 @@
 // Pure batch lifecycle decisions and status projection.
 //
-// `domain/batch.js` owns the admission/close evidence validation; this module
-// owns the id assignment, close/abandon record transitions, and status payload
-// that app/batch.js used to keep inline. Receipt file reads stay in the tool
-// layer.
+// `domain/batch.js` owns the lifecycle vocabulary, admission/close evidence
+// validation and normalization; this module owns the id assignment, close/abandon
+// record transitions, and status payload that app/batch.js used to keep inline.
+// Receipt file reads stay in the tool layer. Every status move goes through the
+// lifecycle module's `canTransitionBatch`, so this file never names a status
+// literal of its own (#149 W3).
 // @ts-check
 import { TowerToolError } from '../errors.js'
-import { summarize } from '../batch.js'
+import { BATCH_STATUS, canTransitionBatch, isBatchTerminal, normalizeBatchStatus, summarize } from '../batch.js'
 
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
@@ -17,6 +19,21 @@ import { summarize } from '../batch.js'
  */
 function fail(message, code = 'batch-invalid') {
   throw new TowerToolError(code, message)
+}
+
+/**
+ * Move a draft batch to `to`, refusing a transition the lifecycle does not
+ * allow. A no-op (already at the target) is handled by the callers, not here.
+ * @param {any} batch
+ * @param {string} to
+ * @param {string} batchId
+ * @returns {void}
+ */
+function assertBatchMove(batch, to, batchId) {
+  const from = normalizeBatchStatus(batch.status)
+  if (!canTransitionBatch(from, to)) {
+    fail(`batch ${batchId} is ${from}; it cannot move to ${to}${isBatchTerminal(from) ? ' (a batch is closed or abandoned exactly once)' : ''}`)
+  }
 }
 
 /**
@@ -43,7 +60,7 @@ export function nextBatchId(batches) {
 export function createBatchRecord(id, normalized, actor, now) {
   return {
     id,
-    status: 'open',
+    status: BATCH_STATUS.OPEN,
     ...normalized,
     createdBy: actor,
     createdAt: now,
@@ -59,7 +76,8 @@ export function createBatchRecord(id, normalized, actor, now) {
  * @returns {any}
  */
 export function closeBatchRecord(batch, options, actor, now) {
-  batch.status = 'closed'
+  assertBatchMove(batch, BATCH_STATUS.CLOSED, String(batch.id ?? ''))
+  batch.status = BATCH_STATUS.CLOSED
   batch.closedAt = now
   batch.closedBy = actor
   batch.close = {
@@ -78,8 +96,9 @@ export function closeBatchRecord(batch, options, actor, now) {
  * @returns {{ alreadyAbandoned: boolean }}
  */
 export function abandonBatchCheck(batch, batchId) {
-  if (batch.status === 'closed') fail(`batch ${batchId} is already closed`)
-  return { alreadyAbandoned: batch.status === 'abandoned' }
+  const status = normalizeBatchStatus(batch.status)
+  if (status === BATCH_STATUS.CLOSED) fail(`batch ${batchId} is already closed`)
+  return { alreadyAbandoned: status === BATCH_STATUS.ABANDONED }
 }
 
 /**
@@ -88,7 +107,8 @@ export function abandonBatchCheck(batch, batchId) {
  * @returns {any}
  */
 export function applyBatchAbandon({ batch, actor, reason, now }) {
-  batch.status = 'abandoned'
+  assertBatchMove(batch, BATCH_STATUS.ABANDONED, String(batch.id ?? ''))
+  batch.status = BATCH_STATUS.ABANDONED
   batch.abandonedAt = now
   batch.abandonedBy = actor
   batch.abandonReason = typeof reason === 'string' && reason.trim() ? reason.trim() : null

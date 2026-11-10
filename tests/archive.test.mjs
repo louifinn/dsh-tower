@@ -493,7 +493,7 @@ test('the configured cap triggers archival at the next mutation; non-terminal mi
         scope: [`n${index + 1}/**`],
         deps: [],
         tasks: [],
-        blockers: [],
+        blockers: status === 'blocked' ? [`non-terminal ${status} fixture blocker`] : [],
         notes: [],
         updatedAt: Date.now() - 400 * DAY,
         worktree: null,

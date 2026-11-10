@@ -64,7 +64,7 @@ async function completedMission(prefix) {
   return { root, tower, wt, branch: provisioned.worktree.branch }
 }
 
-async function recordReviewer(tower, wt, branch, name, agentId) {
+async function recordReviewer(tower, wt, branch, name, agentId, reviewCommit) {
   return tower.recordSpawn({
     missionId: 'M1',
     name,
@@ -73,6 +73,8 @@ async function recordReviewer(tower, wt, branch, name, agentId) {
     parentSessionId: 'parent-review',
     cwd: wt,
     branch,
+    // W3: a verdict is stamped with the commit the reviewer was spawned on.
+    reviewCommit: reviewCommit ?? git(wt, ['rev-parse', 'HEAD']),
   })
 }
 

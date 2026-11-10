@@ -25,6 +25,7 @@ function makeRepo() {
   git(repo, ['init'])
   git(repo, ['config', 'user.email', 'tower@test'])
   git(repo, ['config', 'user.name', 'Tower Test'])
+  git(repo, ['config', 'core.autocrlf', 'false'])
   fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])

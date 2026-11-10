@@ -48,7 +48,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 
 | Code | Meaning / next action |
 |---|---|
-| `merge-conflict` | Real index conflict; the mission is `blocked`. Resolve, restore the mission to `active`/`completed`, retry. |
+| `merge-conflict` | Real index conflict; the mission is `blocked`. Resolve the conflict, then `tower_mission({clear_blockers:true})` resumes the mission to `active`; retry. |
 | `merge-hook-failed` | A hook/process failed before a commit existed; repository restored, mission stays `completed`. Retry; `timeout: true` means the git process timed out. Raise `timeoutMs` for slow hooks. |
 | `merge-shape` | Git produced unexpected merge parents; inspect the repository, do not force. |
 | `batch-invalid` | A batch id/member/receipt/check reference is invalid or close evidence is incomplete. |
@@ -61,7 +61,7 @@ A merge that already landed is **not** a blocker: `tower_merge` records it (`rec
 | Code | Meaning / next action |
 |---|---|
 | `worktree-dirty` | Commit or discard worktree changes, then retry. |
-| `rebase-conflict` | A real conflict; the mission is `blocked`. Resolve manually, return it to `active`, retry. |
+| `rebase-conflict` | A real conflict; the mission is `blocked`. Resolve manually, then `clear_blockers` resumes it to `active`; retry. |
 | `worker-busy` | An agent is running for this mission; wait or retire it first. |
 
 `tower_rebase` returns `alreadyMerged: true` when the branch is already contained in the base; call

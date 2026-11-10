@@ -21,7 +21,6 @@ import {
   assertReviewableMission,
   resolveReviewActor,
   normalizeReviewVerdict,
-  assertReviewerSpawnTip,
   reviewRound,
   reviewAdmission,
   reviewOutcome,
@@ -280,9 +279,6 @@ test('review policy resolves actors, verdicts, rounds, and outcome', () => {
   assert.throws(() => normalizeReviewVerdict({ status: 'clean', merge: 'merge', findings: 'x', decision: 'd' }), /findings text "none"/)
   assert.throws(() => normalizeReviewVerdict({ status: 'p1-1items', merge: 'merge', findings: 'none', decision: 'd' }), /must describe its findings/)
   assert.throws(() => normalizeReviewVerdict({ status: 'clean', merge: 'hold', findings: 'none', decision: '' }), /decision/)
-
-  assert.throws(() => assertReviewerSpawnTip({ name: 'r', role: 'reviewer', spawnTip: 'old' }, 'new'), /modified the mission branch/)
-  assert.throws(() => assertReviewerSpawnTip({ name: 'r', role: 'reviewer', spawnTip: '' }, 'new'), /no recorded spawn tip/)
 
   const rounds = reviewRound({
     reviews: [

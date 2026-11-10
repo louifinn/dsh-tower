@@ -12,7 +12,7 @@ export async function enrichedMissions(tower, state, onlyIds) {
     let tipMoved = false
     if (latest && mission.worktree && (await tower.deps.store.exists(mission.worktree.path))) {
       try {
-        const tip = await tower.deps.vcs.revParse(mission.worktree.path, 'HEAD')
+        const tip = await tower.branchTip(mission)
         tipMoved = tip !== latest.reviewedCommit
       } catch {
         tipMoved = false

@@ -5,15 +5,17 @@
 A mission shape is the single place its kind's contract lives (#148/#149). Generic
 layers resolve `shapeFor(mission.kind)` and never branch on a kind literal; the
 shape audit (`npm run shape:audit`) refuses kind and role comparisons outside
-`domain/shapes/`, the global `TERMINAL_STATUSES`/`TRANSITIONS` vocabulary, and
-one-argument `isTerminal`/`canTransition` calls.
+`domain/shapes/`, the global `TERMINAL_STATUSES`/`TRANSITIONS` vocabulary,
+one-argument `isTerminal`/`canTransition` calls, and the four W3 dimension
+regressions (a live-worktree review tip, a batch status literal outside its owner,
+a lease-ledger path outside its adapter, and a direct `blocked` status write).
 
 ## Kinds
 
 | Kind | Statuses | Has terminal | Provisioning | Can merge | Can rebase | Owns scope | Component | Accepts result |
 |---|---|---|---|---|---|---|---|---|
 | `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true | — | false |
-| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` | `detached` | false | false | false | tower-survey | true |
+| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` / `detached` | false | false | false | tower-survey | true |
 
 ## Transitions
 
@@ -21,11 +23,11 @@ one-argument `isTerminal`/`canTransition` calls.
 
 | From | To |
 |---|---|
-| `planned` | `active`, `abandoned` |
+| `planned` | `active`, `blocked`, `abandoned` |
 | `active` | `completed`, `blocked`, `paused`, `abandoned` |
-| `completed` | `active`, `abandoned` |
-| `blocked` | `active`, `paused`, `completed`, `abandoned` |
-| `paused` | `active`, `abandoned` |
+| `completed` | `active`, `blocked`, `abandoned` |
+| `blocked` | `active`, `abandoned` |
+| `paused` | `active`, `blocked`, `abandoned` |
 | `merged` | terminal |
 | `abandoned` | terminal |
 
@@ -33,11 +35,11 @@ one-argument `isTerminal`/`canTransition` calls.
 
 | From | To |
 |---|---|
-| `planned` | `active`, `abandoned` |
+| `planned` | `active`, `blocked`, `abandoned` |
 | `active` | `completed`, `blocked`, `paused`, `abandoned` |
 | `completed` | terminal |
-| `blocked` | `active`, `paused`, `completed`, `abandoned` |
-| `paused` | `active`, `abandoned` |
+| `blocked` | `active`, `abandoned` |
+| `paused` | `active`, `blocked`, `abandoned` |
 | `abandoned` | terminal |
 
 ## Survey placement (#148 W2)
@@ -86,15 +88,38 @@ that never got a sandbox keeps the shared invariants for the same reason.
 | Evidence | `shape.acceptsResult` | Only a survey may record a completion result. |
 | Component | `shape.requiredComponent` | Planning refuses with an actionable code while the required component is off. |
 
-## Suspected dimensions: verdicts
+## Audited dimensions: verdicts
+
+The four W3 dimensions (#149) were audited against the shape registry. Each
+verdict names its owning module and the fitness rule the audit enforces.
+
+| Dimension | Verdict | Owner module | Fitness rule |
+|---|---|---|---|
+| Review | **Commit-stamped evidence.** A spawned reviewer reads a disposable detached checkout at the recorded review commit; the verdict stamps that commit and the merge gate compares it to the branch tip with `tip-moved`. Review is generic except that only a shape with a branch (`shape.fields.worktree`, `shape.canMerge`) can be reviewed. | `app/review.js`, `app/reviewCheckout.js`, `domain/missions/review.js` | `review-tip-read` — A review never reads a live worktree HEAD; verdicts are stamped with a recorded commit. |
+| Batch | **Correctly generic second lifecycle.** A batch is finite evidence over missions, not a mission kind; its `open → closed`/`abandoned` machine, its frozen membership and its receipt verification live in one owner module, and no shape knows about batches. | `domain/batch.js`, `domain/collab/batch.js`, `app/batch.js` | `batch-status-literal` — Batch status literals live in domain/batch.js; every other layer uses its constants. |
+| Leases | **Advisory coordination, never authority.** One fail-closed admission point (`spawn.requireLease`) refuses admission when the lease is missing or held; expiry is recovered only by an explicit `force` release of an expired lease, and a live lease always refuses a foreign token. | `adapters/leases.js`, `app/spawn-prechecks.js` | `lease-ledger` — Only adapters/leases.js reads or writes the lease ledger. |
+| Paused vs blocked | **Two distinct stopped semantics.** `blocked` is derived from open blockers (machine state); `paused` is a deliberate stop with a cause (human state); they never coexist, a blocker wins over a pause, and clearing the blockers resumes the mission. | `domain/missions/lifecycle.js`, `domain/state/semantics.js` | `blocked-status-write` — blocked is derived from open blockers; only domain/missions/lifecycle.js writes it. |
+
+## Fitness rules
+
+Generated from `scripts/shape-audit.mjs` `RULES`; the audit is wired into `npm run check`.
+
+| Rule | Owner module | Contract |
+|---|---|---|
+| `kind-literal` | `domain/shapes/<kind>.js` | Generic layers never compare mission.kind with a literal. |
+| `role-literal` | `domain/roles.js` | Generic layers use the vocabulary role predicates, never a role literal. |
+| `global-status-vocabulary` | `domain/shapes/<kind>.js` | No module reaches for the global TERMINAL_STATUSES/TRANSITIONS tables. |
+| `shape-entry-point` | `domain/shapes/index.js` | isTerminal(kind, status) and canTransition(kind, from, to) are the only entry points. |
+| `review-tip-read` | `app/reviewCheckout.js` | A review never reads a live worktree HEAD; verdicts are stamped with a recorded commit. |
+| `batch-status-literal` | `domain/batch.js` | Batch status literals live in domain/batch.js; every other layer uses its constants. |
+| `lease-ledger` | `adapters/leases.js` | Only adapters/leases.js reads or writes the lease ledger. |
+| `blocked-status-write` | `domain/missions/lifecycle.js` | blocked is derived from open blockers; only domain/missions/lifecycle.js writes it. |
+
+## Other dimensions: verdicts
 
 | Dimension | Verdict | Fitness rule |
 |---|---|---|
-| Review | A review is a verdict on a build branch tip, not a mission shape. The reviewer reads the worker worktree, so review requires `shape.fields.worktree`. | A survey is never reviewed (`canMerge=false` refuses `tower_review`'s branch prerequisite). |
-| Batch | A batch is finite evidence over build missions; it has its own open/closed/abandoned lifecycle and is not a mission shape. | A survey has no worktree/branch requirement and completes with zero commits; a batch never changes mission terminality. |
-| Leases | Leases are advisory coordination, never authority. | Spawn prechecks read the lease component; the shape does not. |
-| Paused vs blocked | Both are non-terminal statuses whose targets come from the shape table. | `shape.transitions.paused` and `shape.transitions.blocked` are the only source. |
 | Test receipts | A discovery receipt belongs to a build branch tip; a survey has no branch and no tree tip. | `shape.fields.worktree=false` skips mission discovery. |
-| Legacy import | A legacy import is read-only data; the v3→v4 migration stamps every mission with a shape and converts a branch-shaped survey into `readCommit`/`readDirty`. | `shape.migrateLegacy` is the only v3→v4 mission rewrite. |
+| Legacy import | A legacy import is read-only data; the migration chain stamps every mission with a shape, converts a branch-shaped survey into `readCommit`/`readDirty`, and v4→v5 normalizes stopped states and batch statuses. | `shape.migrateLegacy` is the only legacy mission rewrite. |
 | Scope ownership | Only a shape that writes owns a scope. | `shape.ownsScope=false` forces an empty scope and skips scope fences and auto-deps. |
 | Role vs kind | Roles describe actors; shapes describe missions. They are separate vocabularies. | `domain/roles.js` owns roles; `domain/shapes/` owns kinds. |

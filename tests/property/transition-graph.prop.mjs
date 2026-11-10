@@ -209,12 +209,19 @@ runProperty({
     for (const target of TRANSITIONS[status]) {
       const draftMission = structuredClone(mission)
       const draftState = structuredClone(state)
-      applyMissionUpdate({
-        mission: draftMission,
-        state: draftState,
-        input: { status: target, note: NOTE, authorization: AUTHORIZATION },
-        config: MODEL_CONFIG,
-      })
+      // `blocked` is derived (#149 W3): the edge exists, but it is driven by a
+      // blocker rather than by a status patch. `blocked -> active` is driven by
+      // clear_blockers, the one operation that resumes a blocked mission.
+      let input
+      if (target === 'blocked') {
+        input = { blocker: 'transition graph probe blocker', note: NOTE }
+      } else if (status === 'blocked' && target === 'active') {
+        draftMission.blockers = ['transition graph probe blocker']
+        input = { clear_blockers: true, note: NOTE }
+      } else {
+        input = { status: target, note: NOTE, authorization: AUTHORIZATION }
+      }
+      applyMissionUpdate({ mission: draftMission, state: draftState, input, config: MODEL_CONFIG })
       assert.equal(draftMission.status, target, `${status} -> ${target}: the accepted patch did not write the status`)
       assert.notEqual(target, 'merged', 'a status patch must never write merged')
       reached += 1

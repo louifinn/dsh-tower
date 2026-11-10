@@ -24,6 +24,7 @@ import {
   MODEL_FINDING_STATUSES,
   MODEL_REJECTION_CODES,
   assertModelVocabulary,
+  modelCanPatchStatus,
   modelCanTransition,
   modelCanTransitionFinding,
   modelFindingStatus,
@@ -352,7 +353,23 @@ export function modelCanMerge(model, mission) {
  */
 export function modelStatusOutcome(model, missionId, target, options = {}) {
   const mission = modelMission(model, missionId)
-  if (!modelCanTransition(mission.status, target)) {
+  // `blocked` is derived from open blockers: a status patch cannot assign it,
+  // and a mission with open blockers cannot move anywhere but terminal.
+  if (target === 'blocked') {
+    return {
+      accept: false,
+      code: MODEL_REJECTION_CODES.status,
+      reason: `blocked is derived from open blockers: record a blocker instead of status ${target}`,
+    }
+  }
+  if (mission.status === 'blocked' && target !== 'abandoned') {
+    return {
+      accept: false,
+      code: MODEL_REJECTION_CODES.status,
+      reason: `mission ${missionId} is blocked by open blockers; clear_blockers resumes it`,
+    }
+  }
+  if (!modelCanPatchStatus(mission.status, target)) {
     return {
       accept: false,
       code: MODEL_REJECTION_CODES.status,
@@ -476,7 +493,13 @@ export function modelMerge(model, id) {
 export function modelRebase(model, id, effect) {
   const mission = modelMission(model, id)
   mission.rebase = { at: effect.at, oldTip: effect.oldTip }
-  if (mission.status === 'blocked') mission.status = 'active'
+  // Mirror resolveBlockers(mission, isRebaseConflictBlocker): a successful
+  // rebase resolves the conflict blocker it recorded and resumes the mission
+  // only when no unrelated blocker remains.
+  if (mission.status === 'blocked') {
+    mission.blockers = mission.blockers.filter((blocker) => !blocker.startsWith('rebase conflict onto '))
+    if (mission.blockers.length === 0) mission.status = 'active'
+  }
 }
 
 /**

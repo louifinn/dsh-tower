@@ -13,6 +13,7 @@
 import { TowerToolError } from '../errors.js'
 import { SCHEMA_VERSION } from '../mission.js'
 import { SHAPE_KINDS, shapeFor } from '../shapes/index.js'
+import { normalizeBatchStatus } from '../batch.js'
 
 /** @typedef {{ readCommit: string, readDirty: string[] }} LegacySurveyRead */
 /** @typedef {{ legacySurveyRead?: LegacySurveyRead | null }} MigrationContext */
@@ -89,6 +90,54 @@ export function migrateV3ToV4(state, context = {}) {
 }
 
 /**
+ * v4 -> v5. Two contracts that used to overlap are made exact (#149 W3):
+ *
+ * - `blocked` is derived from open blockers, not an independent stop state. A
+ *   non-terminal mission that says `blocked` without a blocker gets one explicit
+ *   legacy blocker (it stays blocked; `clear_blockers` resumes it); a
+ *   non-terminal mission that carries blockers under any other status becomes
+ *   `blocked` because a blocker wins over a pause or a fresh status. Terminal
+ *   missions keep their blockers as history and are never reopened.
+ * - A batch's status vocabulary is normalized to `open|closed|abandoned`;
+ *   pre-v5 documents used `created|active|pending` as synonyms for `open`.
+ *
+ * The step is pure and one-way. Re-running it on a v5 document is a fixed point.
+ * @param {Record<string, any>} state
+ * @returns {Record<string, any>}
+ */
+export function migrateV4ToV5(state) {
+  const next = { ...state }
+  next.missions = (Array.isArray(next.missions) ? next.missions : []).map((mission) => {
+    if (!isPlainObject(mission)) return mission
+    const shape = shapeFor(mission.kind)
+    const blockers = Array.isArray(mission.blockers) ? [...mission.blockers] : []
+    if (shape.isTerminal(mission.status)) return { ...mission, blockers }
+    if (mission.status === 'blocked' && blockers.length === 0) {
+      return {
+        ...mission,
+        blockers: ['(legacy blocked state: no blocker was recorded; clear_blockers resumes the mission)'],
+      }
+    }
+    if (mission.status !== 'blocked' && blockers.length > 0) {
+      const migrated = { ...mission, status: 'blocked', blockers }
+      // A blocker supersedes a pause: the pause cause no longer describes why
+      // the mission is stopped.
+      delete migrated.pauseCause
+      return migrated
+    }
+    return mission
+  })
+  if (Array.isArray(next.batches)) {
+    next.batches = next.batches.map((batch) => {
+      if (!isPlainObject(batch)) return batch
+      const status = normalizeBatchStatus(batch.status)
+      return status === batch.status ? batch : { ...batch, status }
+    })
+  }
+  return next
+}
+
+/**
  * True when a pre-v4 document contains at least one legacy mission whose shape
  * cannot anchor its read from the document alone (a survey planned but never
  * provisioned). The load path must resolve the repository base before migration
@@ -96,8 +145,7 @@ export function migrateV3ToV4(state, context = {}) {
  * current-version document is never re-migrated.
  * @param {unknown} state
  * @returns {boolean}
- */
-export function legacySurveyNeedsRead(state) {
+ */export function legacySurveyNeedsRead(state) {
   if (!isPlainObject(state)) return false
   const document = /** @type {Record<string, any>} */ (state)
   const version = document.schemaVersion
@@ -115,6 +163,7 @@ export const STATE_MIGRATIONS = Object.freeze([
   Object.freeze({ from: 1, to: 2, migrate: migrateV1ToV2 }),
   Object.freeze({ from: 2, to: 3, migrate: migrateV2ToV3 }),
   Object.freeze({ from: 3, to: 4, migrate: migrateV3ToV4 }),
+  Object.freeze({ from: 4, to: 5, migrate: migrateV4ToV5 }),
 ])
 
 /**

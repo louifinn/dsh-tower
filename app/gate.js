@@ -60,7 +60,7 @@ export async function evaluateGate(tower, input) {
     } else {
       try {
         await tower.assertWorktree(worktree)
-        branchTip = await tower.revParse(worktree.path, 'HEAD')
+        branchTip = await tower.branchTip(mission)
         baseTip = await tower.revParse(tower.root, state.base)
         const mergeBase = (await tower.git(worktree.path, ['merge-base', baseTip, branchTip])).trim()
         changedFiles = (await tower.git(worktree.path, ['diff', '--name-only', `${mergeBase}..${branchTip}`]))

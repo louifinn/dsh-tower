@@ -41,7 +41,7 @@ function fail(message, code = 'invalid-argument') {
  * @param {any} input
  * @returns {string}
  */
-function resolveCheckoutRoot(tower, input) {
+export function resolveCheckoutRoot(tower, input) {
   const root = worktreeRoot({
     worktreeRoot: input.worktreeRoot,
     configuredRoot: tower.config.worktrees.root,

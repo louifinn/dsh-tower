@@ -31,7 +31,7 @@ tower_resource({action:"release", name:"heavy-ci", token:"<token from acquire>"}
 
 - acquire is tower-only; the caller gets a token, pid, holder, created/expiry timestamps;
 - the same token renews; another holder gets `[tower:lease-busy]`;
-- release requires the token; an **expired** lease still requires the token and explicit `force:true`
+- release requires the holder token; an **expired** lease is recovered by an explicit `force:true` release (a live lease still refuses a foreign token)
   (no silent takeover);
 - `spawn.requireLease` makes a worker spawn fail unless that lease is held.
 
