@@ -97,8 +97,8 @@ test('types coverage: every root entry point and host module is in the shipped r
   }
   const hostModules = all.filter((file) => /^host\/[^/]+\.js$/.test(file))
   // #133/#135: capability-board.js and capability-archive.js joined host/. #148:
-  // host/preset-survey.js and host/preset-survey-sandbox.js.
-  assert.equal(hostModules.length, 21)
+  // host/preset-survey.js and host/preset-survey-sandbox.js. #154: host/ownership.js.
+  assert.equal(hostModules.length, 22)
   for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
 })
 

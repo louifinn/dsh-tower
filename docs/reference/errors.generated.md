@@ -32,6 +32,9 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale |
+| `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover |
+| `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover |
+| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute |
 | `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover |

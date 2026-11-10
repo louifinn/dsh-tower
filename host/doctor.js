@@ -19,6 +19,8 @@ import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/sur
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
 import { inspectWorkspaceLock } from '../adapters/workspaceLock.js'
+import { loadModes } from './modeStore.js'
+import { ownershipSnapshot } from '../app/ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 
 const execFileAsync = promisify(execFile)
@@ -209,11 +211,38 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   try {
     state = await tower.load()
     checks.push(check('state', 'pass', `${tower.paths.state} revision ${state.revision}`))
-    checks.push(
-      state.towerAgentId
-        ? check('tower-owner', 'pass', `bound to ${String(state.towerAgentId)}`)
-        : check('tower-owner', 'warn', 'state has no towerAgentId; write tools will fail closed', 'run tower_init with the restored session to re-claim ownership'),
-    )
+    if (!state.towerAgentId) {
+      checks.push(check('tower-owner', 'warn', 'state has no towerAgentId; write tools will fail closed', 'run tower_init with the restored session to re-claim ownership'))
+    } else {
+      const modes = loadModes(tower.config?.mode?.storePath || undefined)
+      const lock = await inspectWorkspaceLock(tower.commonDir, {
+        staleMs: Number(tower.config?.mode?.workspaceStaleMs) || 300000,
+      })
+      let roster = []
+      try {
+        roster = (await tower.rosterView()).roster
+      } catch {
+        roster = []
+      }
+      const ownership = ownershipSnapshot({ state, modes, caller: null, lock, liveRoster: roster })
+      const live = ownership.blockers.find((blocker) => blocker.code === 'owner-live')
+      if (live) {
+        checks.push(check('tower-owner', 'pass', `bound to ${ownership.owner}; Tower mode is active${ownership.ownerLock ? ' with a live workspace lock' : ''}`))
+      } else {
+        const busy = ownership.blockers.filter((blocker) => blocker.code === 'owner-busy').map((blocker) => blocker.detail)
+        const detail = busy.length > 0
+          ? `owner ${ownership.owner} appears inactive (Tower mode ${ownership.ownerMode}) but ${busy.join('; ')}`
+          : `owner ${ownership.owner} appears inactive (Tower mode ${ownership.ownerMode}${lock.held ? `, ${lock.stale ? 'stale' : 'live'} workspace lock` : ''})`
+        checks.push(check(
+          'tower-owner',
+          'warn',
+          detail,
+          busy.length > 0
+            ? 'stop the live roster agents or release the foreign workspace lock, then run /tower takeover <reason>'
+            : 'in the new session run /tower takeover <reason> to claim this repository without deleting its history',
+        ))
+      }
+    }
   } catch (error) {
     checks.push(check('state', 'fail', String(error?.message ?? error), 'run tower_init or restore the state file'))
   }

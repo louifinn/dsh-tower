@@ -68,11 +68,24 @@ kept, and a dirty worktree requires `force: true`. Use `dry_run: true` to previe
 worktree can be re-added from its branch with `git worktree add`, but do not do this while the mission
 is active without updating the roster.
 
+## Ownership handoff
+
+State is bound to the session that initialized it (`state.towerAgentId`). When that session is gone,
+the new session runs `/tower takeover <reason>`; the human command is always available, even with
+`mode.allowAgentControl:false`. A model can request the same transfer through
+`tower_control({action:"takeover"})`, but only from Tower mode and only after an explicit human
+approval dialog. Both paths refuse while the previous owner still has Tower mode on with a live
+workspace lock ([tower:owner-live]), while live roster agents or a foreign workspace lock exist
+([tower:owner-busy]). The transfer keeps all missions, reviews, findings and unread messages, writes
+one `takeover` activity line, and releases an orphaned previous-owner lock. There is no automatic
+release of ownership. See `tower_doctor`'s `tower-owner` check for the current facts.
+
 ## Stale or corrupt state
 
 If `state.json` is unreadable, stop all agents first. The plugin reports corruption instead of guessing.
-Restore from a backup if you have one; otherwise remove `<git-common-dir>/dsh-tower/` and re-run
-`tower_init` — this loses mission history but not Git branches/worktrees.
+For a live repository whose owner session is merely gone, prefer the ownership handoff above; it keeps
+history. Restore from a backup if you have one. Removing `<git-common-dir>/dsh-tower/` and re-running
+`tower_init` is the last resort: it loses mission history but not Git branches/worktrees.
 
 ## Full recovery of a repo's Tower data
 

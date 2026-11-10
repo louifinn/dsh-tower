@@ -76,6 +76,7 @@ function makeCtx(options = {}) {
     get(name) {
       if (name === 'goals') return options.goals
       if (name === 'agentPresets') return options.agentPresets
+      if (name === 'userQuestions') return options.userQuestions
       return undefined
     },
     provide(name, value) {
@@ -119,10 +120,11 @@ function makeCtx(options = {}) {
   return { ctx, tools, guards, sections, commands, effects }
 }
 
-function makeAgent(id) {
+function makeAgent(id, cwd = null) {
   const steered = []
   return {
     id,
+    ...(cwd ? { session: { header: { cwd } } } : {}),
     steered,
     steer(message) {
       steered.push(message)
@@ -157,7 +159,7 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   assert.ok(plain.tools.has('tower_mode'))
   assert.ok(plain.tools.has('tower_control'), 'agent control is on by default')
   const command = plain.commands.get('tower')
-  assert.equal(command.input.hint, '[on|off|reload|ack|base <branch>] [message]')
+  assert.equal(command.input.hint, '[on|off|reload|ack|takeover <reason>|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const disabled = makeCtx()
@@ -577,6 +579,120 @@ test('#148: survey row availability comes from the real agent-presets service', 
       .get('tower_plan')
       .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row present', kind: 'survey' }] }, { agent })
     assert.equal(planned.missions[0].kind, 'survey')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#154: model takeover asks the human and transfers an inactive owner', async () => {
+  const asked = []
+  const userQuestions = {
+    async ask(request) {
+      asked.push(request)
+      return { answers: [{ id: 'tower-ownership', selected: ['Transfer ownership'] }] }
+    },
+  }
+  const { ctx, tools, commands } = makeCtx({ userQuestions })
+  compose(ctx)
+  const { root, repo } = makeRepo()
+  try {
+    const owner = makeAgent('owner-a', repo)
+    const next = makeAgent('owner-b', repo)
+    await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
+    await callCommand(commands, next, 'on')
+    const result = await tools.get('tower_control').execute(
+      { action: 'takeover', reason: 'previous session is gone' },
+      { agent: next },
+    )
+    assert.equal(result.approved, true)
+    assert.equal(result.transferred, true)
+    assert.equal(result.owner, 'owner-b')
+    assert.equal(asked.length, 1)
+    assert.equal(asked[0].questions[0].id, 'tower-ownership')
+    assert.match(asked[0].questions[0].detail, /Current owner: owner-a/)
+    assert.match(asked[0].questions[0].detail, /Reason: previous session is gone/)
+    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    assert.equal(status.ownership.owner, 'owner-b')
+    assert.equal(status.ownership.sameOwner, true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#154: takeover declines, cancellation and a live owner are non-destructive', async () => {
+  const asked = []
+  const userQuestions = {
+    async ask() {
+      asked.push(true)
+      return { answers: [{ id: 'tower-ownership', selected: ['Keep current owner'] }] }
+    },
+  }
+  const { ctx, tools, commands } = makeCtx({ userQuestions })
+  compose(ctx)
+  const { root, repo } = makeRepo()
+  try {
+    const owner = makeAgent('owner-refuse-a', repo)
+    const next = makeAgent('owner-refuse-b', repo)
+    await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
+    await callCommand(commands, next, 'on')
+    const declined = await tools.get('tower_control').execute(
+      { action: 'takeover', reason: 'try' },
+      { agent: next },
+    )
+    assert.equal(declined.approved, false)
+    assert.equal(declined.transferred, false)
+    let status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    assert.equal(status.ownership.owner, 'owner-refuse-a')
+
+    // A cancelled dialog must end the turn, not transfer.
+    const cancelCtx = makeCtx({
+      userQuestions: {
+        async ask() {
+          const error = new Error('cancelled')
+          error.code = 'ASK_CANCELLED'
+          throw error
+        },
+      },
+    })
+    compose(cancelCtx.ctx)
+    const cancelAgent = makeAgent('owner-cancel-b', repo)
+    await callCommand(cancelCtx.commands, cancelAgent, 'on')
+    let concluded = false
+    const cancelled = await cancelCtx.tools.get('tower_control').execute(
+      { action: 'takeover', reason: 'cancel' },
+      { agent: cancelAgent, concludeTurn: () => { concluded = true } },
+    )
+    assert.equal(cancelled.cancelled, true)
+    assert.equal(cancelled.approved, false)
+    assert.equal(concluded, true)
+
+    // A live owner refuses before the dialog is shown.
+    await callCommand(commands, owner, 'on')
+    asked.length = 0
+    await assert.rejects(
+      () => tools.get('tower_control').execute({ action: 'takeover', reason: 'live' }, { agent: next }),
+      (error) => error.code === 'owner-live',
+    )
+    assert.equal(asked.length, 0, 'the human is not asked when the preconditions already fail')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#154: human /tower takeover works without the model control gate', async () => {
+  const { ctx, tools, commands } = makeCtx({ userQuestions: { ask: async () => ({ answers: [] }) } })
+  apply(ctx, { mode: { allowAgentControl: false } })
+  const { root, repo } = makeRepo()
+  try {
+    const owner = makeAgent('owner-human-a', repo)
+    const next = makeAgent('owner-human-b', repo)
+    await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
+    assert.equal(tools.has('tower_control'), false)
+    const result = await callCommand(commands, next, 'takeover recovering a finished session')
+    assert.equal(result.kind, 'success', result.text)
+    assert.match(result.text, /ownership transferred from owner-human-a to owner-human-b/)
+    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    assert.equal(status.ownership.owner, 'owner-human-b')
   } finally {
     removeTemp(root)
   }

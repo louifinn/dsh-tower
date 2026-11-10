@@ -199,6 +199,24 @@ export const ERROR_CODES = {
     retryable: true,
     nextAction: 'run /tower off in the other session or wait for its lock to become stale',
   },
+  'owner-live': {
+    description: 'The current Tower owner is still active, so ownership cannot be transferred.',
+    trigger: 'takeover while the previous owner still has Tower mode on and a live workspace lock',
+    retryable: true,
+    nextAction: 'run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover',
+  },
+  'owner-busy': {
+    description: 'Another live Tower participant or a foreign workspace lock blocks ownership transfer.',
+    trigger: 'takeover while live roster agents exist or another session holds the workspace lock',
+    retryable: true,
+    nextAction: 'stop live workers, release the foreign workspace lock, then retry the takeover',
+  },
+  'approval-unavailable': {
+    description: 'The human approval channel is unavailable for an ownership transfer.',
+    trigger: '`tower_control({action:"takeover"})` in a profile without the userQuestions service',
+    retryable: false,
+    nextAction: 'use the human /tower takeover <reason> command, or restart this session with the user-questions service available',
+  },
   'worker-limit': {
     description: 'The repository reached spawn.maxLiveWorkers live workers.',
     trigger: 'spawning a fifth worker with the default limit',

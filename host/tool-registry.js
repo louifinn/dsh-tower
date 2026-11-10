@@ -36,6 +36,7 @@ import { registerInitTool } from '../tools/init.js'
 import { registerPlanTool } from '../tools/plan.js'
 import { registerMissionTool } from '../tools/mission.js'
 import { registerStatusTool } from '../tools/status.js'
+import { readOwnership } from './ownership.js'
 import { registerRosterTool } from '../tools/roster.js'
 import { registerInterruptTool } from '../tools/interrupt.js'
 import { registerDiffTool } from '../tools/diff.js'
@@ -162,7 +163,8 @@ function normalizeToolArgs(args, aliases = {}) {
 /** Resolve the calling agent to a roster role; unknown callers are rejected. */
 async function actorFor(tower, exec) {
   const agentId = exec?.agent?.id !== undefined ? String(exec.agent.id) : null
-  const unknown = { name: ROLE.unknown, role: ROLE.unknown, agentId, ownerMissing: false }
+  /** @type {{ name: string, role: string, agentId: string | null, ownerMissing: boolean, owner: string | null }} */
+  const unknown = { name: ROLE.unknown, role: ROLE.unknown, agentId, ownerMissing: false, owner: null }
   if (!agentId) return unknown
   let state
   try {
@@ -173,8 +175,9 @@ async function actorFor(tower, exec) {
     return unknown
   }
   if (!state.towerAgentId) unknown.ownerMissing = true
+  unknown.owner = state.towerAgentId ? String(state.towerAgentId) : null
   if (state.towerAgentId && String(state.towerAgentId) === agentId) {
-    return { name: ROLE.tower, role: ROLE.tower, agentId }
+    return { name: ROLE.tower, role: ROLE.tower, agentId, owner: unknown.owner }
   }
   let view
   try {
@@ -184,19 +187,26 @@ async function actorFor(tower, exec) {
   }
   const self = view.roster.find((entry) => entry.agentId === agentId)
   if (!self) return unknown
-  if (isTowerRole(self.role)) return { name: self.name, role: ROLE.tower, agentId }
-  return { name: self.name, role: self.role, agentId }
+  if (isTowerRole(self.role)) return { name: self.name, role: ROLE.tower, agentId, owner: unknown.owner }
+  return { name: self.name, role: self.role, agentId, owner: unknown.owner }
+}
+
+function ownerRemedy(actor) {
+  if (actor?.ownerMissing || !actor?.owner) {
+    return '; repository state has no towerAgentId — run tower_init to re-claim'
+  }
+  return `; repository owner is ${actor.owner} — in this session run /tower takeover <reason>, or use the owner session`
 }
 
 function requireKnownActor(actor, action) {
   if (!actor || isUnknownRole(actor.role)) {
-    throw new TowerToolError('not-authorized', `${action} requires a registered roster agent or the tower${actor?.ownerMissing ? '; repository state has no towerAgentId — run tower_init to re-claim' : ''}`)
+    throw new TowerToolError('not-authorized', `${action} requires a registered roster agent or the tower${ownerRemedy(actor)}`)
   }
 }
 
 function requireTowerActor(actor, action) {
   if (!isTowerRole(actor.role)) {
-    throw new TowerToolError('not-authorized', `only the tower can ${action}; ${actor.name} is a ${actor.role}${actor.ownerMissing ? '; repository state has no towerAgentId — run tower_init to re-claim' : ''}`)
+    throw new TowerToolError('not-authorized', `only the tower can ${action}; ${actor.name} is a ${actor.role}${ownerRemedy(actor)}`)
   }
 }
 
@@ -516,6 +526,17 @@ async function runMissionDiscovery(tower, mission) {
   return { configured: true, receipt: stored }
 }
 
+async function ownershipView(_ctx, tower, exec) {
+  const agentId = exec?.agent?.id !== undefined ? String(exec.agent.id) : null
+  if (!agentId) return null
+  try {
+    const facts = await readOwnership(tower, { caller: agentId })
+    return facts.snapshot
+  } catch {
+    return null
+  }
+}
+
 async function observeActivity(ctx, tower) {
   const view = await tower.rosterView()
   const subagents = ctx.get('subagents')
@@ -631,7 +652,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport })
+  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport, ownershipView })
 
   // #131: the lease precondition needs the row state, and the app layer may not
   // import the registry, so the probe travels with the other spawn deps.
