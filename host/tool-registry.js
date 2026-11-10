@@ -7,13 +7,17 @@ import { Tower } from '../app/tower.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import {
   PARENT_STATUS_OK,
-  ROLE,
   ROSTER_ACTIVITY,
   ROSTER_INACTIVE_STATES,
   isRunningActivity,
-  isTowerRole,
-  isUnknownRole,
 } from '../domain/vocabulary.js'
+import {
+  anonymousActor,
+  authorize,
+  requireKnownActor,
+  requireTowerActor,
+  resolveActor,
+} from './authorization.js'
 import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { runtimeConfig } from './config.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
@@ -160,54 +164,40 @@ function normalizeToolArgs(args, aliases = {}) {
   return out
 }
 
-/** Resolve the calling agent to a roster role; unknown callers are rejected. */
-async function actorFor(tower, exec) {
-  const agentId = exec?.agent?.id !== undefined ? String(exec.agent.id) : null
-  /** @type {{ name: string, role: string, agentId: string | null, ownerMissing: boolean, owner: string | null }} */
-  const unknown = { name: ROLE.unknown, role: ROLE.unknown, agentId, ownerMissing: false, owner: null }
-  if (!agentId) return unknown
-  let state
-  try {
-    state = await tower.load()
-  } catch (error) {
-    if (error?.code !== 'not-initialized') throw error
-    // No readable state: only tower_init may claim ownership (handled in that tool).
-    return unknown
-  }
-  if (!state.towerAgentId) unknown.ownerMissing = true
-  unknown.owner = state.towerAgentId ? String(state.towerAgentId) : null
-  if (state.towerAgentId && String(state.towerAgentId) === agentId) {
-    return { name: ROLE.tower, role: ROLE.tower, agentId, owner: unknown.owner }
-  }
-  let view
-  try {
-    view = await tower.rosterView()
-  } catch {
-    return unknown
-  }
-  const self = view.roster.find((entry) => entry.agentId === agentId)
-  if (!self) return unknown
-  if (isTowerRole(self.role)) return { name: self.name, role: ROLE.tower, agentId, owner: unknown.owner }
-  return { name: self.name, role: self.role, agentId, owner: unknown.owner }
-}
+// The authorization kernel (host/authorization.js) is the single source of
+// truth for who may call which tool. `actorFor` stays as the internal name the
+// tool registrars already receive; it resolves through the kernel.
+const actorFor = resolveActor
 
-function ownerRemedy(actor) {
-  if (actor?.ownerMissing || !actor?.owner) {
-    return '; repository state has no towerAgentId — run tower_init to re-claim'
+/**
+ * Resolve and authorize one tool call.
+ *
+ * tower_init is special: it may have to create the repository it runs in, so a
+ * repository that cannot be opened yet becomes the anonymous actor and the
+ * bootstrap matrix row decides. Every other tool opens its repository first
+ * (preserving the [tower:repo-invalid] errors) and is authorized against it.
+ *
+ * @param {string} name
+ * @param {any} args normalized tool arguments
+ * @param {any} exec
+ */
+async function authorizeCall(name, args, exec) {
+  if (name === 'tower_init') {
+    let tower = null
+    try {
+      tower = await openTower(args.repoRoot)
+    } catch {
+      // Opening may fail before the handler creates or claims the repository.
+      tower = null
+    }
+    const actor = tower ? await resolveActor(tower, exec) : anonymousActor(exec)
+    await authorize(name, actor, { args, tower })
+    return actor
   }
-  return `; repository owner is ${actor.owner} — in this session run /tower takeover <reason>, or use the owner session`
-}
-
-function requireKnownActor(actor, action) {
-  if (!actor || isUnknownRole(actor.role)) {
-    throw new TowerToolError('not-authorized', `${action} requires a registered roster agent or the tower${ownerRemedy(actor)}`)
-  }
-}
-
-function requireTowerActor(actor, action) {
-  if (!isTowerRole(actor.role)) {
-    throw new TowerToolError('not-authorized', `only the tower can ${action}; ${actor.name} is a ${actor.role}${ownerRemedy(actor)}`)
-  }
+  const tower = await openTower(args.repoRoot)
+  const actor = await resolveActor(tower, exec)
+  await authorize(name, actor, { args, tower })
+  return actor
 }
 
 const SEND_RATE = new Map()
@@ -409,7 +399,7 @@ function plainSchema(value) {
  *   name: string,
  *   description: string,
  *   parameters: S,
- *   execute: (args: import('@sinclair/typebox').Static<S>, exec: any) => Promise<unknown>,
+ *   execute: (args: import('@sinclair/typebox').Static<S>, exec: any, actor?: any) => Promise<unknown>,
  *   aliases?: any,
  *   requiresMissionId?: any,
  *   board?: any,
@@ -437,10 +427,13 @@ function define(ctx, definition) {
         }
         let value
         try {
+          // Default-deny authorization runs before any side effect: a denied
+          // call must not take the workspace lock, write state, or spawn.
+          const actor = await authorizeCall(rest.name, normalized, exec)
           if (runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') {
             await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
           }
-          value = await execute(normalized, exec)
+          value = await execute(normalized, exec, actor)
         } catch (error) {
           throw classifyError(error)
         }
@@ -662,7 +655,9 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffTool(ctx, { openTower, define, actorFor })
+  // The diff handler receives the kernel-resolved actor and never re-resolves
+  // it, so a reviewer binding and the mission-visibility check cannot disagree.
+  registerDiffTool(ctx, { openTower, define })
 
   registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 
