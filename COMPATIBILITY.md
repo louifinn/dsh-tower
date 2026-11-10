@@ -5,6 +5,7 @@ is shipped in the npm package; doctor reads it locally and never contacts a regi
 
 | dsh version | tag / commit | verified on | what was run |
 |---|---|---|---|
+| 0.2.1-rc.2 | v2.7.0 | 2026-11-10 | mount smoke (28/28 default tools, 3 skills, 4 presets with distinct labels, 1 bundle row), `npm run test:property` (111), full static gate chain, focused shape/survey/evidence/scope/role/review/batch/leases tests, CI `test (22)`, `test (24)`, `test (22, windows)`, `mount`, `mount-fixtures` |
 | 0.2.1-rc.2 | v2.6.0 | 2026-11-01 | mount smoke (28/28 default tools, 3 skills, 2 presets with distinct labels, 1 bundle row), `npm test` (729), `npm run test:property` (111), `npm run check` (docs + generated + component + surface + pack 294 + types + architecture + domain), `npm run smoke:mount` |
 | 0.2.1-rc.2 | v2.5.0 | 2026-11-01 | mount smoke (28/28 default tools, 3 skills, 2 presets with distinct labels, 1 bundle row), `npm test` (696), `npm run test:property` (111), `npm run check` (docs + generated + component + surface + pack 293 + types + architecture + domain), `npm run release:check -- --mode tag --tag v2.5.0` |
 | 0.2.1-rc.2 | v2.4.2 | 2026-10-24 | mount smoke (28/28 default tools, 3 skills, 2 presets with distinct labels, 1 bundle row), `npm test` (631), docs + seven generated checks, types coverage 148/148, components + philosophy + surface gates |

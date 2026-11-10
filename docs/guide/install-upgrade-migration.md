@@ -29,6 +29,32 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.6.0 → 2.7.0 (#148/#149) — mission shapes, survey tasks, and state schema v5**: a completed
+  survey is a read of a commit, not a write of a branch. `tower_plan({kind:"survey"})` records
+  `readCommit` and `readDirty`, creates no branch or worktree, and completes only while HEAD and the
+  tracked-file status still match that read. The optional `survey.sandbox: "detached"` mode gives a
+  writable inspection a disposable worktree pinned to the same commit. `tower-survey` is an optional
+  component row; survey presets are read-only by default, and surveys do not count against
+  `spawn.maxLiveWorkers`.
+  - **State migration is automatic and one-way.** The first write after upgrading migrates
+    `state.json` from v3 to v5 in one step, writes `state.json.v3.bak` first, advances `revision`
+    once, and logs `state.migrated` with steps v3→v4 and v4→v5. Legacy survey rows gain
+    `readCommit`/`readDirty` (anchored at `state.base` when the old row never started), and build
+    rows are stamped `kind:"build"`. Read-only loads migrate in memory without rewriting the file.
+    A newer document is still refused with `state-version-unsupported` and never downgraded.
+  - **Config key count 57 → 56.** `tests.autoChecks` is gone; test evidence is now the
+    `mission.testRuns` receipt read by `domain/evidence.js`. A config that still writes the key is
+    rejected as `config-unknown-key` with this note; there is no replacement switch.
+  - **`blocked` is derived.** Write `status:"blocked"` through `tower_mission` is refused; use
+    `blocker` to report and `clear_blockers` to resolve. Batch statuses are canonical
+    `open → closed|abandoned`; an expired foreign lease requires explicit `force` to recover.
+  - **Survey actions are explicit.** `tower_merge`, `tower_rebase`, `tower_preflight`, and
+    `tower_diff` refuse surveys with `invalid-transition`; a completed survey is terminal for
+    planning, archive, dependency satisfaction, and reanchor. `tower_complete` accepts an optional
+    structured `result` (`paths`, `symbols`, `notes`, `plan`) for surveys only.
+  - Reviewers are now spawned into a detached checkout bound to the recorded commit; a verdict is
+    tied to that commit, and teardown cleans the checkout. Existing build workflows are unchanged.
+  - No npm dist-tag or review-policy change is required. Restart DSH after upgrading.
 - **2.5.0 → 2.6.0 (#M39/#M40) — review modes replace the boolean**: the review policy is one
   tri-state control on the Plugins page in the `dsh-tower` configuration section, and the config key
   is `review.mode`: `off`, `optional` (the default) or `required`.
