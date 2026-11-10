@@ -25,6 +25,7 @@ export const TOWER_COMPONENT_IDS = Object.freeze([
   'tower-archive',
   'tower-hmr',
   'preset-tower-reviewer',
+  'tower-survey',
 ])
 
 /** Tool ids each code component owns; the preset row owns no tool. */
@@ -38,6 +39,7 @@ export const COMPONENT_TOOLS = Object.freeze({
   'tower-archive': Object.freeze([]),
   'tower-hmr': Object.freeze(['tower_reload']),
   'preset-tower-reviewer': Object.freeze([]),
+  'tower-survey': Object.freeze([]),
 })
 
 /** id -> number of live registrations (redelivery/HMR can overlap briefly). */
@@ -86,23 +88,37 @@ export function disabledReason(id) {
   return `disabled by component ${id}`
 }
 
-/** Reviewer-preset availability from the optional agent-presets service. */
-async function reviewerPresetAvailable(ctx) {
+/**
+ * Availability of one declarative preset row from the optional agent-presets
+ * service. Preset rows (`preset-tower-reviewer`, `tower-survey`) mount an agent
+ * preset instead of a code entry point, so the process-local component registry
+ * cannot see them.
+ * @param {any} ctx
+ * @param {string} presetId the agent-preset id the row registers
+ * @returns {Promise<boolean | null>} null when the service cannot answer
+ */
+export async function presetAvailable(ctx, presetId) {
   const service = ctx?.get?.('agentPresets')
   if (!service || typeof service.list !== 'function') return null
   try {
     const presets = await service.list()
-    return Array.isArray(presets) && presets.some((entry) => String(entry?.id) === 'tower-reviewer')
+    return Array.isArray(presets) && presets.some((entry) => String(entry?.id) === presetId)
   } catch {
     return null
   }
 }
 
+/** Component rows whose switch is a declarative agent-preset registration. */
+export const PRESET_ROW_COMPONENTS = Object.freeze({
+  'preset-tower-reviewer': 'tower-reviewer',
+  'tower-survey': 'tower-survey',
+})
+
 /**
- * Report every optional component as enabled or disabled. The reviewer preset
- * is not a code entry point: its row mounts an agent preset, so availability is
- * read from `agentPresets` and reported as unknown (omitted) when that service
- * is absent, exactly as the doctor's preset check does.
+ * Report every optional component as enabled or disabled. A preset row is not a
+ * code entry point: its availability is read from `agentPresets` and reported as
+ * unknown (omitted) when that service is absent, exactly as the doctor's preset
+ * check does.
  *
  * @param {any} ctx
  * @returns {Promise<{ enabled: string[], disabled: Array<{ id: string, reason: string }> }>}
@@ -111,8 +127,8 @@ export async function componentReport(ctx) {
   const enabled = []
   const disabled = []
   for (const id of TOWER_COMPONENT_IDS) {
-    if (id === 'preset-tower-reviewer') {
-      const available = await reviewerPresetAvailable(ctx)
+    if (PRESET_ROW_COMPONENTS[id]) {
+      const available = await presetAvailable(ctx, PRESET_ROW_COMPONENTS[id])
       if (available === false) disabled.push({ id, reason: disabledReason(id) })
       else if (available === true) enabled.push(id)
       continue

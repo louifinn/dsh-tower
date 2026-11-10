@@ -12,15 +12,47 @@
 import { fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { isShapeKind } from '../domain/shapes/index.js'
 
 const SCHEMA_VERSION = 1
 const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 const DSH_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned']
-// Tower Codex also retires missions; retired is read-only history here.
+// Tower Codex also retires missions; `retired` is accepted input vocabulary and
+// is remapped below. It is never a DSH mission status.
 const CODEX_STATUSES = [...DSH_STATUSES, 'retired']
 const DSH_ID_RE = /^M\d+$/
 const CODEX_ID_RE = /^T\d{4,}$/
 const SHA256_RE = /^[a-f0-9]{64}$/
+
+// The strict adapter contract (#149 W4). One payload is exactly one legacy
+// format; every status and field alias this module accepts is declared here.
+// Missions are normalised to the shape registry's DSH vocabulary: a status
+// remap is applied and reported in `remapped`, never silently invented, and a
+// value the adapter cannot carry is reported in `unresolved`/`dropped`.
+export const LEGACY_FORMATS = Object.freeze({
+  'tower-codex': Object.freeze({
+    idPattern: CODEX_ID_RE,
+    idHint: 'T####',
+    statuses: CODEX_STATUSES,
+    statusRemap: Object.freeze({ retired: 'abandoned' }),
+    baseBranchField: 'baseBranch',
+    requiresBaseBranch: true,
+  }),
+  dsh: Object.freeze({
+    idPattern: DSH_ID_RE,
+    idHint: 'M#',
+    statuses: DSH_STATUSES,
+    statusRemap: Object.freeze({}),
+    baseBranchField: 'base',
+    requiresBaseBranch: false,
+  }),
+})
+
+// Only these fields cross the adapter boundary. Everything else a legacy
+// mission carries is validated for safety, then reported as dropped: the
+// adapter deliberately does not invent DSH semantics for it.
+const CARRIED_MISSION_FIELDS = Object.freeze(['id', 'status', 'kind'])
+const DROPPED_REASON = 'validated for safety but not carried into the summary; the exact payload bytes remain in the stored snapshot'
 
 function fail(code, message) {
   /** @type {Error & {code?: string}} */
@@ -86,6 +118,9 @@ function invalidResult(error, format = null) {
     missionIds: [],
     missionCount: 0,
     paused: [],
+    unresolved: [],
+    dropped: [],
+    remapped: [],
     events: null,
     legacySnapshots: null,
     repoRoot: null,
@@ -141,30 +176,88 @@ function validateReviews(reviews, id) {
 }
 
 /**
+ * Detect one legacy format per payload. A declared `format` is authoritative;
+ * otherwise every mission id must belong to exactly one namespace. Empty
+ * mission lists use the top-level shape (a Tower Codex snapshot has a
+ * baseBranch; DSH state uses `base`).
+ * @param {any} payload
+ * @returns {{ format: 'tower-codex'|'dsh'|null, error: string|null }}
+ */
+function detectFormat(payload) {
+  if (payload.format !== undefined) {
+    if (typeof payload.format !== 'string' || !Object.prototype.hasOwnProperty.call(LEGACY_FORMATS, payload.format)) {
+      return { format: null, error: `unsupported legacy format ${JSON.stringify(payload.format)} (expected tower-codex or dsh)` }
+    }
+    return { format: payload.format, error: null }
+  }
+  if (payload.missions.length === 0) {
+    return { format: isNonEmptyString(payload.baseBranch) ? 'tower-codex' : 'dsh', error: null }
+  }
+  let codex = 0
+  let dsh = 0
+  for (const mission of payload.missions) {
+    const id = mission?.id
+    if (typeof id === 'string' && CODEX_ID_RE.test(id)) codex += 1
+    else if (typeof id === 'string' && DSH_ID_RE.test(id)) dsh += 1
+  }
+  if (codex === payload.missions.length) return { format: 'tower-codex', error: null }
+  if (dsh === payload.missions.length) return { format: 'dsh', error: null }
+  for (const mission of payload.missions) {
+    const id = mission?.id
+    if (typeof id !== 'string' || (!CODEX_ID_RE.test(id) && !DSH_ID_RE.test(id))) {
+      return {
+        format: null,
+        error: `unsupported legacy mission id ${JSON.stringify(id)} (expected T#### for Tower Codex or M# for DSH)`,
+      }
+    }
+  }
+  return { format: null, error: 'legacy snapshot mixes mission id namespaces (T#### and M#); one snapshot is one format' }
+}
+
+/**
  * @param {any} payload
  * @param {'tower-codex'|'dsh'} format
- * @returns {{error:string|null, missions:Array<{id:string,status:string,kind:string}>, missionIds:string[], paused:string[]}}
+ * @param {{ idPattern: RegExp, idHint: string, statuses: string[], statusRemap: Record<string, string>, baseBranchField: string, requiresBaseBranch: boolean }} spec
+ * @returns {{error:string|null, missions:Array<{id:string,status:string,kind:string}>, missionIds:string[], paused:string[],
+ *   unresolved:Array<{missionId:string, field:string, reason:string}>,
+ *   dropped:Array<{field:string, reason:string}>,
+ *   remapped:Array<{missionId:string, field:string, from:string, to:string}>}}
  */
-function validateMissions(payload, format) {
-  const statuses = format === 'tower-codex' ? CODEX_STATUSES : DSH_STATUSES
-  const idRe = format === 'tower-codex' ? CODEX_ID_RE : DSH_ID_RE
+function validateMissions(payload, format, spec) {
   const missions = []
   const missionIds = []
   const paused = []
+  const unresolved = []
+  const remapped = []
+  const droppedFields = new Set()
   const seen = new Set()
   for (let index = 0; index < payload.missions.length; index += 1) {
     const mission = payload.missions[index]
-    if (!isPlainObject(mission)) return { error: `missions[${index}] must be an object`, missions: [], missionIds: [], paused: [] }
-    if (typeof mission.id !== 'string' || !idRe.test(mission.id)) {
-      return { error: `missions[${index}] has unsupported id ${JSON.stringify(mission.id)} (expected ${format === 'tower-codex' ? 'T####' : 'M#'})`, missions: [], missionIds: [], paused: [] }
+    if (!isPlainObject(mission)) return { error: `missions[${index}] must be an object`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
+    if (typeof mission.id !== 'string' || !spec.idPattern.test(mission.id)) {
+      return { error: `missions[${index}] has unsupported id ${JSON.stringify(mission.id)} (expected ${spec.idHint})`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
     }
-    if (seen.has(mission.id)) return { error: `duplicate legacy mission id ${mission.id}`, missions: [], missionIds: [], paused: [] }
+    if (seen.has(mission.id)) return { error: `duplicate legacy mission id ${mission.id}`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
     seen.add(mission.id)
-    if (typeof mission.status !== 'string' || !statuses.includes(mission.status)) {
-      return { error: `mission ${mission.id} has unknown status ${JSON.stringify(mission.status)}`, missions: [], missionIds: [], paused: [] }
+    if (typeof mission.status !== 'string' || !spec.statuses.includes(mission.status)) {
+      return { error: `mission ${mission.id} has unknown status ${JSON.stringify(mission.status)}`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
     }
-    if (mission.kind !== undefined && mission.kind !== 'build' && mission.kind !== 'survey') {
-      return { error: `mission ${mission.id} has unknown kind ${JSON.stringify(mission.kind)}`, missions: [], missionIds: [], paused: [] }
+    const mappedStatus = spec.statusRemap[mission.status]
+    if (mappedStatus !== undefined) {
+      remapped.push({ missionId: mission.id, field: 'status', from: mission.status, to: mappedStatus })
+    }
+    const status = mappedStatus ?? mission.status
+    if (!DSH_STATUSES.includes(status)) {
+      return { error: `legacy status ${JSON.stringify(mission.status)} has no declared DSH mapping`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
+    }
+    let kind = 'build'
+    if (mission.kind !== undefined) {
+      if (!isShapeKind(mission.kind)) {
+        return { error: `mission ${mission.id} has unknown kind ${JSON.stringify(mission.kind)}`, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
+      }
+      kind = mission.kind
+    } else {
+      unresolved.push({ missionId: mission.id, field: 'kind', reason: 'legacy mission has no kind; assumed build' })
     }
     for (const problem of [
       validateScope(mission.scope, mission.id),
@@ -172,13 +265,24 @@ function validateMissions(payload, format) {
       validateDeps(mission.deps, mission.id),
       validateReviews(mission.reviews, mission.id),
     ]) {
-      if (problem) return { error: problem, missions: [], missionIds: [], paused: [] }
+      if (problem) return { error: problem, missions: [], missionIds: [], paused: [], unresolved: [], dropped: [], remapped: [] }
     }
-    missions.push({ id: mission.id, status: mission.status, kind: mission.kind ?? 'build' })
+    for (const key of Object.keys(mission)) {
+      if (!CARRIED_MISSION_FIELDS.includes(key)) droppedFields.add(key)
+    }
+    missions.push({ id: mission.id, status, kind })
     missionIds.push(mission.id)
-    if (mission.status === 'paused') paused.push(mission.id)
+    if (status === 'paused') paused.push(mission.id)
   }
-  return { missions, missionIds, paused, error: null }
+  return {
+    missions,
+    missionIds,
+    paused,
+    unresolved,
+    dropped: [...droppedFields].sort().map((field) => ({ field, reason: DROPPED_REASON })),
+    remapped,
+    error: null,
+  }
 }
 
 /**
@@ -189,9 +293,12 @@ function validateMissions(payload, format) {
  *
  * @returns {{ok:boolean, format:'tower-codex'|'dsh'|null, schemaVersion:number|null,
  *   missions:Array<{id:string,status:string,kind:string}>, missionIds:string[],
- *   missionCount:number, paused:string[], events:number|null,
- *   legacySnapshots:number|null, repoRoot:string|null, baseBranch:string|null,
- *   error:string|null}}
+ *   missionCount:number, paused:string[],
+ *   unresolved:Array<{missionId:string, field:string, reason:string}>,
+ *   dropped:Array<{field:string, reason:string}>,
+ *   remapped:Array<{missionId:string, field:string, from:string, to:string}>,
+ *   events:number|null, legacySnapshots:number|null, repoRoot:string|null,
+ *   baseBranch:string|null, error:string|null}}
  */
 export function validateLegacySnapshot(payload) {
   if (!isPlainObject(payload)) return invalidResult('legacy snapshot must be a JSON object')
@@ -204,30 +311,26 @@ export function validateLegacySnapshot(payload) {
   }
   if (!Array.isArray(payload.missions)) return invalidResult('legacy snapshot has no missions array')
 
-  /** @type {'tower-codex'|'dsh'} */
-  let format = 'dsh'
-  if (payload.missions.length === 0) {
-    format = isNonEmptyString(payload.baseBranch) ? 'tower-codex' : 'dsh'
-  } else {
-    const firstId = payload.missions[0]?.id
-    if (typeof firstId === 'string' && CODEX_ID_RE.test(firstId)) format = 'tower-codex'
-    else if (typeof firstId === 'string' && DSH_ID_RE.test(firstId)) format = 'dsh'
-    else {
-      return invalidResult(
-        `unsupported legacy mission id ${JSON.stringify(firstId)} (expected T#### for Tower Codex or M# for DSH)`,
-      )
-    }
+  const detected = detectFormat(payload)
+  if (detected.error || !detected.format) {
+    return invalidResult(detected.error ?? 'legacy snapshot format could not be determined')
   }
+  const format = detected.format
+  const spec = LEGACY_FORMATS[format]
 
   const rejected = (error) => invalidResult(error, format)
-  const validated = validateMissions(payload, format)
+  const validated = validateMissions(payload, format, spec)
   if (validated.error) return rejected(validated.error)
 
   if (isNonEmptyString(payload.repoRoot) === false) {
     return rejected(`legacy ${format} snapshot has no repoRoot string`)
   }
-  if (format === 'tower-codex' && isNonEmptyString(payload.baseBranch) === false) {
-    return rejected('legacy tower-codex snapshot has no baseBranch string')
+  if (spec.requiresBaseBranch && isNonEmptyString(payload[spec.baseBranchField]) === false) {
+    return rejected(`legacy ${format} snapshot has no baseBranch string`)
+  }
+  const baseBranchValue = payload[spec.baseBranchField]
+  if (baseBranchValue !== undefined && baseBranchValue !== null && !isNonEmptyString(baseBranchValue)) {
+    return rejected(`legacy ${format} snapshot has no baseBranch string`)
   }
   if (payload.events !== undefined && !Array.isArray(payload.events)) {
     return rejected('legacy snapshot events must be an array')
@@ -247,10 +350,13 @@ export function validateLegacySnapshot(payload) {
     missionIds: validated.missionIds,
     missionCount: validated.missionIds.length,
     paused: validated.paused,
+    unresolved: validated.unresolved,
+    dropped: validated.dropped,
+    remapped: validated.remapped,
     events: Array.isArray(payload.events) ? payload.events.length : null,
     legacySnapshots: Array.isArray(payload.legacySnapshots) ? payload.legacySnapshots.length : null,
     repoRoot: payload.repoRoot.trim(),
-    baseBranch: format === 'tower-codex' ? payload.baseBranch.trim() : (isNonEmptyString(payload.base) ? payload.base.trim() : null),
+    baseBranch: isNonEmptyString(baseBranchValue) ? baseBranchValue.trim() : null,
     error: null,
   }
 }
@@ -342,6 +448,9 @@ export async function importLegacySnapshot(input = {}) {
     missionIds: validation.missionIds,
     paused: validation.paused,
     pausedCount: validation.paused.length,
+    unresolved: validation.unresolved,
+    dropped: validation.dropped,
+    remapped: validation.remapped,
     events: validation.events,
     legacySnapshots: validation.legacySnapshots,
     sourcePath: resolvedSource,
@@ -362,6 +471,9 @@ export async function importLegacySnapshot(input = {}) {
     missionIds: validation.missionIds,
     missionCount: validation.missionCount,
     pausedMissionIds: validation.paused,
+    unresolved: validation.unresolved,
+    droppedFields: validation.dropped.map((entry) => entry.field),
+    remapped: validation.remapped,
     bytes: buffer.length,
     importedAt,
   }

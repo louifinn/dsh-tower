@@ -2,7 +2,7 @@
 // @ts-check
 import { TowerToolError } from './errors.js'
 import { scopesOverlap } from './scope.js'
-import { isTerminal } from './mission.js'
+import { shapeFor } from './shapes/index.js'
 
 /** @typedef {import('../types/index.js').Mission} Mission */
 
@@ -93,7 +93,7 @@ function assertAcyclic(missions) {
  * @returns {void}
  */
 function addAutoDeps(newMissions, existingMissions, { caseInsensitive = false } = {}) {
-  const openExisting = existingMissions.filter((mission) => !isTerminal(mission.status))
+  const openExisting = existingMissions.filter((mission) => !shapeFor(mission.kind).isTerminal(mission.status))
   const all = [...existingMissions, ...newMissions]
   /** @type {Map<string, Mission>} */
   const byId = new Map(all.map((mission) => [mission.id, mission]))
@@ -102,15 +102,15 @@ function addAutoDeps(newMissions, existingMissions, { caseInsensitive = false } 
     for (let j = i + 1; j < newMissions.length; j += 1) {
       const earlier = newMissions[i]
       const later = newMissions[j]
-      if (earlier.kind === 'survey' || later.kind === 'survey') continue
+      if (!shapeFor(earlier.kind).reach.ownsPaths || !shapeFor(later.kind).reach.ownsPaths) continue
       if (!scopesOverlap(earlier.scope, later.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, later.id, earlier.id)) continue
       addDependency(later, earlier.id)
     }
     const mission = newMissions[i]
-    if (mission.kind === 'survey') continue
+    if (!shapeFor(mission.kind).reach.ownsPaths) continue
     for (const other of openExisting) {
-      if (other.kind === 'survey') continue
+      if (!shapeFor(other.kind).reach.ownsPaths) continue
       if (!scopesOverlap(mission.scope, other.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, mission.id, other.id)) continue
       addDependency(mission, other.id)

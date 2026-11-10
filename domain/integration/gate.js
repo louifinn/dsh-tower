@@ -2,7 +2,8 @@
 // facts the app already read (tips, changed files, checkout branch). The app
 // performs every read and owns the result assembly.
 // @ts-check
-import { caseInsensitiveScopeMatch, fileInScope } from '../scope.js'
+import { scopeFenceBlocker } from '../scope.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -58,21 +59,9 @@ export function staleBaseBlocker({ branch, base, baseTip }) {
 }
 
 /**
- * @param {object} input
- * @param {string} input.missionId
- * @param {string[]} input.changedFiles
- * @returns {Blocker | null}
- */
-export function surveyChangedFilesBlocker({ missionId, changedFiles }) {
-  return changedFiles.length > 0
-    ? {
-        code: 'read-only-survey',
-        detail: `survey ${missionId} is read-only but ${changedFiles.length} file(s) changed: ${changedFiles.slice(0, 5).join(', ')}`,
-      }
-    : null
-}
-
-/**
+ * The merge gate's scope fence. The shape (via `reach`) owns the permission
+ * question; this enforcer only supplies the changed files and the checkout's
+ * comparison mode.
  * @param {object} input
  * @param {Mission} input.mission
  * @param {string[]} input.changedFiles
@@ -80,25 +69,12 @@ export function surveyChangedFilesBlocker({ missionId, changedFiles }) {
  * @returns {Blocker | null}
  */
 export function outOfScopeBlocker({ mission, changedFiles, caseInsensitive = false }) {
-  const outOfScope = changedFiles.filter((file) => !fileInScope(mission.scope, file, { caseInsensitive }))
-  if (outOfScope.length === 0) return null
-  const parts = [`changed files outside scope (${mission.scope.join(', ')}): ${outOfScope.slice(0, 8).join(', ')}`]
-  // On a case-sensitive checkout a case-only mismatch is a human error worth
-  // naming, but it stays a rejection: folding here would make src/Api and
-  // src/api the same directory on a filesystem where they are not (#90).
-  if (!caseInsensitive) {
-    const hints = outOfScope
-      .map((file) => {
-        const pattern = caseInsensitiveScopeMatch(mission.scope, file)
-        return pattern
-          ? `${file} matches "${pattern}" only when case is folded; this checkout is case-sensitive`
-          : null
-      })
-      .filter(Boolean)
-      .slice(0, 3)
-    if (hints.length > 0) parts.push(`case mismatch: ${hints.join('; ')}`)
-  }
-  return { code: 'out-of-scope', detail: parts.join('. ') }
+  return scopeFenceBlocker({
+    mission,
+    reach: shapeFor(mission.kind).reach,
+    changedFiles,
+    caseInsensitive,
+  })
 }
 
 /**
@@ -124,18 +100,16 @@ export function baseDirtyBlocker(wouldOverwrite) {
 }
 
 /**
- * Whether a dependency already satisfies the gate. A build mission must be
- * merged (or abandoned), but a survey is terminal-success at `completed`: it is
- * read-only and has no branch to merge, so requiring `merged` would keep the
- * dependent mission blocked forever (#107). Archived entries carry `kind` for
- * the same decision.
+ * Whether a dependency already satisfies the gate. Each shape owns the answer:
+ * a build dependency must be merged (or abandoned), a survey dependency is
+ * terminal-success at `completed` (it has no branch to merge). Archived entries
+ * carry `kind` for the same decision.
  * @param {{ kind?: string, status?: string } | null | undefined} dep
  * @returns {boolean}
  */
 export function dependencySatisfied(dep) {
-  if (!dep) return false
-  if (dep.status === 'merged' || dep.status === 'abandoned') return true
-  return dep.kind === 'survey' && dep.status === 'completed'
+  if (!dep || typeof dep.status !== 'string') return false
+  return shapeFor(dep.kind).dependencySatisfied(/** @type {any} */ (dep))
 }
 
 /**

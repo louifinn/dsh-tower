@@ -4,6 +4,23 @@
 
 ## 未发布（Unreleased）
 
+### 变更
+
+- **#148/#149 形状注册表 W4：证据、旧版导入、scope 与角色的一次性契约。** `domain/evidence.js`
+  成为测试证据的唯一读取者：测试发现回执记录在 `mission.testRuns` 中并按分支 tip 绑定，
+  `tower_complete` 不再把同一证据复制成合成的 `tests` check，门禁、`tower_batch` 与 completion
+  校验都走同一个读取器。删除配置键 `tests.autoChecks`（写入旧键会收到带迁移说明的
+  `config-unknown-key`），配置键 57 → 56。`adapters/legacy.js` 改为严格适配器契约：声明格式与
+  状态重映射（Tower Codex `retired` → `abandoned`）、拒绝混合 mission id 命名空间、把
+  `unresolved` / `dropped` / `remapped` 如实写入摘要与快照记录，并只向消费方暴露规范的
+  `pausedMissionIds`。shape 以 `reach` 拥有路径权限，`domain/scope.js` 的 `scopeFenceBlocker`
+  是唯一围栏；角色与 shape 正交，`domain/roles.js` 的 `ROLE_CONTRACT` 让 spawn 预检、preset、
+  roster 与 gate 各自解析，不再出现"角色 ∧ shape"条件。`shape:audit` 新增四条规则
+  `evidence-single-read`、`legacy-vocabulary`、`scope-reach`、`role-shape-conflation`。
+- **#149 生成的形状参考改为维度清单。** `docs/reference/shapes.md` 现在按 16 个维度列出裁决
+  （shape-owned / correctly generic / redesigned）、拥有模块与机械规则；W1–W4 的裁决同时记录在
+  ADR 0006 的 W4 附录中。
+
 ## 2.6.0（2026-11-01）
 
 ### 新增

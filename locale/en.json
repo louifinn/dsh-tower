@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Tower",
-    "description": "Plan and track missions, isolate each one in its own worktree, hand the work to worker and reviewer agents, and merge after review when review before merging is required. Off equals uninstalling Tower: no tools, presets or skills remain."
+    "description": "Plan and track missions, isolate each one in its own worktree, hand the work to worker and reviewer agents, and merge after review when review before merging is required. Off equals uninstalling Tower: no tools, presets or skills remain. Turning off the survey capability removes both survey presets: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent can be dispatched. Build missions and every other capability keep working."
   },
   "components": {
     "tower": {
@@ -58,6 +58,21 @@
       "title": "Tower Reviewer preset",
       "summary": "The independent Tower Reviewer preset: a read-only reviewer agent that reads the mission diff, checks scope and acceptance, and returns a verdict. Usable while review before merging is optional; a precondition for merging once review before merging is required.",
       "disables": "The reviewer cannot be started. That is supported while review before merging is optional; once review before merging is required, planning and entering Tower mode are refused with an explanation."
+    },
+    "tower-survey": {
+      "title": "Tower Survey",
+      "summary": "Inspect one recorded commit either read-only in the shared checkout or in a disposable detached sandbox that may write and run commands inside it. A survey has no branch, no commit of its own, and never merges; the sandbox is removed when the survey completes.",
+      "disables": "Turning off the survey capability removes both survey presets: surveys cannot be planned (planning one is refused with an actionable code) and no survey agent can be dispatched. Build missions and every other capability keep working."
+    },
+    "preset-tower-survey": {
+      "title": "Tower Survey preset",
+      "summary": "The shared-checkout survey dependency: read, glob, grep, skill, and the Tower mission/status/finding/inbox/complete tools, with no write, edit, or shell tool.",
+      "disables": "A shared survey cannot be dispatched; build missions and every other capability keep working."
+    },
+    "preset-tower-survey-sandbox": {
+      "title": "Tower Survey Sandbox preset",
+      "summary": "The detached-survey dependency: a disposable sandbox that may write and run commands inside its checkout while reading one recorded commit, with no branch and no commit of its own.",
+      "disables": "A detached survey cannot be dispatched; shared surveys and build missions keep working."
     },
     "tower-ui": {
       "title": "Tower UI",

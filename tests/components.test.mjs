@@ -95,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 54 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 56 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 54)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 54)
+  assert.equal(report.surface.keys.length, 56)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 56)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -112,6 +112,7 @@ test('the shipped component surface passes every rule and classifies all 54 keys
     'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
+    'tower-survey',
     'tower-ui',
   ])
   for (const className of ['core', 'optional-config', 'forbidden-to-disable']) {
@@ -162,10 +163,10 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 54)
-  assert.equal(baseline.surfaces.configKeys.value, 54)
-  assert.equal(realMergedPatch().visible.length, 11)
-  assert.equal(baseline.surfaces.components.value, 11)
+  assert.equal(surface.keys.length, 56)
+  assert.equal(baseline.surfaces.configKeys.value, 56)
+  assert.equal(realMergedPatch().visible.length, 12)
+  assert.equal(baseline.surfaces.components.value, 12)
 })
 
 test('the review policy is one tri-state control, not a component row (#M42)', () => {
@@ -226,13 +227,13 @@ test('the review policy is one tri-state control, not a component row (#M42)', (
 test('the component count is baselined next to the other surfaces', () => {
   const baseline = readBaseline(root)
   assert.equal(baseline.surfaces.components.value, realMergedPatch().visible.length)
-  assert.equal(baseline.surfaces.components.value, 11)
+  assert.equal(baseline.surfaces.components.value, 12)
   // The seed keeps the 2.0.4 history: the 4 -> 1 contraction, the #121 growth
   // back to individually switchable optional rows, and the wave-2 rows (#133
   // tower-board, #135 tower-archive, #134 tower-ui) are recorded decisions.
   assert.equal(baseline.surfaces.components.seed, 4)
   const decisions = baseline.surfaces.components.decisions
-  assert.equal(decisions.length, 5)
+  assert.equal(decisions.length, 6)
   assert.deepEqual(
     decisions.map((decision) => [decision.from, decision.to]),
     [
@@ -241,11 +242,17 @@ test('the component count is baselined next to the other surfaces', () => {
       [8, 9],
       [9, 10],
       [10, 11],
+      [11, 12],
     ],
   )
-  for (const decision of decisions) {
+  for (const [index, decision] of decisions.entries()) {
     assert.match(decision.date, /^\d{4}-\d{2}-\d{2}$/)
-    assert.equal(decision.adr, 'docs/adr/0005-component-surface.md')
+    // The historical decisions cite the component-surface ADR; the shape redesign
+    // is the only later decision and cites its own ADR (#149).
+    assert.equal(
+      decision.adr,
+      index === decisions.length - 1 ? 'docs/adr/0006-mission-shapes.md' : 'docs/adr/0005-component-surface.md',
+    )
   }
 })
 
@@ -321,6 +328,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
+    'tower-survey',
   ])
   assert.deepEqual(
     patch.rows.map((row) => row.id),
@@ -337,12 +345,18 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
       'tower-archive',
       'tower-hmr',
       'preset-tower-reviewer',
+      'tower-survey',
+      'preset-tower-survey',
+      'preset-tower-survey-sandbox',
     ],
   )
   assert.equal(patch.rows.find((row) => row.id === 'tower').kind, 'group')
   assert.equal(patch.rows.find((row) => row.id === 'tower-host').scope, 'internal')
   assert.equal(patch.rows.find((row) => row.id === 'preset-tower-worker').scope, 'internal')
   assert.ok(!patch.rows.some((row) => row.id === 'tower-worker-policy'), 'plugin ids are not components')
+  assert.equal(patch.rows.find((row) => row.id === 'tower-survey').kind, 'group')
+  assert.equal(patch.rows.find((row) => row.id === 'preset-tower-survey').scope, 'internal')
+  assert.equal(patch.rows.find((row) => row.id === 'preset-tower-survey-sandbox').scope, 'internal')
 
   // #138: the row's own scalar config is captured as full key paths, while the
   // row metadata and the nested `plugins:` configs are not.
@@ -372,14 +386,14 @@ test('a boolean or behaviour knob cannot hide a capability on the optional-confi
     ...surface,
     keys: surface.keys.map((key) => (key.name === name ? { ...key, exemption: undefined } : key)),
   })
-  const noExemption = checkKeyClassifications(drop('tests.autoChecks'), live)
-  assert.ok(noExemption.some((entry) => entry.code === 'boolean-class' && /tests\.autoChecks/.test(entry.message)))
+  const noExemption = checkKeyClassifications(drop('send.interruptDefault'), live)
+  assert.ok(noExemption.some((entry) => entry.code === 'boolean-class' && /send\.interruptDefault/.test(entry.message)))
 
   // A recorded exemption must name a tuning-only nature, not just exist.
   const wrongReason = {
     ...surface,
     keys: surface.keys.map((key) =>
-      key.name === 'tests.autoChecks' ? { ...key, exemption: { ...key.exemption, reason: 'it was already like this' } } : key,
+      key.name === 'send.interruptDefault' ? { ...key, exemption: { ...key.exemption, reason: 'it was already like this' } } : key,
     ),
   }
   assert.ok(checkKeyClassifications(wrongReason, live).some((entry) => entry.code === 'boolean-exemption'))
@@ -392,7 +406,7 @@ test('a boolean or behaviour knob cannot hide a capability on the optional-confi
   const offAxis = {
     ...surface,
     keys: surface.keys.map((key) =>
-      key.name === 'docs.boardLocation' ? { ...key, exemption: { ...surface.keys.find((entry) => entry.name === 'tests.autoChecks').exemption } } : key,
+      key.name === 'docs.boardLocation' ? { ...key, exemption: { ...surface.keys.find((entry) => entry.name === 'send.interruptDefault').exemption } } : key,
     ),
   }
   assert.ok(checkKeyClassifications(offAxis, live).some((entry) => entry.code === 'exemption-invalid'))

@@ -54,7 +54,7 @@ import { registerFindingsTool } from '../tools/findings.js'
 import { readDiscoveryConfig, normalizeDiscovery, runDiscovery } from '../adapters/tests.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
-import { COMPONENT_TOOLS, componentEnabled, componentReport, holdComponent, disabledReason } from './capability-registry.js'
+import { COMPONENT_TOOLS, componentEnabled, componentReport, holdComponent, disabledReason, presetAvailable, PRESET_ROW_COMPONENTS } from './capability-registry.js'
 import path from 'node:path'
 import { fsp } from '../adapters/store-fs.js'
 import { createDefaultDeps } from '../adapters/default.js'
@@ -511,16 +511,9 @@ async function runMissionDiscovery(tower, mission) {
     diagnosticsDir: path.join(tower.paths.dir, 'test-runs', `${mission.id}-${Date.now()}`),
   })
   const stored = await tower.recordTestRun({ missionId: mission.id, receipt })
-  const commands = Array.isArray(stored.commands) ? stored.commands : []
-  const check = {
-    name: 'tests',
-    command: commands.map((command) => `${command.id}: ${command.command}`).join('; ') || 'tower.testDiscovery',
-    exitCode: commands.every((command) => command.exitCode === 0) ? 0 : (commands.find((command) => command.exitCode !== 0)?.exitCode ?? 1),
-    evidence: stored.ok
-      ? `${stored.tests?.length ?? 0} test(s) passed at ${String(stored.treeTip ?? '').slice(0, 12)}; receipt ${stored.receiptPath ?? stored.diagnosticsPath}`
-      : `test discovery failed: ${String(stored.error ?? 'unknown').slice(0, 300)}`,
-  }
-  return { configured: true, receipt: stored, check }
+  // #149 W4: the recorded receipt is the only evidence shape. Consumers read it
+  // through domain/evidence.js; there is no separate `check` projection.
+  return { configured: true, receipt: stored }
 }
 
 async function observeActivity(ctx, tower) {
@@ -580,6 +573,15 @@ export function registerCoreTowerTools(ctx, options = {}) {
     components: {
       enabled: (id) => componentEnabled(id),
       reason: (id) => disabledReason(id),
+      // Preset rows are declarative and invisible to the code registry, so the
+      // synchronous `enabled` probe cannot answer for them. Callers that gate a
+      // shape read this async probe, which returns null when `agentPresets` is
+      // absent (unknown, not disabled).
+      available: async (id) => {
+        const presetId = PRESET_ROW_COMPONENTS[id]
+        if (presetId) return presetAvailable(ctx, presetId)
+        return componentEnabled(id)
+      },
     },
     events: {
       emit(name, payload) {
@@ -639,7 +641,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffTool(ctx, { openTower, define })
+  registerDiffTool(ctx, { openTower, define, actorFor })
 
   registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 

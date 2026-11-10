@@ -1,6 +1,54 @@
 // tower_spawn support (#56 P3c): briefing assembly, agent options, and the
 // wait/result settling path. Split out of tools/spawn.js; no I/O of its own.
+import { shapeFor } from '../domain/shapes/index.js'
+import { roleBriefingKind, rolePlacement } from '../domain/roles.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
+
+/**
+ * Resolve where a spawn runs (#149 W3). A worker gets the shape's provisioning
+ * (branch worktree, shared checkout, or detached survey sandbox); a reviewer
+ * gets a disposable detached checkout at the recorded branch tip, so the
+ * verdict is stamped with a commit instead of a live worktree HEAD.
+ * @param {any} tower
+ * @param {{ role: string, context: any, missionId: string, name: string, worktreeRoot?: string, includeDirtyBase?: boolean, instructions?: string }} input
+ */
+export async function provisionSpawnPlacement(tower, { role, context, missionId, name, worktreeRoot, includeDirtyBase, instructions }) {
+  // #149 W4: the role contract decides the placement; the shape supplies the
+  // mission provisioning facts it does not own.
+  const reviewCheckout = rolePlacement(role) === 'review-checkout'
+  const shape = shapeFor(context.mission.kind)
+  const provisioned = reviewCheckout
+    ? null
+    : await tower.provision({ missionId, worktreeRoot, includeDirtyBase: includeDirtyBase !== false })
+  const review = reviewCheckout
+    ? await tower.provisionReviewCheckout({ missionId, name, worktreeRoot })
+    : null
+  const mission = review ? review.mission : provisioned.mission
+  const worktree = review ? mission.worktree : provisioned.worktree
+  const cwd = review ? review.path : (provisioned.cwd ?? worktree.path)
+  const branch = worktree?.branch ?? null
+  // The briefing must describe the checkout that actually exists: a detached
+  // sandbox is recorded only after provision, so use the provisioned mission.
+  const briefing = buildSpawnBriefing({
+    role,
+    towerRoot: tower.root,
+    context: /** @type {any} */ ({ ...context, mission }),
+    worktree,
+    review,
+    instructions,
+  })
+  return {
+    mission,
+    worktree,
+    cwd,
+    branch,
+    review,
+    briefing,
+    provisioning: review ? 'review-checkout' : (provisioned.provisioning ?? shape.provisioning),
+    created: review ? true : provisioned.created,
+    sandbox: provisioned?.sandbox ?? null,
+  }
+}
 
 /**
  * @param {any} model
@@ -14,25 +62,28 @@ export function buildAgentOptions(model) {
 }
 
 /**
- * @param {{ role: string, towerRoot: string, context: any, worktree: any, instructions: string | undefined }} input
+ * @param {{ role: string, towerRoot: string, context: any, worktree: any, review?: any, instructions: string | undefined }} input
  */
-export function buildSpawnBriefing({ role, towerRoot, context, worktree, instructions }) {
-  const mission = {
-    ...context.mission,
-    worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit },
-  }
+export function buildSpawnBriefing({ role, towerRoot, context, worktree, review = null, instructions }) {
+  // Only a shape that owns a worktree gets the git checkout projection; a survey
+  // reads the shared checkout and must not see a worktree record it does not own.
+  const shape = shapeFor(context.mission.kind)
+  const mission = shape.fields.worktree
+    ? { ...context.mission, worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit } }
+    : { ...context.mission }
   const briefing = {
     repoRoot: towerRoot,
     base: context.base,
     mission,
     deps: context.deps,
-    worktree,
+    worktree: worktree ?? null,
+    review,
     instructions,
     reviews: context.reviews,
     findings: context.findings,
     completionReport: context.completionReport,
   }
-  return role === 'worker' ? workerBriefing(briefing) : reviewerBriefing(briefing)
+  return roleBriefingKind(role) === 'reviewer' ? reviewerBriefing(briefing) : workerBriefing(briefing)
 }
 
 /**

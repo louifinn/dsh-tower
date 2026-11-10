@@ -15,6 +15,7 @@
 //      `state.migrated {from,to}` to the activity log.
 // A migration that throws therefore leaves state.json byte-identical.
 import { inspectStateVersion, prepareState } from '../domain/state.js'
+import { legacySurveyNeedsRead } from '../domain/state/migrations.js'
 import { isStateLockHeld } from './store.js'
 
 /**
@@ -37,6 +38,7 @@ import { isStateLockHeld } from './store.js'
  *   now?: number,
  *   persist?: boolean,
  *   migrations?: readonly import('../domain/state/migrations.js').StateMigration[],
+ *   resolveLegacySurvey?: (rawState: Record<string, any>) => Promise<import('../domain/state/migrations.js').LegacySurveyRead | null>,
  * }} input
  * @returns {Promise<StateLoadResult>}
  */
@@ -54,7 +56,15 @@ export async function loadStateFile(input) {
     await store.writeJsonAtomic(backupPath, raw)
   }
 
-  const prepared = prepareState(raw, paths.state, { migrations })
+  // A legacy survey planned but never provisioned recorded no base at all, so
+  // the document alone cannot anchor it. Resolve the repository base exactly
+  // once, in the same moment as the migration, and hand it to the pure step.
+  const legacySurveyRead =
+    version.status === 'migratable' && legacySurveyNeedsRead(raw) && typeof input.resolveLegacySurvey === 'function'
+      ? await input.resolveLegacySurvey(raw)
+      : null
+
+  const prepared = prepareState(raw, paths.state, { migrations, legacySurveyRead })
   if (!prepared.changed) {
     return { state: prepared.state, version, migration: null }
   }

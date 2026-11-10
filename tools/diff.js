@@ -18,7 +18,7 @@ import { DiffInput } from '../domain/contracts/tool-inputs/index.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any }} deps
  */
 export function registerDiffTool(ctx, deps) {
   // openTower is injected by the composition root (#69).
@@ -31,9 +31,11 @@ export function registerDiffTool(ctx, deps) {
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
     output: output(SCHEMAS.diff),
-    async execute(args) {
+    async execute(args, exec) {
       const tower = await deps.openTower(args.repoRoot)
-      return tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes })
+      // A reviewer's diff is bound to its recorded review commit (#149 W3).
+      const actor = await deps.actorFor(tower, exec)
+      return tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes, actor })
     },
   })
 }

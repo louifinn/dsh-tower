@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tower Survey preset",
+    "description": "The shared-checkout survey dependency: read, glob, grep, skill, and the Tower mission/status/finding/inbox/complete tools, with no write, edit, or shell tool. Mandatory dependency, not a switch: A shared survey cannot be dispatched; build missions and every other capability keep working."
+  }
+}

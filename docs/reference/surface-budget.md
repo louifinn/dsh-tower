@@ -84,6 +84,36 @@ plugin-page form, not a row and not one row per mode; the review gate in
 non-disableable. The component and config-key counts do not move (11 visible
 components, 54 keys).
 
+#148/#149 grow the surface by exactly one key and one visible component,
+recorded in [ADR 0006](../adr/0006-mission-shapes.md): config keys 54 → 55,
+sections stay 14, components 11 → 12. A first cut of the shape work added three
+keys and a `survey` section, then contracted 57 → 55 before release in a second
+dated decision: a survey's preset is shape-owned
+(`SHAPES.survey.spawn.defaultPreset`), so a `spawn.surveyPreset` key could only
+disagree with the registry, and `survey.sandbox` advertised a placement W1 does
+not implement. What remains is `spawn.surveyModel`, the optional model route for
+survey workers (the survey row owns the capability, not the key name). The
+`tower-survey` row is the switch: off means surveys cannot be planned and no
+survey agent is dispatched; build missions are unaffected. No existing key
+changed class.
+
+#148 W2 implements the detached survey sandbox, so it restores exactly the
+placement key that W1 correctly withheld: `survey.sandbox` (`none`|`detached`,
+default `none`) returns as tuning, and `gates.requireFreshSurvey` (default
+`false`) joins it as merge-gate strictness; config keys 55 → 57 and sections
+14 → 15. It
+is not a capability: the `tower-survey` row stays the single switch and the
+sandbox preset is an internal child of it, so the visible component count does
+not move (12). `spawn.surveyPreset` stays removed: the shape resolves the preset
+from `survey.sandbox`, so the key could still only disagree with the registry.
+
+#149 W4 contracts the config surface by one: config keys 57 → 56. `tests.autoChecks`
+only chose whether a discovery projection was copied into the completion report,
+and that copy was the second evidence shape the W4 audit removed. The receipt in
+`mission.testRuns` is the one evidence record now, so the switch had no meaning
+left; it is deleted rather than kept as a dead tuning key. Sections and the
+visible component count do not move.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -116,6 +146,8 @@ components, 54 keys).
 | `git.timeoutMs` | tuning | Default Git command timeout outside merge. |
 | `worktrees.root` | tuning | Default worktree placement. |
 | `spawn.workerPreset` | core | Chooses the tool surface a worker receives. |
+| `spawn.surveyModel` | tuning | Optional model route for survey agents. |
+| `survey.sandbox` | tuning | Placement only: shared read-only checkout (default) or a disposable detached sandbox. The tower-survey row is still the switch. |
 | `spawn.reviewerPreset` | core | Chooses the read-only reviewer surface. |
 | `spawn.maxDepth` | tuning | Subagent depth requested at spawn. |
 | `spawn.provider` | tuning | Provider route for spawned agents. |
@@ -130,11 +162,11 @@ components, 54 keys).
 | `tests.admission` | core | Chooses when repository code is executed. |
 | `tests.timeoutMs` | tuning | Per-command discovery timeout. |
 | `tests.maxBytes` | tuning | Captured discovery output cap. |
-| `tests.autoChecks` | tuning | Attaches a tests check to completion. |
 | `tests.allowPackageDiscovery` | core | Allows repository code to execute; a security contract. |
 | `gates.requireChecks` | core | Requires completion evidence before merge. |
 | `gates.requireTests` | core | Requires a test receipt before merge. |
 | `gates.allowReviewExemption` | core | Allows a review exemption and its reason. |
+| `gates.requireFreshSurvey` | core | Promotes the survey-stale dependency warning to a merge blocker; `false` keeps it advisory. |
 | `gates.maxReportBytes` | tuning | Report size cap; the refusal itself is not configurable. |
 | `docs.boardLocation` | tuning | Chooses where the board is written; whether it is written is the tower-board row. |
 | `archive.afterDays` | tuning | Archive age threshold; archival itself is the tower-archive row. |

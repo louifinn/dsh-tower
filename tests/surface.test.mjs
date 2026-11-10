@@ -102,7 +102,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(current.configKeys, configSurface().count)
   // #120/#121/#133/#134/#135: the component surface is every visible row in
   // every shipped cordis.patch.yml (root + ui-bundle).
-  assert.equal(current.components, 11)
+  assert.equal(current.components, 12)
   assert.deepEqual(current.liveNames.components, [
     'tower',
     'tower-skills',
@@ -114,6 +114,7 @@ test('the live surface equals the committed baseline and is fully classified', (
     'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
+    'tower-survey',
     'tower-ui',
   ])
 
@@ -189,7 +190,7 @@ test('tower_doctor prints the surface counts plus the baseline date', async () =
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
     // #118: the doctor line, the generated reference and docs:check agree.
-    assert.equal(report.surface.line, surfaceLine({ configKeys: 54, sections: 14, tools: 29 }))
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 56, sections: 15, tools: 29 }))
     assert.equal(current.tools, 29)
     assert.equal(current.tools, documentedToolNames().length)
     const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')

@@ -189,6 +189,21 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
   }
 })
 
+test('repo config: removed tests.autoChecks fails with a migration note naming the evidence reader (#149)', () => {
+  // W4 removed the key because it existed only to copy a discovery projection
+  // into the completion report; the receipt in mission.testRuns read by
+  // domain/evidence.js is the replacement, and the unknown-key note says so.
+  assert.throws(
+    () => resolveTowerConfig({ tests: { autoChecks: true } }),
+    (error) =>
+      error.code === 'config-unknown-key' &&
+      error.message.includes('tests.autoChecks') &&
+      error.message.includes('testRuns') &&
+      error.message.includes('domain/evidence.js') &&
+      error.message.includes('docs/adr/0006-mission-shapes.md'),
+  )
+})
+
 test('runtimeConfig does not cache the first resolved config across configureRuntime calls', async () => {
   const { configureRuntime, runtimeConfig } = await import('../host/config.js')
   try {

@@ -8,17 +8,17 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 53 · sections: 14 · tools: 29 (baseline 2026-10-23)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 15 · tools: 29 (baseline 2026-10-23)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
-    { "id": "state-schema", "status": "pass", "detail": "schemaVersion 3 is current" },
+    { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 53,
-    "sections": 14,
+    "configKeys": 57,
+    "sections": 15,
     "tools": 29,
     "baselineDate": "2026-10-23",
-    "line": "config keys: 53 · sections: 14 · tools: 29"
+    "line": "config keys: 57 · sections: 15 · tools: 29"
   },
   "stateLock": {
     "held": true,
@@ -38,8 +38,8 @@ It returns:
     "heldMs": 92000
   },
   "stateSchema": {
-    "currentVersion": 3,
-    "supportedVersion": 3,
+    "currentVersion": 5,
+    "supportedVersion": 5,
     "migrations": [],
     "status": "current"
   },

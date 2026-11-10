@@ -3,6 +3,7 @@ import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { completionBlockers, mergeGateBlockers } from '../domain/gate.js'
 import { fullMission } from '../domain/summary.js'
 import { latestReview, reviewsForBranch } from '../domain/integration/review.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
 import {
   baseDirtyBlocker,
   baseWrongBranchBlocker,
@@ -14,8 +15,8 @@ import {
   outOfScopeBlocker,
   overwrittenPaths,
   staleBaseBlocker,
-  surveyChangedFilesBlocker,
 } from '../domain/integration/gate.js'
+import { surveyStaleWarnings } from './freshness.js'
 
 export async function evaluateGate(tower, input) {
     const state = await tower.load()
@@ -31,6 +32,9 @@ export async function evaluateGate(tower, input) {
       }
     }
     if (!mission) return missingMissionGateResult(input.missionId)
+    // A shape without a branch has no merge gate at all; refuse before doing
+    // any git work so the caller gets one actionable code (#148 D4).
+    assertActionSupported(mission, input.action === 'merge' ? 'merge' : 'preflight')
     const archiveIndex = await tower.archiveIndex()
     const archivedMissions = new Map(
       (archiveIndex.ok ? archiveIndex.missions : []).map((entry) => [entry.id, entry]),
@@ -56,7 +60,7 @@ export async function evaluateGate(tower, input) {
     } else {
       try {
         await tower.assertWorktree(worktree)
-        branchTip = await tower.revParse(worktree.path, 'HEAD')
+        branchTip = await tower.branchTip(mission)
         baseTip = await tower.revParse(tower.root, state.base)
         const mergeBase = (await tower.git(worktree.path, ['merge-base', baseTip, branchTip])).trim()
         changedFiles = (await tower.git(worktree.path, ['diff', '--name-only', `${mergeBase}..${branchTip}`]))
@@ -66,20 +70,14 @@ export async function evaluateGate(tower, input) {
           const blocker = staleBaseBlocker({ branch: worktree.branch, base: state.base, baseTip })
           push(blocker.code, blocker.detail)
         }
-        if (mission.kind === 'survey') {
-          const blocker = surveyChangedFilesBlocker({ missionId: mission.id, changedFiles })
-          if (blocker) push(blocker.code, blocker.detail)
-        }
-        if (mission.kind !== 'survey') {
-          const blocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
-          if (blocker) push(blocker.code, blocker.detail)
-        }
+        const scopeBlocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
+        if (scopeBlocker) push(scopeBlocker.code, scopeBlocker.detail)
         const dirty = (await tower.git(tower.root, ['status', '--porcelain']))
           .split('\n')
           .filter(Boolean)
           .map((line) => line.slice(3).trim())
-        const blocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
-        if (blocker) push(blocker.code, blocker.detail)
+        const dirtyBlocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
+        if (dirtyBlocker) push(dirtyBlocker.code, dirtyBlocker.detail)
       } catch (error) {
         push('branch-missing', String(error?.message ?? error))
       }
@@ -87,6 +85,21 @@ export async function evaluateGate(tower, input) {
 
     for (const blocker of dependencyBlockers({ deps: mission.deps ?? [], state, archived: archivedMissions })) {
       push(blocker.code, blocker.detail)
+    }
+
+    // #148 W2: survey evidence freshness is advisory by default. The stable
+    // warning shape is what plan/preflight report; `gates.requireFreshSurvey`
+    // promotes the same code to a blocker for repositories that need the read
+    // to describe the exact base they start from.
+    const sandboxWarnings = await surveyStaleWarnings(tower, {
+      mission,
+      state,
+      missions: state.missions,
+      archived: archivedMissions,
+      baseCommit: mission.baseCommit ?? null,
+    })
+    if (tower.config.gates?.requireFreshSurvey === true) {
+      for (const warning of sandboxWarnings) blockers.push({ ...warning, detail: warning.message })
     }
 
     const branch = worktree ? worktree.branch : null
@@ -132,6 +145,7 @@ export async function evaluateGate(tower, input) {
         review: latest,
         blockers,
       }),
+      warnings: sandboxWarnings,
       ...(archivedEntry ? { archived: true } : {}),
     }
   }

@@ -21,7 +21,6 @@ import {
   assertReviewableMission,
   resolveReviewActor,
   normalizeReviewVerdict,
-  assertReviewerSpawnTip,
   reviewRound,
   reviewAdmission,
   reviewOutcome,
@@ -65,7 +64,7 @@ test('plan policy normalizes mission input and assigns contiguous ids', () => {
       { title: ' Build it ', scope: ['./src//'], tasks: [' a ', 'b'], deps: ['M2', 'M2'] },
       { title: 'Survey', kind: 'survey', scope: [] },
     ],
-  })
+  }, { commit: 'read-commit', dirty: [] })
   assert.equal(prepared[0].title, 'Build it')
   assert.deepEqual(prepared[0].scope, ['src'])
   assert.deepEqual(prepared[0].tasks, [
@@ -74,6 +73,9 @@ test('plan policy normalizes mission input and assigns contiguous ids', () => {
   ])
   assert.deepEqual(prepared[0].deps, ['M2'])
   assert.equal(prepared[1].kind, 'survey')
+  assert.equal(prepared[1].readCommit, 'read-commit')
+  assert.deepEqual(prepared[1].readDirty, [])
+  assert.deepEqual(prepared[1].scope, [])
   assert.deepEqual(assignMissionIds(prepared, 3).map((entry) => entry.id), ['M3', 'M4'])
   assert.doesNotThrow(() =>
     assertKnownDependencies(
@@ -277,9 +279,6 @@ test('review policy resolves actors, verdicts, rounds, and outcome', () => {
   assert.throws(() => normalizeReviewVerdict({ status: 'clean', merge: 'merge', findings: 'x', decision: 'd' }), /findings text "none"/)
   assert.throws(() => normalizeReviewVerdict({ status: 'p1-1items', merge: 'merge', findings: 'none', decision: 'd' }), /must describe its findings/)
   assert.throws(() => normalizeReviewVerdict({ status: 'clean', merge: 'hold', findings: 'none', decision: '' }), /decision/)
-
-  assert.throws(() => assertReviewerSpawnTip({ name: 'r', role: 'reviewer', spawnTip: 'old' }, 'new'), /modified the mission branch/)
-  assert.throws(() => assertReviewerSpawnTip({ name: 'r', role: 'reviewer', spawnTip: '' }, 'new'), /no recorded spawn tip/)
 
   const rounds = reviewRound({
     reviews: [

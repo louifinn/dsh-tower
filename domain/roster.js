@@ -1,5 +1,7 @@
 // Pure roster predicates.
 // @ts-check
+import { isWorkerRole, roleCountsTowardBudget } from './roles.js'
+import { shapeFor } from './shapes/index.js'
 
 /** @typedef {import('../types/index.js').RosterEntry} RosterEntry */
 /** @typedef {import('../types/index.js').TowerState} TowerState */
@@ -16,7 +18,7 @@ export const ROSTER_INACTIVE = new Set(ROSTER_INACTIVE_STATES)
  */
 export function liveWorkerEntry(state, missionId) {
   return (state.roster ?? []).find(
-    (entry) => entry.missionId === missionId && entry.role === 'worker' && !ROSTER_INACTIVE.has(entry.state),
+    (entry) => entry.missionId === missionId && isWorkerRole(entry.role) && !ROSTER_INACTIVE.has(entry.state),
   )
 }
 
@@ -26,7 +28,7 @@ export function liveWorkerEntry(state, missionId) {
  * @returns {RosterEntry[]}
  */
 export function workerEntries(state, missionId) {
-  return (state.roster ?? []).filter((entry) => entry.missionId === missionId && entry.role === 'worker')
+  return (state.roster ?? []).filter((entry) => entry.missionId === missionId && isWorkerRole(entry.role))
 }
 
 /**
@@ -34,7 +36,11 @@ export function workerEntries(state, missionId) {
  * @returns {number}
  */
 export function countLiveWorkers(state) {
+  const kinds = new Map((state.missions ?? []).map((mission) => [mission.id, mission.kind]))
   return (state.roster ?? []).filter(
-    (entry) => entry.role === 'worker' && !ROSTER_INACTIVE.has(entry.state) && entry.state !== 'reserved',
+    (entry) =>
+      roleCountsTowardBudget(entry.role, shapeFor(kinds.get(entry.missionId ?? ''))) &&
+      !ROSTER_INACTIVE.has(entry.state) &&
+      entry.state !== 'reserved',
   ).length
 }

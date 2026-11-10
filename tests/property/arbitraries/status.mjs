@@ -13,14 +13,16 @@ import {
   MISSION_STATUSES,
   PAUSE_CAUSES,
   REVIEW_STATUSES,
-  isTerminal,
 } from '../../../domain/mission.js'
+import { shapeFor } from '../../../domain/shapes/index.js'
 
 /** Any documented mission status, including the terminal ones. */
 export const missionStatusArb = fc.constantFrom(...MISSION_STATUSES)
 
-/** Non-terminal statuses only: a merged/abandoned mission no longer owns work. */
-export const openMissionStatusArb = fc.constantFrom(...MISSION_STATUSES.filter((status) => !isTerminal(status)))
+/** Non-terminal build statuses only: a merged/abandoned mission no longer owns work. */
+export const openMissionStatusArb = fc.constantFrom(
+  ...MISSION_STATUSES.filter((status) => !shapeFor('build').isTerminal(status)),
+)
 
 /** `clean`, `p1-Nitems`, `p2-Nitems` (1 <= N <= 5), exactly as the review gate parses. */
 export const reviewStatusArb = fc.constantFrom(...REVIEW_STATUSES)

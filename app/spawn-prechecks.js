@@ -3,6 +3,8 @@
 import { TowerToolError } from '../domain/errors.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
+import { shapeFor } from '../domain/shapes/index.js'
+import { roleCountsTowardBudget, roleMissionBlockers, roleTracksMission } from '../domain/roles.js'
 
 /**
  * Pick a unique roster name before any activation.
@@ -34,26 +36,15 @@ export function resolveRosterName({ role, missionId, requested, roster }) {
  * @param {{ role: string, context: any, config?: any }} input
  */
 export function assertSpawnableMission({ role, context, config }) {
-  if (role === 'reviewer') {
-    if (reviewUnavailable(config)) {
-      throw new TowerToolError(
-        'review-disabled',
-        'review.mode is off, so review is unavailable and a reviewer cannot be spawned',
-      )
-    }
-    if (!context.mission.worktree) {
-      throw new TowerToolError('reviewer-prerequisite', 'reviewer needs an existing mission worktree; spawn a worker first')
-    }
-    if (context.mission.status !== 'completed') {
-      throw new TowerToolError('reviewer-prerequisite', `reviewer requires a completed mission; ${context.mission.id} is ${context.mission.status}`)
-    }
-  }
-  if (role === 'worker' && ['merged', 'abandoned'].includes(context.mission.status)) {
-    throw new TowerToolError(
-      'invalid-transition',
-      `mission ${context.mission.id} is ${context.mission.status}; a worker can only be spawned for a planned or active mission`,
-    )
-  }
+  const shape = shapeFor(context.mission.kind)
+  // #149 W4: the role contract owns the prerequisites; the shape only supplies
+  // facts (can it merge? does it have a worktree? which statuses accept a spawn).
+  const [blocker] = roleMissionBlockers(role, {
+    shape,
+    mission: context.mission,
+    reviewAvailable: !reviewUnavailable(config),
+  })
+  if (blocker) throw new TowerToolError(blocker.code, blocker.message)
 }
 
 /**
@@ -83,10 +74,16 @@ export async function precheckWorkerOwnership({
   observeActivity,
 }) {
   let effectiveTakeover = takeover === true
-  if (role !== 'worker') return effectiveTakeover
+  if (!roleTracksMission(role)) return effectiveTakeover
+  // #148: a read-only survey worker must not consume a build worker slot, but
+  // the single-owner rule still applies to every worker entry.
+  const state = await tower.load()
+  const kinds = new Map(state.missions.map((entry) => [entry.id, entry.kind]))
+  const budgeted = (entry) => roleCountsTowardBudget(entry.role, shapeFor(kinds.get(entry.missionId)))
   const liveWorkers = view.roster.filter(
-    (entry) => entry.role === 'worker' && !ROSTER_INACTIVE_STATES.includes(entry.state),
+    (entry) => roleTracksMission(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state),
   )
+  const budgetWorkers = liveWorkers.filter(budgeted)
   const sameMission = liveWorkers.filter((entry) => entry.missionId === missionId)
   if (sameMission.length > 1) {
     throw new TowerToolError(
@@ -128,9 +125,13 @@ export async function precheckWorkerOwnership({
     }
   }
   const replacing = effectiveTakeover ? sameMission : []
-  const remaining = liveWorkers.filter((entry) => !replacing.includes(entry))
+  const remaining = budgetWorkers.filter((entry) => !replacing.includes(entry))
   const max = Math.min(Number(maxLiveWorkers) || 4, budget)
-  if (remaining.length >= max) {
+  // The new mission's shape decides whether this spawn consumes a build slot: a
+  // survey does not, so it is allowed while every build slot is busy (#148).
+  const mission = state.missions.find((entry) => entry.id === missionId)
+  const countsTowardBudget = roleCountsTowardBudget(role, shapeFor(mission?.kind))
+  if (countsTowardBudget && remaining.length >= max) {
     throw new TowerToolError(
       'worker-limit',
       'live worker limit reached (' + max + '); stop a worker with tower_interrupt or raise spawn.maxLiveWorkers',

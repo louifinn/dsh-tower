@@ -20,13 +20,18 @@
 // contradiction is refused up front instead.
 import { TowerToolError } from '../domain/errors.js'
 import { reviewRequired } from '../domain/integration/review.js'
+import { ROLES, rolePresetConfig } from '../domain/roles.js'
 import { componentEnabled, disabledReason } from './capability-registry.js'
 
 export function presetIds(config = {}) {
-  return {
-    worker: String(config.spawn?.workerPreset ?? 'tower-worker'),
-    reviewer: String(config.spawn?.reviewerPreset ?? 'tower-reviewer'),
+  const ids = {}
+  const spawn = config.spawn ?? {}
+  for (const role of ROLES) {
+    const spec = rolePresetConfig(role)
+    if (!spec) continue
+    ids[role] = String(spawn[spec.slot] ?? spec.fallback)
   }
+  return ids
 }
 
 function rowId(preset) {

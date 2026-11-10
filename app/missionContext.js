@@ -10,5 +10,6 @@ export async function missionContext(tower, missionId) {
   const state = await tower.load()
   const mission = state.missions.find((entry) => entry.id === missionId)
   if (!mission) fail(`unknown mission "${missionId}"`, 'mission-not-found')
-  return missionContextView({ state, mission })
+  const archived = await tower.archiveIndex()
+  return missionContextView({ state, mission, archived: archived.ok ? archived.missions : [] })
 }

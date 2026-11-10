@@ -13,6 +13,7 @@ import {
   PAUSE_CAUSES,
 } from './mission.js'
 import { ROSTER_INACTIVE_STATES } from './roster.js'
+import { SHAPE_KINDS } from './shapes/index.js'
 
 export {
   FINDING_SEVERITIES,
@@ -24,44 +25,25 @@ export {
   ROSTER_INACTIVE_STATES,
 }
 
-// Mission inputs accepted by tower_plan.
+// Mission inputs accepted by tower_plan: the registry's kinds, in order.
 /** @type {readonly string[]} */
-export const MISSION_KINDS = ['build', 'survey']
+export const MISSION_KINDS = SHAPE_KINDS
 /** @type {readonly string[]} */
 export const REVIEW_POLICIES = ['required-clean', 'none']
 
 // Roster actors (the caller resolved by actorFor) and createable agent roles.
-export const ROLE = Object.freeze({
-  tower: 'tower',
-  worker: 'worker',
-  reviewer: 'reviewer',
-  unknown: 'unknown',
-})
-/** @type {readonly string[]} */
-export const ROLES = Object.freeze([ROLE.worker, ROLE.reviewer])
-/** @type {readonly string[]} */
-export const ACTOR_ROLES = Object.freeze([ROLE.tower, ROLE.worker, ROLE.reviewer, ROLE.unknown])
-export const DEFAULT_ROLE = ROLE.worker
-
-/** @param {string | null | undefined} role */
-export function isTowerRole(role) {
-  return role === ROLE.tower
-}
-
-/** @param {string | null | undefined} role */
-export function isWorkerRole(role) {
-  return role === ROLE.worker
-}
-
-/** @param {string | null | undefined} role */
-export function isReviewerRole(role) {
-  return role === ROLE.reviewer
-}
-
-/** @param {string | null | undefined} role */
-export function isUnknownRole(role) {
-  return role === ROLE.unknown
-}
+// One definition lives in domain/roles.js so roster/vocabulary have no cycle.
+import { ROLE } from './roles.js'
+export {
+  ACTOR_ROLES,
+  DEFAULT_ROLE,
+  ROLE,
+  ROLES,
+  isReviewerRole,
+  isTowerRole,
+  isUnknownRole,
+  isWorkerRole,
+} from './roles.js'
 
 // Inbox recipients: a roster name, the tower, or a broadcast.
 export const RECIPIENT = Object.freeze({ tower: ROLE.tower, all: 'all' })

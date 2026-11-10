@@ -20,10 +20,10 @@
 | `no-check-evidence` | 启用了 `gates.requireChecks` 且完成报告没有 `checks`。把 completed mission 退回 `active`，带 checks 重新调用 `tower_complete`，然后重新审查。 |
 | `branch-missing` | 还没有 worktree/分支：先 spawn worker。 |
 | `stale-base` | 分支不包含基线 tip：执行 `tower_rebase`。 |
-| `read-only-survey` | survey mission 修改了文件；survey mission 必须只读。 |
 | `out-of-scope` | 改动文件超出 mission scope；有意为之就扩大 scope，否则回退。在大小写敏感的检出上，仅大小写不同的路径仍会被拒绝，detail 会指出折叠大小写后本可匹配的 scope 条目。 |
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未满足：build 依赖须 `merged`/`abandoned`；survey 依赖在 `completed` 即视为满足（含归档记录）。 |
+| `survey-stale` | build 依赖的 survey 的 `readCommit` 不是 build base 的祖先或同一提交。默认只是 `plan`/`preflight` 的 `warnings[]` 条目；`gates.requireFreshSurvey:true` 时同一 code 阻止合并。针对当前 base 重新规划 survey，或记录为何该读取仍然有效。 |
 | `no-review` | `review.mode:required` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
 | `review-mission-mismatch` | `review.mode:required` 且最新审查属于另一个 mission。 |
 | `not-clean` | `review.mode:required` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮（同一轮的各 route 结论会追加记录，不会让状态反复翻转）。 |
@@ -63,4 +63,4 @@
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 32 个（26 个门禁 + 4 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 31 个（25 个门禁 + 4 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。

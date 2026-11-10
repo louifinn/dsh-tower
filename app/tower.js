@@ -28,6 +28,7 @@ import { writeBoard, boardFile } from './board.js'
 import { archiveIndex, archivedMission } from './archive.js'
 import { recordSpawnOutcome, recordInterrupt, reserveRoster, recordSpawn, rosterView } from './spawn.js'
 import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recording.js'
+import { resolveLegacySurveyRead } from './sharedCheckout.js'
 
 export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
@@ -99,6 +100,7 @@ import { rebase } from './rebase.js'
 import { merge } from './merge.js'
 import { init } from './init.js'
 import { provision } from './provision.js'
+import { provisionReviewCheckout } from './reviewCheckout.js'
 import { addFinding, readFindings, findings } from './findings.js'
 import { recordMessage, recordDelivery, inbox } from './messages.js'
 import { createBatch, closeBatch, abandonBatch, batchStatus } from './batch.js'
@@ -170,6 +172,20 @@ export class Tower {
     return (await this.git(cwd, ['rev-parse', ref])).trim()
   }
 
+  /**
+   * The commit a mission branch points at, resolved from the branch ref. Never
+   * reads a live worktree checkout: a checkout is a view, the ref is the fact
+   * (#149 W3 review evidence and every tip comparison use this).
+   * @param {{ id?: string, worktree?: { branch?: string } | null }} mission
+   */
+  async branchTip(mission) {
+    const branch = mission?.worktree?.branch
+    if (typeof branch !== 'string' || branch.length === 0) {
+      fail(`mission ${mission?.id ?? ''} has no branch to resolve`.replace('  ', ' '), 'invalid-argument')
+    }
+    return this.revParse(this.root, `refs/heads/${branch}`)
+  }
+
   async isClean(cwd) {
     return (await this.git(cwd, ['status', '--porcelain'])).trim().length === 0
   }
@@ -193,6 +209,9 @@ export class Tower {
       paths: this.paths,
       now: this.deps.clock?.now ? this.deps.clock.now() : Date.now(),
       persist: options.persist,
+      // A legacy survey planned but never provisioned recorded no base; the
+      // loader resolves it once, from this checkout, before the pure migration.
+      resolveLegacySurvey: (rawState) => resolveLegacySurveyRead(this, rawState),
     })
     this.stateLoad = { ...loaded.version, migration: loaded.migration }
     return loaded.state
@@ -277,6 +296,15 @@ export class Tower {
   /** #51 two-phase provision: see the prepare/act/commit helpers in `./tower/provision.js`. */
   async provision(input = {}) {
     return provision(this, input)
+  }
+
+  /**
+   * Provision the disposable detached review checkout for a reviewer (#149 W3).
+   * The commit it returns is the reviewer's evidence for every later read and
+   * the verdict stamp.
+   */
+  async provisionReviewCheckout(input = {}) {
+    return provisionReviewCheckout(this, input)
   }
 
   async missionContext(missionId) {
@@ -521,7 +549,7 @@ export class Tower {
     let branchTip
     try {
       baseTip = await this.revParse(this.root, state.base)
-      branchTip = await this.revParse(mission.worktree.path, 'HEAD')
+      branchTip = await this.branchTip(mission)
     } catch {
       return null
     }

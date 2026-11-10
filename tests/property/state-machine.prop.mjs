@@ -88,10 +88,11 @@ import { stateArb } from './arbitraries/index.mjs'
 import { runProperty } from './helpers/harness.mjs'
 import { TowerToolError } from '../../domain/errors.js'
 import { validateState } from '../../domain/state.js'
+import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { mergeGateBlockers, rebaseWaived } from '../../domain/gate.js'
 import { DEFAULT_MAX_REPORT_BYTES, applyCompletion, assertCompletionRequest, completionReport } from '../../domain/missions/completion.js'
 import { applyFindingUpdate } from '../../domain/missions/findings.js'
-import { applyMissionUpdate } from '../../domain/missions/lifecycle.js'
+import { applyMissionUpdate, resolveBlockers } from '../../domain/missions/lifecycle.js'
 import { applyPlan, newMission, normalizeMissionInput } from '../../domain/missions/plan.js'
 import {
   applyReviewOutcome,
@@ -103,7 +104,7 @@ import {
 } from '../../domain/missions/review.js'
 import { applyMergeSuccess } from '../../domain/integration/merge.js'
 import { latestReview, reviewsForBranch } from '../../domain/integration/review.js'
-import { rebaseSuccessNote, rebaseSuccessResult } from '../../domain/integration/rebase.js'
+import { isRebaseConflictBlocker, rebaseSuccessNote, rebaseSuccessResult } from '../../domain/integration/rebase.js'
 import {
   MODEL_COMMANDS,
   MODEL_COMMAND_NAMES,
@@ -114,7 +115,7 @@ import {
   MODEL_REJECTION_CODES,
   MODEL_REVIEW_STATUSES,
   MODEL_STATUSES,
-  modelCanTransition,
+  modelCanPatchStatus,
   modelCanTransitionFinding,
 } from './model/tables.mjs'
 import {
@@ -218,7 +219,7 @@ function compareIds(left, right) {
  */
 function prepareBaseState(state) {
   const base = structuredClone(state)
-  base.schemaVersion = 3
+  base.schemaVersion = SCHEMA_VERSION
   for (const key of ['missions', 'roster', 'reviews', 'findings', 'messages', 'batches']) {
     if (!Array.isArray(base[key])) base[key] = []
   }
@@ -227,6 +228,10 @@ function prepareBaseState(state) {
   const highestFindingId = base.findings.reduce((max, finding) => Math.max(max, idNumber(finding.id)), 0)
   base.reviewSeq = Math.max(Number.isInteger(base.reviewSeq) ? base.reviewSeq : 0, highestReviewId)
   base.findingSeq = Math.max(Number.isInteger(base.findingSeq) ? base.findingSeq : 0, highestFindingId)
+  // The reference model transcribes the build lifecycle (including the merged
+  // status and the merge/rebase commands). Survey shapes have their own status
+  // sets and no merge edge; they are covered by tests/shape-registry.test.mjs.
+  base.missions = base.missions.filter((mission) => mission.kind !== 'survey')
   return base
 }
 
@@ -417,7 +422,7 @@ class StatusCommand {
     if (variant === 'illegal-edge') {
       // Only an edge the model's literal table refuses: a legal edge that fails
       // for another reason (missing resume authorization) is a separate probe.
-      if (modelCanTransition(from, target)) return null
+      if (modelCanPatchStatus(from, target)) return null
       const predicted = modelStatusOutcome(model, id, target, { authorization: false })
       assert.equal(predicted.accept, false, `${this.name} ${id} -> ${target}: model predicted acceptance`)
       return { ...base, accept: false, code: predicted.code, label: `${this.name} ${id} ${from} -> ${target} (illegal edge)` }
@@ -826,7 +831,7 @@ class RebaseCommand {
         const mission = draft.missions.find((entry) => entry.id === plan.missionId)
         assert.ok(mission, `rebase ${plan.missionId}: the real state lost the mission`)
         mission.rebase = { at: NOW, oldTip, newTip: NEW_TIP, baseTip: NEW_TIP }
-        if (mission.status === 'blocked') mission.status = 'active'
+        resolveBlockers(mission, isRebaseConflictBlocker, NOW)
         mission.notes = mission.notes ?? []
         mission.notes.push(rebaseSuccessNote({ oldTip, newTip: NEW_TIP, baseTip: NEW_TIP }))
         mission.updatedAt = NOW
@@ -1158,7 +1163,7 @@ function frozenState(options = {}) {
   }
   if (options.pauseCause !== undefined && options.pauseCause !== null) mission.pauseCause = options.pauseCause
   return {
-    schemaVersion: 3,
+    schemaVersion: SCHEMA_VERSION,
     revision: 7,
     base: 'main',
     repoRoot: '/tmp/tower-property',
@@ -1255,6 +1260,8 @@ const FROZEN_STATUS_EDGES = Object.freeze([
   ['activate', 'active', 'active'],
   ['activate', 'merged', 'active'],
   ['activate', 'abandoned', 'active'],
+  ['activate', 'blocked', 'active'],
+  ['pause', 'blocked', 'paused'],
   ['pause', 'planned', 'paused'],
   ['pause', 'completed', 'paused'],
   ['pause', 'paused', 'paused'],
@@ -1286,7 +1293,7 @@ test('frozen edge matrix: it is the complete set of edges the model tables refus
     ['abandoned'],
   ]) {
     for (const from of MODEL_STATUSES) {
-      if (!modelCanTransition(from, target)) expectedStatus.add(`${from}|${target}`)
+      if (!modelCanPatchStatus(from, target)) expectedStatus.add(`${from}|${target}`)
     }
   }
   // `resume` is the authorization edge: the transition is legal, the missing
@@ -1347,7 +1354,7 @@ test('frozen status table: all 49 status pairs agree with the model', () => {
       const state = frozenState({ status: from })
       const before = JSON.stringify(state)
       const code = attemptStatus(state, to)
-      const expected = modelCanTransition(from, to)
+      const expected = modelCanPatchStatus(from, to)
       assert.equal(code === null, expected, `${from} -> ${to}: the model and the domain disagree`)
       if (!expected) {
         assert.equal(code, MODEL_REJECTION_CODES.status, `${from} -> ${to}: rejection code`)

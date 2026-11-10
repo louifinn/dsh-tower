@@ -81,7 +81,7 @@ test('packaging: the real pack gate fails when ui-bundle/cordis.patch.yml is rem
         {
           name: 'tower-pack-fixture',
           version: '0.0.0',
-          files: ['cordis.patch.yml', 'index.js', 'client.js', 'host/', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
+          files: ['cordis.patch.yml', 'index.js', 'client.js', 'survey.js', 'host/', 'locale/', 'ui-bundle/', 'COMPATIBILITY.md'],
         },
         null,
         2,

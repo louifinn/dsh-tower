@@ -16,6 +16,11 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 - **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_control` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
+- **两种 mission 形状，一个注册表。** 每个 mission 是 `build` 或 `survey`，其状态、完成证据、
+  供给方式、路径权限与 spawn 契约都由 shape 拥有，不再散落 `if (kind === …)` 分支。survey 只读：
+  固定一个 `readCommit`（默认在 detached sandbox 中）即可完成，不需要提交、分支或合并。
+  `npm run shape:audit` 会拒绝第二套词汇、`domain/shapes/` 之外的按 kind 条件、
+  `domain/evidence.js` 之外的证据读取，以及角色检查与 shape 检查混合的写法。
 - **审查门禁合并。** 审查策略是插件页上的一个三态控件：`off`、`optional`（默认）或 `required`（配置键 `review.mode`）。设为 `required` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选；策略为 `required` 时，单个 mission 可用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。升级提示：旧的布尔审查开关是保留一个版本的别名；映射关系见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
 - **受控的状态增长。** worktree 已移除的终态任务在达到 `archive.afterDays`/`archive.maxMissions` 后移入 `.git/dsh-tower/archive/`，保留 tasks、reviews、findings 与完成报告；此后 mutation 只重写活跃工作。`tower_status includeArchived` 列出压缩后的归档摘要，`tower_doctor` 报告归档大小、数量与策略。
@@ -195,7 +200,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-32 个稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
+31 个稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 
 ## 工作原理
 

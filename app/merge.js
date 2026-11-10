@@ -18,6 +18,8 @@
 // prepare stale, so the whole prepare is retried, never partially applied.
 import path from 'node:path'
 import { validateState } from '../domain/state.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
+import { markBlocked } from '../domain/missions/lifecycle.js'
 import {
   alreadyMergedResult,
   applyLandedMerge,
@@ -134,7 +136,7 @@ async function observeLandedMerge(tower, state, mission) {
   let branchTip
   try {
     baseTip = await tower.revParse(tower.root, state.base)
-    branchTip = await tower.revParse(mission.worktree.path, 'HEAD')
+    branchTip = await tower.branchTip(mission)
   } catch {
     return null
   }
@@ -238,6 +240,8 @@ async function prepareFromState(tower, input, deps) {
     if (archived.ok && archived.entry) mission = archived.entry.mission
   }
   if (!mission) return { result: missionMissingResult(input.missionId) }
+  // A branchless shape has no merge to prepare; refuse before any git work.
+  assertActionSupported(mission, 'merge')
 
   // Reconcile a stale merge intent: Git runs here, outside every state lock.
   if (state.mergeIntent && state.mergeIntent.missionId === mission.id) {
@@ -272,7 +276,7 @@ async function prepareFromState(tower, input, deps) {
   // Capture the exact commits this merge is allowed to integrate. The merge
   // command below uses the captured branch SHA, never the mutable branch name.
   const baseTip = await tower.revParse(tower.root, 'HEAD')
-  const branchTip = await tower.revParse(worktree.path, 'HEAD')
+  const branchTip = await tower.branchTip(mission)
   const drift = gateTipDrift({
     missionId: mission.id,
     gateBaseTip: gate.baseTip,
@@ -522,8 +526,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
     const now = Date.now()
     if (intentActive) delete state.mergeIntent
     if (conflict) {
-      mission.status = 'blocked'
-      mission.blockers.push(mergeConflictNote(outcome.detail))
+      markBlocked(mission, mergeConflictNote(outcome.detail), now)
     } else {
       mission.notes.push(mergeHookFailureNote(outcome.detail, mission.status))
     }

@@ -70,6 +70,18 @@ export function worktreePath(root, missionId) {
 }
 
 /**
+ * The disposable detached checkout a `survey.sandbox: 'detached'` survey reads
+ * in (#148 W2). The `-sandbox` suffix keeps it distinct from a build worktree
+ * with the same mission id and from the mission branch naming scheme.
+ * @param {string} root
+ * @param {string} missionId
+ * @returns {string}
+ */
+export function sandboxPath(root, missionId) {
+  return path.join(root, `${missionId}-sandbox`)
+}
+
+/**
  * @param {unknown} missionId
  * @returns {boolean}
  */
@@ -112,6 +124,45 @@ export function existingWorktreeResult(mission, worktree) {
  */
 export function createdWorktreeResult(mission, worktree) {
   return { mission, worktree, created: true }
+}
+
+/**
+ * A shared-checkout shape (survey) provisions no branch and no worktree: the
+ * agent reads the recorded commit in the main checkout.
+ * @param {Mission} mission
+ * @param {string} cwd
+ * @returns {{ mission: Mission, worktree: null, cwd: string, created: false, provisioning: 'shared' }}
+ */
+export function sharedProvisionResult(mission, cwd) {
+  return { mission, worktree: null, cwd, created: false, provisioning: /** @type {const} */ ('shared') }
+}
+
+/**
+ * A detached survey result (#148 W2). The mission has no worktree projection:
+ * the sandbox path is recorded as `mission.sandbox` and is the agent's cwd.
+ * @param {Mission} mission
+ * @param {string} sandbox
+ * @param {boolean} created
+ * @returns {{ mission: Mission, worktree: null, sandbox: string, cwd: string, created: boolean, provisioning: 'detached' }}
+ */
+export function detachedSandboxResult(mission, sandbox, created) {
+  return {
+    mission,
+    worktree: null,
+    sandbox,
+    cwd: sandbox,
+    created,
+    provisioning: /** @type {const} */ ('detached'),
+  }
+}
+
+/**
+ * @param {string} sandbox
+ * @param {string} readCommit
+ * @returns {string}
+ */
+export function sandboxActivityText(sandbox, readCommit) {
+  return `detached sandbox at ${sandbox} (read ${String(readCommit).slice(0, 12)})`
 }
 
 /**

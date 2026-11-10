@@ -101,5 +101,36 @@ const reviewFieldsArb = fc
 
 /** One mission document. The id is *not* guaranteed unique across missions. */
 export const missionArb = fc
-  .tuple(missionBaseArb, reviewFieldsArb)
-  .map(([mission, reviewFields]) => ({ ...mission, ...reviewFields }))
+  .tuple(
+    missionBaseArb,
+    reviewFieldsArb,
+    commitShaArb,
+    fc.array(fc.stringMatching(/^[A-Za-z0-9._/-]{1,40}$/), { maxLength: 3 }),
+  )
+  .map(([mission, reviewFields, readCommit, readDirty]) => {
+    const next = { ...mission, ...reviewFields }
+    if (next.kind === 'survey') {
+      next.scope = []
+      next.status = next.status === 'merged' ? 'completed' : next.status
+      delete next.worktree
+      next.readCommit = readCommit
+      next.readDirty = [...new Set(readDirty)]
+    }
+    // `blocked` is derived from open blockers (#149 W3): a generated non-terminal
+    // mission is blocked exactly when it records a blocker, and a blocked mission
+    // never also carries a pause cause (a blocker supersedes a pause).
+    const terminal = next.status === 'merged' || next.status === 'abandoned'
+    if (terminal) {
+      next.blockers = next.blockers.map((blocker) => blocker || 'history only')
+    } else if (next.status === 'blocked') {
+      next.blockers = next.blockers.length > 0 ? next.blockers : ['generated blocker']
+      for (let index = 0; index < next.blockers.length; index += 1) {
+        if (!next.blockers[index]) next.blockers[index] = `generated blocker ${index + 1}`
+      }
+      delete next.pauseCause
+    } else {
+      next.blockers = []
+    }
+    if (terminal) delete next.pauseCause
+    return next
+  })

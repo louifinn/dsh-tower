@@ -108,7 +108,12 @@ function worktreeWith(overrides) {
  */
 function breakWorktreeField(field, value) {
   return (state) => {
-    state.missions[0].worktree = worktreeWith({ [field]: value })
+    const mission = state.missions[0]
+    // The broken record must be a build worktree; a survey may not carry one.
+    mission.kind = 'build'
+    delete mission.readCommit
+    delete mission.readDirty
+    mission.worktree = worktreeWith({ [field]: value })
     return state
   }
 }
@@ -398,7 +403,7 @@ runProperty({
   name: 'state migration: migrateState on an already-current document refuses (frozen example)',
   arbitrary: fc.constant(null),
   predicate: () => {
-    const error = rejectionOf(() => migrateState(structuredClone(V3_FIXTURE)))
+    const error = rejectionOf(() => migrateState(structuredClone({ ...V3_FIXTURE, schemaVersion: SCHEMA_VERSION })))
     assert.ok(error instanceof TowerToolError, 'migrateState on a current document must throw')
     assert.equal(error.code, 'state-version-unsupported')
   },

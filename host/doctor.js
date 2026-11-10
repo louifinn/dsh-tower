@@ -12,6 +12,7 @@ import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
+import { hasTestReceipts } from '../domain/evidence.js'
 import { configSurface } from '../domain/config/schema.js'
 import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
@@ -454,7 +455,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           : check('worktrees', 'pass', `all registered worktrees are valid${removedNote}`),
     )
 
-    const testConfigured = state.missions?.some((mission) => mission.testRuns !== undefined)
+    const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))
     // #136: the `tower-tests` component row is the only switch (there is no
     // tests.enabled), so this check reads the registry and nothing else.
     const testsDisabled = components.disabled.some((entry) => entry.id === 'tower-tests')

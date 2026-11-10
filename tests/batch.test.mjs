@@ -48,13 +48,10 @@ function makeState() {
     batches: [],
     legacySnapshots: [
       {
-        hash: 'legacy-hash-1',
+        sourceHash: 'legacy-hash-1',
         format: 'tower-codex',
-        missions: [
-          { id: 'L-paused', status: 'paused' },
-          { id: 'L-active', status: 'active' },
-        ],
-        pausedIds: ['L-paused-2'],
+        missionIds: ['L-paused', 'L-active', 'L-paused-2'],
+        pausedMissionIds: ['L-paused', 'L-paused-2'],
       },
     ],
     legacyMaps: [],
@@ -143,13 +140,17 @@ test('validateCreate: exclusions must be paused legacy mission ids', () => {
   expectBatchError(() => validateCreate(state, { missionIds: ['M1'], exclusions: 'L-paused' }), /must be an array/)
 
   state.legacySnapshots = [
-    { hash: 'h2', snapshot: { missions: [{ id: 'L-nested', status: 'paused' }] } },
-    { hash: 'h3', pausedIds: ['L-direct'] },
-    // adapters/legacy.js snapshot record shape: no missions array, only ids.
+    // Only the canonical `pausedMissionIds` field written by adapters/legacy.js
+    // is read; nested/hand-written legacy vocabularies are not a second source.
+    { sourceHash: 'h3', pausedMissionIds: ['L-direct'] },
     { sourceHash: 'h4', pausedMissionIds: ['T0007'], missionIds: ['T0007', 'T0008'] },
   ]
-  const batch = validateCreate(state, { missionIds: ['M1'], exclusions: ['L-nested', 'L-direct', 'T0007'] })
-  assert.deepEqual(batch.exclusions, ['L-nested', 'L-direct', 'T0007'])
+  const batch = validateCreate(state, { missionIds: ['M1'], exclusions: ['L-direct', 'T0007'] })
+  assert.deepEqual(batch.exclusions, ['L-direct', 'T0007'])
+
+  state.legacySnapshots = [{ sourceHash: 'h5', missions: [{ id: 'L-nested', status: 'paused' }], pausedIds: ['L-old'] }]
+  expectBatchError(() => validateCreate(state, { missionIds: ['M1'], exclusions: ['L-nested'] }), /not a paused legacy/)
+  expectBatchError(() => validateCreate(state, { missionIds: ['M1'], exclusions: ['L-old'] }), /not a paused legacy/)
 })
 
 test('validateCreate: requiredChecks must be non-empty unique names', () => {

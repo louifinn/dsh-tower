@@ -150,7 +150,10 @@ export function validateState(state, statePath) {
  *
  * @param {unknown} state
  * @param {string} [statePath]
- * @param {{ migrations?: readonly StateMigration[] }} [options]
+ * @param {{
+ *   migrations?: readonly StateMigration[],
+ *   legacySurveyRead?: import('./state/migrations.js').LegacySurveyRead | null,
+ * }} [options]
  * @returns {{ state: TowerState, from: number, to: number, migrated: MigrationStep[], changed: boolean }}
  */
 export function prepareState(state, statePath, options = {}) {
@@ -169,6 +172,7 @@ export function prepareState(state, statePath, options = {}) {
     statePath,
     to: info.supportedVersion,
     migrations: options.migrations,
+    legacySurveyRead: options.legacySurveyRead ?? null,
   })
   // Validation runs on the *target* document: a shape that was invalid under
   // the old schema (a missing `tasks` array, say) may be valid after a backfill,

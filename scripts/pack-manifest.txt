@@ -28,6 +28,7 @@ app/briefing.js
 app/checkCompletion.js
 app/enrichedMissions.js
 app/findings.js
+app/freshness.js
 app/gate.js
 app/init.js
 app/merge.js
@@ -40,7 +41,10 @@ app/read.js
 app/rebase.js
 app/recording.js
 app/review.js
+app/reviewCheckout.js
 app/roster.js
+app/sandbox.js
+app/sharedCheckout.js
 app/spawn-prechecks.js
 app/spawn-support.js
 app/spawn.js
@@ -54,6 +58,7 @@ docs/adr/0002-single-state-json.md
 docs/adr/0003-allow-agent-control-default-true.md
 docs/adr/0004-surface-budget.md
 docs/adr/0005-component-surface.md
+docs/adr/0006-mission-shapes.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -80,6 +85,7 @@ docs/reference/errors.generated.md
 docs/reference/errors.md
 docs/reference/events.md
 docs/reference/operations.md
+docs/reference/shapes.md
 docs/reference/surface-budget.md
 docs/reference/testing.md
 docs/reference/tools.generated.md
@@ -116,6 +122,7 @@ domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
 domain/errors.js
+domain/evidence.js
 domain/events.js
 domain/gate.js
 domain/integration/gate.js
@@ -138,8 +145,12 @@ domain/read/enrichedMissions.js
 domain/read/missionContext.js
 domain/read/views.js
 domain/report.js
+domain/roles.js
 domain/roster.js
 domain/scope.js
+domain/shapes/build.js
+domain/shapes/index.js
+domain/shapes/survey.js
 domain/state.js
 domain/state/archive.js
 domain/state/migrations.js
@@ -163,6 +174,8 @@ host/hmr.js
 host/modeState.js
 host/modeStore.js
 host/preset-reviewer.js
+host/preset-survey-sandbox.js
+host/preset-survey.js
 host/preset-worker.js
 host/presets.js
 host/tool-registry.js
@@ -184,6 +197,10 @@ locale/leases/en.json
 locale/leases/zh.json
 locale/preset-reviewer/en.json
 locale/preset-reviewer/zh.json
+locale/preset-survey-sandbox/en.json
+locale/preset-survey-sandbox/zh.json
+locale/preset-survey/en.json
+locale/preset-survey/zh.json
 locale/preset-worker/en.json
 locale/preset-worker/zh.json
 locale/skills/en.json
@@ -219,6 +236,7 @@ scripts/generate-component-surface.mjs
 scripts/generate-config-reference.mjs
 scripts/generate-error-reference.mjs
 scripts/generate-events-reference.mjs
+scripts/generate-shapes-reference.mjs
 scripts/generate-tools-reference.mjs
 scripts/generate-types.mjs
 scripts/issue-audit.mjs
@@ -235,6 +253,7 @@ scripts/pack-manifest.txt
 scripts/regression-audit.mjs
 scripts/release-check.mjs
 scripts/release-notes.mjs
+scripts/shape-audit.mjs
 scripts/surface-baseline.json
 scripts/surface-baseline.mjs
 scripts/types-coverage.mjs
@@ -244,6 +263,8 @@ skills.js
 skills/tower-recovery.md
 skills/tower-review.md
 skills/tower-worker-protocol.md
+survey-sandbox.js
+survey.js
 tools/adopt.js
 tools/batch.js
 tools/complete.js

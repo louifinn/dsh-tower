@@ -48,8 +48,10 @@ overall `ok`. `state.missions[].testRuns` keeps the most recent 50 receipts. The
 discovery fails.
 
 - `tower_test({repoRoot,missionId})` runs discovery on demand and records a receipt.
-- `tower_complete` adds a `tests` check when `tests.autoChecks` is on.
-- `gates.requireChecks` requires any completion check; `gates.requireTests` requires a passing receipt
+- The receipt in `testRuns` is the only evidence shape. `tower_complete` does not copy a `tests`
+  check into the completion report; completion checks, batch close and `gates.requireChecks` read the
+  same receipt.
+- `gates.requireChecks` requires any recorded check or receipt; `gates.requireTests` requires a passing receipt
   for the current mission branch tip (`tests-missing`). Review is independent of this gate: with
   `review.mode:optional` (the default) or `off`, the tests gate still checks the branch tip.
 

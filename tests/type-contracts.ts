@@ -73,7 +73,7 @@ type SchemaMission = SchemaState['missions'][number]
 // TowerState describes a normalized document. These two lines pin the overlap:
 // the version literal refines the public number and every schema key has a
 // public counterpart.
-export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 3>>
+export type StateSchemaVersionContract = Expect<Equal<SchemaState['schemaVersion'], 5>>
 export type StateSchemaRootKeysContract = Expect<Extends<keyof SchemaState, keyof TowerState>>
 export type StateSchemaMissionKeysContract = Expect<Extends<keyof SchemaMission, keyof Mission>>
 

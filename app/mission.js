@@ -4,6 +4,7 @@ import { applyMissionUpdate } from '../domain/missions/lifecycle.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { sweepArchive } from './archive.js'
+import { cleanupSandbox } from './sandbox.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
@@ -12,7 +13,7 @@ function fail(message, code = 'invalid-argument') {
 export async function updateMission(tower, input = {}) {
   const missionId = typeof input.id === 'string' ? input.id.trim() : input.id
   if (typeof missionId !== 'string' || missionId.length === 0) fail('tower_mission requires id')
-  return tower.deps.store.withLock(tower.paths, async () => {
+  const result = await tower.deps.store.withLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === missionId)
     if (!mission) fail(`unknown mission "${missionId}"`, 'mission-not-found')
@@ -34,4 +35,26 @@ export async function updateMission(tower, input = {}) {
     tower.emitEvents(events, { revision: state.revision, at: now })
     return { revision: state.revision, mission: fullMission(mission) }
   })
+  // Abandoning a detached survey disposes its sandbox. The state transition is
+  // already durable; cleanup is advisory and reports rather than throws.
+  let sandboxCleanup = null
+  if (result.mission.status === 'abandoned' && result.mission.sandbox) {
+    const sandbox = result.mission.sandbox
+    try {
+      sandboxCleanup = await cleanupSandbox(tower, missionId)
+    } catch (error) {
+      sandboxCleanup = {
+        ok: false,
+        removed: false,
+        attempts: 0,
+        path: sandbox,
+        error: String(error?.message ?? error).slice(0, 400),
+      }
+    }
+    if (sandboxCleanup?.ok) {
+      delete result.mission.sandbox
+      delete result.mission.sandboxCleanupError
+    }
+  }
+  return { ...result, ...(sandboxCleanup ? { sandboxCleanup } : {}) }
 }

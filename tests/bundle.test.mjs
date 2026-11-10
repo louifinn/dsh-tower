@@ -24,6 +24,7 @@ test('the bundle patch ships a mandatory host group and optional top-level rows'
     'tower-archive',
     'tower-hmr',
     'preset-tower-reviewer',
+    'tower-survey',
   ])
   const host = parsed.rows.find((row) => row.id === 'tower')
   assert.equal(host.kind, 'group')
@@ -36,7 +37,7 @@ test('the bundle patch ships a mandatory host group and optional top-level rows'
 test('the dev reload row ships off; every optional capability owns one row', () => {
   const block = patch.slice(patch.indexOf('- id: tower-hmr'), patch.indexOf('- id: preset-tower-reviewer'))
   assert.match(block, /^\s*disabled: true\s*$/m, 'tower-hmr ships disabled')
-  for (const id of ['tower-skills', 'tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-board', 'tower-archive']) {
+  for (const id of ['tower-skills', 'tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-board', 'tower-archive', 'tower-survey']) {
     assert.match(patch, new RegExp(`^\\s*- id: ${id}\\s*$`, 'm'), `${id} row is shipped`)
   }
   // The old all-or-nothing group and the safety-net switches are gone.

@@ -1,12 +1,10 @@
-// Semantic state-file checks (#56 P4).
-//
-// `stateShapeError` proves the structural contract; this module owns the policy
-// the shape cannot express: unique ids, status/verdict vocabularies, the review
-// exemption, roster/agent uniqueness, worktree records and the revision
-// counter. Messages keep the historical `[tower:state-corrupt]` wording.
+// State semantics that a structural schema cannot express: uniqueness,
+// status vocabularies, review exemption and per-kind mission fields (#149).
 // @ts-check
+import { FINDING_STATUSES, MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
+import { BATCH_STATUSES } from '../batch.js'
 import { TowerToolError } from '../errors.js'
-import { FINDING_STATUSES, MERGE_VERDICTS, MISSION_STATUSES, REVIEW_STATUS_RE } from '../mission.js'
+import { isShapeKind, shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
@@ -19,11 +17,52 @@ function fail(message) {
 }
 
 /**
- * @param {unknown} value
- * @returns {boolean}
+ * A build mission may carry a worktree/branch/merge projection; a survey may
+ * not, and carries the read fingerprint instead. The shape declares which
+ * dimensions its document owns, so this module never compares kinds.
+ * @param {Record<string, any>} mission
+ * @param {string} where
+ * @returns {void}
  */
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+function assertMissionShapeFields(mission, where) {
+  if (!isShapeKind(mission.kind)) {
+    fail(`mission ${mission.id} has unknown kind ${String(mission.kind)}${where}`)
+  }
+  const shape = shapeFor(mission.kind)
+  if (!shape.fields.worktree) {
+    if (mission.worktree !== undefined && mission.worktree !== null) {
+      fail(`mission ${mission.id} is a ${shape.kind} and may not have a worktree record${where}`)
+    }
+    for (const key of ['branch', 'baseCommit', 'mergedCommit', 'mergedAt']) {
+      if (mission[key] !== undefined && mission[key] !== null) {
+        fail(`mission ${mission.id} is a ${shape.kind} and may not have ${key}${where}`)
+      }
+    }
+  }
+  if (shape.fields.worktree) {
+    if (mission.sandbox !== undefined) {
+      fail(`mission ${mission.id} is a ${shape.kind} and may not have a sandbox${where}`)
+    }
+  } else if (shape.fields.sandbox) {
+    // A detached survey sandbox is a recorded path, never a worktree record: it
+    // has no branch, base commit or merge projection.
+    if (mission.sandbox !== undefined && (typeof mission.sandbox !== 'string' || mission.sandbox.length === 0)) {
+      fail(`mission ${mission.id} has an invalid sandbox path${where}`)
+    }
+  } else if (mission.sandbox !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not have a sandbox${where}`)
+  }
+  if (shape.fields.readCommit) {
+    if (typeof mission.readCommit !== 'string' || mission.readCommit.length === 0) {
+      fail(`mission ${mission.id} is a ${shape.kind} and needs a readCommit${where}`)
+    }
+    if (mission.readDirty === undefined) return
+    if (!Array.isArray(mission.readDirty) || mission.readDirty.some((entry) => typeof entry !== 'string')) {
+      fail(`mission ${mission.id} has an invalid readDirty fingerprint${where}`)
+    }
+  } else if (mission.readCommit !== undefined || mission.readDirty !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not have readCommit/readDirty${where}`)
+  }
 }
 
 /**
@@ -43,6 +82,14 @@ function assertWorktreeRecord(mission, where) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
  * @param {unknown} state
  * @param {string} where
  * @returns {TowerState}
@@ -56,8 +103,9 @@ export function assertStateSemantics(state, where) {
   for (const mission of record.missions) {
     if (missionIds.has(mission.id)) fail(`duplicate mission id ${mission.id}${where}`)
     missionIds.add(mission.id)
-    if (!MISSION_STATUSES.includes(mission.status)) {
-      fail(`mission ${mission.id} has unknown status ${mission.status}${where}`)
+    const shape = shapeFor(mission.kind)
+    if (!shape.statuses.includes(mission.status)) {
+      fail(`mission ${mission.id} has unknown status ${mission.status} for a ${shape.kind} mission${where}`)
     }
     if (mission.reviewPolicy !== undefined && !['required-clean', 'none'].includes(mission.reviewPolicy)) {
       fail(`mission ${mission.id} has unknown reviewPolicy ${mission.reviewPolicy}${where}`)
@@ -65,7 +113,24 @@ export function assertStateSemantics(state, where) {
     if (mission.reviewPolicy === 'none' && !String(mission.reviewExemptionReason ?? '').trim()) {
       fail(`mission ${mission.id} has reviewPolicy none without a reason${where}`)
     }
+    assertMissionShapeFields(mission, where)
     assertWorktreeRecord(mission, where)
+    // W3: `blocked` is derived from open blockers, never an independent stop
+    // state. A non-terminal mission is blocked exactly when it records a
+    // blocker, so the two can never disagree (a paused mission has no blockers;
+    // a blocker supersedes a pause). Terminal missions keep blockers as history.
+    const blockers = mission.blockers ?? []
+    if (!Array.isArray(blockers) || blockers.some((entry) => typeof entry !== 'string')) {
+      fail(`mission ${mission.id} has invalid blockers${where}`)
+    }
+    if (!shape.isTerminal(mission.status)) {
+      if (mission.status === 'blocked' && blockers.length === 0) {
+        fail(`mission ${mission.id} is blocked but records no blocker; blocked is derived from open blockers${where}`)
+      }
+      if (mission.status !== 'blocked' && blockers.length > 0) {
+        fail(`mission ${mission.id} has open blockers but is ${mission.status}; blocked is derived from open blockers${where}`)
+      }
+    }
   }
   if (record.roster !== undefined) {
     const names = new Set()
@@ -110,6 +175,21 @@ export function assertStateSemantics(state, where) {
       }
       if (!MERGE_VERDICTS.includes(review.mergeVerdict)) {
         fail(`review ${review.id} has unknown merge verdict ${review.mergeVerdict}${where}`)
+      }
+    }
+  }
+  // Batches have their own generic lifecycle (#149 W3), not a mission shape. The
+  // ledger may only carry canonical statuses; legacy synonyms are normalized by
+  // the v5 state migration, never accepted at rest.
+  if (record.batches !== undefined) {
+    const ids = new Set()
+    for (const batch of record.batches) {
+      if (!isPlainObject(batch)) fail(`invalid batch record${where}`)
+      if (ids.has(batch.id)) fail(`duplicate batch id ${batch.id}${where}`)
+      ids.add(batch.id)
+      const status = typeof batch.status === 'string' ? batch.status : ''
+      if (!BATCH_STATUSES.includes(status)) {
+        fail(`batch ${batch.id} has unknown status ${batch.status}${where}`)
       }
     }
   }

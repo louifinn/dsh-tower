@@ -7,6 +7,8 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { ROSTER_INACTIVE, countLiveWorkers, workerEntries } from '../roster.js'
+import { isReviewerRole, isWorkerRole } from '../roles.js'
+import { shapeFor } from '../shapes/index.js'
 import { clearStale } from './roster.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -14,19 +16,14 @@ import { clearStale } from './roster.js'
 
 /**
  * @param {string} message
+ * @param {string} [code]
  * @returns {never}
  */
-function fail(message) {
-  throw new TowerToolError('invalid-argument', message)
+function fail(message, code = 'invalid-argument') {
+  throw new TowerToolError(code, message)
 }
 
-/**
- * @param {unknown} role
- * @returns {boolean}
- */
-export function isWorkerRole(role) {
-  return role === 'worker'
-}
+export { isWorkerRole } from '../roles.js'
 
 /**
  * The configured live-worker ceiling, defaulting to four.
@@ -68,6 +65,26 @@ export function applyInterrupt(entry, input, now) {
 }
 
 /**
+ * A reviewer's evidence is the commit recorded here, never a live branch tip
+ * read later (#149 W3). The checkout is the disposable detached worktree the
+ * reviewer reads in; it is cleared when the verdict is recorded.
+ * @param {any} input
+ * @param {{ requireReviewCommit?: boolean }} [options]
+ * @returns {{ reviewCommit: string | null, reviewCheckout: string | null }}
+ */
+function reviewEvidence(input, options = {}) {
+  const reviewCommit = typeof input.reviewCommit === 'string' && input.reviewCommit.length > 0 ? input.reviewCommit : null
+  const reviewCheckout = typeof input.reviewCheckout === 'string' && input.reviewCheckout.length > 0 ? input.reviewCheckout : null
+  if (options.requireReviewCommit && isReviewerRole(input.role) && !reviewCommit) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `reviewer ${input.name} has no recorded review commit; spawn reviewers through tower_spawn (a review verdict is stamped with a commit, not a live branch tip)`,
+    )
+  }
+  return { reviewCommit, reviewCheckout }
+}
+
+/**
  * A reserved roster row: the name is claimed before activation so a failed
  * spawn remains recoverable.
  * @param {any} input
@@ -75,6 +92,7 @@ export function applyInterrupt(entry, input, now) {
  * @returns {RosterEntry}
  */
 export function reservedRosterEntry(input, now) {
+  const evidence = reviewEvidence(input, { requireReviewCommit: true })
   return {
     name: input.name,
     role: input.role,
@@ -84,6 +102,8 @@ export function reservedRosterEntry(input, now) {
     missionId: input.missionId,
     cwd: input.cwd ?? null,
     branch: input.branch ?? null,
+    ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
+    ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
     spawnTip: null,
     state: 'reserved',
     reservedAt: now,
@@ -104,10 +124,15 @@ export function reserveRosterEntry({ roster, input, now }) {
 /**
  * Validate and apply a spawn record. Mutates the roster (retiring prior worker
  * rows and inserting/reusing the entry) and the mission owner/status/gen.
- * @param {{ roster: RosterEntry[], mission: Mission, input: any, spawnTip: string | null, maxLiveWorkers: unknown, now: number }} params
+ *
+ * `missions` is the state's mission list, not just the spawned mission: the live
+ * worker count resolves every roster row's kind through the shape registry, so a
+ * survey row must not be counted as a build worker (#148). Callers that omit it
+ * (direct domain tests) keep the historical roster-only treatment.
+ * @param {{ roster: RosterEntry[], missions?: Mission[], mission: Mission, input: any, spawnTip: string | null, maxLiveWorkers: unknown, now: number }} params
  * @returns {RosterEntry}
  */
-export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWorkers, now }) {
+export function recordSpawnEntry({ roster, missions = [], mission, input, spawnTip, maxLiveWorkers, now }) {
   const reserved = roster.find((entry) => entry.name === input.name && entry.state === 'reserved' && !entry.agentId)
   if (!reserved && roster.some((entry) => entry.name === input.name)) {
     fail(`roster name already used: ${input.name}`)
@@ -115,7 +140,9 @@ export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWork
   if (roster.some((entry) => entry.agentId && entry.agentId === input.agentId)) {
     fail(`agent ${input.agentId} is already in the roster`)
   }
-  /** @type {RosterEntry} */
+  /** @type {{ reviewCommit?: string | null, reviewCheckout?: string | null }} */
+  const evidence = reviewEvidence(input, { requireReviewCommit: true })
+  /** @type {RosterEntry & { generation?: number }} */
   const entry = {
     name: input.name,
     role: input.role,
@@ -125,12 +152,14 @@ export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWork
     missionId: input.missionId,
     cwd: input.cwd ?? null,
     branch: input.branch ?? null,
+    ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
+    ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
     spawnTip,
     state: 'active',
     spawnedAt: now,
   }
   if (isWorkerRole(input.role)) {
-    const snapshot = /** @type {any} */ ({ roster })
+    const snapshot = /** @type {any} */ ({ roster, missions })
     const previous = workerEntries(snapshot, mission.id)
     const live = previous.find((row) => !ROSTER_INACTIVE.has(row.state) && row.state !== 'reserved')
     if (live && !input.takeover) {
@@ -148,9 +177,17 @@ export function recordSpawnEntry({ roster, mission, input, spawnTip, maxLiveWork
       old.outcomeAt = now
       clearStale(old)
     }
-    const max = liveWorkerLimit(maxLiveWorkers)
-    if (countLiveWorkers(snapshot) >= max) {
-      fail(`live worker limit reached (${max}); stop a worker or raise spawn.maxLiveWorkers`)
+    // A shape that does not count toward the live-worker budget (the read-only
+    // survey) must pass even when every build slot is busy; otherwise the
+    // precheck and the record-level check disagree (#148).
+    if (shapeFor(mission.kind).spawn.countsTowardWorkerBudget !== false) {
+      const max = liveWorkerLimit(maxLiveWorkers)
+      if (countLiveWorkers(snapshot) >= max) {
+        fail(
+          `live worker limit reached (${max}); stop a worker or raise spawn.maxLiveWorkers`,
+          'worker-limit',
+        )
+      }
     }
     const generation = (mission.ownerGeneration ?? 0) + 1
     entry.generation = generation

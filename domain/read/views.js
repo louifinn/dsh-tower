@@ -125,16 +125,20 @@ export function patchLimit(maxBytes) {
  * @param {string[]} input.files
  * @param {string[]} input.commits
  * @param {string} input.fullPatch
+ * @param {string|null} [input.reviewedCommit]
  * @param {number} [input.maxBytes]
  * @returns {object}
  */
-export function diffView({ mission, baseTip, branchTip, mergeBase, files, commits, fullPatch, maxBytes }) {
+export function diffView({ mission, baseTip, branchTip, mergeBase, files, commits, fullPatch, maxBytes, reviewedCommit = null }) {
   const limit = patchLimit(maxBytes)
   return {
     missionId: mission.id,
     branch: mission.worktree ? mission.worktree.branch : null,
     baseTip,
     branchTip,
+    // #149 W3: a reviewer sees (and is stamped with) one recorded commit; the
+    // field is null for every other caller reading the live branch.
+    reviewedCommit,
     mergeBase,
     files,
     commits,

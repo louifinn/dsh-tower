@@ -21,7 +21,7 @@
 
 `tower_rebase` first. If the branch is already contained in the base it returns `alreadyMerged` and
 leaves the branch untouched — then call `tower_merge` to record it. A conflict marks the mission
-`blocked`; resolve in the worktree, set the mission back to `active` (or `completed`), retry.
+`blocked`; resolve in the worktree, then `tower_mission({clear_blockers:true})` resumes it to `active`, retry.
 
 ## Interrupt, stale roster and takeover
 

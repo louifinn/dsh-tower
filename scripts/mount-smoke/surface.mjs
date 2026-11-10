@@ -36,6 +36,7 @@ export const OPTIONAL_ROW_IDS = [
   'tower-import',
   'tower-leases',
   'tower-skills',
+  'tower-survey',
   'tower-tests',
 ]
 
@@ -67,6 +68,8 @@ export function defaultOffToolIds() {
 export const PRESET_ROWS = Object.freeze([
   Object.freeze({ id: 'tower-worker', specifier: 'preset-worker', name: 'Tower Worker', order: 60 }),
   Object.freeze({ id: 'tower-reviewer', specifier: 'preset-reviewer', name: 'Tower Reviewer', order: 61 }),
+  Object.freeze({ id: 'tower-survey', specifier: 'preset-survey', name: 'Tower Survey', order: 62 }),
+  Object.freeze({ id: 'tower-survey-sandbox', specifier: 'preset-survey-sandbox', name: 'Tower Survey Sandbox', order: 63 }),
 ])
 
 /** Presets the bundle declares for its worker and reviewer roles. */

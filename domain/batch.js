@@ -1,5 +1,11 @@
 // Batch admission packets (2.1): pure create/close/summarize validation.
 //
+// A batch is a second, generic lifecycle layered over missions (#149 W3): it is
+// not a mission shape and never gets a kind. Its whole lifecycle — statuses,
+// transition edges, terminality, legacy-status normalization and the status
+// vocabulary — lives in this module (see `BATCH_STATUS*`), so no other module
+// compares or writes `batch.status` to a string literal.
+//
 // This module performs no filesystem, git, or subprocess I/O. The tower tool
 // layer reads the worktree, receipt files, and test results, then passes what
 // it observed into `validateClose`. Receipt hashes may be supplied by the
@@ -11,7 +17,7 @@
 //   state.missions[]        -> { id, status, mergedCommit?, completionReport?, testRuns? }
 //   state.batches[]         -> { id, status: 'open'|'closed'|'abandoned', missionIds,
 //                                exclusions, requiredChecks, receiptPaths, receiptHashes? }
-//   state.legacySnapshots[] -> { hash, missions: [{ id, status }], pausedIds? }
+//   state.legacySnapshots[] -> { sourceHash, pausedMissionIds: string[] }
 // A batch record is the normalized validateCreate result plus `id`, `status`,
 // `createdAt`, and the optional `receiptHashes` expected-hash map.
 //
@@ -23,16 +29,64 @@
 // `input.treeTip` to bind recorded check `treeCommit` values to the current
 // HEAD.
 import path from 'node:path'
+import { findEvidence } from './evidence.js'
+import { shapeFor } from './shapes/index.js'
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i
 const MAX_MISSIONS = 50
 const MAX_CHECKS = 50
 const MAX_RECEIPTS = 200
 const MAX_EXCLUSIONS = 50
-const PASS_STATUSES = new Set(['passed', 'pass', 'ok', 'success', 'succeeded', 'done', 'green'])
-const FAIL_STATUSES = new Set(['failed', 'fail', 'error', 'errored', 'timeout', 'timed-out', 'blocked'])
-const OPEN_BATCH_STATUSES = new Set(['open', 'created', 'active', 'pending'])
-const CLOSED_BATCH_STATUSES = new Set(['closed', 'abandoned'])
+
+// The batch lifecycle contract (#149 W3). A batch is opened by tower_batch
+// create and leaves `open` exactly once, to `closed` (every member verified) or
+// `abandoned` (retired without verification). There is no third stop state and
+// no per-shape variant.
+export const BATCH_STATUS = Object.freeze({ OPEN: 'open', CLOSED: 'closed', ABANDONED: 'abandoned' })
+/** @type {readonly string[]} */
+export const BATCH_STATUSES = Object.freeze([BATCH_STATUS.OPEN, BATCH_STATUS.CLOSED, BATCH_STATUS.ABANDONED])
+export const BATCH_TRANSITIONS = Object.freeze({
+  [BATCH_STATUS.OPEN]: Object.freeze([BATCH_STATUS.CLOSED, BATCH_STATUS.ABANDONED]),
+  [BATCH_STATUS.CLOSED]: Object.freeze([]),
+  [BATCH_STATUS.ABANDONED]: Object.freeze([]),
+})
+// Pre-v5 documents (and hand-written fixtures) used synonyms for `open`; v5
+// normalizes them once in the state migration and nothing else accepts them.
+/** @type {readonly string[]} */
+const LEGACY_OPEN_BATCH_STATUSES = Object.freeze(['created', 'active', 'pending'])
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isBatchTerminal(value) {
+  return value === BATCH_STATUS.CLOSED || value === BATCH_STATUS.ABANDONED
+}
+
+/**
+ * @param {unknown} from
+ * @param {unknown} to
+ * @returns {boolean}
+ */
+export function canTransitionBatch(from, to) {
+  return (BATCH_TRANSITIONS[/** @type {string} */ (from)] ?? []).includes(/** @type {string} */ (to))
+}
+
+/**
+ * Normalize a recorded batch status to the canonical vocabulary. An absent
+ * status means `open`; a legacy synonym means `open`; an unknown value is left
+ * as-is so validation can report it instead of silently rewriting it.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeBatchStatus(value) {
+  if (value === undefined || value === null || value === '') return BATCH_STATUS.OPEN
+  const status = String(value)
+  if (BATCH_STATUSES.includes(status)) return status
+  if (LEGACY_OPEN_BATCH_STATUSES.includes(status)) return BATCH_STATUS.OPEN
+  return status
+}
+
 
 /** Stable batch error; add `batch-invalid` to ERROR_CODES to map it directly. */
 export class BatchError extends Error {
@@ -123,28 +177,13 @@ function normalizeReceiptPathOrNull(value, where) {
 /** Legacy snapshots imported by adapters/legacy.js; only paused missions may be excluded. */
 function pausedLegacyIds(state) {
   const ids = new Set()
-  const collectMission = (mission) => {
-    if (isPlainObject(mission) && nonEmptyString(mission.id) && mission.status === 'paused') {
-      ids.add(mission.id.trim())
-    }
-  }
-  const collectList = (value) => {
-    if (Array.isArray(value)) value.forEach(collectMission)
-    else if (isPlainObject(value)) Object.values(value).forEach(collectMission)
-  }
   const snapshots = Array.isArray(state.legacySnapshots) ? state.legacySnapshots : []
   for (const snapshot of snapshots) {
     if (!isPlainObject(snapshot)) continue
-    collectList(snapshot.missions)
-    if (isPlainObject(snapshot.snapshot)) collectList(snapshot.snapshot.missions)
-    if (isPlainObject(snapshot.payload)) collectList(snapshot.payload.missions)
-    // adapters/legacy.js stores imported snapshots with `pausedMissionIds`; older,
-    // hand-written fixtures may use `pausedIds`.
-    for (const key of ['pausedIds', 'pausedMissionIds']) {
-      if (Array.isArray(snapshot[key])) {
-        for (const id of snapshot[key]) if (nonEmptyString(id)) ids.add(id.trim())
-      }
-    }
+    // #149 W4: `pausedMissionIds` is the one canonical field the legacy adapter
+    // writes. Reading any other shape here would be a second live vocabulary.
+    if (!Array.isArray(snapshot.pausedMissionIds)) continue
+    for (const id of snapshot.pausedMissionIds) if (nonEmptyString(id)) ids.add(id.trim())
   }
   return ids
 }
@@ -153,78 +192,9 @@ function missionInOpenBatch(state, missionId) {
   const batches = Array.isArray(state.batches) ? state.batches : []
   for (const batch of batches) {
     if (!isPlainObject(batch)) continue
-    const status = batch.status ?? 'open'
-    if (!OPEN_BATCH_STATUSES.has(status)) continue
+    const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
+    if (isBatchTerminal(status)) continue
     if (Array.isArray(batch.missionIds) && batch.missionIds.includes(missionId)) return batch
-  }
-  return null
-}
-
-function checkNames(entry) {
-  if (!isPlainObject(entry)) return []
-  for (const candidate of [entry.name, entry.id, entry.check]) {
-    if (nonEmptyString(candidate)) return [candidate.trim()]
-  }
-  // A nameless runDiscovery receipt stored in mission.testRuns is the built-in
-  // test tool evidence. It answers to `tests` (the tool-layer auto check name)
-  // and to `tower_test` (the synthetic name used by earlier integrations).
-  if (Array.isArray(entry.commands) && Array.isArray(entry.tests)) return ['tests', 'tower_test']
-  return []
-}
-
-function checkOutcome(entry) {
-  if (!isPlainObject(entry)) return null
-  if (typeof entry.status === 'string') {
-    const status = entry.status.trim().toLowerCase()
-    if (PASS_STATUSES.has(status)) return true
-    if (FAIL_STATUSES.has(status)) return false
-  }
-  if (typeof entry.ok === 'boolean') return entry.ok
-  if (typeof entry.pass === 'boolean') return entry.pass
-  if (typeof entry.success === 'boolean') return entry.success
-  if (entry.exitCode !== undefined && entry.exitCode !== null) {
-    const exitCode = typeof entry.exitCode === 'number' ? entry.exitCode : Number(entry.exitCode)
-    if (Number.isFinite(exitCode)) return exitCode === 0
-  }
-  if (entry.error !== undefined && entry.error !== null && entry.error !== '') return false
-  return null
-}
-
-/**
- * Find the most authoritative recorded outcome for `name` on one mission:
- * completion report first, then testRuns newest-first, then caller-supplied
- * `extraChecks` (optionally scoped by `missionId`).
- */
-function findCheck(mission, name, extraChecks, missionId) {
-  const sources = []
-  const reportChecks = Array.isArray(mission?.completionReport?.checks) ? mission.completionReport.checks : []
-  for (let index = reportChecks.length - 1; index >= 0; index -= 1) {
-    sources.push({ source: 'completionReport', entry: reportChecks[index] })
-  }
-  const testRuns = Array.isArray(mission?.testRuns) ? mission.testRuns : []
-  for (let index = testRuns.length - 1; index >= 0; index -= 1) {
-    const run = testRuns[index]
-    if (!isPlainObject(run)) continue
-    if (Array.isArray(run.checks) && run.checks.length > 0) {
-      for (let inner = run.checks.length - 1; inner >= 0; inner -= 1) {
-        sources.push({ source: 'testRuns', entry: run.checks[inner] })
-      }
-    } else {
-      sources.push({ source: 'testRuns', entry: run })
-    }
-  }
-  for (let index = extraChecks.length - 1; index >= 0; index -= 1) {
-    const entry = extraChecks[index]
-    if (!isPlainObject(entry)) continue
-    const scope = entry.missionId ?? entry.mission_id
-    if (scope !== undefined && scope !== null && String(scope) !== missionId) continue
-    sources.push({ source: 'input', entry })
-  }
-  for (const source of sources) {
-    if (!checkNames(source.entry).includes(name)) continue
-    const outcome = checkOutcome(source.entry)
-    if (outcome === null) continue
-    return { outcome, source: source.source, entry: source.entry }
   }
   return null
 }
@@ -414,9 +384,9 @@ export function validateClose(state, batch, input = {}) {
   const receiptPaths = receiptPathsRaw.map((value, index) => normalizeReceiptPath(value, `batch.receiptPaths[${index}]`))
 
   const blockers = []
-  const status = batch.status ?? 'open'
-  if (status === 'closed') blockers.push(blocker(`batch ${batch.id ?? ''} is already closed`.trim()))
-  else if (status === 'abandoned') blockers.push(blocker(`batch ${batch.id ?? ''} is abandoned`.trim()))
+  const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
+  if (status === BATCH_STATUS.CLOSED) blockers.push(blocker(`batch ${batch.id ?? ''} is already closed`.trim()))
+  else if (status === BATCH_STATUS.ABANDONED) blockers.push(blocker(`batch ${batch.id ?? ''} is abandoned`.trim()))
 
   const missions = Array.isArray(state.missions) ? state.missions : fail('state.missions must be an array')
   const byId = new Map()
@@ -447,13 +417,13 @@ export function validateClose(state, batch, input = {}) {
         results.push({ missionId, name, ok: true, outcome: 'skipped', source: 'abandoned' })
         continue
       }
-      const found = findCheck(mission, name, extraChecks, missionId)
+      const found = findEvidence(shapeFor(mission.kind).evidence, mission, name, { extraChecks, missionId })
       if (!found) {
         results.push({ missionId, name, ok: false, outcome: 'missing', source: null })
         blockers.push(blocker(`mission ${missionId} has no recorded check "${name}"`, 'tests-missing'))
         continue
       }
-      if (found.outcome !== true) {
+      if (found.ok !== true) {
         results.push({ missionId, name, ok: false, outcome: 'failed', source: found.source })
         blockers.push(blocker(`mission ${missionId} check "${name}" did not pass`, 'tests-failed'))
         continue
@@ -507,14 +477,14 @@ export function summarize(state, batch) {
   if (!Array.isArray(receiptPathsRaw)) fail('batch.receiptPaths must be an array')
   const receiptPaths = receiptPathsRaw.map((value, index) => normalizeReceiptPath(value, `batch.receiptPaths[${index}]`))
   const exclusions = Array.isArray(batch.exclusions) ? batch.exclusions : []
-  const status = batch.status ?? 'open'
+  const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
 
   const missions = Array.isArray(state.missions) ? state.missions : fail('state.missions must be an array')
   const byId = new Map()
   for (const mission of missions) if (isPlainObject(mission) && nonEmptyString(mission.id)) byId.set(mission.id, mission)
 
   const blockers = []
-  if (CLOSED_BATCH_STATUSES.has(status)) blockers.push(blocker(`batch ${batch.id ?? ''} is already ${status}`.trim()))
+  if (isBatchTerminal(status)) blockers.push(blocker(`batch ${batch.id ?? ''} is already ${status}`.trim()))
   const members = []
   const checks = []
   for (const missionId of missionIds) {
@@ -539,7 +509,7 @@ export function summarize(state, batch) {
         checks.push({ missionId, name, ok: true, outcome: 'skipped', source: 'abandoned' })
         continue
       }
-      const found = findCheck(mission, name, [], missionId)
+      const found = findEvidence(shapeFor(mission.kind).evidence, mission, name, { missionId })
       if (!found) {
         checks.push({ missionId, name, ok: false, outcome: 'missing', source: null })
         continue
@@ -547,8 +517,8 @@ export function summarize(state, batch) {
       checks.push({
         missionId,
         name,
-        ok: found.outcome === true,
-        outcome: found.outcome === true ? 'passed' : 'failed',
+        ok: found.ok === true,
+        outcome: found.ok === true ? 'passed' : 'failed',
         source: found.source,
       })
     }

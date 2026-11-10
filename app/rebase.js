@@ -8,6 +8,8 @@
 // reviewed-tip waiver semantics the merge gate depends on.
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
+import { assertActionSupported } from '../domain/shapes/index.js'
+import { markBlocked, resolveBlockers } from '../domain/missions/lifecycle.js'
 import { liveAgentFor } from '../domain/integration/liveness.js'
 import {
   alreadyMergedRebaseResult,
@@ -17,6 +19,7 @@ import {
   classifyRebaseIntent,
   clearedRebaseIntentActivityText,
   dirtyWorktreeResult,
+  isRebaseConflictBlocker,
   malformedRebaseIntent,
   rebaseActivityText,
   rebaseConflictNote,
@@ -55,6 +58,7 @@ async function prepareRebase(tower, input) {
   const state = await tower.load()
   const mission = findMission(state, input.missionId)
   if (!mission) fail(`unknown mission "${input.missionId}"`)
+  assertActionSupported(mission, 'rebase')
   if (!mission.worktree) fail(`mission ${mission.id} has no worktree to rebase`)
   const activity = input.activity ?? {}
   const busy = liveAgentFor(state, mission.id, activity)
@@ -65,7 +69,7 @@ async function prepareRebase(tower, input) {
   if (!(await tower.isClean(mission.worktree.path))) {
     return { early: dirtyWorktreeResult(mission.worktree.path) }
   }
-  const oldTip = await tower.revParse(mission.worktree.path, 'HEAD')
+  const oldTip = await tower.branchTip(mission)
   const baseTip = await tower.revParse(tower.root, state.base)
   if (await tower.isAncestor(tower.root, oldTip, baseTip)) {
     // The branch is already contained in the base (manual merge, crashed
@@ -161,7 +165,7 @@ async function reconcileRebaseIntent(tower) {
       if (inspection.action === 'record' && mission) {
         const tip = /** @type {string} */ (inspection.tip)
         mission.rebase = { at: now, oldTip: intent.oldTip, newTip: tip, baseTip: intent.baseTip }
-        if (mission.status === 'blocked') mission.status = 'active'
+        resolveBlockers(mission, isRebaseConflictBlocker, now)
         mission.notes.push(rebaseReconcileNote({ oldTip: intent.oldTip, newTip: tip, baseTip: intent.baseTip }))
         mission.updatedAt = now
       }
@@ -221,7 +225,7 @@ export async function rebase(tower, input) {
   // Phase 2 (#51): the long git work runs under the git lock and never under
   // the state lock. Re-verify the snapshot right before rewriting the branch.
   const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
-    const currentTip = await tower.revParse(worktree.path, 'HEAD')
+    const currentTip = await tower.revParse(tower.root, `refs/heads/${worktree.branch}`)
     const currentBase = await tower.revParse(tower.root, prepared.base)
     if (rebaseTipsMoved({ oldTip: prepared.oldTip, baseTip: prepared.baseTip, currentTip, currentBase })) {
       return {
@@ -240,7 +244,7 @@ export async function rebase(tower, input) {
       await tower.git(worktree.path, ['rebase', '--abort']).catch(() => {})
       return { phase: 'conflict', detail: String(error?.message ?? error) }
     }
-    const newTip = await tower.revParse(worktree.path, 'HEAD')
+    const newTip = await tower.revParse(tower.root, `refs/heads/${worktree.branch}`)
     return { phase: 'done', newTip }
   }, tower.gitMutexOptions({ phase: 'rebase' }))
 
@@ -266,9 +270,7 @@ export async function rebase(tower, input) {
 
     if (outcome.phase === 'conflict') {
       delete state.rebaseIntent
-      mission.status = 'blocked'
-      mission.blockers.push(rebaseConflictNote(prepared.base, prepared.baseTip))
-      mission.updatedAt = now
+      markBlocked(mission, rebaseConflictNote(prepared.base, prepared.baseTip), now)
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
@@ -280,7 +282,7 @@ export async function rebase(tower, input) {
     const { newTip } = outcome
     delete state.rebaseIntent
     mission.rebase = { at: now, oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip }
-    if (mission.status === 'blocked') mission.status = 'active'
+    resolveBlockers(mission, isRebaseConflictBlocker, now)
     mission.notes.push(
       rebaseSuccessNote({ oldTip: prepared.oldTip, newTip, baseTip: prepared.baseTip }),
     )

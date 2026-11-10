@@ -21,6 +21,106 @@ import {
   teardownRemovedDecision,
 } from '../domain/integration/teardown.js'
 import { sweepArchive } from './archive.js'
+import { cleanupSandbox } from './sandbox.js'
+import { cleanupReviewCheckout } from './reviewCheckout.js'
+
+/**
+ * Disposable review checkouts (#149 W3). A reviewer works in a detached checkout
+ * at its recorded review commit and the checkout is removed when the verdict is
+ * recorded; a failed spawn or an interrupted reviewer leaves it behind, so
+ * teardown retries the bounded removal and clears the recorded path. A checkout
+ * whose reviewer is still active is kept. This runs before the worktree phase so
+ * its state revisions never invalidate the worktree claims.
+ * @param {any} tower
+ * @param {any} input
+ * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ */
+async function teardownReviewCheckouts(tower, input) {
+  const state = await tower.load()
+  const exclude = new Set(input.exclude ?? [])
+  const decisions = []
+  const removed = []
+  for (const entry of state.roster ?? []) {
+    const checkout = typeof entry.reviewCheckout === 'string' ? entry.reviewCheckout : null
+    if (!checkout) continue
+    const row = { name: entry.name, missionId: entry.missionId ?? null, checkout }
+    if (exclude.has(entry.missionId)) {
+      decisions.push({ ...row, action: 'keep', reason: 'excluded' })
+      continue
+    }
+    if (entry.state === 'active') {
+      decisions.push({ ...row, action: 'keep', reason: 'reviewer is active' })
+      continue
+    }
+    if (input.dryRun === true) {
+      decisions.push({ ...row, action: 'remove', reason: 'eligible' })
+      continue
+    }
+    const outcome = await cleanupReviewCheckout(tower, { name: entry.name, missionId: entry.missionId })
+    if (!outcome || outcome.removal.ok) {
+      decisions.push({ ...row, action: 'removed', reason: outcome ? 'checkout was already gone' : 'checkout and record were already gone' })
+      removed.push(entry.name)
+      continue
+    }
+    decisions.push({
+      ...row,
+      action: 'keep',
+      reason: `checkout cleanup failed after ${outcome.removal.attempts} attempt(s): ${outcome.removal.error}`,
+    })
+  }
+  return { decisions, removed }
+}
+
+/**
+ * Disposable detached survey sandboxes (#148 W2). A terminal survey may still
+ * carry a sandbox after a failed cleanup; teardown retries with the same bounded
+ * removal as completion. Run before the worktree phase so its state revisions
+ * never invalidate the worktree claims.
+ * @param {any} tower
+ * @param {any} input
+ * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ */
+async function teardownSandboxes(tower, input) {
+  const state = await tower.load()
+  const activity = input.activity ?? {}
+  const exclude = new Set(input.exclude ?? [])
+  const decisions = []
+  const removed = []
+  for (const mission of state.missions) {
+    const sandbox = typeof /** @type {any} */ (mission).sandbox === 'string' ? /** @type {any} */ (mission).sandbox : null
+    if (!sandbox) continue
+    if (exclude.has(mission.id)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: 'excluded' })
+      continue
+    }
+    if (hasLiveAgent(state, mission.id, activity)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: 'live agent' })
+      continue
+    }
+    if (!['completed', 'abandoned'].includes(mission.status)) {
+      decisions.push({ missionId: mission.id, action: 'keep', sandbox, reason: `mission is ${mission.status}` })
+      continue
+    }
+    if (input.dryRun === true) {
+      decisions.push({ missionId: mission.id, action: 'remove', sandbox, reason: 'eligible' })
+      continue
+    }
+    const outcome = await cleanupSandbox(tower, mission.id)
+    if (!outcome) {
+      decisions.push({ missionId: mission.id, action: 'removed', sandbox, reason: 'sandbox was already gone' })
+      removed.push(mission.id)
+      continue
+    }
+    if (outcome.ok) removed.push(mission.id)
+    decisions.push({
+      missionId: mission.id,
+      action: outcome.ok ? 'removed' : 'keep',
+      sandbox,
+      ...(outcome.ok ? {} : { reason: `sandbox cleanup failed after ${outcome.attempts} attempt(s): ${outcome.error}` }),
+    })
+  }
+  return { decisions, removed }
+}
 
 /**
  * Phase 1 (#51): decide every keep/remove outcome without holding the state
@@ -87,8 +187,23 @@ async function claimRemoval(tower, candidate, expectedRevision, input) {
 }
 
 export async function teardown(tower, input) {
+  // Sandbox cleanup runs first: it owns its own short locks and revisions, so
+  // the worktree prepare/act/commit phases below see a stable revision.
+  // Review checkout cleanup first: it owns its own short locks and revisions, so
+  // the worktree prepare/act/commit phases below see a stable revision.
+  const reviews = await teardownReviewCheckouts(tower, input)
+  const sandboxes = await teardownSandboxes(tower, input)
   const prepared = await prepareTeardown(tower, input)
-  if (prepared.dryRun) return { ok: true, dryRun: true, removed: [], decisions: prepared.decisions }
+  if (prepared.dryRun) {
+    return {
+      ok: true,
+      dryRun: true,
+      removed: [],
+      decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions],
+      reviewCheckoutsRemoved: [],
+      sandboxesRemoved: [],
+    }
+  }
 
   const removed = []
   let expectedRevision = prepared.stateRevision
@@ -197,7 +312,9 @@ export async function teardown(tower, input) {
     ok: true,
     dryRun: false,
     removed,
-    decisions: prepared.decisions,
+    decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions],
+    reviewCheckoutsRemoved: reviews.removed,
+    sandboxesRemoved: sandboxes.removed,
     archived: archive.archived,
     ...(archive.error ? { archiveError: archive.error } : {}),
   }

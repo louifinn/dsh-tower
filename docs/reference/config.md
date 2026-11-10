@@ -108,9 +108,8 @@ violates the declared schema (for example `merge.timeoutMs` below 1000) fail wit
 | `tests.admission` | `off` | `spawn` runs discovery before starting a worker, `complete` at `tower_complete`, `off` only on explicit `tower_test` (default; repository code is not executed automatically). |
 | `tests.timeoutMs` | `60000` | Per discovery command timeout. |
 | `tests.maxBytes` | `16777216` (16 MiB) | Captured stdout cap per command. |
-| `tests.autoChecks` | `true` | Attach an automatic `tests` check to the completion report. |
 | `tests.allowPackageDiscovery` | `true` | Allow repo-controlled `tower.testDiscovery` commands (executes worktree code; see security). |
-| `gates.requireChecks` | `false` | Require at least one `tower_complete.checks` entry before merge (`no-check-evidence`). |
+| `gates.requireChecks` | `false` | Require at least one recorded check (`tower_complete.checks`) or a test-discovery receipt before merge (`no-check-evidence`). |
 | `gates.requireTests` | `false` | Require a passing discovery receipt for the current mission branch tip (`tests-missing`); independent of the review gate. With the `tower-tests` component row off, planning/mode entry refuse this combination with an explanation. |
 | `gates.allowReviewExemption` | `false` | With `review.mode:required`, allow `reviewPolicy:"none"` + a non-empty reason to skip review blockers. Off deliberately; irrelevant when `review.mode` is `off` or `optional` (no review blocker is produced). |
 | `gates.maxReportBytes` | `32768` (32 KiB) | Hard cap in UTF-8 bytes for `tower_complete.report`. A larger report is rejected with `invalid-argument` and an actionable `nextAction` (file the full text in the mission worktree and reference its path); it is never truncated. Existing larger reports still load. |

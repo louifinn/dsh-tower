@@ -11,7 +11,8 @@
 // writing the files, and the lock that makes them atomic with state.json, live
 // in `adapters/archive.js` and `app/archive.js`.
 // @ts-check
-import { isTerminal } from '../mission.js'
+import { normalizeResult } from '../missions/completion.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Finding} Finding */
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -63,7 +64,8 @@ export function terminalTimestamp(mission) {
  * Select the terminal missions the policy wants moved out of state.json.
  *
  * Eligibility:
- *   - status is `merged` or `abandoned` (terminal);
+ *   - the mission's shape reports its status as terminal (`merged`/`abandoned`
+ *     for a build, `completed`/`abandoned` for a survey);
  *   - the worktree is gone (never provisioned, or removed by teardown);
  *   - the caller did not protect it (open batch members, live agents).
  *
@@ -85,7 +87,7 @@ export function selectForArchive(missions, policy = {}, options = {}) {
   const afterDays = Number.isFinite(policy?.afterDays) ? /** @type {number} */ (policy.afterDays) : 30
   const maxMissions = Number.isFinite(policy?.maxMissions) ? /** @type {number} */ (policy.maxMissions) : 100
   const eligible = missions.filter(
-    (mission) => isTerminal(mission.status) && !hasLiveWorktree(mission) && !protectedIds.has(mission.id),
+    (mission) => shapeFor(mission.kind).isTerminal(mission.status) && !hasLiveWorktree(mission) && !protectedIds.has(mission.id),
   )
   if (eligible.length === 0) return []
   if (options.force === true) return eligible
@@ -141,9 +143,29 @@ export function archiveYearFor(now) {
 }
 
 /**
+ * Keep the bounded survey evidence on the index entry. The value was already
+ * normalized when the survey completed, but re-normalizing is cheap and makes
+ * a hand-edited or legacy document safe to archive.
+ * @param {Mission} mission
+ * @returns {Record<string, any> | null}
+ */
+function boundedResult(mission) {
+  const record = /** @type {Record<string, any>} */ (mission)
+  if (record.result === undefined || record.result === null) return null
+  try {
+    return normalizeResult(record.result)
+  } catch {
+    return null
+  }
+}
+
+/**
  * The compact entry written to `archive/index.json` (and referenced by
  * `tower_status`). It carries enough fields to keep ordering, dependency
- * lookups and mission-id allocation working without loading a year file.
+ * lookups, freshness checks and mission-id allocation working without loading a
+ * year file: `readCommit` and the bounded survey `result` stay on the index so
+ * an archived survey dependency keeps its evidence and cannot fail the
+ * `gates.requireFreshSurvey` check open.
  * @param {Mission} mission
  * @param {ArchiveMeta} meta
  * @returns {Record<string, any>}
@@ -158,6 +180,8 @@ export function archiveIndexEntry(mission, meta) {
     kind: record.kind ?? 'build',
     scope: Array.isArray(record.scope) ? record.scope : [],
     deps: Array.isArray(record.deps) ? record.deps : [],
+    readCommit: record.readCommit ?? null,
+    result: boundedResult(mission),
     owner: record.owner ?? null,
     branch,
     mergedCommit: record.mergedCommit ?? null,

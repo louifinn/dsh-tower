@@ -149,11 +149,25 @@ export interface RebaseRecord {
   baseTip?: string
 }
 
-export interface Mission {
+/** Evidence a survey may record when it completes (optional). */
+export interface SurveyResult {
+  paths?: string[]
+  symbols?: string[]
+  /** Ordered plan / next steps the read recommends (bounded array of strings). */
+  plan?: string[]
+  notes?: string
+  [key: string]: unknown
+}
+
+/**
+ * Fields every mission carries regardless of shape. The per-shape arms below
+ * declare which document dimensions a kind owns; the state schema v4 union and
+ * `domain/state/semantics.js` enforce the same split at runtime.
+ */
+export interface MissionBase {
   id: string
   title: string
   status: MissionStatus
-  kind: MissionKind
   scope: string[]
   deps: string[]
   /**
@@ -165,21 +179,58 @@ export interface Mission {
   blockers?: string[]
   reviewPolicy?: ReviewPolicy
   reviewExemptionReason?: string | null
-  worktree?: MissionWorktree | null
   owner?: string | null
   notes?: string[]
   completionReport?: CompletionReport | null
   testRuns?: TestRun[]
   rebase?: RebaseRecord | null
-  mergedCommit?: string | null
-  mergedAt?: number | null
   scopeGeneration?: number
   ownerGeneration?: number
   pauseCause?: string | null
   updatedAt?: number
   references?: string[]
   authorizationRef?: string | null
+  /**
+   * Survey evidence; the completion transition refuses a result on a shape that
+   * does not accept one, so the type stays permissive for the shared draft.
+   */
+  result?: SurveyResult | null
 }
+
+/** A build mission owns a private branch/worktree and lands by merging. */
+export interface BuildMission extends MissionBase {
+  kind: 'build'
+  worktree?: MissionWorktree | null
+  mergedCommit?: string | null
+  mergedAt?: number | null
+  readCommit?: never
+  readDirty?: never
+  sandbox?: never
+}
+
+/** A survey reads one commit in the shared checkout; it never merges. */
+export interface SurveyMission extends MissionBase {
+  kind: 'survey'
+  readCommit: string
+  readDirty?: string[]
+  result?: SurveyResult | null
+  /**
+   * #148 W2: the disposable detached sandbox path when `survey.sandbox` is
+   * `detached`. It has no branch and is removed on completion/abandon; a
+   * cleanup failure keeps the path plus `sandboxCleanupError` so the record and
+   * the filesystem do not silently disagree.
+   */
+  sandbox?: string
+  sandboxCleanupError?: string
+  sandboxRemovedAt?: number
+  worktree?: never
+  branch?: never
+  baseCommit?: never
+  mergedCommit?: never
+  mergedAt?: never
+}
+
+export type Mission = BuildMission | SurveyMission
 
 /**
  * Compact archived-mission entry (`archive/index.json`). It keeps enough of the
@@ -255,6 +306,10 @@ export interface RosterEntry {
   missionId?: string | null
   parentSessionId?: string | null
   spawnTip?: string | null
+  /** The commit a reviewer's verdict is stamped with (#149 W3). */
+  reviewCommit?: string | null
+  /** The disposable detached checkout the reviewer reads, when recorded. */
+  reviewCheckout?: string | null
   stale?: boolean
   [key: string]: unknown
 }
@@ -326,6 +381,12 @@ export interface MissionSummary {
   reviewPolicy: ReviewPolicy
   mergedCommit: string | null
   mergedAt: number | null
+  /** Survey projection: the commit the survey read (null for a build). */
+  readCommit?: string | null
+  /** Survey projection: the tracked-status fingerprint captured at plan time. */
+  readDirty?: string[]
+  /** Survey projection: the disposable detached sandbox path (null otherwise). */
+  sandbox?: string | null
   /** Size of the completion report without loading its body; null when absent. */
   reportBytes: number | null
   updatedAt?: number

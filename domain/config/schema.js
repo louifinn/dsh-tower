@@ -37,7 +37,7 @@ const LEGACY_KEYS = ['section', 'allowAgentControl']
 // #121: the `tools` group is gone. Every capability that used to be a
 // `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
 // component row is the switch. What remains here is genuine tuning policy.
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
+const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'survey', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
 
 const SECTION_KEYS = {
   init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
@@ -69,40 +69,54 @@ const SECTION_KEYS = {
     'provider',
     'workerModel',
     'reviewerModel',
+    'surveyModel',
     'maxLiveWorkers',
     'staleMs',
     'maxWaitMs',
     'requireLease',
   ],
   send: ['maxPerMinute', 'interruptDefault'],
-  tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
-  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'maxReportBytes'],
+  // #148 W2: where a survey reads. This is tuning, not a component: the
+  // tower-survey row is the switch; the placement decides whether write/shell
+  // side effects are rejected (shared) or absorbed by a disposable checkout.
+  survey: ['sandbox'],
+  tests: ['admission', 'timeoutMs', 'maxBytes', 'allowPackageDiscovery'],
+  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'requireFreshSurvey', 'maxReportBytes'],
   docs: ['boardLocation'],
   archive: ['afterDays', 'maxMissions'],
   leases: ['ttlMs'],
   dev: ['reloadDelayMs', 'reloadRequiredIds'],
 }
 
-// #133/#135: `docs.board` and `archive.enabled` were component-shaped switches
-// hiding in the config form. They are component rows now, so a legacy config
-// keeps failing as an unknown key — with an upgrade note naming the row that
-// replaced it.
-/** @type {Record<string, string>} */
+// #133/#135/#149: a removed key keeps failing as an unknown key — with an
+// upgrade note naming what replaced it. `docs.board` and `archive.enabled`
+// were component-shaped switches hiding in the config form, so their note
+// names the component row. `tests.autoChecks` existed only to copy a discovery
+// projection into the completion report; its replacement is the `testRuns`
+// receipt (whose concrete record path belongs to domain/evidence.js), so the
+// note names the receipt and the one reader instead of a row.
+/** @type {Record<string, { component?: string, note?: string }>} */
 const REMOVED_KEYS = {
-  'docs.board': 'tower-board',
-  'archive.enabled': 'tower-archive',
+  'docs.board': { component: 'tower-board' },
+  'archive.enabled': { component: 'tower-archive' },
+  'tests.autoChecks': {
+    note: 'tests.autoChecks was removed: test evidence is the testRuns receipt read by domain/evidence.js (see docs/adr/0006-mission-shapes.md)',
+  },
 }
 
 /**
- * Upgrade note for a removed component switch, appended to the unknown-key error.
+ * Upgrade note for a removed key, appended to the unknown-key error.
  * @param {string} group
  * @param {string} key
  * @returns {string}
  */
 function removedKeyNote(group, key) {
-  const component = REMOVED_KEYS[`${group}.${key}`]
-  if (!component) return ''
-  return ` — ${group}.${key} was removed: the ${component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  const entry = REMOVED_KEYS[`${group}.${key}`]
+  if (!entry) return ''
+  if (entry.component) {
+    return ` — ${group}.${key} was removed: the ${entry.component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  }
+  return ` — ${entry.note}`
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
@@ -216,12 +230,13 @@ export const Config = Schema.object({
     .default({})
     .description('Worktree placement.'),
   spawn: Schema.object({
-    workerPreset: Schema.string().default('tower-worker').description('Agent preset for worker missions.'),
+    workerPreset: Schema.string().default('tower-worker').description('Agent preset for build workers.'),
     reviewerPreset: Schema.string().default('tower-reviewer').description('Agent preset for reviewers.'),
     maxDepth: Schema.natural().min(1).default(1).description('Subagent depth requested when spawning tower agents.'),
     provider: Schema.string().description('Subagent provider id; empty picks spawn, then the first registered provider.'),
     workerModel: ModelSchema().description('Model route for workers; omitted inherits the parent session.'),
     reviewerModel: ModelSchema().description('Model route for reviewers; omitted inherits the parent session (recommended).'),
+    surveyModel: ModelSchema().description('Model route for survey workers; omitted inherits the parent session.'),
     maxLiveWorkers: Schema.natural()
       .min(1)
       .max(64)
@@ -251,6 +266,15 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Message delivery policy.'),
+  survey: Schema.object({
+    sandbox: Schema.union(['none', 'detached'])
+      .default('none')
+      .description(
+        'Where a survey reads. none = the shared checkout with a read-only preset (writes and shell commands are impossible); detached = a disposable detached git worktree created at the recorded commit, with a sandbox preset that may write and run commands inside it. A detached sandbox is removed when the survey completes or is abandoned; it has no branch, never participates in merge/stale-base, and cannot commit its evidence.',
+      ),
+  })
+    .default({})
+    .description('Survey placement. Tuning only: the tower-survey component row is the capability switch.'),
   tests: Schema.object({
     // #136: no `enabled` switch. The `tower-tests` component row *is* the
     // switch; a second boolean could only disagree with it, and a row-off
@@ -260,7 +284,6 @@ export const Config = Schema.object({
       .description('Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test).'),
     timeoutMs: Schema.natural().min(1000).max(1800000).default(60000).description('Per discovery command timeout.'),
     maxBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(16 * 1024 * 1024).description('Maximum captured stdout bytes per command.'),
-    autoChecks: Schema.boolean().default(true).description('Attach a tests check to the completion report when discovery runs.'),
     allowPackageDiscovery: Schema.boolean()
       .default(true)
       .description('Allow package.json tower.testDiscovery commands from the mission worktree (executes repository code; see security docs).'),
@@ -270,13 +293,16 @@ export const Config = Schema.object({
   gates: Schema.object({
     requireChecks: Schema.boolean()
       .default(false)
-      .description('Require at least one completion check (tower_complete.checks) before a mission can merge.'),
+      .description('Require at least one recorded check (tower_complete.checks) or test-discovery receipt before a mission can merge.'),
     requireTests: Schema.boolean()
       .default(false)
       .description('Require a passing test-discovery receipt for the reviewed worktree tip before merge.'),
     allowReviewExemption: Schema.boolean()
       .default(false)
       .description('Allow reviewPolicy:none missions with a non-empty reviewExemptionReason to skip review blockers.'),
+    requireFreshSurvey: Schema.boolean()
+      .default(false)
+      .description('Promote the advisory survey-stale dependency warning to a merge blocker: a build may only merge when every survey dependency read a commit that is an ancestor-or-equal of the build base. Default false (warning only).'),
     maxReportBytes: Schema.natural()
       .min(1024)
       .max(16 * 1024 * 1024)
@@ -429,6 +455,9 @@ export function assertKnownKeys(raw, label) {
     if ((group === 'spawn') && value.reviewerModel && typeof value.reviewerModel === 'object') {
       assertModelKeys(value.reviewerModel, `${label} spawn.reviewerModel`)
     }
+    if ((group === 'spawn') && value.surveyModel && typeof value.surveyModel === 'object') {
+      assertModelKeys(value.surveyModel, `${label} spawn.surveyModel`)
+    }
   }
 }
 
@@ -509,6 +538,7 @@ export function resolveTowerConfig(rawConfig) {
     worktrees: clone(parsed.worktrees ?? {}),
     spawn: clone(parsed.spawn ?? {}),
     send: clone(parsed.send ?? {}),
+    survey: clone(parsed.survey ?? {}),
     tests: clone(parsed.tests ?? {}),
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),

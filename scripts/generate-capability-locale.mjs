@@ -63,6 +63,11 @@ export const CAPABILITY_LOCALES = [
 export const PRESET_LOCALES = [
   { specifier: 'preset-worker', component: 'preset-tower-worker', mandatory: true },
   { specifier: 'preset-reviewer', component: 'preset-tower-reviewer', mandatory: false },
+  // #148 W2: the survey capability row is a group; its two preset children are
+  // internal dependencies (never individual switches), so both are labelled with
+  // the mandatory-dependency marker.
+  { specifier: 'preset-survey', component: 'preset-tower-survey', mandatory: true },
+  { specifier: 'preset-survey-sandbox', component: 'preset-tower-survey-sandbox', mandatory: true },
 ]
 
 /** Every row that ships a generated subpath locale resource. */

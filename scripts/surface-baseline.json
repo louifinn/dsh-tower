@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 54,
+      "value": 56,
       "decisions": [
         {
           "from": 64,
@@ -19,13 +19,70 @@
           "date": "2026-11-03",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "#M39: one new key, review.mode (off/optional/required), replaces the deprecated review.requireReview boolean as the review policy. It is not a fifth component row: the reviewer preset row stays a capability, and the mode decides whether it is required (required) or unused (off). review.requireReview remains accepted for one release as a normalized alias, so it is a deprecated key rather than a removed one and the surface grows by exactly one."
+        },
+        {
+          "from": 54,
+          "to": 57,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149: the shape redesign adds the survey routing keys spawn.surveyPreset (core) and spawn.surveyModel (tuning), plus survey.sandbox (tuning) in the new survey section. tower-survey is the capability row; the preset/model names only route the read-only agent."
+        },
+        {
+          "from": 57,
+          "to": 55,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "Review round 2 contracts the shape surface before release: spawn.surveyPreset could never be read (a survey's preset is shape-owned, so the key could only disagree with the registry) and survey.sandbox advertised a placement W1 does not implement. Only spawn.surveyModel remains as the optional model route; both removals are recorded here rather than silently shrinking the two-way surface."
+        },
+        {
+          "from": 55,
+          "to": 56,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 implements the detached survey sandbox, so survey.sandbox returns as one tuning key: none (read-only shared checkout, the default and unchanged W1 behavior) or detached (a disposable detached worktree with a write/shell-capable preset). It is placement tuning, not a capability row or a second routing key; spawn.surveyPreset stays removed because the shape resolves the preset."
+        },
+        {
+          "from": 56,
+          "to": 57,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 D5 adds gates.requireFreshSurvey (default false): the survey-stale dependency warning is advisory by default and becomes a merge blocker only when this gate is true. It is a merge-gate strictness key like the other gates.* entries, not a component."
+        },
+        {
+          "from": 57,
+          "to": 56,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#149 W4 contracts the surface by one: `tests.autoChecks` existed only to copy a discovery projection into the completion report, which made a second evidence shape. The receipt in mission.testRuns is now the one evidence shape read by domain/evidence.js, so the key has no remaining meaning and is removed rather than kept as a dead tuning switch."
         }
       ]
     },
     "sections": {
       "seed": 15,
-      "value": 14,
-      "decisions": []
+      "value": 15,
+      "decisions": [
+        {
+          "from": 15,
+          "to": 15,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149 restore the section count to its seed: survey.sandbox needs a home, so the survey section returns the 15 sections that #121 shrank to 14. Net zero against the seed; no other section changed."
+        },
+        {
+          "from": 15,
+          "to": 14,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "Review round 2 removes the survey section with its only key: survey.sandbox advertised a detached read-only checkout W1 does not implement. The section existed only to hold that key, so the count returns to 14."
+        },
+        {
+          "from": 14,
+          "to": 15,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148 W2 restores the survey section for its one tuning key, survey.sandbox (placement: none|detached). The section count returns to the 15 of the earlier shape cut; no other section changed and no component row was added (the sandbox preset is an internal child of the existing tower-survey group)."
+        }
+      ]
     },
     "tools": {
       "seed": 27,
@@ -45,7 +102,7 @@
     },
     "components": {
       "seed": 4,
-      "value": 11,
+      "value": 12,
       "decisions": [
         {
           "from": 4,
@@ -81,6 +138,13 @@
           "date": "2026-11-02",
           "adr": "docs/adr/0005-component-surface.md",
           "note": "#134: the gate reads every shipped cordis.patch.yml, so the tower-ui row in ui-bundle/cordis.patch.yml joins the counted surface. The row was always shipped and unclassified; counting it is not new surface, it is the existing surface becoming visible to the policy."
+        },
+        {
+          "from": 11,
+          "to": 12,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#148/#149: tower-survey is a visible optional row: off means surveys cannot be planned and no survey agent is dispatched; build missions are unaffected."
         }
       ]
     }
