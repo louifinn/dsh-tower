@@ -11,8 +11,9 @@
 // See docs/reference/tools.generated.md for the public shape.
 // tower_inbox: read and acknowledge inbound messages.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { InboxInput } from '../domain/contracts/tool-inputs/index.js'
-import { ROLE } from '../domain/vocabulary.js'
+import { ROLE, isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -28,11 +29,17 @@ export function registerInboxTool(ctx, deps) {
     parameters: InboxInput,
     aliases: {"include_read":["includeRead"]},
     output: output(SCHEMAS.inbox),
-    async execute(args, exec) {
+    async execute(args, _exec, actor) {
+      // Defence in depth: the kernel already denied an unknown caller. There is
+      // deliberately no fallback that promotes an unidentified caller to the
+      // tower — the old fallback let any agent read and acknowledge all mail.
+      if (!actor || isUnknownRole(actor.role) || typeof actor.name !== 'string' || actor.name.length === 0) {
+        throw new TowerToolError('not-authorized', 'tower_inbox requires a registered roster agent or the tower')
+      }
+      // The reader is explicit: the tower reads the tower inbox; a known worker
+      // or reviewer reads only messages addressed to its own roster name.
+      const reader = isTowerRole(actor.role) ? ROLE.tower : actor.name
       const tower = await deps.openTower(args.repoRoot)
-      const view = await tower.rosterView()
-      const self = view.roster.find((entry) => entry.agentId === String(exec.agent.id))
-      const reader = self ? self.name : ROLE.tower
       return tower.inbox({ reader, limit: args.limit, includeRead: args.include_read === true })
     },
   })
