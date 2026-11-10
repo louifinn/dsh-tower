@@ -24,6 +24,7 @@ import {
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-home-'))
 process.env.DSH_HOME = home
 const { apply } = await import('../index.js')
+const DEAD_PID = 999999
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -77,7 +78,7 @@ test('workspace lock: acquire, self reacquire, inspect and holder reporting', as
   }
 })
 
-test('workspace lock: stale takeover and corrupt-lock handling', async () => {
+test('workspace lock: age never steals a live owner, a dead PID is reclaimed, corrupt locks fail closed', async () => {
   const { root, commonDir } = tempCommonDir()
   try {
     const now = Date.now()
@@ -99,20 +100,33 @@ test('workspace lock: stale takeover and corrupt-lock handling', async () => {
       staleMs: 1000,
     })
     assert.equal(blocked.acquired, false)
+    assert.equal(blocked.holder.sessionId, 'sess-a')
 
-    // A lock older than staleMs is taken over.
+    // Age is diagnostic: even far past staleMs the live owner keeps the lock.
+    const ancient = await acquireWorkspaceLock(commonDir, {
+      token: 'token-b',
+      sessionId: 'sess-b',
+      agentId: 'agent-b',
+      now: now + 10_000_000,
+      staleMs: 1000,
+    })
+    assert.equal(ancient.acquired, false, 'a live PID is never reclaimed on age alone')
+    assert.equal(ancient.holder.sessionId, 'sess-a')
+    assert.equal(readLock(commonDir).token, 'token-a')
+
+    // A provably dead owner is reclaimed by the kernel.
+    fs.writeFileSync(workspaceLockPath(commonDir), JSON.stringify({ ...first.record, pid: DEAD_PID }))
     const takeover = await acquireWorkspaceLock(commonDir, {
       token: 'token-b',
       sessionId: 'sess-b',
       agentId: 'agent-b',
-      now: now + 10000,
-      staleMs: 1000,
+      now: now + 20,
     })
     assert.equal(takeover.acquired, true)
     assert.equal(takeover.tookOver, true)
     assert.equal(readLock(commonDir).sessionId, 'sess-b')
 
-    // A corrupt lock is fail-closed while fresh...
+    // A corrupt lock is fail-closed: reported, never removed.
     fs.writeFileSync(workspaceLockPath(commonDir), 'not json at all')
     const corrupt = await acquireWorkspaceLock(commonDir, {
       token: 'token-c',
@@ -123,11 +137,12 @@ test('workspace lock: stale takeover and corrupt-lock handling', async () => {
     })
     assert.equal(corrupt.acquired, false)
     assert.equal(corrupt.corrupt, true)
+    assert.equal(corrupt.holder, null)
     const inspected = await inspectWorkspaceLock(commonDir, {})
     assert.equal(inspected.held, false)
     assert.equal(inspected.corrupt, true)
 
-    // ...but a stale corrupt lock is removed like any other stale lock.
+    // Age does not turn unreadable bytes into an abandoned lock either.
     const staleCorrupt = await acquireWorkspaceLock(commonDir, {
       token: 'token-d',
       sessionId: 'sess-d',
@@ -135,9 +150,9 @@ test('workspace lock: stale takeover and corrupt-lock handling', async () => {
       now: Date.now() + 120_000,
       staleMs: 1000,
     })
-    assert.equal(staleCorrupt.acquired, true)
-    assert.equal(staleCorrupt.tookOver, true)
-    assert.equal(readLock(commonDir).sessionId, 'sess-d')
+    assert.equal(staleCorrupt.acquired, false)
+    assert.equal(staleCorrupt.corrupt, true)
+    assert.equal(fs.readFileSync(workspaceLockPath(commonDir), 'utf8'), 'not json at all')
   } finally {
     removeTemp(root)
   }
@@ -162,11 +177,14 @@ test('workspace lock: touch and release only act on the owning token', async () 
     assert.equal(await releaseWorkspaceLock(commonDir, { token: 'token-a' }), false)
     assert.equal(await touchWorkspaceLock(commonDir, { token: 'token-a' }), false)
 
-    // A lock without a token can be released blindly (used by crash cleanup);
-    // inspect still reports the holder truthfully.
+    // A lock cannot be released without its token (no blind unlink); inspect
+    // still reports the holder truthfully.
     await acquireWorkspaceLock(commonDir, { token: 'token-z', sessionId: 'sess-z', agentId: 'agent-z' })
     assert.equal((await inspectWorkspaceLock(commonDir, { sessionId: 'nope' })).self, false)
-    assert.equal(await releaseWorkspaceLock(commonDir, {}), true)
+    assert.equal(await releaseWorkspaceLock(commonDir, {}), false)
+    assert.ok(fs.existsSync(workspaceLockPath(commonDir)), 'a tokenless release must not delete the lock')
+    assert.equal(await releaseWorkspaceLock(commonDir, { token: 'token-z' }), true)
+    assert.equal(fs.existsSync(workspaceLockPath(commonDir)), false)
   } finally {
     removeTemp(root)
   }

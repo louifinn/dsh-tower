@@ -130,7 +130,7 @@ function assertTransferAllowed(snapshot) {
  * }} input
  */
 export async function transferOwnership(tower, { caller, reason, modes, lock, liveRoster = [] }) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const snapshot = ownershipSnapshot({ state, modes, caller, lock, liveRoster })
     if (snapshot.blockers.length > 0) assertTransferAllowed(snapshot)
@@ -152,7 +152,7 @@ export async function transferOwnership(tower, { caller, reason, modes, lock, li
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'takeover',

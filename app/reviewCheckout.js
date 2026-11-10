@@ -103,7 +103,7 @@ export async function removeReviewCheckout(tower, checkout) {
  * @returns {Promise<{ entry: any, removal: { ok: boolean, removed: boolean, attempts: number, error?: string } } | null>}
  */
 export async function cleanupReviewCheckout(tower, input) {
-  const removal = await tower.deps.store.withLock(tower.paths, async () => {
+  const removal = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const entry = (state.roster ?? []).find(
       (row) =>
@@ -118,7 +118,7 @@ export async function cleanupReviewCheckout(tower, input) {
   // A failed removal keeps the path on the row so teardown can retry it; the
   // verdict itself never depends on this advisory cleanup.
   if (!result.ok) return { entry: null, removal: result }
-  const written = await tower.deps.store.withLock(tower.paths, async () => {
+  const written = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const entry = (state.roster ?? []).find((row) => row.name === removal.entryName)
     if (!entry || entry.reviewCheckout !== removal.checkout) return entry ?? null
@@ -126,7 +126,7 @@ export async function cleanupReviewCheckout(tower, input) {
     state.revision += 1
     state.updatedAt = Date.now()
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     return entry
   })
   return { entry: written, removal: result }

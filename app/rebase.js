@@ -152,7 +152,7 @@ async function reconcileRebaseIntent(tower) {
     if (inspection.action === 'ambiguous') {
       throw stale(ambiguousRebaseIntentMessage(intent, inspection.tip))
     }
-    const applied = await tower.deps.store.withLock(tower.paths, async () => {
+    const applied = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       if (state.revision !== snapshot.revision) return false
       const current = state.rebaseIntent
@@ -170,7 +170,7 @@ async function reconcileRebaseIntent(tower) {
         mission.updatedAt = now
       }
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'rebase',
@@ -201,7 +201,7 @@ export async function rebase(tower, input) {
   // commit leaves a durable marker instead of an unexplained moved branch.
   const token = tower.deps.ids.uuid()
   const startedAt = Date.now()
-  const intentRevision = await tower.deps.store.withLock(tower.paths, async () => {
+  const intentRevision = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) throw stale(STALE_PREPARE)
     const mission = findMission(state, prepared.missionId)
@@ -218,7 +218,7 @@ export async function rebase(tower, input) {
     })
     state.revision += 1
     state.updatedAt = startedAt
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     return state.revision
   })
 
@@ -250,7 +250,7 @@ export async function rebase(tower, input) {
 
   // Phase 3 (#51): re-read state and revalidate the revision computed by the
   // intent write; the lock only holds the state mutation, never a subprocess.
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== intentRevision) throw stale(STALE_ACT)
     const mission = findMission(state, prepared.missionId)
@@ -264,7 +264,7 @@ export async function rebase(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       throw stale(outcome.detail)
     }
 
@@ -274,7 +274,7 @@ export async function rebase(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
       return rebaseConflictResult(outcome.detail)
     }
@@ -290,7 +290,7 @@ export async function rebase(tower, input) {
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'rebase',

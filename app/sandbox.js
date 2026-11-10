@@ -91,7 +91,7 @@ export async function cleanupSandbox(tower, missionId, options = {}) {
   if (!sandbox) return null
   const removal = await removeSandbox(tower, sandbox, options)
   const now = Date.now()
-  await tower.deps.store.withLock(tower.paths, async () => {
+  await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const fresh = await tower.load()
     const current = fresh.missions.find((entry) => entry.id === missionId)
     if (!current || /** @type {any} */ (current).sandbox !== sandbox) return
@@ -107,7 +107,7 @@ export async function cleanupSandbox(tower, missionId, options = {}) {
     fresh.revision += 1
     fresh.updatedAt = now
     validateState(fresh, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, fresh)
+    await tower.writeState(fresh, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'sandbox',

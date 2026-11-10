@@ -13,7 +13,7 @@ function fail(message) {
 }
 
 export async function recordMessage(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       if (!Array.isArray(state.messages)) state.messages = []
       assertMessageRecipient({ roster: state.roster ?? [], to: input.to, from: input.from })
@@ -26,7 +26,7 @@ export async function recordMessage(tower, input) {
       state.updatedAt = now
 
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'message',
@@ -37,20 +37,20 @@ export async function recordMessage(tower, input) {
   }
 
   export async function recordDelivery(tower, messageId, results) {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const message = (state.messages ?? []).find((entry) => entry.id === messageId)
       if (!message) fail(`unknown message "${messageId}"`)
       addDelivery(message, results)
       state.revision += 1
       state.updatedAt = Date.now()
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       return message.delivery
     })
   }
 
   export async function inbox(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const now = Date.now()
       const { payload, changed } = inboxView(state.messages ?? [], input, now)
@@ -58,7 +58,7 @@ export async function recordMessage(tower, input) {
         state.revision += 1
         state.updatedAt = now
         validateState(state, tower.paths.state)
-        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.writeState(state, held)
       }
       return payload
     })

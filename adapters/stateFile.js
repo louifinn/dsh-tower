@@ -16,7 +16,7 @@
 // A migration that throws therefore leaves state.json byte-identical.
 import { inspectStateVersion, prepareState } from '../domain/state.js'
 import { legacySurveyNeedsRead } from '../domain/state/migrations.js'
-import { isStateLockHeld } from './store.js'
+import { isStateLockHeld, stateLockToken } from './store.js'
 
 /**
  * @typedef {object} StateLoadResult
@@ -86,7 +86,16 @@ export async function loadStateFile(input) {
   const baseRevision =
     Number.isInteger(prepared.state.revision) && prepared.state.revision >= 0 ? prepared.state.revision : 0
   const migrated = { ...prepared.state, revision: baseRevision + 1, updatedAt: now }
-  await store.writeJsonAtomic(paths.state, migrated)
+  const token = stateLockToken(paths)
+  if (token) {
+    // The token is the one this process acquired in `withLock`; the store
+    // refuses the migration if the lock was not actually held (#167).
+    await store.writeStateLocked(paths, migrated, token)
+  } else {
+    // An explicit `persist: true` load outside a lock (a caller-supplied test
+    // path). Production loads either hold the lock or stay read-only.
+    await store.writeJsonAtomic(paths.state, migrated)
+  }
   await store.appendJsonl(paths.activity, {
     at: now,
     type: 'state.migrated',
