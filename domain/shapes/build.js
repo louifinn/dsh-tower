@@ -15,11 +15,14 @@ export const BUILD_STATUSES = Object.freeze(['planned', 'active', 'completed', '
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const BUILD_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'abandoned']),
+  planned: Object.freeze(['active', 'blocked', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
-  blocked: Object.freeze(['active', 'paused', 'completed', 'abandoned']),
-  paused: Object.freeze(['active', 'abandoned']),
-  completed: Object.freeze(['active', 'abandoned']),
+  // `blocked` is derived from open blockers (W3): a blocked mission resumes
+  // only by clearing them, never by pausing or completing through the state.
+  blocked: Object.freeze(['active', 'abandoned']),
+  // A blocker always wins over a pause, which is why paused -> blocked exists.
+  paused: Object.freeze(['active', 'blocked', 'abandoned']),
+  completed: Object.freeze(['active', 'blocked', 'abandoned']),
   merged: Object.freeze([]),
   abandoned: Object.freeze([]),
 })
@@ -88,7 +91,13 @@ export function completionBlockers(mission, config = /** @type {TowerConfig} */ 
     })
   }
   if (mission.status !== 'completed') {
-    blockers.push({ code: 'mission-not-completed', detail: `mission ${mission.id} is ${mission.status}; completion is required` })
+    blockers.push({
+      code: 'mission-not-completed',
+      detail:
+        mission.status === 'blocked'
+          ? `mission ${mission.id} is blocked: ${(mission.blockers ?? []).join('; ')}; clear the blockers to resume it`
+          : `mission ${mission.id} is ${mission.status}; completion is required`,
+    })
   }
   const open = (mission.tasks ?? []).filter((task) => task.status === 'open')
   if (open.length > 0) {

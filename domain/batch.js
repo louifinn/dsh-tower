@@ -1,5 +1,11 @@
 // Batch admission packets (2.1): pure create/close/summarize validation.
 //
+// A batch is a second, generic lifecycle layered over missions (#149 W3): it is
+// not a mission shape and never gets a kind. Its whole lifecycle — statuses,
+// transition edges, terminality, legacy-status normalization and the status
+// vocabulary — lives in this module (see `BATCH_STATUS*`), so no other module
+// compares or writes `batch.status` to a string literal.
+//
 // This module performs no filesystem, git, or subprocess I/O. The tower tool
 // layer reads the worktree, receipt files, and test results, then passes what
 // it observed into `validateClose`. Receipt hashes may be supplied by the
@@ -31,8 +37,56 @@ const MAX_RECEIPTS = 200
 const MAX_EXCLUSIONS = 50
 const PASS_STATUSES = new Set(['passed', 'pass', 'ok', 'success', 'succeeded', 'done', 'green'])
 const FAIL_STATUSES = new Set(['failed', 'fail', 'error', 'errored', 'timeout', 'timed-out', 'blocked'])
-const OPEN_BATCH_STATUSES = new Set(['open', 'created', 'active', 'pending'])
-const CLOSED_BATCH_STATUSES = new Set(['closed', 'abandoned'])
+
+// The batch lifecycle contract (#149 W3). A batch is opened by tower_batch
+// create and leaves `open` exactly once, to `closed` (every member verified) or
+// `abandoned` (retired without verification). There is no third stop state and
+// no per-shape variant.
+export const BATCH_STATUS = Object.freeze({ OPEN: 'open', CLOSED: 'closed', ABANDONED: 'abandoned' })
+/** @type {readonly string[]} */
+export const BATCH_STATUSES = Object.freeze([BATCH_STATUS.OPEN, BATCH_STATUS.CLOSED, BATCH_STATUS.ABANDONED])
+export const BATCH_TRANSITIONS = Object.freeze({
+  [BATCH_STATUS.OPEN]: Object.freeze([BATCH_STATUS.CLOSED, BATCH_STATUS.ABANDONED]),
+  [BATCH_STATUS.CLOSED]: Object.freeze([]),
+  [BATCH_STATUS.ABANDONED]: Object.freeze([]),
+})
+// Pre-v5 documents (and hand-written fixtures) used synonyms for `open`; v5
+// normalizes them once in the state migration and nothing else accepts them.
+/** @type {readonly string[]} */
+const LEGACY_OPEN_BATCH_STATUSES = Object.freeze(['created', 'active', 'pending'])
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isBatchTerminal(value) {
+  return value === BATCH_STATUS.CLOSED || value === BATCH_STATUS.ABANDONED
+}
+
+/**
+ * @param {unknown} from
+ * @param {unknown} to
+ * @returns {boolean}
+ */
+export function canTransitionBatch(from, to) {
+  return (BATCH_TRANSITIONS[/** @type {string} */ (from)] ?? []).includes(/** @type {string} */ (to))
+}
+
+/**
+ * Normalize a recorded batch status to the canonical vocabulary. An absent
+ * status means `open`; a legacy synonym means `open`; an unknown value is left
+ * as-is so validation can report it instead of silently rewriting it.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeBatchStatus(value) {
+  if (value === undefined || value === null || value === '') return BATCH_STATUS.OPEN
+  const status = String(value)
+  if (BATCH_STATUSES.includes(status)) return status
+  if (LEGACY_OPEN_BATCH_STATUSES.includes(status)) return BATCH_STATUS.OPEN
+  return status
+}
+
 
 /** Stable batch error; add `batch-invalid` to ERROR_CODES to map it directly. */
 export class BatchError extends Error {
@@ -153,8 +207,8 @@ function missionInOpenBatch(state, missionId) {
   const batches = Array.isArray(state.batches) ? state.batches : []
   for (const batch of batches) {
     if (!isPlainObject(batch)) continue
-    const status = batch.status ?? 'open'
-    if (!OPEN_BATCH_STATUSES.has(status)) continue
+    const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
+    if (isBatchTerminal(status)) continue
     if (Array.isArray(batch.missionIds) && batch.missionIds.includes(missionId)) return batch
   }
   return null
@@ -414,9 +468,9 @@ export function validateClose(state, batch, input = {}) {
   const receiptPaths = receiptPathsRaw.map((value, index) => normalizeReceiptPath(value, `batch.receiptPaths[${index}]`))
 
   const blockers = []
-  const status = batch.status ?? 'open'
-  if (status === 'closed') blockers.push(blocker(`batch ${batch.id ?? ''} is already closed`.trim()))
-  else if (status === 'abandoned') blockers.push(blocker(`batch ${batch.id ?? ''} is abandoned`.trim()))
+  const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
+  if (status === BATCH_STATUS.CLOSED) blockers.push(blocker(`batch ${batch.id ?? ''} is already closed`.trim()))
+  else if (status === BATCH_STATUS.ABANDONED) blockers.push(blocker(`batch ${batch.id ?? ''} is abandoned`.trim()))
 
   const missions = Array.isArray(state.missions) ? state.missions : fail('state.missions must be an array')
   const byId = new Map()
@@ -507,14 +561,14 @@ export function summarize(state, batch) {
   if (!Array.isArray(receiptPathsRaw)) fail('batch.receiptPaths must be an array')
   const receiptPaths = receiptPathsRaw.map((value, index) => normalizeReceiptPath(value, `batch.receiptPaths[${index}]`))
   const exclusions = Array.isArray(batch.exclusions) ? batch.exclusions : []
-  const status = batch.status ?? 'open'
+  const status = normalizeBatchStatus(batch.status ?? BATCH_STATUS.OPEN)
 
   const missions = Array.isArray(state.missions) ? state.missions : fail('state.missions must be an array')
   const byId = new Map()
   for (const mission of missions) if (isPlainObject(mission) && nonEmptyString(mission.id)) byId.set(mission.id, mission)
 
   const blockers = []
-  if (CLOSED_BATCH_STATUSES.has(status)) blockers.push(blocker(`batch ${batch.id ?? ''} is already ${status}`.trim()))
+  if (isBatchTerminal(status)) blockers.push(blocker(`batch ${batch.id ?? ''} is already ${status}`.trim()))
   const members = []
   const checks = []
   for (const missionId of missionIds) {

@@ -188,9 +188,11 @@ function prepareSequenceState(state) {
       text: typeof task?.text === 'string' && task.text.length > 0 ? task.text : `property task ${taskIndex}`,
       status: task?.status === 'done' || task?.status === 'dropped' ? task.status : 'open',
     }))
-    const blockers = status === 'blocked' && (mission.blockers ?? []).length === 0
-      ? ['property-blocker']
-      : Array.isArray(mission.blockers) ? mission.blockers : []
+    // `blocked` is derived (#149 W3): only a blocked mission records blockers,
+    // and a blocked mission always records at least one.
+    const blockers = status === 'blocked'
+      ? ((mission.blockers ?? []).length > 0 ? mission.blockers : ['property-blocker'])
+      : []
     return {
       ...mission,
       status,
@@ -553,7 +555,7 @@ const completionMatrix = [
   },
   {
     name: 'a blocker',
-    patch: { blockers: ['frozen blocker'] },
+    patch: { status: 'blocked', blockers: ['frozen blocker'] },
   },
   {
     name: 'a different owner',

@@ -7,7 +7,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { ROSTER_INACTIVE, countLiveWorkers, workerEntries } from '../roster.js'
-import { isWorkerRole } from '../roles.js'
+import { isReviewerRole, isWorkerRole } from '../roles.js'
 import { shapeFor } from '../shapes/index.js'
 import { clearStale } from './roster.js'
 
@@ -65,6 +65,26 @@ export function applyInterrupt(entry, input, now) {
 }
 
 /**
+ * A reviewer's evidence is the commit recorded here, never a live branch tip
+ * read later (#149 W3). The checkout is the disposable detached worktree the
+ * reviewer reads in; it is cleared when the verdict is recorded.
+ * @param {any} input
+ * @param {{ requireReviewCommit?: boolean }} [options]
+ * @returns {{ reviewCommit: string | null, reviewCheckout: string | null }}
+ */
+function reviewEvidence(input, options = {}) {
+  const reviewCommit = typeof input.reviewCommit === 'string' && input.reviewCommit.length > 0 ? input.reviewCommit : null
+  const reviewCheckout = typeof input.reviewCheckout === 'string' && input.reviewCheckout.length > 0 ? input.reviewCheckout : null
+  if (options.requireReviewCommit && isReviewerRole(input.role) && !reviewCommit) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `reviewer ${input.name} has no recorded review commit; spawn reviewers through tower_spawn (a review verdict is stamped with a commit, not a live branch tip)`,
+    )
+  }
+  return { reviewCommit, reviewCheckout }
+}
+
+/**
  * A reserved roster row: the name is claimed before activation so a failed
  * spawn remains recoverable.
  * @param {any} input
@@ -72,6 +92,7 @@ export function applyInterrupt(entry, input, now) {
  * @returns {RosterEntry}
  */
 export function reservedRosterEntry(input, now) {
+  const evidence = reviewEvidence(input, { requireReviewCommit: true })
   return {
     name: input.name,
     role: input.role,
@@ -81,6 +102,8 @@ export function reservedRosterEntry(input, now) {
     missionId: input.missionId,
     cwd: input.cwd ?? null,
     branch: input.branch ?? null,
+    ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
+    ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
     spawnTip: null,
     state: 'reserved',
     reservedAt: now,
@@ -117,7 +140,9 @@ export function recordSpawnEntry({ roster, missions = [], mission, input, spawnT
   if (roster.some((entry) => entry.agentId && entry.agentId === input.agentId)) {
     fail(`agent ${input.agentId} is already in the roster`)
   }
-  /** @type {RosterEntry} */
+  /** @type {{ reviewCommit?: string | null, reviewCheckout?: string | null }} */
+  const evidence = reviewEvidence(input, { requireReviewCommit: true })
+  /** @type {RosterEntry & { generation?: number }} */
   const entry = {
     name: input.name,
     role: input.role,
@@ -127,6 +152,8 @@ export function recordSpawnEntry({ roster, missions = [], mission, input, spawnT
     missionId: input.missionId,
     cwd: input.cwd ?? null,
     branch: input.branch ?? null,
+    ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
+    ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
     spawnTip,
     state: 'active',
     spawnedAt: now,

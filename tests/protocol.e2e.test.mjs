@@ -14,16 +14,23 @@ function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
-test('tower protocol: init → plan → complete → review → merge → teardown', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-'))
-  const repo = path.join(root, 'repo')
-  fs.mkdirSync(repo)
+/** A fresh repository with deterministic line endings (F29: a global
+ * core.autocrlf=true rewrites the seed README and makes it look out of scope). */
+function initRepo(repo) {
   git(repo, ['init'])
+  git(repo, ['config', 'core.autocrlf', 'false'])
   git(repo, ['config', 'user.email', 'tower@test'])
   git(repo, ['config', 'user.name', 'Tower Test'])
   fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])
+}
+
+test('tower protocol: init → plan → complete → review → merge → teardown', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
 
   try {
     const tower = await Tower.open(repo)
@@ -123,12 +130,7 @@ test('tower plan: overlapping scopes auto-add a dependency and cycles are reject
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-plan-'))
   const repo = path.join(root, 'repo')
   fs.mkdirSync(repo)
-  git(repo, ['init'])
-  git(repo, ['config', 'user.email', 'tower@test'])
-  git(repo, ['config', 'user.name', 'Tower Test'])
-  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
-  git(repo, ['add', '-A'])
-  git(repo, ['commit', '-m', 'seed'])
+  initRepo(repo)
 
   try {
     const tower = await Tower.open(repo)
@@ -158,12 +160,7 @@ async function reviewedMission(prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   const repo = path.join(root, 'repo')
   fs.mkdirSync(repo)
-  git(repo, ['init'])
-  git(repo, ['config', 'user.email', 'tower@test'])
-  git(repo, ['config', 'user.name', 'Tower Test'])
-  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
-  git(repo, ['add', '-A'])
-  git(repo, ['commit', '-m', 'seed'])
+  initRepo(repo)
 
   const tower = await Tower.open(repo)
   await tower.init({})
@@ -315,22 +312,22 @@ test('merge hook timeout is reported as merge-hook-failed and leaves a clean rep
   }
 })
 
-test('mission transitions: blocked can be marked completed again', async () => {
+test('mission transitions: blocked resumes through clear_blockers and can complete again', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-transition-'))
   const repo = path.join(root, 'repo')
   fs.mkdirSync(repo)
-  git(repo, ['init'])
-  git(repo, ['config', 'user.email', 'tower@test'])
-  git(repo, ['config', 'user.name', 'Tower Test'])
-  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
-  git(repo, ['add', '-A'])
-  git(repo, ['commit', '-m', 'seed'])
+  initRepo(repo)
   try {
     const tower = await Tower.open(repo)
     await tower.init({})
     await tower.plan({ missions: [{ title: 'Transition case', scope: ['src/**'] }] })
     await tower.mission({ id: 'M1', status: 'active' })
-    await tower.mission({ id: 'M1', status: 'blocked', note: 'test block' })
+    // #149 W3: blocked is derived from open blockers; the mission resumes by
+    // clearing them, never by a status patch that skips the blocker record.
+    await tower.mission({ id: 'M1', blocker: 'test block' })
+    const resumed = await tower.mission({ id: 'M1', clear_blockers: true })
+    assert.equal(resumed.mission.status, 'active')
+    assert.deepEqual(resumed.mission.blockers, [])
     const completed = await tower.mission({ id: 'M1', status: 'completed' })
     assert.equal(completed.mission.status, 'completed')
   } finally {

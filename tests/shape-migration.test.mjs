@@ -53,7 +53,7 @@ test('a captured v3 document is migratable to v4', () => {
   const info = inspectStateVersion(legacy, 'state.json')
   assert.equal(info.status, 'migratable')
   assert.equal(info.supportedVersion, SCHEMA_VERSION)
-  assert.deepEqual(info.migrations.map((step) => [step.from, step.to]), [[3, 4]])
+  assert.deepEqual(info.migrations.map((step) => [step.from, step.to]), [[3, 4], [4, 5]])
   assert.throws(
     () => validateState(legacy, 'state.json'),
     (error) => error.code === 'state-version-unsupported',
@@ -66,8 +66,8 @@ test('v3 -> v4 converts a branch-shaped survey and keeps the build document inta
   const snapshot = JSON.stringify(legacy)
   const prepared = prepareState(legacy, 'state.json')
   assert.equal(prepared.changed, true)
-  assert.equal(prepared.to, 4)
-  assert.deepEqual(prepared.migrated, [{ from: 3, to: 4 }])
+  assert.equal(prepared.to, 5)
+  assert.deepEqual(prepared.migrated, [{ from: 3, to: 4 }, { from: 4, to: 5 }])
 
   const [build, survey, older] = prepared.state.missions
   // A build keeps every field; only the shape stamp is added.
@@ -105,8 +105,8 @@ test('v3 -> v4 is idempotent: a v4 document is a fixed point', () => {
   const once = step.migrate(fixture())
   assert.deepEqual(step.migrate(once), once, 'the step itself is a fixed point')
   const migrated = migrateState(fixture(), { statePath: 'state.json' })
-  assert.equal(migrated.to, 4)
-  assert.equal(migrated.steps.length, 1)
+  assert.equal(migrated.to, 5)
+  assert.equal(migrated.steps.length, 2)
 })
 
 test('the shape document is one-way: v4 rejects a survey that still owns branch fields', () => {
@@ -137,7 +137,7 @@ test('legacySurveyNeedsRead identifies only an unanchored legacy survey', () => 
   assert.equal(legacySurveyNeedsRead(unprovisionedFixture()), true)
   // A current document is never re-migrated, and a document with no missions
   // (or a build-only document) never asks for a read.
-  assert.equal(legacySurveyNeedsRead({ ...unprovisionedFixture(), schemaVersion: 4 }), false)
+  assert.equal(legacySurveyNeedsRead({ ...unprovisionedFixture(), schemaVersion: 5 }), false)
   assert.equal(legacySurveyNeedsRead({ ...unprovisionedFixture(), missions: [] }), false)
   assert.equal(legacySurveyNeedsRead({ ...unprovisionedFixture(), missions: [fixture().missions[0]] }), false)
   assert.equal(legacySurveyNeedsRead(null), false)
@@ -149,7 +149,7 @@ test('an unprovisioned legacy survey migrates from the loader-resolved read', ()
   const read = { readCommit: 'resolved-base-commit', readDirty: ['README.md'] }
   const prepared = prepareState(legacy, 'state.json', { legacySurveyRead: read })
   assert.equal(prepared.changed, true)
-  assert.equal(prepared.to, 4)
+  assert.equal(prepared.to, 5)
 
   const [build, survey, recorded] = prepared.state.missions
   // The build document is unchanged; only the kind discriminant is stamped.

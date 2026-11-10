@@ -2,6 +2,7 @@
 // status vocabularies, review exemption and per-kind mission fields (#149).
 // @ts-check
 import { FINDING_STATUSES, MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
+import { BATCH_STATUSES } from '../batch.js'
 import { TowerToolError } from '../errors.js'
 import { isShapeKind, shapeFor } from '../shapes/index.js'
 
@@ -114,6 +115,22 @@ export function assertStateSemantics(state, where) {
     }
     assertMissionShapeFields(mission, where)
     assertWorktreeRecord(mission, where)
+    // W3: `blocked` is derived from open blockers, never an independent stop
+    // state. A non-terminal mission is blocked exactly when it records a
+    // blocker, so the two can never disagree (a paused mission has no blockers;
+    // a blocker supersedes a pause). Terminal missions keep blockers as history.
+    const blockers = mission.blockers ?? []
+    if (!Array.isArray(blockers) || blockers.some((entry) => typeof entry !== 'string')) {
+      fail(`mission ${mission.id} has invalid blockers${where}`)
+    }
+    if (!shape.isTerminal(mission.status)) {
+      if (mission.status === 'blocked' && blockers.length === 0) {
+        fail(`mission ${mission.id} is blocked but records no blocker; blocked is derived from open blockers${where}`)
+      }
+      if (mission.status !== 'blocked' && blockers.length > 0) {
+        fail(`mission ${mission.id} has open blockers but is ${mission.status}; blocked is derived from open blockers${where}`)
+      }
+    }
   }
   if (record.roster !== undefined) {
     const names = new Set()
@@ -158,6 +175,21 @@ export function assertStateSemantics(state, where) {
       }
       if (!MERGE_VERDICTS.includes(review.mergeVerdict)) {
         fail(`review ${review.id} has unknown merge verdict ${review.mergeVerdict}${where}`)
+      }
+    }
+  }
+  // Batches have their own generic lifecycle (#149 W3), not a mission shape. The
+  // ledger may only carry canonical statuses; legacy synonyms are normalized by
+  // the v5 state migration, never accepted at rest.
+  if (record.batches !== undefined) {
+    const ids = new Set()
+    for (const batch of record.batches) {
+      if (!isPlainObject(batch)) fail(`invalid batch record${where}`)
+      if (ids.has(batch.id)) fail(`duplicate batch id ${batch.id}${where}`)
+      ids.add(batch.id)
+      const status = typeof batch.status === 'string' ? batch.status : ''
+      if (!BATCH_STATUSES.includes(status)) {
+        fail(`batch ${batch.id} has unknown status ${batch.status}${where}`)
       }
     }
   }

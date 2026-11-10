@@ -247,7 +247,7 @@ export async function acquireLease(commonDir, options = {}) {
           'lease-busy',
           `lease "${name}" is held by ${existing.holder} (pid ${existing.pid}) until ${expiresAt}` +
             (expired
-              ? `; the lease expired at ${expiresAt} but is not taken over automatically — its holder must release it explicitly (force: true)`
+              ? `; the lease expired at ${expiresAt} but is not taken over automatically — an explicit tower_resource release with force: true recovers it`
               : ''),
         )
       }
@@ -269,9 +269,12 @@ export async function acquireLease(commonDir, options = {}) {
 }
 
 /**
- * Release a lease. The token must match its holder; an expired lease can only
- * be released with an explicit `force: true`. Returns `true` when removed and
- * `false` when no such lease exists.
+ * Release a lease. A live lease can only be released by the holder that owns
+ * its token. An expired lease is recoverable: the holder may still release it
+ * with the original token, and `force: true` lets the tower take over an
+ * EXPIRED lease whose holder crashed — that is explicit recovery, never silent
+ * takeover, and a live lease always refuses a foreign token. Returns `true` when
+ * removed and `false` when no such lease exists.
  */
 export async function releaseLease(commonDir, options = {}) {
   const name = options?.name
@@ -295,10 +298,21 @@ export async function releaseLease(commonDir, options = {}) {
     const { doc } = await readLeaseDocument(commonDir)
     const existing = doc.leases[name]
     if (!existing) return false
+    const expired = now >= existing.expiresAt
     if (existing.token !== token) {
-      fail('lease-token', `lease "${name}" token does not match its holder; refusing release`)
+      if (expired && force) {
+        // Explicit recovery of a crashed holder: only an expired lease and only
+        // with `force`. Live leases below still refuse a foreign token.
+      } else {
+        fail(
+          'lease-token',
+          expired
+            ? `lease "${name}" is held by ${existing.holder} (pid ${existing.pid}) and expired at ${new Date(existing.expiresAt).toISOString()}; the token does not match — pass force: true to take over the expired lease`
+            : `lease "${name}" is held by ${existing.holder} (pid ${existing.pid}) until ${new Date(existing.expiresAt).toISOString()}; a live lease can only be released by its holder`,
+        )
+      }
     }
-    if (!force && now >= existing.expiresAt) {
+    if (!force && expired) {
       fail(
         'lease-busy',
         `lease "${name}" expired at ${new Date(existing.expiresAt).toISOString()}; release it explicitly with force: true`,

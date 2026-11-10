@@ -41,6 +41,7 @@ app/read.js
 app/rebase.js
 app/recording.js
 app/review.js
+app/reviewCheckout.js
 app/roster.js
 app/sandbox.js
 app/sharedCheckout.js

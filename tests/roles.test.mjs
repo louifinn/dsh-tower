@@ -180,7 +180,7 @@ test('workers update tasks, blockers and notes; the tower owns lifecycle; review
     assert.deepEqual(blocked.mission.blockers, ['waiting on input'])
 
     // Only the tower may clear blockers and move the lifecycle forward.
-    const resumed = await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active', clear_blockers: true })
+    const resumed = await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', clear_blockers: true })
     assert.equal(resumed.mission.status, 'active')
     assert.deepEqual(resumed.mission.blockers, [])
 

@@ -157,12 +157,19 @@ export function workerBriefing({
   return lines.join('\n')
 }
 
+/**
+ * @param {{ repoRoot: string, base: string, mission: any, deps: any[],
+ *   worktree: any, review?: { commit: string, path: string } | null,
+ *   instructions?: string, reviews?: any[], findings?: any[],
+ *   completionReport?: any }} input
+ */
 export function reviewerBriefing({
   repoRoot,
   base,
   mission,
   deps,
   worktree,
+  review = null,
   instructions,
   reviews = [],
   findings = [],
@@ -177,6 +184,12 @@ export function reviewerBriefing({
   lines.push(`Review branch: ${worktree.branch}`)
   lines.push(`Worktree: ${worktree.path}`)
   lines.push(`Reviewed base: ${base} @ ${String(worktree.baseCommit).slice(0, 12)}`)
+  if (review) {
+    lines.push(`Review commit: ${String(review.commit).slice(0, 12)} (the evidence your verdict is stamped with)`)
+    lines.push(`Checkout: ${review.path}`)
+    lines.push('')
+    lines.push(`Read and inspect the review commit in ${review.path}; that checkout is removed after your verdict.`)
+  }
   lines.push('')
   lines.push(`Kind: ${mission.kind}`)
   if (mission.tasks.length > 0) {
@@ -224,6 +237,10 @@ export function reviewerBriefing({
   lines.push('')
   lines.push('Rules:')
   lines.push('- Read-only: do not modify files, commit, or merge.')
+  if (review) {
+    lines.push(`- Pass workdir="${review.path}" on every command: the checkout is a detached read of commit ${String(review.commit).slice(0, 12)}, not the mutable mission worktree.`)
+    lines.push('- tower_diff shows the recorded commit your verdict will stamp; do not review anything newer.')
+  }
   lines.push('- Inspect the diff from the reviewed base to the branch tip and map every task to the diff.')
   lines.push('- Check scope, correctness, tests, and security. Report severity and concrete evidence.')
   lines.push(

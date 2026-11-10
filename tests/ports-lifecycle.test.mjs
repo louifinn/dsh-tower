@@ -135,6 +135,8 @@ async function runLifecycle() {
   assert.equal(completed.mission.status, 'completed')
   transcript.push('complete')
 
+  // #149 W3: a reviewer's evidence is the recorded branch tip, not a live HEAD.
+  const reviewCommit = await tower.branchTip((await tower.load()).missions[0])
   await tower.recordSpawn({
     missionId,
     name: 'reviewer-1',
@@ -142,6 +144,7 @@ async function runLifecycle() {
     agentId: REVIEWER_AGENT,
     parentSessionId: 'session-tower',
     cwd: worktree.path,
+    reviewCommit,
   })
   const reviewed = await tower.submitReview({
     missionId,

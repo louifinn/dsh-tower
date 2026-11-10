@@ -156,12 +156,27 @@ export function buildRebaseIntent({ token, missionId, base, oldTip, baseTip, com
 }
 
 /**
+ * Prefix that identifies the blocker a rebase conflict records. A successful
+ * retry resolves exactly that blocker; unrelated blockers keep the mission
+ * blocked.
+ */
+export const REBASE_CONFLICT_PREFIX = 'rebase conflict onto '
+
+/**
+ * @param {string} blocker
+ * @returns {boolean}
+ */
+export function isRebaseConflictBlocker(blocker) {
+  return typeof blocker === 'string' && blocker.startsWith(REBASE_CONFLICT_PREFIX)
+}
+
+/**
  * @param {string} base
  * @param {string} baseTip
  * @returns {string}
  */
 export function rebaseConflictNote(base, baseTip) {
-  return `rebase conflict onto ${base} @ ${baseTip.slice(0, 12)}`
+  return `${REBASE_CONFLICT_PREFIX}${base} @ ${baseTip.slice(0, 12)}`
 }
 
 /**

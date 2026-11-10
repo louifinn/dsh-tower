@@ -28,7 +28,7 @@ function fixtureRepo() {
   return { dir, write }
 }
 
-test('each shape-audit rule fails on a seeded fixture', () => {
+test('the original shape-audit rules fail on a seeded fixture', () => {
   const violations = inspectSource(
     [
       "if (mission.kind === 'survey') return",
@@ -81,6 +81,55 @@ test('a violation in a generic layer fails the audit; domain/shapes is exempt', 
     assert.equal(result.ok, true, result.errors.join('\n'))
   } finally {
     removeTemp(exempt.dir)
+  }
+})
+
+test('the W3 fitness rules fail on a seeded fixture', () => {
+  const violations = inspectSource(
+    [
+      "const tip = await tower.revParse(mission.worktree.path, 'HEAD')",
+      "if (batch.status === 'closed') return",
+      "const ledger = path.join(commonDir, 'leases.json')",
+      "mission.status = 'blocked'",
+      // Legitimate forms the rules must not flag:
+      "const head = await tower.revParse(reviewer.reviewCheckout, 'HEAD')",
+      'const status = BATCH_STATUS.CLOSED',
+      'const tip = await tower.branchTip(mission)',
+      'markBlocked(mission, conflictNote)',
+    ].join('\n'),
+  )
+  const rules = violations.map((violation) => violation.rule)
+  assert.deepEqual(rules.sort(), ['batch-status-literal', 'blocked-status-write', 'lease-ledger', 'review-tip-read'])
+  // Only the four seeded lines are violations; the legitimate forms below them
+  // (a checkout HEAD, a constant, the branch-tip helper and markBlocked) are not.
+  for (const violation of violations) {
+    assert.match(violation.detail, /^line [1-4]:/)
+  }
+})
+
+test('the W3 owner modules are exempt and every other layer is not', () => {
+  const exempt = fixtureRepo()
+  try {
+    exempt.write('domain/batch.js', "export const isClosed = (batch) => batch.status === 'closed'\n")
+    exempt.write('adapters/leases.js', "export const ledger = 'leases.json'\n")
+    exempt.write('domain/missions/lifecycle.js', "export const block = (mission) => { mission.status = 'blocked' }\n")
+    const result = evaluator(exempt.dir)
+    assert.equal(result.ok, true, result.errors.join('\n'))
+  } finally {
+    removeTemp(exempt.dir)
+  }
+
+  const violating = fixtureRepo()
+  try {
+    violating.write('app/batch.js', "export const isClosed = (batch) => batch.status === 'closed'\n")
+    violating.write('app/lease.js', "export const ledger = 'leases.json'\n")
+    violating.write('app/merge.js', "export const block = (mission) => { mission.status = 'blocked' }\n")
+    const result = evaluator(violating.dir)
+    assert.equal(result.ok, false)
+    const rules = result.violations.map((violation) => violation.rule).sort()
+    assert.deepEqual(rules, ['batch-status-literal', 'blocked-status-write', 'lease-ledger'])
+  } finally {
+    removeTemp(violating.dir)
   }
 })
 

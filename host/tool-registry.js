@@ -648,7 +648,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerDiffTool(ctx, { openTower, define })
+  registerDiffTool(ctx, { openTower, define, actorFor })
 
   registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 

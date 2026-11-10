@@ -72,6 +72,8 @@ async function reviewedMission(prefix) {
   const repo = path.join(root, 'repo')
   fs.mkdirSync(repo)
   git(repo, ['init'])
+  // F29: keep the seed README byte-stable on a Windows global core.autocrlf=true.
+  git(repo, ['config', 'core.autocrlf', 'false'])
   git(repo, ['config', 'user.email', 'tower@test'])
   git(repo, ['config', 'user.name', 'Tower Test'])
   fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')

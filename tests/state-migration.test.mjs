@@ -21,6 +21,7 @@ import { Tower } from '../host/tower.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { inspectStateVersion, prepareState, validateState } from '../domain/state.js'
 import { STATE_MIGRATIONS } from '../domain/state/migrations.js'
+import { V3_FIXTURE } from './property/fixtures/state-versions.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import * as store from '../adapters/store.js'
 import { loadStateFile } from '../adapters/stateFile.js'
@@ -117,7 +118,7 @@ function v1Fixture() {
 }
 
 test('the migration registry is ordered, contiguous and ends at SCHEMA_VERSION', () => {
-  assert.equal(SCHEMA_VERSION, 4, 'the registry reaches schema version 4 (#72 added 2, #90 adds 3, #149 adds 4)')
+  assert.equal(SCHEMA_VERSION, 5, 'the registry reaches schema version 5 (#72 added 2, #90 adds 3, #149 adds 4, W3 adds 5)')
   assert.ok(Array.isArray(STATE_MIGRATIONS))
   assert.ok(Object.isFrozen(STATE_MIGRATIONS))
   let version = 1
@@ -148,6 +149,7 @@ test('prepareState migrates a v1 fixture, validates the target schema and is ide
     { from: 1, to: 2 },
     { from: 2, to: 3 },
     { from: 3, to: 4 },
+    { from: 4, to: 5 },
   ])
   assert.equal(prepared.state.schemaVersion, SCHEMA_VERSION)
   assert.equal(prepared.state.revision, 0, 'the migration backfills a missing revision')
@@ -179,12 +181,46 @@ test('v2 -> v3 backfills the case mode as unknown and preserves a recorded value
   const snapshot = JSON.stringify(unrecorded)
   const migrated = prepareState(unrecorded, 'state.json')
   assert.equal(migrated.changed, true)
-  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }, { from: 3, to: 4 }])
+  assert.deepEqual(migrated.migrated, [{ from: 2, to: 3 }, { from: 3, to: 4 }, { from: 4, to: 5 }])
   assert.equal(migrated.state.caseInsensitive, null, 'a migration must not guess at the filesystem')
   assert.equal(JSON.stringify(unrecorded), snapshot, 'the pre-migration document is not mutated')
 
   const recorded = prepareState({ ...unrecorded, caseInsensitive: true }, 'state.json')
   assert.equal(recorded.state.caseInsensitive, true)
+})
+
+test('v4 -> v5 derives blocked from blockers and normalizes batch statuses (#149)', () => {
+  const v4 = STATE_MIGRATIONS.find((step) => step.from === 3).migrate(JSON.parse(JSON.stringify(V3_FIXTURE)))
+  v4.schemaVersion = 4
+  const base = v4.missions[0]
+  v4.missions = [
+    { ...base, status: 'blocked', blockers: [] },
+    { ...base, id: 'M2', status: 'active', blockers: ['stale blocker'], pauseCause: 'user' },
+    { ...base, id: 'M3', status: 'paused', blockers: ['stop'], pauseCause: 'failure' },
+    { ...base, id: 'M4', status: 'merged', blockers: ['history only'], pauseCause: null },
+  ]
+  v4.batches = [
+    { id: 'B1', status: 'active', createdAt: 1 },
+    { id: 'B2', status: 'closed', createdAt: 1, closedAt: 2 },
+    { id: 'B3', status: 'abandoned', createdAt: 1, abandonedAt: 2 },
+  ]
+  const snapshot = JSON.stringify(v4)
+  const prepared = prepareState(v4, 'state.json')
+  assert.deepEqual(prepared.migrated, [{ from: 4, to: 5 }])
+  assert.equal(prepared.state.schemaVersion, SCHEMA_VERSION)
+  const [m1, m2, m3, m4] = prepared.state.missions
+  assert.equal(m1.status, 'blocked')
+  assert.equal(m1.blockers.length, 1, 'a blocked mission without a blocker gains an explicit legacy blocker')
+  assert.match(m1.blockers[0], /legacy blocked state/)
+  assert.equal(m2.status, 'blocked', 'open blockers make the mission blocked')
+  assert.equal(m2.pauseCause, undefined, 'a blocker supersedes a pause')
+  assert.equal(m3.status, 'blocked')
+  assert.equal(m3.pauseCause, undefined)
+  assert.equal(m4.status, 'merged', 'terminal history keeps its blockers')
+  assert.deepEqual(m4.blockers, ['history only'])
+  assert.deepEqual(prepared.state.batches.map((batch) => batch.status), ['open', 'closed', 'abandoned'])
+  assert.equal(validateState(prepared.state, 'state.json'), prepared.state)
+  assert.equal(JSON.stringify(v4), snapshot, 'the pre-migration document is not mutated')
 })
 
 test('a newer state version is state-version-unsupported, never state-corrupt', () => {
@@ -218,6 +254,7 @@ test('a migration that throws is state-migration-failed and leaves its input unt
     // is classified as unmigratable before the throwing step can run.
     { from: 2, to: 3, migrate: (state) => state },
     { from: 3, to: 4, migrate: (state) => state },
+    { from: 4, to: 5, migrate: (state) => state },
   ]
   assert.throws(
     () => prepareState(legacy, 'state.json', { migrations }),
@@ -424,6 +461,7 @@ test('a throwing migration leaves the original file byte-identical and keeps the
       },
       { from: 2, to: 3, migrate: (state) => state },
       { from: 3, to: 4, migrate: (state) => state },
+      { from: 4, to: 5, migrate: (state) => state },
     ]
 
     await assert.rejects(
@@ -464,6 +502,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
         { from: 1, to: 2 },
         { from: 2, to: 3 },
         { from: 3, to: 4 },
+        { from: 4, to: 5 },
       ],
       status: 'migratable',
     })

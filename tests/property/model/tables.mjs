@@ -33,14 +33,33 @@ export const MODEL_STATUSES = Object.freeze([
 ])
 
 /**
- * The only legal status edges. A status that is absent from this table is not a
- * lifecycle status at all; a present status with an empty list is terminal.
+ * The declared mission state machine (#149 W3): the edges the shape table
+ * declares, including `-> blocked` (a blocker records derived state) and
+ * `blocked -> active` (clear_blockers resumes it). A status *patch* may not
+ * follow every declared edge; see MODEL_STATUS_PATCHES.
  * @type {Readonly<Record<string, readonly string[]>>}
  */
 export const MODEL_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'abandoned']),
+  planned: Object.freeze(['active', 'blocked', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
-  blocked: Object.freeze(['active', 'paused', 'completed', 'abandoned']),
+  blocked: Object.freeze(['active', 'abandoned']),
+  paused: Object.freeze(['active', 'blocked', 'abandoned']),
+  completed: Object.freeze(['active', 'blocked', 'abandoned']),
+  merged: Object.freeze([]),
+  abandoned: Object.freeze([]),
+})
+
+/**
+ * The only legal status *patch* targets (#149 W3). `blocked` is derived state,
+ * so no patch may assign it; a blocked mission leaves the state only by
+ * `clear_blockers` (resume) or by being abandoned. A patch to the same status
+ * is not a move and is refused.
+ * @type {Readonly<Record<string, readonly string[]>>}
+ */
+export const MODEL_STATUS_PATCHES = Object.freeze({
+  planned: Object.freeze(['active', 'abandoned']),
+  active: Object.freeze(['completed', 'paused', 'abandoned']),
+  blocked: Object.freeze(['abandoned']),
   paused: Object.freeze(['active', 'abandoned']),
   completed: Object.freeze(['active', 'abandoned']),
   merged: Object.freeze([]),
@@ -105,6 +124,16 @@ export const MODEL_CONFIG = Object.freeze({
  */
 export function modelCanTransition(from, to) {
   const edges = MODEL_TRANSITIONS[from]
+  return Array.isArray(edges) ? edges.includes(to) : false
+}
+
+/**
+ * @param {string} from
+ * @param {string} to
+ * @returns {boolean}
+ */
+export function modelCanPatchStatus(from, to) {
+  const edges = MODEL_STATUS_PATCHES[from]
   return Array.isArray(edges) ? edges.includes(to) : false
 }
 

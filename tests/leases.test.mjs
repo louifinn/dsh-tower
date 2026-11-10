@@ -135,27 +135,35 @@ test('leases: a live lease is refused, the same token renews, another holder is 
   }
 })
 
-test('leases: release requires the matching token and force for an expired lease', async () => {
+test('leases: a live lease needs its token; an expired lease is recoverable only with force', async () => {
   const { root, commonDir } = tempCommonDir()
   try {
     await acquireLease(commonDir, { name: 'plugin-load', holder: 'a', token: 'token-a', pid: 1, ttlMs: 1000, now: 1000 })
 
-    // Wrong token refuses even with force: force never bypasses ownership.
+    // Live lease: a foreign token is refused even with force. Force is crash
+    // recovery for an expired lease, never an ownership bypass.
     await assert.rejects(
-      () => releaseLease(commonDir, { name: 'plugin-load', token: 'token-b', force: true, now: 2000 }),
-      expectCode('lease-token', /does not match its holder/),
+      () => releaseLease(commonDir, { name: 'plugin-load', token: 'token-b', force: true, now: 1500 }),
+      expectCode('lease-token', /live lease can only be released by its holder/),
     )
-    assert.ok(fs.existsSync(leasesPath(commonDir)))
+    assert.equal(readLedger(commonDir).leases['plugin-load'].token, 'token-a')
 
     // Unknown name with a valid token is a harmless no-op.
     assert.equal(await releaseLease(commonDir, { name: 'other', token: 'token-a', now: 2000 }), false)
 
-    // Expired lease: plain release is refused; force is the explicit cleanup.
+    // Expired lease, foreign token, no force: refused with the recovery remedy.
+    await assert.rejects(
+      () => releaseLease(commonDir, { name: 'plugin-load', token: 'token-b', now: 5000 }),
+      expectCode('lease-token', /pass force: true to take over the expired lease/),
+    )
+    // Expired lease, matching token, no force: still the explicit busy contract.
     await assert.rejects(
       () => releaseLease(commonDir, { name: 'plugin-load', token: 'token-a', now: 5000 }),
       expectCode('lease-busy', /expired at .*force: true/),
     )
-    assert.equal(await releaseLease(commonDir, { name: 'plugin-load', token: 'token-a', force: true, now: 5000 }), true)
+    // Crashed holder recovery: an expired lease can be force-released by the tower
+    // with a foreign token, and the ledger is clean afterwards.
+    assert.equal(await releaseLease(commonDir, { name: 'plugin-load', token: 'token-b', force: true, now: 5000 }), true)
     assert.deepEqual(readLedger(commonDir).leases, {})
     assert.equal(await releaseLease(commonDir, { name: 'plugin-load', token: 'token-a', force: true, now: 6000 }), false)
 

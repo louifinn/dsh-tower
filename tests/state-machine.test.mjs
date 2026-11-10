@@ -19,11 +19,13 @@ import { Tower } from '../host/tower.js'
 import { MISSION_STATUSES } from '../app/tower.js'
 
 // Independent copy of the documented table. Keep this explicit: the test must
-// fail if the implementation quietly grows an extra transition.
+// fail if the implementation quietly grows an extra transition. W3 (#149):
+// `blocked` is derived from open blockers, so it is never a direct status patch
+// target and its only direct move is `abandoned`; resuming is clear_blockers.
 const EXPECTED_TRANSITIONS = {
   planned: ['active', 'abandoned'],
-  active: ['completed', 'blocked', 'paused', 'abandoned'],
-  blocked: ['active', 'paused', 'completed', 'abandoned'],
+  active: ['completed', 'paused', 'abandoned'],
+  blocked: ['abandoned'],
   paused: ['active', 'abandoned'],
   completed: ['active', 'abandoned'],
   merged: [],
@@ -41,6 +43,8 @@ function seedRepo(prefix = 'dsh-tower-machine-') {
   git(repo, ['init'])
   git(repo, ['config', 'user.email', 'tower@test'])
   git(repo, ['config', 'user.name', 'Tower Test'])
+  // Deterministic fixture bytes on every platform (Windows defaults to CRLF).
+  git(repo, ['config', 'core.autocrlf', 'false'])
   fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])
@@ -51,16 +55,16 @@ function seedRepo(prefix = 'dsh-tower-machine-') {
 async function driveTo(tower, missionId, status) {
   const chains = {
     planned: [],
-    active: ['active'],
-    blocked: ['active', 'blocked'],
-    paused: ['active', 'paused'],
-    completed: ['active', 'blocked', 'completed'],
+    active: [{ status: 'active' }],
+    blocked: [{ status: 'active' }, { blocker: 'fixture blocker' }],
+    paused: [{ status: 'active' }, { status: 'paused' }],
+    completed: [{ status: 'active' }, { status: 'completed' }],
   }
   if (status === 'abandoned') {
     await tower.mission({ id: missionId, status: 'abandoned', note: 'terminal fixture' })
     return
   }
-  for (const step of chains[status]) await tower.mission({ id: missionId, status: step })
+  for (const step of chains[status]) await tower.mission({ id: missionId, ...step })
 }
 
 /** Build one completed, clean-reviewed, merged mission and return its id. */
@@ -134,6 +138,18 @@ test('mission transitions: the full allowed/denied table matches the implementat
       // Abandoning always needs a reason; supply it so the assertion is about
       // the transition, not about the note precondition.
       const patch = { id, status: pair.to, ...(pair.to === 'abandoned' ? { note: 'fuzz reason' } : {}) }
+      if (pair.to === 'blocked') {
+        // Direct status "blocked" is always refused: the blockers are the state.
+        await assert.rejects(
+          () => tower.mission(patch),
+          /blocked is derived from open blockers/,
+          `${pair.from} -> blocked must name the blocker remedy`,
+        )
+        const afterDerived = await tower.load()
+        assert.equal(afterDerived.missions.find((entry) => entry.id === id).status, pair.from)
+        assert.equal(afterDerived.revision, beforeRevision)
+        continue
+      }
       if (allowed) {
         const updated = await tower.mission(patch)
         assert.equal(updated.mission.status, pair.to, `${pair.from} -> ${pair.to} must be allowed`)
@@ -217,6 +233,7 @@ test('tower_complete and tower_merge enforce their own state preconditions', asy
       parentSessionId: 'session-machine',
       cwd: null,
       branch: provisioned.worktree.branch,
+      reviewCommit: git(wt, ['rev-parse', 'HEAD']),
     })
     await assert.rejects(
       () => tower.complete({ missionId: completeId, agentId: 'agent-reviewer-entry', report: 'nope' }),
@@ -237,9 +254,9 @@ test('tower_complete and tower_merge enforce their own state preconditions', asy
     await tower.mission({ id: blockedId, blocker: 'waiting on upstream' })
     await assert.rejects(
       () => tower.complete({ missionId: blockedId, agentId: 'agent-blocked', report: 'nope' }),
-      /cannot be completed from that state/,
+      /unresolved blockers: waiting on upstream; clear the blockers to resume it/,
     )
-    await tower.mission({ id: blockedId, clear_blockers: true, status: 'active' })
+    await tower.mission({ id: blockedId, clear_blockers: true })
 
     // tower_merge: closed missions are idempotent, half-done missions return
     // blockers instead of merging.

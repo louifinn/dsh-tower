@@ -131,10 +131,12 @@ test('tool aliases: missionId/id and taskDone/task_done/clearBlockers all work',
       .get('tower_mission')
       .execute({ repoRoot: repo, missionId: id, clearBlockers: true }, exec)
     assert.deepEqual(cleared.mission.blockers, [])
+    assert.equal(cleared.mission.status, 'active')
 
     const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     validateAgainstSchema(status, tools.get('tower_status').output.schema)
-    assert.equal(status.counts.blocked >= 1, true)
+    assert.equal(status.counts.blocked, 0)
+    assert.equal(status.counts.active >= 1, true)
   } finally {
     removeTemp(root)
   }
@@ -237,6 +239,7 @@ test('findings tool: file, list, read and transition through the tool surface', 
       parentSessionId: 'parent-1',
       cwd: null,
       branch: null,
+      reviewCommit: git(repo, ['rev-parse', 'HEAD']),
     })
     const reviewerExec = { agent: { id: 'agent-reviewer' } }
     await assert.rejects(

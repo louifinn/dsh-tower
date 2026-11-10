@@ -62,6 +62,48 @@ export function assertMissionActor(mission, actor, input) {
 }
 
 /**
+ * Mark a mission blocked from a machine-derived failure (a merge or rebase
+ * conflict). `blocked` is derived from open blockers, so the blocker is recorded
+ * with the status in one write path; no caller assigns the status directly
+ * (#149 W3). Repeating the same failure does not duplicate the blocker.
+ * @param {Mission} mission
+ * @param {string} blocker
+ * @param {number} [now]
+ * @returns {Mission}
+ */
+export function markBlocked(mission, blocker, now = Date.now()) {
+  if (typeof blocker !== 'string' || blocker.trim().length === 0) fail('a blocker must be a non-empty string')
+  const text = blocker.trim()
+  const blockers = /** @type {string[]} */ (mission.blockers)
+  if (!blockers.includes(text)) blockers.push(text)
+  mission.status = 'blocked'
+  // A blocker wins over a pause: the human cause is superseded by the failure.
+  delete mission.pauseCause
+  mission.updatedAt = now
+  return mission
+}
+
+/**
+ * Resolve blockers that a successful machine operation has cleared (a rebase
+ * conflict that the retried rebase resolved). Blockers that do not match stay,
+ * and the mission stays blocked while any remain — recovery is always "the
+ * recorded blockers are gone", never a status assignment.
+ * @param {Mission} mission
+ * @param {(blocker: string) => boolean} matches
+ * @param {number} [now]
+ * @returns {boolean} whether any blocker was removed
+ */
+export function resolveBlockers(mission, matches, now = Date.now()) {
+  const blockers = /** @type {string[]} */ (mission.blockers ?? [])
+  const kept = blockers.filter((blocker) => !matches(blocker))
+  if (kept.length === blockers.length) return false
+  mission.blockers = kept
+  if (kept.length === 0 && mission.status === 'blocked') mission.status = 'active'
+  mission.updatedAt = now
+  return true
+}
+
+/**
  * Apply one validated `tower_mission` patch to the mission draft and return
  * the human-readable change list used by the activity log plus the domain
  * events the transition describes.
@@ -83,6 +125,20 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   const events = []
 
   const shape = shapeFor(mission.kind)
+  // W3: `blocked` is derived state, `paused` is a deliberate stop. Clearing the
+  // blockers is what resumes a blocked mission, so it is applied before any
+  // status patch: `{clear_blockers:true,status:"active"}` and
+  // `{clear_blockers:true,status:"completed"}` both describe one coherent step.
+  if (input.clear_blockers === true) {
+    if ((mission.blockers ?? []).length > 0) {
+      mission.blockers = []
+      changes.push('blockers cleared')
+    }
+    if (mission.status === 'blocked') {
+      mission.status = 'active'
+      changes.push('status=active (blocked until the blockers were cleared)')
+    }
+  }
   if (input.status !== undefined) {
     if (typeof input.status !== 'string' || !shape.statuses.includes(input.status)) {
       fail(`unknown mission status "${input.status}" for a ${shape.kind} mission`)
@@ -90,27 +146,58 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     if (input.status === 'merged') {
       fail('merged is recorded only by tower_merge, not by a generic mission patch', 'invalid-transition')
     }
-    if (!shape.canTransition(mission.status, input.status)) {
-      fail(`mission ${mission.id} cannot move from ${mission.status} to ${input.status}`, 'invalid-transition')
+    if (input.status === 'blocked') {
+      fail(
+        'blocked is derived from open blockers: record blocker:"..." instead of setting status "blocked"',
+        'invalid-transition',
+      )
     }
-    if (input.status === 'paused') {
-      mission.pauseCause = normalizePauseCause(input.pause_cause)
+    const openBlockers = mission.blockers ?? []
+    if (mission.status === 'blocked' && input.status !== 'abandoned') {
+      // A blocked mission is resumed by clearing its blockers, never by a
+      // status patch that skips the blocker record (#149 W3).
+      fail(
+        `mission ${mission.id} is blocked (${openBlockers.join('; ')}); clear_blockers resumes it — it cannot move to ${input.status} directly`,
+        'invalid-transition',
+      )
     }
-    if (mission.status === 'paused' && input.status === 'active') {
-      const requireAuthorization = config.mode.requireResumeAuthorization === true
-      if (requireAuthorization && (mission.pauseCause ?? 'user') === 'user') {
-        if (typeof input.authorization !== 'string' || input.authorization.trim().length === 0) {
-          fail('resuming a user-paused mission requires a non-empty authorization reference')
+    if (openBlockers.length > 0 && ['active', 'completed', 'paused'].includes(input.status)) {
+      fail(
+        `mission ${mission.id} has open blockers (${openBlockers.join('; ')}); clear_blockers resumes it — do not move it to ${input.status}`,
+        'invalid-transition',
+      )
+    }
+    // A status patch is a real move: the target must differ and be a legal edge.
+    // `paused` is re-entered only from a different status (a pause cause is
+    // meaningful when the pause begins, not as an in-place metadata edit).
+    // `{clear_blockers:true,status:"active"}` is one coherent resume step: the
+    // clear already moved the mission, so the redundant patch is not a second
+    // transition.
+    const redundantResume =
+      input.clear_blockers === true && input.status === 'active' && mission.status === 'active'
+    if (!redundantResume) {
+      if (!shape.canTransition(mission.status, input.status)) {
+        fail(`mission ${mission.id} cannot move from ${mission.status} to ${input.status}`, 'invalid-transition')
+      }
+      if (input.status === 'paused') {
+        mission.pauseCause = normalizePauseCause(input.pause_cause)
+      }
+      if (mission.status === 'paused' && input.status === 'active') {
+        const requireAuthorization = config.mode.requireResumeAuthorization === true
+        if (requireAuthorization && (mission.pauseCause ?? 'user') === 'user') {
+          if (typeof input.authorization !== 'string' || input.authorization.trim().length === 0) {
+            fail('resuming a user-paused mission requires a non-empty authorization reference')
+          }
+        }
+        if (typeof input.authorization === 'string' && input.authorization.trim()) {
+          mission.authorizationRef = input.authorization.trim()
         }
       }
-      if (typeof input.authorization === 'string' && input.authorization.trim()) {
-        mission.authorizationRef = input.authorization.trim()
-      }
+      mission.status = input.status
+      changes.push(`status=${input.status}`)
+      if (input.status === 'completed') events.push(completedEvent(mission))
+      if (input.status === 'abandoned') events.push(abandonedEvent(mission))
     }
-    mission.status = input.status
-    changes.push(`status=${input.status}`)
-    if (input.status === 'completed') events.push(completedEvent(mission))
-    if (input.status === 'abandoned') events.push(abandonedEvent(mission))
   }
 
   if (input.task_done !== undefined) {
@@ -150,13 +237,16 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     }
     const blockers = /** @type {string[]} */ (mission.blockers)
     blockers.push(input.blocker.trim())
-    mission.status = 'blocked'
+    // W3: a blocker always wins over a pause; the paused cause is superseded and
+    // the mission is blocked until the blockers are cleared.
+    if (mission.status !== 'blocked') {
+      if (!shape.canTransition(mission.status, 'blocked')) {
+        fail(`mission ${mission.id} cannot move from ${mission.status} to blocked`, 'invalid-transition')
+      }
+      if (mission.status === 'paused') delete mission.pauseCause
+      mission.status = 'blocked'
+    }
     changes.push('blocker added')
-  }
-
-  if (input.clear_blockers === true) {
-    mission.blockers = []
-    changes.push('blockers cleared')
   }
 
   if (input.note !== undefined) {

@@ -226,12 +226,14 @@ planned ──spawn worker──▶ active ──tower_complete──▶ complet
    │                        │  ▲                         │
    │                        │  └──── review round not clean ────┐
    └── abandon ──▶ abandoned│                                   │
-                            ├── blocker ──▶ blocked ──active/completed──▶ ...
+                            ├── blocker ──▶ blocked ──clear_blockers──▶ active
                             └── pause ─────▶ paused ──active──▶ ...
 ```
 
-`merged` and `abandoned` are terminal. `tower_mission` may set `blocked → completed`; `merged` is only
-set by `tower_merge`/reconciliation.
+`merged` and `abandoned` are terminal. `blocked` is derived: it holds exactly while the mission has an open
+blocker, `clear_blockers` resumes it to `active`, and `tower_mission` refuses to set `status: "blocked"` directly.
+`paused` is a deliberate stop (`pause_cause`); a blocker supersedes a pause. `merged` is only set by
+`tower_merge`/reconciliation.
 
 ## Gate pipeline (`tower_preflight`)
 
