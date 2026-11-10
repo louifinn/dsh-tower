@@ -5,6 +5,7 @@
 // resolve a shape through `./index.js` and never compare `mission.kind`.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { hasCheckEvidence } from '../evidence.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
@@ -12,6 +13,28 @@ import { TowerToolError } from '../errors.js'
 
 /** @type {readonly string[]} */
 export const BUILD_STATUSES = Object.freeze(['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned'])
+
+/**
+ * The evidence this shape accepts (#149 W4). A build's discovery receipt is
+ * evidence only for the tip it ran on; a completion check is the caller's
+ * assertion. Both are read through `domain/evidence.js`, never here.
+ * @type {import('../evidence.js').EvidenceContract}
+ */
+export const EVIDENCE = Object.freeze({
+  completionChecks: true,
+  testReceipts: /** @type {const} */ ('tip-bound'),
+})
+
+/**
+ * The build shape's path reach (#149 W4): a build owns the scope it declared,
+ * so every changed path must match it. This is the only place the permission
+ * question is answered; gates and lifecycle rules call domain/scope.js with it.
+ * @type {{ ownsPaths: boolean, fence: 'scope' | 'read-only' }}
+ */
+export const REACH = Object.freeze({
+  ownsPaths: true,
+  fence: /** @type {const} */ ('scope'),
+})
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const BUILD_TRANSITIONS = Object.freeze({
@@ -106,7 +129,7 @@ export function completionBlockers(mission, config = /** @type {TowerConfig} */ 
   if ((mission.blockers ?? []).length > 0) {
     blockers.push({ code: 'blockers-present', detail: (mission.blockers ?? []).join('; ') })
   }
-  if (config.gates?.requireChecks && !(mission.completionReport?.checks ?? []).length) {
+  if (config.gates?.requireChecks && !hasCheckEvidence(EVIDENCE, mission)) {
     blockers.push({
       code: 'no-check-evidence',
       detail: `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`,
@@ -126,13 +149,16 @@ export function dependencySatisfied(dep) {
 
 /**
  * Worker spawn constraints: a build worker gets its own branch and worktree.
- * @type {{ provisioning: 'branch-worktree', missionStatuses: readonly string[], worktree: true, countsTowardWorkerBudget: boolean }}
+ * @type {{ provisioning: 'branch-worktree', missionStatuses: readonly string[], worktree: true, countsTowardWorkerBudget: boolean, model: string }}
  */
 export const spawn = Object.freeze({
   provisioning: /** @type {const} */ ('branch-worktree'),
   missionStatuses: Object.freeze(['planned', 'active', 'completed', 'blocked', 'paused']),
   worktree: /** @type {const} */ (true),
   countsTowardWorkerBudget: true,
+  // Optional model route slot: config.spawn.<model>Model. The shape supplies the
+  // fact; the role contract decides whether it is used.
+  model: 'worker',
 })
 
 /**
@@ -204,11 +230,12 @@ export const buildShape = Object.freeze({
   canMerge: true,
   canRebase: true,
   provisioning: /** @type {const} */ ('branch-worktree'),
-  ownsScope: true,
+  reach: REACH,
   // Document dimensions this shape owns; the state validator reads these.
   fields: Object.freeze({ worktree: true, readCommit: false, merge: true, sandbox: false }),
   requiredComponent: null,
   acceptsResult: false,
+  evidence: EVIDENCE,
   planFields,
   completion: Object.freeze({
     requiresWorktree: true,

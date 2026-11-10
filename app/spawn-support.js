@@ -1,7 +1,7 @@
 // tower_spawn support (#56 P3c): briefing assembly, agent options, and the
 // wait/result settling path. Split out of tools/spawn.js; no I/O of its own.
 import { shapeFor } from '../domain/shapes/index.js'
-import { isReviewerRole, isWorkerRole } from '../domain/vocabulary.js'
+import { roleBriefingKind, rolePlacement } from '../domain/roles.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
 
 /**
@@ -13,12 +13,14 @@ import { workerBriefing, reviewerBriefing } from './briefing.js'
  * @param {{ role: string, context: any, missionId: string, name: string, worktreeRoot?: string, includeDirtyBase?: boolean, instructions?: string }} input
  */
 export async function provisionSpawnPlacement(tower, { role, context, missionId, name, worktreeRoot, includeDirtyBase, instructions }) {
-  const reviewer = isReviewerRole(role)
+  // #149 W4: the role contract decides the placement; the shape supplies the
+  // mission provisioning facts it does not own.
+  const reviewCheckout = rolePlacement(role) === 'review-checkout'
   const shape = shapeFor(context.mission.kind)
-  const provisioned = reviewer
+  const provisioned = reviewCheckout
     ? null
     : await tower.provision({ missionId, worktreeRoot, includeDirtyBase: includeDirtyBase !== false })
-  const review = reviewer
+  const review = reviewCheckout
     ? await tower.provisionReviewCheckout({ missionId, name, worktreeRoot })
     : null
   const mission = review ? review.mission : provisioned.mission
@@ -81,7 +83,7 @@ export function buildSpawnBriefing({ role, towerRoot, context, worktree, review 
     findings: context.findings,
     completionReport: context.completionReport,
   }
-  return isWorkerRole(role) ? workerBriefing(briefing) : reviewerBriefing(briefing)
+  return roleBriefingKind(role) === 'reviewer' ? reviewerBriefing(briefing) : workerBriefing(briefing)
 }
 
 /**

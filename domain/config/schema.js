@@ -80,7 +80,7 @@ const SECTION_KEYS = {
   // tower-survey row is the switch; the placement decides whether write/shell
   // side effects are rejected (shared) or absorbed by a disposable checkout.
   survey: ['sandbox'],
-  tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
+  tests: ['admission', 'timeoutMs', 'maxBytes', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'requireFreshSurvey', 'maxReportBytes'],
   docs: ['boardLocation'],
   archive: ['afterDays', 'maxMissions'],
@@ -275,7 +275,6 @@ export const Config = Schema.object({
       .description('Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test).'),
     timeoutMs: Schema.natural().min(1000).max(1800000).default(60000).description('Per discovery command timeout.'),
     maxBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(16 * 1024 * 1024).description('Maximum captured stdout bytes per command.'),
-    autoChecks: Schema.boolean().default(true).description('Attach a tests check to the completion report when discovery runs.'),
     allowPackageDiscovery: Schema.boolean()
       .default(true)
       .description('Allow package.json tower.testDiscovery commands from the mission worktree (executes repository code; see security docs).'),
@@ -285,7 +284,7 @@ export const Config = Schema.object({
   gates: Schema.object({
     requireChecks: Schema.boolean()
       .default(false)
-      .description('Require at least one completion check (tower_complete.checks) before a mission can merge.'),
+      .description('Require at least one recorded check (tower_complete.checks) or test-discovery receipt before a mission can merge.'),
     requireTests: Schema.boolean()
       .default(false)
       .description('Require a passing test-discovery receipt for the reviewed worktree tip before merge.'),

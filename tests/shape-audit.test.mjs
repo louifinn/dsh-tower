@@ -133,6 +133,66 @@ test('the W3 owner modules are exempt and every other layer is not', () => {
   }
 })
 
+test('the W4 fitness rules fail on a seeded fixture', () => {
+  const violations = inspectSource(
+    [
+      'const checks = mission.completionReport?.checks ?? []',
+      'const runs = mission.testRuns',
+      "if (snapshot.format === 'tower-codex') return",
+      'for (const id of snapshot.pausedIds) ids.add(id)',
+      'const out = mission.scope.some((glob) => fileInScope(glob, file))',
+      'const canReview = isReviewerRole(role) && shape.canMerge',
+      // Legitimate forms the rules must not flag:
+      "const found = findEvidence(contract, mission, 'check')",
+      'const fence = scopeFenceBlocker({ mission, reach: shape.reach, changedFiles })',
+      'const contract = roleContract(role)',
+    ].join('\n'),
+  )
+  const rules = violations.map((violation) => violation.rule)
+  assert.deepEqual(rules.sort(), [
+    'evidence-single-read',
+    'evidence-single-read',
+    'legacy-vocabulary',
+    'legacy-vocabulary',
+    'role-shape-conflation',
+    'scope-reach',
+  ])
+  for (const violation of violations) {
+    assert.match(violation.detail, /^line [1-6]:/)
+  }
+})
+
+test('the W4 owner modules are exempt and every other layer is not', () => {
+  const exempt = fixtureRepo()
+  try {
+    exempt.write('domain/evidence.js', 'export const runs = (mission) => mission.testRuns\n')
+    exempt.write('adapters/legacy.js', "export const format = 'tower-codex'\nexport const paused = (snapshot) => snapshot.pausedIds\n")
+    exempt.write('domain/scope.js', 'export const fence = (mission, file) => fileInScope(mission.scope, file)\n')
+    exempt.write('domain/roles.js', 'export const canReview = (role, shape) => isReviewerRole(role) && shape.canMerge\n')
+    exempt.write('app/recording.js', 'export const record = (mission, receipt) => mission.testRuns.push(receipt)\n')
+    exempt.write('domain/summary.js', 'export const summary = (mission) => mission.testRuns\n')
+    exempt.write('domain/state/schema.js', 'export const check = (mission) => mission.testRuns !== undefined\n')
+    const result = evaluator(exempt.dir)
+    assert.equal(result.ok, true, result.errors.join('\n'))
+  } finally {
+    removeTemp(exempt.dir)
+  }
+
+  const violating = fixtureRepo()
+  try {
+    violating.write('app/checks.js', 'export const checks = (mission) => mission.testRuns\n')
+    violating.write('app/import.js', "export const format = 'tower-codex'\n")
+    violating.write('app/fence.js', 'export const owns = (mission) => mission.ownsScope\n')
+    violating.write('app/spawn.js', 'export const canReview = (role, shape) => isReviewerRole(role) && shape.canMerge\n')
+    const result = evaluator(violating.dir)
+    assert.equal(result.ok, false)
+    const rules = result.violations.map((violation) => violation.rule).sort()
+    assert.deepEqual(rules, ['evidence-single-read', 'legacy-vocabulary', 'role-shape-conflation', 'scope-reach'])
+  } finally {
+    removeTemp(violating.dir)
+  }
+})
+
 test('a waiver needs a reason and an owner/ref; a stale waiver fails', () => {
   const violations = [{ path: 'app/gate.js', rule: 'kind-literal', detail: 'line 1: kind === survey' }]
   const applied = applyWaivers(violations, [])

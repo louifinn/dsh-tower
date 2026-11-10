@@ -115,7 +115,6 @@ const testsArb = fc.record(
     admission: fc.constantFrom('spawn', 'complete', 'off'),
     timeoutMs: fc.integer({ min: 1000, max: 1_800_000 }),
     maxBytes: fc.integer({ min: 1024, max: 16 * 1024 * 1024 }),
-    autoChecks: fc.boolean(),
     allowPackageDiscovery: fc.boolean(),
   },
   { requiredKeys: [] },

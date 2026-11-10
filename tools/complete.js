@@ -38,11 +38,10 @@ export function registerCompleteTool(ctx, deps) {
         if (discovery.configured && discovery.receipt.ok !== true) {
           throw new TowerToolError('tests-failed', `test discovery failed for ${args.missionId}: ${discovery.receipt.error}`)
         }
-        if (discovery.configured && testsConfig.autoChecks !== false && discovery.check) {
-          if (checks.length >= 20) checks[19] = discovery.check
-          else checks.push(discovery.check)
-        }
       }
+      // #149 W4: the receipt already lives in mission.testRuns and is read by
+      // domain/evidence.js. Copying a `tests` projection into the completion
+      // report would be a second evidence shape, so it is not done here.
       return tower.complete({
         missionId: args.missionId,
         agentId: String(exec.agent.id),

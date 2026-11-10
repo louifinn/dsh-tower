@@ -107,6 +107,13 @@ sandbox preset is an internal child of it, so the visible component count does
 not move (12). `spawn.surveyPreset` stays removed: the shape resolves the preset
 from `survey.sandbox`, so the key could still only disagree with the registry.
 
+#149 W4 contracts the config surface by one: config keys 57 → 56. `tests.autoChecks`
+only chose whether a discovery projection was copied into the completion report,
+and that copy was the second evidence shape the W4 audit removed. The receipt in
+`mission.testRuns` is the one evidence record now, so the switch had no meaning
+left; it is deleted rather than kept as a dead tuning key. Sections and the
+visible component count do not move.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -155,7 +162,6 @@ from `survey.sandbox`, so the key could still only disagree with the registry.
 | `tests.admission` | core | Chooses when repository code is executed. |
 | `tests.timeoutMs` | tuning | Per-command discovery timeout. |
 | `tests.maxBytes` | tuning | Captured discovery output cap. |
-| `tests.autoChecks` | tuning | Attaches a tests check to completion. |
 | `tests.allowPackageDiscovery` | core | Allows repository code to execute; a security contract. |
 | `gates.requireChecks` | core | Requires completion evidence before merge. |
 | `gates.requireTests` | core | Requires a test receipt before merge. |

@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { importLegacySnapshot, validateLegacyMap, validateLegacySnapshot } from '../adapters/legacy.js'
+import { LEGACY_FORMATS, importLegacySnapshot, validateLegacyMap, validateLegacySnapshot } from '../adapters/legacy.js'
 
 const HASH = 'a'.repeat(64)
 
@@ -163,6 +163,47 @@ test('validateLegacySnapshot: empty mission lists infer the format from top-leve
   assert.equal(dsh.format, 'dsh')
 })
 
+test('validateLegacySnapshot: declared remaps are applied and reported, never silently invented', () => {
+  const payload = codexSnapshot()
+  payload.missions.push({ id: 'T0004', title: 'retired', kind: 'build', status: 'retired', scope: [], tasks: [], deps: [], reviews: [] })
+  const result = validateLegacySnapshot(payload)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.missions.find((mission) => mission.id === 'T0004'), { id: 'T0004', status: 'abandoned', kind: 'build' })
+  assert.deepEqual(result.remapped, [{ missionId: 'T0004', field: 'status', from: 'retired', to: 'abandoned' }])
+  assert.ok(!result.paused.includes('T0004'), 'a remapped status is not paused')
+})
+
+test('validateLegacySnapshot: an unrecorded kind is reported as an assumption, never invented silently', () => {
+  const payload = dshSnapshot()
+  delete payload.missions[0].kind
+  const result = validateLegacySnapshot(payload)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.missions[0], { id: 'M1', status: 'paused', kind: 'build' })
+  assert.deepEqual(result.unresolved, [{ missionId: 'M1', field: 'kind', reason: 'legacy mission has no kind; assumed build' }])
+})
+
+test('validateLegacySnapshot: one payload is exactly one legacy format', () => {
+  const mixed = codexSnapshot()
+  mixed.missions[0] = { ...mixed.missions[0], id: 'M1' }
+  assert.match(validateLegacySnapshot(mixed).error, /mixes mission id namespaces/)
+
+  const declared = { ...codexSnapshot(), format: 'dsh' }
+  assert.match(validateLegacySnapshot(declared).error, /unsupported id "T0001" \(expected M#\)/)
+
+  const badFormat = { ...codexSnapshot(), format: 'other' }
+  assert.match(validateLegacySnapshot(badFormat).error, /unsupported legacy format "other"/)
+
+  assert.equal(validateLegacySnapshot({ ...codexSnapshot(), format: 'tower-codex' }).ok, true)
+})
+
+test('LEGACY_FORMATS: one declared contract per accepted legacy format', () => {
+  assert.deepEqual(Object.keys(LEGACY_FORMATS), ['tower-codex', 'dsh'])
+  assert.deepEqual(LEGACY_FORMATS['tower-codex'].statusRemap, { retired: 'abandoned' })
+  assert.deepEqual(LEGACY_FORMATS.dsh.statusRemap, {})
+  assert.equal(LEGACY_FORMATS['tower-codex'].baseBranchField, 'baseBranch')
+  assert.equal(LEGACY_FORMATS.dsh.baseBranchField, 'base')
+})
+
 test('validateLegacySnapshot: malformed payloads return {ok:false,error} instead of throwing', () => {
   const cases = [
     { payload: null, error: /JSON object/ },
@@ -247,10 +288,15 @@ test('importLegacySnapshot: writes exact bytes to the hash-addressed legacy stor
       missionIds: ['T0001', 'T0002', 'T0003'],
       missionCount: 3,
       pausedMissionIds: ['T0001'],
+      unresolved: [],
+      droppedFields: ['deps', 'mergedCommit', 'pauseCause', 'reviews', 'scope', 'scopeGeneration', 'tasks', 'title'],
+      remapped: [],
       bytes: raw.length,
       importedAt: first.snapshot.importedAt,
     })
     assert.ok(Number.isFinite(first.snapshot.importedAt))
+    assert.deepEqual(first.summary.dropped.map((entry) => entry.field), first.snapshot.droppedFields)
+    assert.match(first.summary.dropped[0].reason, /not carried into the summary/)
 
     // Importing the same bytes again is idempotent, not a duplicate error.
     const again = await importLegacySnapshot({ repoRoot: repo, commonDir, sourcePath: source })

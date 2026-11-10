@@ -99,9 +99,8 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 | `tests.admission` | `off` | `spawn` 在启动 worker 前运行发现（fail-closed，不启动子代理）；`complete` 在 `tower_complete` 时运行；`off` 只在显式 `tower_test` 时运行（默认；不会自动执行仓库代码）。 |
 | `tests.timeoutMs` | `60000` | 每条发现命令的超时。 |
 | `tests.maxBytes` | `16777216`（16 MiB） | 每条命令捕获的 stdout 上限。 |
-| `tests.autoChecks` | `true` | 向完成报告附加自动 `tests` 检查。 |
 | `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
-| `gates.requireChecks` | `false` | 合并前要求至少一条 `tower_complete.checks` 证据（`no-check-evidence`）。 |
+| `gates.requireChecks` | `false` | 合并前要求至少一条已记录检查（`tower_complete.checks`）或测试回执（`no-check-evidence`）。 |
 | `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。`tower-tests` 组件行关闭时，规划/进入模式会带解释拒绝该组合。 |
 | `gates.allowReviewExemption` | `false` | 在 `review.mode:required` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；`review.mode` 为 `off` 或 `optional` 时无影响（不会产生审查 blocker）。 |
 | `gates.maxReportBytes` | `32768`（32 KiB） | `tower_complete.report` 的 UTF-8 字节硬上限。超出时以 `invalid-argument` 拒绝并给出可执行的 `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。已存在的超限报告仍可读取。 |

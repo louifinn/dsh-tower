@@ -3,7 +3,8 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
 import { defaultPresetFor, shapeFor } from '../domain/shapes/index.js'
-import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OUTCOME, isCompletedStopReason, isReviewerRole, isSpawnAdmission, isWorkerRole } from '../domain/vocabulary.js'
+import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OUTCOME, isCompletedStopReason, isSpawnAdmission } from '../domain/vocabulary.js'
+import { resolveRoleSpawn, roleSpawnDiscovery } from '../domain/roles.js'
 import {
   assertSpawnableMission,
   precheckSpawnServices,
@@ -35,9 +36,13 @@ export function registerSpawnTool(ctx, deps) {
       const shape = shapeFor(context.mission.kind)
       // #148 W2: the shape resolves its preset from tuning config, so a detached
       // survey gets the sandbox preset and a shared survey stays read-only.
+      // #149 W4: role resolution (preset row, model route, placement, briefing)
+      // is one contract, orthogonal to the shape that supplies the facts.
       const shapePreset = defaultPresetFor(context.mission.kind, config, context.mission)
-      const preset = isReviewerRole(role) ? config.spawn.reviewerPreset : (shapePreset ?? config.spawn.workerPreset)
-      const model = isReviewerRole(role) ? config.spawn.reviewerModel : shape.fields.readCommit ? config.spawn.surveyModel : config.spawn.workerModel
+      const roleSpawn = resolveRoleSpawn(role, { config, shape, shapePreset })
+      if (!roleSpawn) throw new TowerToolError('invalid-argument', `role must be one of ${ROLE_ENUM.join('|')}`)
+      const preset = roleSpawn.preset
+      const model = roleSpawn.model
       const spawned = await enqueueSpawn(tower.root, async () => {
         const observed = await observeActivity(ctx, tower)
         await tower.reconcileObservedInactive(observed.activity)
@@ -66,7 +71,7 @@ export function registerSpawnTool(ctx, deps) {
         })
         const agentOptions = buildAgentOptions(model)
 
-        if (shape.fields.worktree && isWorkerRole(role) && isSpawnAdmission(tower.config.tests?.admission)) {
+        if (roleSpawnDiscovery(role, shape) && isSpawnAdmission(tower.config.tests?.admission)) {
           const discovery = await runMissionDiscovery(tower, mission)
           if (discovery.configured && discovery.receipt.ok !== true) {
             throw new TowerToolError(

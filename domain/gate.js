@@ -1,6 +1,7 @@
 // Pure completion gate checks (#49). No repository I/O.
 // @ts-check
 import { shapeFor } from './shapes/index.js'
+import { passingDiscovery } from './evidence.js'
 import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
 /** @typedef {import('../types/index.js').Blocker} Blocker */
@@ -88,8 +89,11 @@ export function mergeGateBlockers({
     push('worker-stale', `stale worker(s) for ${mission.id}: ${staleWorkers.map((row) => row.name).join(', ')}; adopt or interrupt before merge`)
   }
   if (config.gates?.requireTests === true) {
-    const runs = (mission.testRuns ?? []).filter((run) => run.ok === true && run.treeTip && branchTip && run.treeTip === branchTip)
-    if (runs.length === 0) {
+    // #149 W4: the receipt question is answered by the one evidence reader, not
+    // by a second filter here. The shape decides whether a receipt appertains;
+    // a receipt is evidence only for the tip it ran on.
+    const receipt = passingDiscovery(shapeFor(mission.kind).evidence, mission, branchTip)
+    if (!receipt) {
       // #140: name the component cause when the row is off. Without this the
       // blocker reads as a repository mistake ("no passing discovery") when the
       // real cause is a disabled row and no tower_test tool exists to produce a

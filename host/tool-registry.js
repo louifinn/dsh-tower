@@ -511,16 +511,9 @@ async function runMissionDiscovery(tower, mission) {
     diagnosticsDir: path.join(tower.paths.dir, 'test-runs', `${mission.id}-${Date.now()}`),
   })
   const stored = await tower.recordTestRun({ missionId: mission.id, receipt })
-  const commands = Array.isArray(stored.commands) ? stored.commands : []
-  const check = {
-    name: 'tests',
-    command: commands.map((command) => `${command.id}: ${command.command}`).join('; ') || 'tower.testDiscovery',
-    exitCode: commands.every((command) => command.exitCode === 0) ? 0 : (commands.find((command) => command.exitCode !== 0)?.exitCode ?? 1),
-    evidence: stored.ok
-      ? `${stored.tests?.length ?? 0} test(s) passed at ${String(stored.treeTip ?? '').slice(0, 12)}; receipt ${stored.receiptPath ?? stored.diagnosticsPath}`
-      : `test discovery failed: ${String(stored.error ?? 'unknown').slice(0, 300)}`,
-  }
-  return { configured: true, receipt: stored, check }
+  // #149 W4: the recorded receipt is the only evidence shape. Consumers read it
+  // through domain/evidence.js; there is no separate `check` projection.
+  return { configured: true, receipt: stored }
 }
 
 async function observeActivity(ctx, tower) {
