@@ -28,6 +28,12 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
   `mode.allowAgentControl:true` (the default), the model may also enter/leave with `tower_control` and
   a mandatory reason; every change records actor/reason. Set it to `false` for human-only mode control.
   The point is an attributable change, not a particular owner.
+- **Ownership handoff is explicit and audited.** A new session can claim an initialized repository with
+  `/tower takeover <reason>` (human command, always available) or, from Tower mode, by asking the human
+  through `tower_control({action:"takeover"})`. The transfer is refused while the owner is live, while
+  live roster agents exist, or while a foreign workspace lock is held; it records one `takeover`
+  activity line and preserves history and unread messages. It is same-user coordination, not
+  authentication, and there is no automatic ownership release.
 - **No automatic goal resume.** Entering pauses the active goal; leaving does not resume it.
 - **Advisory workspace lock.** `mode.workspaceLock` prevents two Tower sessions from accidentally driving
   one repository; it is a same-user coordination lock, not authentication between users.

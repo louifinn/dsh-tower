@@ -254,6 +254,17 @@ export function ownerClaimActivityText(caller) {
 }
 
 /**
+ * Activity line for an explicit, audited ownership transfer.
+ * @param {{ from: string | null, to: string, reason: string }} input
+ * @returns {string}
+ */
+export function takeoverActivityText({ from, to, reason }) {
+  return from
+    ? `tower owner transferred from ${from} to ${to}: ${reason}`
+    : `tower owner claimed by ${to} (takeover): ${reason}`
+}
+
+/**
  * @param {string} base
  * @returns {string}
  */

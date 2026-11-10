@@ -35,6 +35,7 @@ app/merge.js
 app/messages.js
 app/mission.js
 app/missionContext.js
+app/ownership.js
 app/plan.js
 app/provision.js
 app/read.js
@@ -173,6 +174,7 @@ host/doctor.js
 host/hmr.js
 host/modeState.js
 host/modeStore.js
+host/ownership.js
 host/preset-reviewer.js
 host/preset-survey-sandbox.js
 host/preset-survey.js

@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 36 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 39 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -38,6 +38,9 @@
 | `review-disabled` | 审查被 `review.mode:off` 关闭；该配置下没有 reviewer、审查结论或审查 blocker。 | `review.mode` 为 `off` 时以 `role:"reviewer"` 调用 `tower_spawn`，或提交审查 |
 | `not-authorized` | 调用方 agent 角色无权执行该操作。 | worker 调用仅限控制塔的工具，或修改 mission 状态/scope；reviewer 修改 finding |
 | `workspace-busy` | 另一个 Tower 会话持有该仓库的 workspace 锁。 | `mode.workspaceLock:true` 时第二个会话调用仓库级工具 |
+| `owner-live` | 当前 Tower 属主仍在活动，无法转移所有权。 | 旧属主 Tower 模式仍开启且持有活动 workspace 锁时执行 takeover |
+| `owner-busy` | 仍有活动的 roster Agent 或外部 workspace 锁，阻止所有权转移。 | 有运行中的 worker，或另一个会话持有 workspace 锁时执行 takeover |
+| `approval-unavailable` | 所有权转移所需的人类批准通道不可用。 | 没有 userQuestions 服务的 profile 中调用 `tower_control({action:"takeover"})` |
 | `worker-limit` | 仓库达到 `spawn.maxLiveWorkers` 个活跃 worker。 | 默认上限下 spawn 第五个 worker |
 | `rate-limited` | 达到 `tower_send` 的每分钟速率限制。 | 超出 `send.maxPerMinute`；稍后重试 |
 | `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |

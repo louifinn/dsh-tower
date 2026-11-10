@@ -16,6 +16,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 ## 特性
 
 - **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_control` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
+- **显式的所有权交接。** 仓库状态绑定初始化它的会话。旧会话结束后，新会话可用 `/tower takeover <原因>` 接管（人类命令，任何配置都可用）；模型也可在 Tower 模式中通过 `tower_control({action:"takeover"})` 请求接管，但必须得到用户明确批准。旧属主仍活跃、仍有运行中的 roster Agent 或外部工作区锁时会拒绝；交接保留全部历史与未读消息，并写入一条 `takeover` 活动记录，不会自动释放所有权。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
 - **两种 mission 形状，一个注册表。** 每个 mission 是 `build` 或 `survey`，其状态、完成证据、
   供给方式、路径权限与 spawn 契约都由 shape 拥有，不再散落 `if (kind === …)` 分支。survey 只读：

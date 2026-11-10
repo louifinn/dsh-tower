@@ -4,6 +4,15 @@
 
 ## 未发布（Unreleased）
 
+### 新增
+
+- **#154 显式的 Tower 所有权交接**：旧会话结束后，新会话可用 `/tower takeover <原因>` 接管仓库；
+  模型也可在 Tower 模式中通过 `tower_control({action:"takeover"})` 发起，但必须得到用户明确批准。
+  旧属主仍活跃、仍有运行中的 roster Agent 或存在外部 workspace 锁时拒绝（`owner-live` / `owner-busy`）。
+  交接保留全部 mission、review、finding 与未读消息，写入一条 `takeover` 活动记录，并清理旧属主遗留的
+  workspace 锁；不会自动释放所有权。`tower_status` / `tower_doctor` 现在报告当前属主及可接管状态，
+  非属主写入错误会给出当前属主和接管命令。
+
 ## 2.7.0（2026-11-10）
 
 ### 新增

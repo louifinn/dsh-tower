@@ -15,10 +15,11 @@ import { reviewPolicyView } from '../domain/integration/review.js'
  *   spawnBackoffView: any,
  *   observeActivity: any,
  *   componentReport: (ctx: any) => Promise<{ enabled: string[], disabled: Array<{ id: string, reason: string }> }>,
+ *   ownershipView?: (ctx: any, tower: any, exec: any) => Promise<any>,
  * }} deps
  */
 export function registerStatusTool(ctx, deps) {
-  const { define, workspaceHook, spawnBackoffView, observeActivity, componentReport } = deps
+  const { define, workspaceHook, spawnBackoffView, observeActivity, componentReport, ownershipView } = deps
   define(ctx, {
     name: 'tower_status',
     description:
@@ -35,6 +36,7 @@ export function registerStatusTool(ctx, deps) {
       const boardPath = tower.boardFile()
       const mode = workspaceHook?.modeInfo?.(exec) ?? null
       const statusState = await tower.load()
+      const ownership = (await ownershipView?.(ctx, tower, exec)) ?? null
       const inflight = (statusState.roster ?? []).filter(
         (entry) => isWorkerRole(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state) && !isReservedState(entry.state),
       ).length
@@ -58,6 +60,7 @@ export function registerStatusTool(ctx, deps) {
           spawn,
           review,
           components,
+          ownership,
         }
       }
       const state = await tower.load()
@@ -104,6 +107,7 @@ export function registerStatusTool(ctx, deps) {
         spawn,
         review,
         components,
+        ownership,
       }
       if (isMarkdownFormat(args.format)) {
         const state = await tower.load()

@@ -14,6 +14,9 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
+import { Tower } from './host/tower.js'
+import { readOwnership, performTakeover } from './host/ownership.js'
+import { takeoverQuestionDetail } from './app/ownership.js'
 import { loadModes, saveModes, storePath } from './host/modeStore.js'
 import { ModeState } from './host/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './host/config.js'
@@ -76,6 +79,17 @@ function agentKey(agent) {
   return key === undefined || key === null ? null : String(key)
 }
 
+/** The session's working directory; DSH keeps it in the session header. */
+function agentCwd(agent) {
+  return agent?.session?.header?.cwd ?? agent?.cwd ?? null
+}
+
+async function openTowerFor(agent) {
+  const cwd = agentCwd(agent)
+  if (!cwd) throw new TowerToolError('invalid-argument', 'this command needs a session with a working directory')
+  return Tower.open(cwd, createDefaultDeps())
+}
+
 function configSection(config, allowAgentControl) {
   const configured = config.mode.promptSection && config.mode.promptSection.trim().length > 0
     ? config.mode.promptSection
@@ -97,6 +111,8 @@ function persistModes() {
 /** Parse `/tower` arguments: bare and free text both mean "ensure on". */
 function parseTowerInput(rawInput) {
   const raw = String(rawInput ?? '').trim()
+  const takeover = /^takeover(?:\s+([\s\S]+))?$/i.exec(raw)
+  if (takeover) return { action: 'takeover', reason: (takeover[1] ?? '').trim() }
   if (/^reload$/i.test(raw)) return { action: 'reload' }
   const match = /^(on|off)(?:\s+([\s\S]*))?$/i.exec(raw)
   if (match) return { action: 'mode', active: match[1].toLowerCase() === 'on', message: (match[2] ?? '').trim() }
@@ -483,12 +499,16 @@ export function apply(ctx, rawConfig) {
       ctx.tools.register({
         name: 'tower_control',
         description:
-          'Enter or leave Tower mode for the calling agent. Allowed only when the deployment enables allowAgentControl; use it when the user intent or task state clearly calls for Tower orchestration or a return to normal collaboration, and always state a concrete reason.',
+          'Enter, leave, or take over Tower mode for the calling agent. `takeover` transfers repository ownership from an inactive owner to this session after explicit user approval. Allowed only when the deployment enables allowAgentControl; use it when the user intent or task state clearly calls for Tower orchestration or a return to normal collaboration, and always state a concrete reason.',
         parameters: {
           type: 'object',
           properties: {
-            action: { type: 'string', enum: ['enter', 'exit'], description: 'enter = Tower mode on; exit = Tower mode off.' },
-            reason: { type: 'string', description: 'Why this mode change is warranted (user intent or task state).' },
+            action: {
+              type: 'string',
+              enum: ['enter', 'exit', 'takeover'],
+              description: 'enter = Tower mode on; exit = Tower mode off; takeover = transfer repository ownership to this session after approval.',
+            },
+            reason: { type: 'string', description: 'Why this mode change or ownership transfer is warranted (user intent or task state).' },
           },
           required: ['action', 'reason'],
           additionalProperties: false,
@@ -498,11 +518,17 @@ export function apply(ctx, rawConfig) {
             type: 'object',
             properties: {
               ok: { type: 'boolean' },
-              action: { type: 'string', enum: ['enter', 'exit'] },
+              action: { type: 'string', enum: ['enter', 'exit', 'takeover'] },
               mode: { type: 'string', enum: ['on', 'off'] },
               changed: { type: 'boolean' },
               changedBy: { type: 'string', enum: ['agent', 'user'] },
               reason: { type: 'string' },
+              approved: { type: 'boolean' },
+              transferred: { type: 'boolean' },
+              alreadyOwner: { type: 'boolean' },
+              owner: { type: 'string' },
+              previousOwner: {},
+              unreadMessages: { type: 'number' },
               pausedGoal: {},
               goalNote: {},
               error: { type: 'string' },
@@ -519,6 +545,79 @@ export function apply(ctx, rawConfig) {
             throw new TowerToolError('invalid-argument', 'tower_control requires a non-empty reason')
           }
           const reason = args.reason.trim()
+          if (args.action === 'takeover') {
+            if (!modeOn(key)) {
+              throw new TowerToolError('invalid-transition', 'takeover requires this session to be in Tower mode; run /tower on first')
+            }
+            const tower = await openTowerFor(exec.agent)
+            const facts = await readOwnership(tower, { caller: key })
+            if (facts.snapshot.sameOwner) {
+              return {
+                ok: true,
+                action: 'takeover',
+                approved: true,
+                transferred: false,
+                alreadyOwner: true,
+                owner: key,
+                previousOwner: null,
+                unreadMessages: facts.snapshot.unreadMessages,
+                reason,
+                mode: 'on',
+              }
+            }
+            const blocker = facts.snapshot.blockers[0]
+            if (blocker) throw new TowerToolError(blocker.code, blocker.detail)
+            const questions = ctx.get('userQuestions')
+            if (!questions || typeof questions.ask !== 'function') {
+              throw new TowerToolError(
+                'approval-unavailable',
+                'ownership transfer needs the DSH userQuestions service, which this profile does not expose',
+              )
+            }
+            let answer
+            try {
+              answer = await questions.ask({
+                agent: exec.agent,
+                signal: exec.signal,
+                questions: [
+                  {
+                    id: 'tower-ownership',
+                    header: 'Tower ownership',
+                    question: 'Transfer Tower ownership to this session?',
+                    detail: takeoverQuestionDetail(facts.snapshot, reason),
+                    options: [
+                      { label: 'Transfer ownership', description: 'Make this session the Tower owner; history and unread messages are kept.' },
+                      { label: 'Keep current owner', description: 'Leave ownership unchanged.' },
+                    ],
+                  },
+                ],
+              })
+            } catch (error) {
+              const code = error?.cause?.code ?? error?.code
+              if (code === 'ASK_CANCELLED') {
+                exec.concludeTurn?.()
+                return { ok: true, action: 'takeover', approved: false, cancelled: true, reason, mode: 'on' }
+              }
+              throw error
+            }
+            const list = Array.isArray(answer?.answers) ? answer.answers : Array.isArray(answer) ? answer : []
+            const choice = list.find((item) => item?.id === 'tower-ownership')
+            const selected = Array.isArray(choice?.selected) ? choice.selected : []
+            const approved = selected.length === 1 && selected[0] === 'Transfer ownership' && !choice?.custom
+            if (!approved) {
+              return { ok: true, action: 'takeover', approved: false, transferred: false, reason, mode: 'on', selected }
+            }
+            const result = await performTakeover(tower, { caller: key, reason })
+            return {
+              ...result,
+              ok: true,
+              action: 'takeover',
+              approved: true,
+              changedBy: 'agent',
+              reason,
+              mode: modeOn(key) ? 'on' : 'off',
+            }
+          }
           if (args.action === 'enter' && !modeOn(key)) {
             await assertRuntimePreconditions(ctx, config)
           }
@@ -549,8 +648,8 @@ export function apply(ctx, rawConfig) {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
       name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
-      input: { hint: '[on|off|reload|ack|base <branch>] [message]', attachments: true },
+      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
+      input: { hint: '[on|off|reload|ack|takeover <reason>|base <branch>] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
@@ -584,6 +683,24 @@ export function apply(ctx, rawConfig) {
           return {
             kind: 'success',
             text: `Tower reload scheduled in ${outcome.delayMs}ms (required entries: ${outcome.requiredIds.join(', ')}). If the new code does not appear, restart DSH.`,
+          }
+        }
+        if (parsed.action === 'takeover') {
+          if (!parsed.reason) return { kind: 'error', text: 'Usage: /tower takeover <reason>. The reason is recorded in the activity log.' }
+          try {
+            const tower = await openTowerFor(agent)
+            const result = await performTakeover(tower, { caller: key, reason: parsed.reason })
+            if (result.alreadyOwner) {
+              return { kind: 'success', text: 'This session already owns this repository; no transfer was needed.' }
+            }
+            const previous = result.previousOwner ?? '(none)'
+            return {
+              kind: 'success',
+              text: `Tower ownership transferred from ${previous} to ${result.owner}; ${result.unreadMessages} unread message(s) preserved. Run /tower on to start working in this session.`,
+            }
+          } catch (error) {
+            const code = error?.code ? `[tower:${error.code}] ` : ''
+            return { kind: 'error', text: `${code}${String(error?.message ?? error)}` }
           }
         }
         const { active, message } = parsed

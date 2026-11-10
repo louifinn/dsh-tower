@@ -90,6 +90,7 @@ const SCHEMAS = {
       review: S.any,
       towerAgentId: S.any,
       ownerMissing: S.bool,
+      ownership: S.any,
     },
     ['repoRoot', 'commonDir', 'statePath', 'base', 'revision', 'counts', 'missions', 'activity'],
   ),

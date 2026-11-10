@@ -34,6 +34,16 @@ backup first. **Do not delete `state.lock` or the state directory from this play
 branch still exists; do not delete a branch you have not reviewed. Dirty worktrees require an
 explicit teardown `force` decision.
 
+## A new session is not the Tower owner
+
+Tower tools reject a session that is not `state.towerAgentId` with
+`[tower:not-authorized] ... repository owner is <id>`. When the previous session has finished, run
+`/tower takeover <reason>` in the new session. It is the human path and works even with
+`mode.allowAgentControl:false`. If the previous owner is still live, or live roster agents or a foreign
+workspace lock remain, the takeover refuses with `[tower:owner-live]` / `[tower:owner-busy]`; stop the
+live work first. A model may request the same transfer with `tower_control({action:"takeover"})` after
+the human approves the dialog. Do not delete the state directory to change owners.
+
 ## Reset a repository's Tower state
 
 **Do not delete `<git-common-dir>/dsh-tower/` from this playbook.** That directory contains mission,

@@ -53,7 +53,8 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_rebase` | `missionId`（别名 `id`） | 在 worktree 内把分支 rebase 到基线。worker 运行中或 worktree 脏时拒绝。分支已包含在基线中时返回 `alreadyMerged` 且保持分支不动。 |
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
 | `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
-| `tower_control` | `action`（`enter`/`exit`）、`reason` | 模型主动切换模式；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
+| `tower_control` | `action`（`enter`/`exit`/`takeover`）、`reason` | 模型主动切换模式；`takeover` 在获得用户明确批准后，从已停用的属主转移仓库所有权；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
+| `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
 | `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
 | `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。从不写状态。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
