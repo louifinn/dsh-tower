@@ -527,7 +527,7 @@ export function apply(ctx, rawConfig) {
               transferred: { type: 'boolean' },
               alreadyOwner: { type: 'boolean' },
               owner: { type: 'string' },
-              previousOwner: { type: ['string', 'null'] },
+              previousOwner: {},
               unreadMessages: { type: 'number' },
               pausedGoal: {},
               goalNote: {},
