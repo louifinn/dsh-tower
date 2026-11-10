@@ -228,10 +228,12 @@ per-kind conditional and no second shape table was added.
   `tower_complete` copied from discovery via `tests.autoChecks`,
   `mission.testRuns`, and a separate `gates.requireTests` filter that re-read
   receipts. `domain/evidence.js` now owns the normalized record
-  `{name, source, ok, command, exitCode, evidence, treeTip, latest}` with sources
-  `completionReport` | `testRuns` | `input`, aliases `tests`/`tower_test`, and one
-  ordering (completion checks first, then newest receipts, then caller checks
-  scoped to the mission). `evidenceEntries`, `findEvidence`, `passingDiscovery`,
+  `{names, name, source, ok, command, exitCode, evidence, treeTip, entry}` with
+  sources `completionReport` | `testRuns` | `input`, aliases `tests`/`tower_test`
+  carried in `names`, and one ordering (completion checks first, then newest
+  receipts, then caller checks scoped to the mission) applied by `findEvidence` —
+  precedence and ordering are reader decisions, not fields on the record.
+  `evidenceEntries`, `findEvidence`, `passingDiscovery`,
   `hasCheckEvidence` and `hasTestReceipts` are the only readers; the shapes
   declare the contract (`build.evidence = {completionChecks: true, testReceipts:
   "tip-bound"}`, `survey.evidence = {completionChecks: true, testReceipts:

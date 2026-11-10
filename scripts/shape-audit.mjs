@@ -102,7 +102,7 @@ export const RULE_EXEMPT_PATHS = {
   'blocked-status-write': ['domain/missions/lifecycle.js'],
   'evidence-single-read': ['domain/evidence.js', 'app/recording.js', 'domain/summary.js', 'domain/state/schema.js'],
   'legacy-vocabulary': ['adapters/legacy.js'],
-  'scope-reach': ['domain/scope.js', 'app/tower.js'],
+  'scope-reach': ['domain/scope.js'],
   'role-shape-conflation': ['domain/roles.js'],
 }
 

@@ -88,26 +88,35 @@ const SECTION_KEYS = {
   dev: ['reloadDelayMs', 'reloadRequiredIds'],
 }
 
-// #133/#135: `docs.board` and `archive.enabled` were component-shaped switches
-// hiding in the config form. They are component rows now, so a legacy config
-// keeps failing as an unknown key — with an upgrade note naming the row that
-// replaced it.
-/** @type {Record<string, string>} */
+// #133/#135/#149: a removed key keeps failing as an unknown key — with an
+// upgrade note naming what replaced it. `docs.board` and `archive.enabled`
+// were component-shaped switches hiding in the config form, so their note
+// names the component row. `tests.autoChecks` existed only to copy a discovery
+// projection into the completion report; its replacement is the `testRuns`
+// receipt (whose concrete record path belongs to domain/evidence.js), so the
+// note names the receipt and the one reader instead of a row.
+/** @type {Record<string, { component?: string, note?: string }>} */
 const REMOVED_KEYS = {
-  'docs.board': 'tower-board',
-  'archive.enabled': 'tower-archive',
+  'docs.board': { component: 'tower-board' },
+  'archive.enabled': { component: 'tower-archive' },
+  'tests.autoChecks': {
+    note: 'tests.autoChecks was removed: test evidence is the testRuns receipt read by domain/evidence.js (see docs/adr/0006-mission-shapes.md)',
+  },
 }
 
 /**
- * Upgrade note for a removed component switch, appended to the unknown-key error.
+ * Upgrade note for a removed key, appended to the unknown-key error.
  * @param {string} group
  * @param {string} key
  * @returns {string}
  */
 function removedKeyNote(group, key) {
-  const component = REMOVED_KEYS[`${group}.${key}`]
-  if (!component) return ''
-  return ` — ${group}.${key} was removed: the ${component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  const entry = REMOVED_KEYS[`${group}.${key}`]
+  if (!entry) return ''
+  if (entry.component) {
+    return ` — ${group}.${key} was removed: the ${entry.component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  }
+  return ` — ${entry.note}`
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
