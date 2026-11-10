@@ -4,7 +4,54 @@
 
 ## 未发布（Unreleased）
 
+## 2.7.0（2026-11-10）
+
+### 新增
+
+- **#148 检查任务（survey）成为独立的只读任务形状**：`tower_plan` 接受 `kind: "survey"`，
+  记录 `readCommit` 与 `readDirty`，不创建分支、工作树或提交；完成时要求 HEAD 与记录的提交一致、
+  受版本控制的文件状态不变，并接受可选的结构化结果 `{paths, symbols, notes, plan}`。
+  `tower-survey` 是独立的可选组件行，随包提供只读 preset 与可选的 detached sandbox preset；
+  survey 不占用执行代理并发预算，也不会被要求合并或 rebase。完成的 survey 现在是终态，可归档、
+  满足依赖、不再阻塞 `tower_init --reanchor`，也不再被规划为“未完成工作”。
+- **#148 可写的 detached survey sandbox**：`survey.sandbox: "detached"` 为需要写文件的检查任务
+  提供隔离工作树（无分支，HEAD 固定在 `readCommit`），完成后清理；只读检查仍使用共享检出。
+- **#148 依赖的新鲜度与结果传递**：`survey-stale` 警告在依赖读取落后于当前基准时出现；
+  `gates.requireFreshSurvey: true` 可将它提升为合并阻塞。依赖 briefing 会带上 survey 的
+  `readCommit` 与有界结果（路径/符号/计划/备注）。
+- **#149 形状注册表与维度审计机制**：`domain/shapes/{index,build,survey}.js` 成为任务生命周期的
+  唯一来源；生成式 `docs/reference/shapes.md` 列出 16 个状态维度的裁决、拥有模块与机械规则；
+  `scripts/shape-audit.mjs` 的 12 条规则随 `npm run check` 运行，阻止新的 kind/role 特例与
+  第二套状态词汇。
+- **#149 单一证据读取器**：`domain/evidence.js` 统一读取完成检查、测试发现回执与调用方检查，
+  并保留来源标签；`tower_complete` 不再复制合成 check，`tower_test` 只返回回执。
+- **#149 旧版导入的严格适配器**：`adapters/legacy.js` 声明一种载荷对应一种格式，拒绝混合
+  mission id 命名空间，把 `unresolved` / `dropped` / `remapped` 如实写入摘要与快照记录；导入
+  仍然只读，绝不激活或恢复任务。
+- **#149 形状拥有路径权限**：`shape.reach` 声明 `ownsPaths` 与唯一围栏，`domain/scope.js` 的
+  `scopeFenceBlocker` 成为所有门禁、规划与工作树检查的共同来源。
+- **#149 角色与形状正交**：`domain/roles.js` 的 `ROLE_CONTRACT` 统一解析 spawn、preset、roster、
+  briefing 与预算，不再出现“角色 ∧ 形状”条件；`reviewer` 仍只绑定完成的 build 任务。
+- **#149 审查、批次、租约与阻塞状态的契约化**：reviewer 在记录 commit 的 detached checkout 上
+  审查，裁决绑定该提交；batch 有显式的 `open → closed|abandoned` 生命周期；过期租约需要显式
+  `force` 才能被他人恢复；`blocked` 只由 blockers 派生，不能直接写入。
+
 ### 变更
+
+- **状态 schema 从 v3 直接迁移到 v5**：`state.json` 在首次写入时自动执行 v3 → v4 → v5 迁移，
+  保留预迁移备份并只推进一次 `revision`。v4 为 survey 增加 `readCommit`/`readDirty` 字段、
+  移除 worktree/branch/baseCommit/merge 字段；v5 从 blockers 派生 `blocked` 并规范化 batch 状态。
+  只读加载仍在内存中迁移，不回写文件；计划但从未启动的旧 survey 会用 `state.base` 锚定。
+- **配置面 57 → 56 键**：移除 `tests.autoChecks`。旧配置会收到带迁移说明的
+  `config-unknown-key`，指向 `tower_test` 的 `mission.testRuns` 回执与 `domain/evidence.js`；
+  没有替代开关。可见组件仍为 12 个（内部 4 个），工具仍为 29 个，preset 增至 4 个。
+- **直接写 `blocked` 状态被拒绝**：`tower_mission` 不再接受 `status: "blocked"`；使用
+  `blocker` 报告阻塞，使用 `clear_blockers` 解除。`paused` 与 `blocked` 不再重叠。
+- **survey 的合并/变基/预检/差异动作被明确拒绝**：`tower_merge`、`tower_rebase`、
+  `tower_preflight` 与 `tower_diff` 对 survey 返回可操作的 `invalid-transition`，而不是
+  合成 `tip-moved`/`no-review` 等 build 语义。
+- **PR 模板新增形状/角色问题**，并要求说明是否新增了应属于 shape 的条件；生成的形状参考
+  与 ADR 0006 同步更新。
 
 - **#148/#149 形状注册表 W4：证据、旧版导入、scope 与角色的一次性契约。** `domain/evidence.js`
   成为测试证据的唯一读取者：测试发现回执记录在 `mission.testRuns` 中并按分支 tip 绑定，
@@ -20,6 +67,24 @@
 - **#149 生成的形状参考改为维度清单。** `docs/reference/shapes.md` 现在按 16 个维度列出裁决
   （shape-owned / correctly generic / redesigned）、拥有模块与机械规则；W1–W4 的裁决同时记录在
   ADR 0006 的 W4 附录中。
+
+### 修复
+
+- **完成的 survey 不再死锁管理动作**：`tower_init --reanchor` 不再因一个完成的 survey 被拒绝；
+  survey 可归档并计入 `archive.maxMissions`；规划不再把它算作未完成工作。
+- **survey 完成可正常确认收件箱**：只读与 sandbox preset 现在包含 `tower_inbox`，避免存在未读
+  消息时完成被 `completion.js` 拒绝。
+- **旧版计划中的 survey 可迁移**：当 v2.6.0 的 survey 只有 `kind`、没有 baseCommit/worktree 时，
+  迁移用 `state.base` 与真实 tracked fingerprint 锚定，不再让每次加载都以
+  `state-migration-failed` 失败。
+- **detached sandbox 的 briefing 使用 sandbox 路径**：不再把 `workdir` 指向主检出，并把空 scope
+  说明改为“可写 sandbox”而非“只读检查”。
+- **归档 survey 的依赖证据不再丢失**：归档索引保留有界的 `readCommit` 与结果；依赖 briefing 与
+  `requireFreshSurvey` 在归档后仍能判断新鲜度，不会因缺少证据而失败开放。
+- **已记录的 sandbox 决定完成路径**：`mission.sandbox` 优先于当前配置，避免运行中把 detached 改回
+  `none` 时错误删除 sandbox 或切换完成规则。
+- **review checkout 的陈旧路径可恢复**，teardown 会清理残留的审查检出；survey 不占 build 执行
+  代理预算。
 
 ## 2.6.0（2026-11-01）
 
