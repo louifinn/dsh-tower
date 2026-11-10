@@ -120,7 +120,7 @@ test('2.1 plan: references and review exemption fields round-trip and validate',
   }
 })
 
-test('2.1 discovery: tower_test records a receipt, completion adds the tests check, batch closes', async () => {
+test('2.1 discovery: tower_test records one receipt, completion keeps it out of the report, batch closes', async () => {
   const { root, repo } = makeRepo()
   writeRepoConfig(repo, { tests: { admission: 'complete' } })
   const { ctx, tools } = makeCtx()
@@ -157,7 +157,13 @@ test('2.1 discovery: tower_test records a receipt, completion adds the tests che
       await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: task.text }, workerExec)
     }
     const completed = await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
-    assert.ok(completed.mission.completionReport.checks.some((check) => check.name === 'tests'))
+    // #149 W4: one evidence shape. The receipt stays in mission.testRuns; the
+    // completion report no longer carries a copied `tests` projection.
+    assert.equal(completed.mission.completionReport.checks.some((check) => check.name === 'tests'), false)
+    // The explicit tower_test receipt plus the admission:'complete' run both
+    // live in testRuns; the point is that neither is mirrored into the report.
+    assert.equal(completed.mission.testRuns.length, 2)
+    assert.ok(completed.mission.testRuns.every((run) => run.ok === true))
 
     const created = await call(tools, 'tower_batch', {
       repoRoot: repo,

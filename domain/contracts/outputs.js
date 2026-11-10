@@ -289,7 +289,6 @@ const SCHEMAS = {
       commands: S.arr(S.obj()),
       error: S.str,
       receipt: S.obj(),
-      checks: S.arr(S.obj()),
     },
     ['ok', 'configured'],
   ),

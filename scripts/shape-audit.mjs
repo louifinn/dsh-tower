@@ -8,7 +8,11 @@
 //   - a one-argument isTerminal(...) or one-argument canTransition(...) call,
 //   - reading a review tip from a live worktree HEAD (review evidence is a commit),
 //   - comparing a batch status against a literal outside the batch owner module,
-//   - naming the lease ledger outside the lease adapter.
+//   - naming the lease ledger outside the lease adapter,
+//   - reading completion checks / test receipts outside domain/evidence.js,
+//   - the legacy format/status vocabulary outside adapters/legacy.js,
+//   - owning or re-implementing path permission instead of shape.reach + domain/scope.js,
+//   - combining a role decision with a shape decision outside domain/roles.js.
 //
 // Exemptions live in scripts/architecture-waivers.json under `shapeWaivers` and
 // require a reason plus an owner or a ref, exactly like the architecture gate.
@@ -70,12 +74,36 @@ export const RULES = [
     rule: 'blocked is derived from open blockers; only domain/missions/lifecycle.js writes it.',
     owner: 'domain/missions/lifecycle.js',
   },
+  {
+    id: 'evidence-single-read',
+    rule: 'Completion checks and test receipts have one reader: domain/evidence.js.',
+    owner: 'domain/evidence.js',
+  },
+  {
+    id: 'legacy-vocabulary',
+    rule: 'One live vocabulary: legacy formats/statuses are read only by adapters/legacy.js.',
+    owner: 'adapters/legacy.js',
+  },
+  {
+    id: 'scope-reach',
+    rule: 'Path permission derives from shape.reach through domain/scope.js; no module owns or re-implements it.',
+    owner: 'domain/scope.js',
+  },
+  {
+    id: 'role-shape-conflation',
+    rule: 'A role decision never combines with a shape decision; role facts live in domain/roles.js.',
+    owner: 'domain/roles.js',
+  },
 ]
 /** Rules whose implementation module necessarily names the vocabulary it owns. */
 export const RULE_EXEMPT_PATHS = {
   'batch-status-literal': ['domain/batch.js'],
   'lease-ledger': ['adapters/leases.js'],
   'blocked-status-write': ['domain/missions/lifecycle.js'],
+  'evidence-single-read': ['domain/evidence.js', 'app/recording.js', 'domain/summary.js', 'domain/state/schema.js'],
+  'legacy-vocabulary': ['adapters/legacy.js'],
+  'scope-reach': ['domain/scope.js'],
+  'role-shape-conflation': ['domain/roles.js'],
 }
 
 const KIND_PATTERN = /(?:\bkind\b\s*[!=]==?\s*['"](?:build|survey)['"])|(?:['"](?:build|survey)['"]\s*[!=]==?\s*\bkind\b)/
@@ -87,6 +115,11 @@ const BATCH_STATUS_PATTERN =
   /(?:\bbatch\.status\s*[!=]==?\s*['"](?:open|closed|abandoned|created|active|pending)['"])|(?:['"](?:open|closed|abandoned|created|active|pending)['"]\s*[!=]==?\s*\bbatch\.status\b)/
 const LEASE_LEDGER_PATTERN = /['"](?:leases\.json|leases\.json\.lock|leases\.lock)['"]/
 const BLOCKED_WRITE_PATTERN = /(?:\bstatus\s*=\s*['"]blocked['"])|(?:['"]status['"]\s*:\s*['"]blocked['"])/
+const EVIDENCE_READ_PATTERN = /\bmission\.testRuns\b|\btestRuns\s*[.[]|completionReport\?\.checks|completionReport\.checks/
+const LEGACY_VOCABULARY_PATTERN = /\btower-codex\b|\bpausedIds\b|\bCODEX_(?:STATUSES|ID_RE)\b/
+const SCOPE_FENCE_PATTERN = /\bownsScope\b|\bfileInScope\s*\(/
+const ROLE_SHAPE_PATTERN = /\b(?:isWorkerRole|isReviewerRole|isTowerRole)\s*\(|\bROLE\.(?:worker|reviewer|tower)\b/
+const SHAPE_DECISION_PATTERN = /\bshapeFor\s*\(|\bshape\s*[.[]/
 
 /**
  * Count top-level arguments in a call's argument text.
@@ -149,6 +182,30 @@ export function inspectSource(source) {
       violations.push({
         rule: 'blocked-status-write',
         detail: `${at}: ${line.trim()} — blocked is derived from open blockers: use markBlocked(mission, text)`,
+      })
+    }
+    if (EVIDENCE_READ_PATTERN.test(line)) {
+      violations.push({
+        rule: 'evidence-single-read',
+        detail: `${at}: ${line.trim()} — read evidence through domain/evidence.js (findEvidence/passingDiscovery/hasCheckEvidence)`,
+      })
+    }
+    if (LEGACY_VOCABULARY_PATTERN.test(line)) {
+      violations.push({
+        rule: 'legacy-vocabulary',
+        detail: `${at}: ${line.trim()} — legacy formats/statuses are normalised by adapters/legacy.js; do not introduce a second vocabulary`,
+      })
+    }
+    if (SCOPE_FENCE_PATTERN.test(line)) {
+      violations.push({
+        rule: 'scope-reach',
+        detail: `${at}: ${line.trim()} — path permission is shape.reach through scopeFenceBlocker(); no ownsScope flag or direct matcher`,
+      })
+    }
+    if (ROLE_SHAPE_PATTERN.test(line) && SHAPE_DECISION_PATTERN.test(line)) {
+      violations.push({
+        rule: 'role-shape-conflation',
+        detail: `${at}: ${line.trim()} — resolve the role through domain/roles.js; the shape supplies facts, not role branches`,
       })
     }
     for (const match of line.matchAll(CALL_PATTERN)) {

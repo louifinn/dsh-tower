@@ -124,7 +124,6 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. Tuning exemption: Tuning when the admission check runs inside the optional tower-tests row, which still owns whether test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.timeoutMs` | `optional-config` | Per-command discovery timeout. |
 | `tests.maxBytes` | `optional-config` | Captured discovery output cap. |
-| `tests.autoChecks` | `optional-config` | Attaches a tests check to completion when discovery runs. Tuning exemption: Tuning the default receipt policy inside the optional tower-tests row, which still owns whether any test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.allowPackageDiscovery` | `core` | Allows repository code to execute; a security contract, not a component. |
 | `gates.requireChecks` | `forbidden-to-disable` | Requires completion evidence before merge; a merge gate. |
 | `gates.requireTests` | `forbidden-to-disable` | Requires a test receipt before merge; a merge gate. With the tower-tests row off, planning/mode entry refuse the combination. |

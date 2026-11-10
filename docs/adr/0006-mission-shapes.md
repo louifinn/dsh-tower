@@ -214,3 +214,93 @@ shape: each has one owning module, and each verdict names a fitness rule that
   fails on a seeded violation. `scripts/shape-audit.mjs` exports `RULES`, and
   `scripts/generate-shapes-reference.mjs` refuses to generate if a verdict names
   a rule the audit does not run.
+
+## Addendum: W4 evidence, legacy, scope and role-vs-kind (#149)
+
+W4 audited the four remaining dimensions. Each had no single owner; each got a
+written verdict, one owning module, and a fitness rule that `npm run shape:audit`
+enforces (generated into `docs/reference/shapes.md`). No dimension became a
+per-kind conditional and no second shape table was added.
+
+- **Test receipts / evidence — redesigned to one reader (`domain/evidence.js`).**
+  The same question ("did tests run?") previously had four answers:
+  `mission.completionReport.checks`, a synthetic `tests` check that
+  `tower_complete` copied from discovery via `tests.autoChecks`,
+  `mission.testRuns`, and a separate `gates.requireTests` filter that re-read
+  receipts. `domain/evidence.js` now owns the normalized record
+  `{names, name, source, ok, command, exitCode, evidence, treeTip, entry}` with
+  sources `completionReport` | `testRuns` | `input`, aliases `tests`/`tower_test`
+  carried in `names`, and one ordering (completion checks first, then newest
+  receipts, then caller checks scoped to the mission) applied by `findEvidence` —
+  precedence and ordering are reader decisions, not fields on the record.
+  `evidenceEntries`, `findEvidence`, `passingDiscovery`,
+  `hasCheckEvidence` and `hasTestReceipts` are the only readers; the shapes
+  declare the contract (`build.evidence = {completionChecks: true, testReceipts:
+  "tip-bound"}`, `survey.evidence = {completionChecks: true, testReceipts:
+  false}`) because only a shape with a branch has a tip to bind a receipt to.
+  `gates.requireTests` uses `passingDiscovery`; completion blockers use
+  `hasCheckEvidence`; `tower_batch` validation/summary use `findEvidence`.
+  `tower_complete` no longer copies a `tests` check into the report and
+  `tower_test` returns the receipt only, so the config key `tests.autoChecks`
+  disappears (config surface 57 → 56, recorded in `scripts/surface-baseline.json`
+  and `docs/reference/surface-budget.md`). Fitness rule:
+  `evidence-single-read`, owned by `domain/evidence.js`; mutation tests seed a
+  completion-check read, a `mission.testRuns` read and prove the owner module is
+  exempt.
+- **Legacy import — redesigned to a strict adapter contract
+  (`adapters/legacy.js`).** Import was approximate in four ways: the format was
+  inferred from the first mission id (mixed namespaces were only caught
+  incidentally), an absent `kind` was silently stamped `build`, a Tower Codex
+  `retired` status leaked into the mission summary as if it were a DSH status,
+  and batch exclusion read several hand-written snapshot shapes
+  (`missions`/`snapshot.missions`/`payload.missions`/`pausedIds`). The adapter now
+  exports `LEGACY_FORMATS`: one declared entry per accepted format (id pattern,
+  id hint, input statuses, `statusRemap`, `baseBranchField`,
+  `requiresBaseBranch`). Detection requires exactly one id namespace (a declared
+  `payload.format` is authoritative and validated against the ids); a Codex
+  `retired` status is remapped to `abandoned` and reported in `remapped`; an
+  absent kind is reported in `unresolved` instead of silently invented; mission
+  fields the summary does not carry are reported in `dropped` with the reason
+  that the exact bytes remain in the stored snapshot. The persisted snapshot
+  record gains `unresolved`, `droppedFields` and `remapped`, so the honesty
+  survives a restart. `domain/batch.js` reads only the canonical
+  `pausedMissionIds`. The import remains read-only, byte-exact,
+  hash-addressed and idempotent: it never writes `state.json`, never activates,
+  adopts or resumes a mission, and a paused mission stays paused. Fitness rule:
+  `legacy-vocabulary`, owned by `adapters/legacy.js`; mutation tests prove a
+  second `tower-codex`/`pausedIds` reader fails outside the adapter.
+- **Scope ownership — redesigned to `shape.reach` (`domain/scope.js` +
+  shapes).** The shape flag `ownsScope` lived beside three enforcers (the
+  integration gate, the planner's auto-dependencies, and lifecycle scope
+  widening), each of which read `mission.scope` itself. The shape now declares
+  `reach = { ownsPaths, fence: "scope" | "read-only" }`: a build owns paths and
+  fences changed files against its scope; a survey reaches nothing and is fenced
+  read-only. `domain/scope.js` exports one `scopeFenceBlocker({ mission, reach,
+  changedFiles, caseInsensitive })`; `domain/integration/gate.js` derives the
+  reach from `shapeFor(mission.kind)` and re-exports the existing
+  `outOfScopeBlocker` shape; `domain/missions/plan.js`,
+  `domain/planning.js` and `domain/missions/lifecycle.js` derive
+  `reach.ownsPaths`. `ownsScope` is deleted. Fitness rule: `scope-reach`, owned
+  by `domain/scope.js`; mutation tests seed an `ownsScope` reader and a direct
+  `fileInScope` call.
+- **Role vs kind — redesigned to an orthogonal role contract
+  (`domain/roles.js`).** Spawn resolved a reviewer by combining
+  `isReviewerRole(role)` with `shape.fields.readCommit`/`shape.canMerge`, and
+  presets, prechecks, placement, briefings and the roster each re-derived role
+  facts independently. `domain/roles.js` now owns `ROLE_CONTRACT`, one entry per
+  actor role with `preset`, `model`, `placement`, `briefing`, `tracksMission`,
+  `countsTowardBudget`, `spawnDiscovery` and `requires` (review, canMerge,
+  worktree, status set). `resolveRoleSpawn` returns the preset/model route,
+  `roleMissionBlockers` returns ordered prerequisites, and
+  `roleCountsTowardBudget`, `roleTracksMission`, `rolePlacement`,
+  `roleBriefingKind` and `rolePresetConfig` replace the scattered checks. The
+  shape supplies only facts (`canMerge`, `fields.worktree`, `spawn.model`);
+  `tools/spawn.js`, `app/spawn-prechecks.js`, `app/spawn-support.js`,
+  `domain/roster.js` and `host/presets.js` call the role API and never combine a
+  role predicate with a shape decision. Fitness rule: `role-shape-conflation`,
+  owned by `domain/roles.js`; mutation tests seed a role∧shape conditional and
+  prove the owner module is exempt.
+- The audit now runs 12 rules. The generated reference's `Dimension inventory
+  (#149)` lists every audited dimension with its verdict, owner module and
+  fitness rule; `scripts/generate-shapes-reference.mjs` still refuses to emit a
+  rule id the audit does not run.

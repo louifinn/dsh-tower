@@ -102,15 +102,15 @@ function addAutoDeps(newMissions, existingMissions, { caseInsensitive = false } 
     for (let j = i + 1; j < newMissions.length; j += 1) {
       const earlier = newMissions[i]
       const later = newMissions[j]
-      if (!shapeFor(earlier.kind).ownsScope || !shapeFor(later.kind).ownsScope) continue
+      if (!shapeFor(earlier.kind).reach.ownsPaths || !shapeFor(later.kind).reach.ownsPaths) continue
       if (!scopesOverlap(earlier.scope, later.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, later.id, earlier.id)) continue
       addDependency(later, earlier.id)
     }
     const mission = newMissions[i]
-    if (!shapeFor(mission.kind).ownsScope) continue
+    if (!shapeFor(mission.kind).reach.ownsPaths) continue
     for (const other of openExisting) {
-      if (!shapeFor(other.kind).ownsScope) continue
+      if (!shapeFor(other.kind).reach.ownsPaths) continue
       if (!scopesOverlap(mission.scope, other.scope, { caseInsensitive })) continue
       if (hasDependencyPath(byId, mission.id, other.id)) continue
       addDependency(mission, other.id)

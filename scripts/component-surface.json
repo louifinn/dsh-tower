@@ -379,17 +379,6 @@
       "note": "Captured discovery output cap."
     },
     {
-      "name": "tests.autoChecks",
-      "class": "optional-config",
-      "note": "Attaches a tests check to completion when discovery runs.",
-      "exemption": {
-        "date": "2026-11-03",
-        "ref": "docs/adr/0005-component-surface.md",
-        "issue": "#138",
-        "reason": "Tuning the default receipt policy inside the optional tower-tests row, which still owns whether any test tooling exists."
-      }
-    },
-    {
       "name": "tests.allowPackageDiscovery",
       "class": "core",
       "note": "Allows repository code to execute; a security contract, not a component."

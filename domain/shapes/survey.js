@@ -11,6 +11,7 @@
 // placement enforces the fingerprint as a completion invariant.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { hasCheckEvidence } from '../evidence.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
@@ -18,6 +19,29 @@ import { TowerToolError } from '../errors.js'
 
 /** @type {readonly string[]} */
 export const SURVEY_STATUSES = Object.freeze(['planned', 'active', 'completed', 'blocked', 'paused', 'abandoned'])
+
+/**
+ * The evidence this shape accepts (#149 W4). A survey has no branch and no
+ * tree tip, so a discovery receipt cannot appertain; its completion checks are
+ * still accepted through the same one reader.
+ * @type {import('../evidence.js').EvidenceContract}
+ */
+export const EVIDENCE = Object.freeze({
+  completionChecks: true,
+  testReceipts: /** @type {const} */ (false),
+})
+
+/**
+ * The survey shape's path reach (#149 W4): a survey owns no paths. Its scope is
+ * empty by construction and any changed path is a fence violation; the
+ * placement (shared read-only checkout or detached disposable sandbox) changes
+ * where it runs, not what it may change.
+ * @type {{ ownsPaths: boolean, fence: 'scope' | 'read-only' }}
+ */
+export const REACH = Object.freeze({
+  ownsPaths: false,
+  fence: /** @type {const} */ ('read-only'),
+})
 
 /**
  * A survey has no `merged` row or column: it is never merged, only completed.
@@ -223,7 +247,7 @@ export function completionBlockers(mission, config = /** @type {TowerConfig} */ 
   if ((mission.blockers ?? []).length > 0) {
     blockers.push({ code: 'blockers-present', detail: (mission.blockers ?? []).join('; ') })
   }
-  if (config.gates?.requireChecks && !(mission.completionReport?.checks ?? []).length) {
+  if (config.gates?.requireChecks && !hasCheckEvidence(EVIDENCE, mission)) {
     blockers.push({
       code: 'no-check-evidence',
       detail: `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`,
@@ -247,7 +271,7 @@ export function dependencySatisfied(dep) {
  * with `survey.sandbox: 'detached'`, in a disposable detached worktree) and
  * never provisions a branch. The concrete placement/preset is resolved by
  * `resolveProvisioning`/`resolvePreset`.
- * @type {{ provisioning: 'shared', missionStatuses: readonly string[], worktree: false, defaultPreset: string, countsTowardWorkerBudget: boolean }}
+ * @type {{ provisioning: 'shared', missionStatuses: readonly string[], worktree: false, defaultPreset: string, countsTowardWorkerBudget: boolean, model: string }}
  */
 export const spawn = Object.freeze({
   provisioning: /** @type {const} */ ('shared'),
@@ -255,6 +279,7 @@ export const spawn = Object.freeze({
   worktree: /** @type {const} */ (false),
   defaultPreset: 'tower-survey',
   countsTowardWorkerBudget: false,
+  model: 'survey',
 })
 
 /**
@@ -398,13 +423,14 @@ export const surveyShape = Object.freeze({
   canMerge: false,
   canRebase: false,
   provisioning: /** @type {const} */ ('shared'),
-  ownsScope: false,
+  reach: REACH,
   // Document dimensions this shape owns; the state validator reads these.
   fields: Object.freeze({ worktree: false, readCommit: true, merge: false, sandbox: true }),
   // A survey needs its optional component row; a build does not.
   requiredComponent: 'tower-survey',
   // Only a survey records `result` evidence on completion.
   acceptsResult: true,
+  evidence: EVIDENCE,
   planFields,
   resolveProvisioning,
   resolvePreset,

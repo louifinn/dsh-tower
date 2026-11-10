@@ -259,7 +259,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   }
 
   if (input.scope !== undefined) {
-    if (!shape.ownsScope) {
+    if (!shape.reach.ownsPaths) {
       fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
     }
     if (!['active', 'completed'].includes(mission.status)) {
@@ -269,7 +269,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     const others = state.missions.filter((entry) => {
       if (entry.id === mission.id) return false
       const other = shapeFor(entry.kind)
-      return other.ownsScope && !other.isTerminal(entry.status)
+      return other.reach.ownsPaths && !other.isTerminal(entry.status)
     })
     const caseInsensitive = state.caseInsensitive === true
     for (const other of others) {

@@ -6,16 +6,17 @@ A mission shape is the single place its kind's contract lives (#148/#149). Gener
 layers resolve `shapeFor(mission.kind)` and never branch on a kind literal; the
 shape audit (`npm run shape:audit`) refuses kind and role comparisons outside
 `domain/shapes/`, the global `TERMINAL_STATUSES`/`TRANSITIONS` vocabulary,
-one-argument `isTerminal`/`canTransition` calls, and the four W3 dimension
-regressions (a live-worktree review tip, a batch status literal outside its owner,
-a lease-ledger path outside its adapter, and a direct `blocked` status write).
+one-argument `isTerminal`/`canTransition` calls, and the dimension regressions
+recorded in the inventory below (review tip, batch status, lease ledger, blocked
+writes, evidence reads, legacy vocabulary, path permission and role/shape
+conflation).
 
 ## Kinds
 
-| Kind | Statuses | Has terminal | Provisioning | Can merge | Can rebase | Owns scope | Component | Accepts result |
+| Kind | Statuses | Has terminal | Provisioning | Can merge | Can rebase | Reach (owns / fence) | Component | Accepts result |
 |---|---|---|---|---|---|---|---|---|
-| `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true | — | false |
-| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` / `detached` | false | false | false | tower-survey | true |
+| `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true / `scope` | — | false |
+| `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` / `detached` | false | false | false / `read-only` | tower-survey | true |
 
 ## Transitions
 
@@ -70,35 +71,37 @@ that never got a sandbox keeps the shared invariants for the same reason.
 
 | Contract | Owner |
 |---|---|
-| Status, transitions, terminality, merge/rebase, provisioning, plan fields, completion, dependencies, briefing, summary | `domain/shapes/<kind>.js` |
+| Status, transitions, terminality, merge/rebase, provisioning, reach, plan fields, completion, dependencies, briefing, summary | `domain/shapes/<kind>.js` |
 | Kind resolution and the action guard | `domain/shapes/index.js` |
-| Role vocabulary | `domain/roles.js` |
+| Role vocabulary and the role contract (preset, model, placement, briefing, prerequisites) | `domain/roles.js` |
 | Generated reference and the audit | `scripts/generate-shapes-reference.mjs`, `scripts/shape-audit.mjs` |
 
-## Dimensions audited
+## Dimension inventory (#149)
 
-| Dimension | Contract | Fitness rule |
-|---|---|---|
-| Mission lifecycle | `shape.statuses`, `shape.transitions`, `shape.isTerminal` | No kind literal outside `domain/shapes/`; no global terminal set. |
-| Role | `domain/roles.js` predicates | No role literal outside `domain/roles.js`. |
-| Provisioning | `shape.provisioning` / `shape.resolveProvisioning` | Only a build shape may create a worktree/branch; a survey reads in the shared checkout by default or in a disposable detached sandbox when `survey.sandbox: 'detached'`. A recorded `mission.sandbox` is authoritative once provisioning has happened. |
-| Read-only | Preset allow-list plus `shape.resolveCompletion` | A shared survey completes with HEAD unchanged, the tracked-status set unchanged, and zero commits; a detached survey may dirty its sandbox but must keep its HEAD pinned and make zero commits. Invariants follow the recorded sandbox, not current config. |
-| Dependency | `shape.dependencySatisfied` | A completed survey satisfies a dependent build; a merged build satisfies it too. |
-| Archive / reanchor / planning | `shape.isTerminal` | A terminal shape leaves open work and does not block reanchor; terminal surveys archive. |
-| Evidence | `shape.acceptsResult` | Only a survey may record a completion result. |
-| Component | `shape.requiredComponent` | Planning refuses with an actionable code while the required component is off. |
-
-## Audited dimensions: verdicts
-
-The four W3 dimensions (#149) were audited against the shape registry. Each
-verdict names its owning module and the fitness rule the audit enforces.
+Every dimension the registry audit covers. A **shape-owned** verdict lives in
+`domain/shapes/<kind>.js`; a **correctly generic** verdict has one owner module
+outside the shapes; a **redesigned** verdict replaced an earlier ambiguous
+contract. The fitness rule is the mechanical check the audit (or the generated
+invariant) enforces.
 
 | Dimension | Verdict | Owner module | Fitness rule |
 |---|---|---|---|
-| Review | **Commit-stamped evidence.** A spawned reviewer reads a disposable detached checkout at the recorded review commit; the verdict stamps that commit and the merge gate compares it to the branch tip with `tip-moved`. Review is generic except that only a shape with a branch (`shape.fields.worktree`, `shape.canMerge`) can be reviewed. | `app/review.js`, `app/reviewCheckout.js`, `domain/missions/review.js` | `review-tip-read` — A review never reads a live worktree HEAD; verdicts are stamped with a recorded commit. |
-| Batch | **Correctly generic second lifecycle.** A batch is finite evidence over missions, not a mission kind; its `open → closed`/`abandoned` machine, its frozen membership and its receipt verification live in one owner module, and no shape knows about batches. | `domain/batch.js`, `domain/collab/batch.js`, `app/batch.js` | `batch-status-literal` — Batch status literals live in domain/batch.js; every other layer uses its constants. |
-| Leases | **Advisory coordination, never authority.** One fail-closed admission point (`spawn.requireLease`) refuses admission when the lease is missing or held; expiry is recovered only by an explicit `force` release of an expired lease, and a live lease always refuses a foreign token. | `adapters/leases.js`, `app/spawn-prechecks.js` | `lease-ledger` — Only adapters/leases.js reads or writes the lease ledger. |
-| Paused vs blocked | **Two distinct stopped semantics.** `blocked` is derived from open blockers (machine state); `paused` is a deliberate stop with a cause (human state); they never coexist, a blocker wins over a pause, and clearing the blockers resumes the mission. | `domain/missions/lifecycle.js`, `domain/state/semantics.js` | `blocked-status-write` — blocked is derived from open blockers; only domain/missions/lifecycle.js writes it. |
+| Mission lifecycle | **Shape-owned.** Statuses, transitions and terminality are per kind. | `domain/shapes/<kind>.js` | `kind-literal`, `global-status-vocabulary`, `shape-entry-point` |
+| Role vocabulary | **Correctly generic.** Roles are actors, not mission kinds. | `domain/roles.js` | `role-literal` |
+| Provisioning | **Shape-owned.** A build gets a branch worktree; a survey is shared or a detached sandbox. | `domain/shapes/<kind>.js` | Generated invariant: only a build creates a branch/worktree; a recorded `mission.sandbox` decides a survey's placement. |
+| Read-only completion | **Shape-owned.** `resolveCompletion` derives invariants from the recorded placement. | `domain/shapes/survey.js` | Generated invariant: shared survey keeps HEAD and tracked status; detached survey keeps HEAD pinned; both make zero commits. |
+| Dependency | **Shape-owned.** `dependencySatisfied` names the terminal statuses that satisfy a dependent. | `domain/shapes/<kind>.js` | Generated invariant: a completed survey satisfies a dependent build; a merged build does too. |
+| Archive / reanchor / planning | **Shape-owned.** Terminality is the one archive/reanchor predicate. | `domain/shapes/<kind>.js` | Generated invariant: a terminal shape leaves open work and never blocks reanchor. |
+| Completion result | **Shape-owned.** Only a survey may record a completion result. | `domain/shapes/<kind>.js` | Generated invariant: `shape.acceptsResult`. |
+| Required component | **Shape-owned.** A survey needs the `tower-survey` row. | `domain/shapes/<kind>.js` | Generated invariant: planning refuses with an actionable code while the required component is off. |
+| Review | **Redesigned.** Commit-stamped evidence: a reviewer reads a disposable checkout at the recorded review commit; only a shape with a branch is reviewable. | `app/review.js`, `app/reviewCheckout.js`, `domain/missions/review.js` | `review-tip-read` — A review never reads a live worktree HEAD; verdicts are stamped with a recorded commit. |
+| Batch | **Correctly generic second lifecycle.** A batch is finite evidence over missions, not a mission kind; no shape knows about batches. | `domain/batch.js`, `domain/collab/batch.js`, `app/batch.js` | `batch-status-literal` — Batch status literals live in domain/batch.js; every other layer uses its constants. |
+| Leases | **Correctly generic.** One fail-closed admission point; expiry is recovered only by an explicit `force` release. | `adapters/leases.js`, `app/spawn-prechecks.js` | `lease-ledger` — Only adapters/leases.js reads or writes the lease ledger. |
+| Paused vs blocked | **Redesigned.** `blocked` is derived machine state; `paused` is a deliberate stop with a cause. | `domain/missions/lifecycle.js`, `domain/state/semantics.js` | `blocked-status-write` — blocked is derived from open blockers; only domain/missions/lifecycle.js writes it. |
+| Test receipts / evidence | **Redesigned — one reader.** Completion checks and discovery receipts are one normalized evidence contract in `domain/evidence.js`; the shape declares whether a receipt is tip-bound. `tower_complete` no longer copies a synthetic `tests` check into the report. | `domain/evidence.js`; `domain/shapes/<kind>.js` declares `evidence` | `evidence-single-read` — Completion checks and test receipts have one reader: domain/evidence.js. |
+| Legacy import | **Redesigned — strict adapter.** One payload is one declared format; status remaps, assumed kinds and non-carried fields are reported as `remapped`/`unresolved`/`dropped` instead of approximated. Import stays read-only and never resumes a paused mission. | `adapters/legacy.js`; `domain/batch.js` reads only the canonical `pausedMissionIds` | `legacy-vocabulary` — One live vocabulary: legacy formats/statuses are read only by adapters/legacy.js. |
+| Scope ownership | **Redesigned — shape.reach.** The shape owns path permission (`reach.ownsPaths`, `reach.fence`); the gate, planner, lifecycle and auto-deps derive from it through one fence. | `domain/scope.js` + `shape.reach` in `domain/shapes/<kind>.js` | `scope-reach` — Path permission derives from shape.reach through domain/scope.js; no module owns or re-implements it. |
+| Role vs kind | **Redesigned — orthogonal role contract.** Spawn, preset, model, placement, briefing, roster budget and gates resolve the role through `domain/roles.js`; the shape only supplies facts. | `domain/roles.js`; callers `tools/spawn.js`, `app/spawn-prechecks.js`, `app/spawn-support.js`, `domain/roster.js`, `host/presets.js` | `role-shape-conflation` — A role decision never combines with a shape decision; role facts live in domain/roles.js. |
 
 ## Fitness rules
 
@@ -114,12 +117,7 @@ Generated from `scripts/shape-audit.mjs` `RULES`; the audit is wired into `npm r
 | `batch-status-literal` | `domain/batch.js` | Batch status literals live in domain/batch.js; every other layer uses its constants. |
 | `lease-ledger` | `adapters/leases.js` | Only adapters/leases.js reads or writes the lease ledger. |
 | `blocked-status-write` | `domain/missions/lifecycle.js` | blocked is derived from open blockers; only domain/missions/lifecycle.js writes it. |
-
-## Other dimensions: verdicts
-
-| Dimension | Verdict | Fitness rule |
-|---|---|---|
-| Test receipts | A discovery receipt belongs to a build branch tip; a survey has no branch and no tree tip. | `shape.fields.worktree=false` skips mission discovery. |
-| Legacy import | A legacy import is read-only data; the migration chain stamps every mission with a shape, converts a branch-shaped survey into `readCommit`/`readDirty`, and v4→v5 normalizes stopped states and batch statuses. | `shape.migrateLegacy` is the only legacy mission rewrite. |
-| Scope ownership | Only a shape that writes owns a scope. | `shape.ownsScope=false` forces an empty scope and skips scope fences and auto-deps. |
-| Role vs kind | Roles describe actors; shapes describe missions. They are separate vocabularies. | `domain/roles.js` owns roles; `domain/shapes/` owns kinds. |
+| `evidence-single-read` | `domain/evidence.js` | Completion checks and test receipts have one reader: domain/evidence.js. |
+| `legacy-vocabulary` | `adapters/legacy.js` | One live vocabulary: legacy formats/statuses are read only by adapters/legacy.js. |
+| `scope-reach` | `domain/scope.js` | Path permission derives from shape.reach through domain/scope.js; no module owns or re-implements it. |
+| `role-shape-conflation` | `domain/roles.js` | A role decision never combines with a shape decision; role facts live in domain/roles.js. |

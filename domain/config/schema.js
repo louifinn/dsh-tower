@@ -80,7 +80,7 @@ const SECTION_KEYS = {
   // tower-survey row is the switch; the placement decides whether write/shell
   // side effects are rejected (shared) or absorbed by a disposable checkout.
   survey: ['sandbox'],
-  tests: ['admission', 'timeoutMs', 'maxBytes', 'autoChecks', 'allowPackageDiscovery'],
+  tests: ['admission', 'timeoutMs', 'maxBytes', 'allowPackageDiscovery'],
   gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'requireFreshSurvey', 'maxReportBytes'],
   docs: ['boardLocation'],
   archive: ['afterDays', 'maxMissions'],
@@ -88,26 +88,35 @@ const SECTION_KEYS = {
   dev: ['reloadDelayMs', 'reloadRequiredIds'],
 }
 
-// #133/#135: `docs.board` and `archive.enabled` were component-shaped switches
-// hiding in the config form. They are component rows now, so a legacy config
-// keeps failing as an unknown key — with an upgrade note naming the row that
-// replaced it.
-/** @type {Record<string, string>} */
+// #133/#135/#149: a removed key keeps failing as an unknown key — with an
+// upgrade note naming what replaced it. `docs.board` and `archive.enabled`
+// were component-shaped switches hiding in the config form, so their note
+// names the component row. `tests.autoChecks` existed only to copy a discovery
+// projection into the completion report; its replacement is the `testRuns`
+// receipt (whose concrete record path belongs to domain/evidence.js), so the
+// note names the receipt and the one reader instead of a row.
+/** @type {Record<string, { component?: string, note?: string }>} */
 const REMOVED_KEYS = {
-  'docs.board': 'tower-board',
-  'archive.enabled': 'tower-archive',
+  'docs.board': { component: 'tower-board' },
+  'archive.enabled': { component: 'tower-archive' },
+  'tests.autoChecks': {
+    note: 'tests.autoChecks was removed: test evidence is the testRuns receipt read by domain/evidence.js (see docs/adr/0006-mission-shapes.md)',
+  },
 }
 
 /**
- * Upgrade note for a removed component switch, appended to the unknown-key error.
+ * Upgrade note for a removed key, appended to the unknown-key error.
  * @param {string} group
  * @param {string} key
  * @returns {string}
  */
 function removedKeyNote(group, key) {
-  const component = REMOVED_KEYS[`${group}.${key}`]
-  if (!component) return ''
-  return ` — ${group}.${key} was removed: the ${component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  const entry = REMOVED_KEYS[`${group}.${key}`]
+  if (!entry) return ''
+  if (entry.component) {
+    return ` — ${group}.${key} was removed: the ${entry.component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
+  }
+  return ` — ${entry.note}`
 }
 
 const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
@@ -275,7 +284,6 @@ export const Config = Schema.object({
       .description('Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test).'),
     timeoutMs: Schema.natural().min(1000).max(1800000).default(60000).description('Per discovery command timeout.'),
     maxBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(16 * 1024 * 1024).description('Maximum captured stdout bytes per command.'),
-    autoChecks: Schema.boolean().default(true).description('Attach a tests check to the completion report when discovery runs.'),
     allowPackageDiscovery: Schema.boolean()
       .default(true)
       .description('Allow package.json tower.testDiscovery commands from the mission worktree (executes repository code; see security docs).'),
@@ -285,7 +293,7 @@ export const Config = Schema.object({
   gates: Schema.object({
     requireChecks: Schema.boolean()
       .default(false)
-      .description('Require at least one completion check (tower_complete.checks) before a mission can merge.'),
+      .description('Require at least one recorded check (tower_complete.checks) or test-discovery receipt before a mission can merge.'),
     requireTests: Schema.boolean()
       .default(false)
       .description('Require a passing test-discovery receipt for the reviewed worktree tip before merge.'),

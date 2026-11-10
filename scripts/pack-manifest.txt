@@ -122,6 +122,7 @@ domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
 domain/errors.js
+domain/evidence.js
 domain/events.js
 domain/gate.js
 domain/integration/gate.js

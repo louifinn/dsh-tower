@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 57,
+      "value": 56,
       "decisions": [
         {
           "from": 64,
@@ -47,6 +47,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148 W2 D5 adds gates.requireFreshSurvey (default false): the survey-stale dependency warning is advisory by default and becomes a merge blocker only when this gate is true. It is a merge-gate strictness key like the other gates.* entries, not a component."
+        },
+        {
+          "from": 57,
+          "to": 56,
+          "date": "2026-11-10",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#149 W4 contracts the surface by one: `tests.autoChecks` existed only to copy a discovery projection into the completion report, which made a second evidence shape. The receipt in mission.testRuns is now the one evidence shape read by domain/evidence.js, so the key has no remaining meaning and is removed rather than kept as a dead tuning switch."
         }
       ]
     },

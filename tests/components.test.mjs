@@ -95,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 57 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 56 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 57)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 57)
+  assert.equal(report.surface.keys.length, 56)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 56)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -163,8 +163,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 57)
-  assert.equal(baseline.surfaces.configKeys.value, 57)
+  assert.equal(surface.keys.length, 56)
+  assert.equal(baseline.surfaces.configKeys.value, 56)
   assert.equal(realMergedPatch().visible.length, 12)
   assert.equal(baseline.surfaces.components.value, 12)
 })
@@ -386,14 +386,14 @@ test('a boolean or behaviour knob cannot hide a capability on the optional-confi
     ...surface,
     keys: surface.keys.map((key) => (key.name === name ? { ...key, exemption: undefined } : key)),
   })
-  const noExemption = checkKeyClassifications(drop('tests.autoChecks'), live)
-  assert.ok(noExemption.some((entry) => entry.code === 'boolean-class' && /tests\.autoChecks/.test(entry.message)))
+  const noExemption = checkKeyClassifications(drop('send.interruptDefault'), live)
+  assert.ok(noExemption.some((entry) => entry.code === 'boolean-class' && /send\.interruptDefault/.test(entry.message)))
 
   // A recorded exemption must name a tuning-only nature, not just exist.
   const wrongReason = {
     ...surface,
     keys: surface.keys.map((key) =>
-      key.name === 'tests.autoChecks' ? { ...key, exemption: { ...key.exemption, reason: 'it was already like this' } } : key,
+      key.name === 'send.interruptDefault' ? { ...key, exemption: { ...key.exemption, reason: 'it was already like this' } } : key,
     ),
   }
   assert.ok(checkKeyClassifications(wrongReason, live).some((entry) => entry.code === 'boolean-exemption'))
@@ -406,7 +406,7 @@ test('a boolean or behaviour knob cannot hide a capability on the optional-confi
   const offAxis = {
     ...surface,
     keys: surface.keys.map((key) =>
-      key.name === 'docs.boardLocation' ? { ...key, exemption: { ...surface.keys.find((entry) => entry.name === 'tests.autoChecks').exemption } } : key,
+      key.name === 'docs.boardLocation' ? { ...key, exemption: { ...surface.keys.find((entry) => entry.name === 'send.interruptDefault').exemption } } : key,
     ),
   }
   assert.ok(checkKeyClassifications(offAxis, live).some((entry) => entry.code === 'exemption-invalid'))

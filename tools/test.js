@@ -46,6 +46,8 @@ export function registerTestTool(ctx, deps) {
         return { ok: false, configured: false, error, tests: [], commands: [] }
       }
       const receipt = discovery.receipt
+      // #149 W4: the receipt is returned as recorded; there is no derived
+      // `checks` copy. Completion/batch read it through domain/evidence.js.
       return {
         ok: receipt.ok === true,
         configured: true,
@@ -54,7 +56,6 @@ export function registerTestTool(ctx, deps) {
         commands: receipt.commands ?? [],
         error: receipt.error ?? undefined,
         receipt,
-        checks: discovery.check ? [discovery.check] : [],
       }
     },
   })

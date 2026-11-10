@@ -85,6 +85,57 @@ export function comparisonMode(caseInsensitive) {
   return caseInsensitive === true ? 'case-insensitive' : 'case-sensitive'
 }
 
+/** @typedef {{ code: string, detail: string }} ScopeBlocker */
+/** @typedef {{ ownsPaths: boolean, fence: 'scope' | 'read-only' }} Reach */
+
+/**
+ * The one path-permission fence (#149 W4). A shape's `reach` is the single
+ * definition of whether a mission may change paths at all:
+ *
+ *   - `ownsPaths: true` + `fence: 'scope'`: every changed file must match the
+ *     mission scope (case folding is a checkout fact, not a scope rewrite);
+ *   - anything else (`fence: 'read-only'`): the mission permits no file change,
+ *     so any changed path is a fence violation.
+ *
+ * The merge gate, the planning/lifecycle rules and the spawn briefing derive
+ * from the same declaration; none of them re-reads `mission.scope` to decide
+ * permission on its own.
+ *
+ * @param {{ mission: { id?: string, scope?: string[] | null }, reach: Reach | null | undefined, changedFiles?: string[], caseInsensitive?: boolean }} input
+ * @returns {ScopeBlocker | null}
+ */
+export function scopeFenceBlocker({ mission, reach, changedFiles = [], caseInsensitive = false }) {
+  const files = Array.isArray(changedFiles) ? changedFiles : []
+  const ownsPaths = reach?.ownsPaths === true && reach?.fence !== 'read-only'
+  if (!ownsPaths) {
+    if (files.length === 0) return null
+    return {
+      code: 'out-of-scope',
+      detail: `mission ${mission?.id ?? '(unknown)'} is read-only and changed ${files.length} tracked path(s): ${files.slice(0, 8).join(', ')}`,
+    }
+  }
+  const scope = mission?.scope ?? []
+  const outOfScope = files.filter((file) => !fileInScope(scope, file, { caseInsensitive }))
+  if (outOfScope.length === 0) return null
+  const parts = [`changed files outside scope (${scope.join(', ')}): ${outOfScope.slice(0, 8).join(', ')}`]
+  // On a case-sensitive checkout a case-only mismatch is a human error worth
+  // naming, but it stays a rejection: folding here would make src/Api and
+  // src/api the same directory on a filesystem where they are not (#90).
+  if (!caseInsensitive) {
+    const hints = outOfScope
+      .map((file) => {
+        const pattern = caseInsensitiveScopeMatch(scope, file)
+        return pattern
+          ? `${file} matches "${pattern}" only when case is folded; this checkout is case-sensitive`
+          : null
+      })
+      .filter(Boolean)
+      .slice(0, 3)
+    if (hints.length > 0) parts.push(`case mismatch: ${hints.join('; ')}`)
+  }
+  return { code: 'out-of-scope', detail: parts.join('. ') }
+}
+
 // Mission titles are printable Unicode, not printable ASCII (#88). The hazards
 // the old ASCII range stood in for are made explicit: control/format/surrogate
 // code points, bidi overrides, zero-width characters, and unbounded length.

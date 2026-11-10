@@ -1,6 +1,6 @@
 // Pure roster predicates.
 // @ts-check
-import { isWorkerRole } from './roles.js'
+import { isWorkerRole, roleCountsTowardBudget } from './roles.js'
 import { shapeFor } from './shapes/index.js'
 
 /** @typedef {import('../types/index.js').RosterEntry} RosterEntry */
@@ -39,9 +39,8 @@ export function countLiveWorkers(state) {
   const kinds = new Map((state.missions ?? []).map((mission) => [mission.id, mission.kind]))
   return (state.roster ?? []).filter(
     (entry) =>
-      isWorkerRole(entry.role) &&
+      roleCountsTowardBudget(entry.role, shapeFor(kinds.get(entry.missionId ?? ''))) &&
       !ROSTER_INACTIVE.has(entry.state) &&
-      entry.state !== 'reserved' &&
-      shapeFor(kinds.get(entry.missionId ?? '')).spawn.countsTowardWorkerBudget !== false,
+      entry.state !== 'reserved',
   ).length
 }

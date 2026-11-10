@@ -49,10 +49,10 @@ export function normalizeMissionInput(input, index, read = {}) {
   /** @type {string[]} */
   const scopeInput = input.scope ?? []
   if (!Array.isArray(scopeInput)) fail(`missions[${index}].scope must be an array of globs`)
-  if (!shape.ownsScope && scopeInput.length > 0) {
+  if (!shape.reach.ownsPaths && scopeInput.length > 0) {
     fail(`missions[${index}] is a ${shape.kind}: it reads a commit and does not own a write scope`)
   }
-  const scope = shape.ownsScope ? normalizeScope(scopeInput) : []
+  const scope = shape.reach.ownsPaths ? normalizeScope(scopeInput) : []
   /** @type {Array<{ text: string, status: string }>} */
   const tasks = []
   if (input.tasks !== undefined) {

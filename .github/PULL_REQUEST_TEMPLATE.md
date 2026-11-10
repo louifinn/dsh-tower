@@ -2,6 +2,15 @@
 
 <!-- One or two sentences. Link the issue with Refs #n or Fixes #n in the commit, not here. -->
 
+## Shape, role, or other conditional?
+
+<!-- Required. Does this change add or move a branch on mission `kind`, actor
+`role`, evidence source, or path reach? If not, say "No new conditional" and
+name the owner module that keeps it that way. If it does, name the owning shape,
+role or evidence module and the `shape:audit` rule that keeps the conditional
+there; a second live vocabulary, a per-kind conditional outside `domain/shapes/`
+or a role check combined with a shape check is a review blocker. -->
+
 ## Which principle does this change touch, or which new one does it require?
 
 <!-- Required. Read PRINCIPLES.md first. Name the principle number and how this
