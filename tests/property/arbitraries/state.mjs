@@ -120,7 +120,10 @@ function buildStateArb(options = {}) {
         minLength: min.messages,
         maxLength: 4,
       }),
-      batches: fc.array(batchArb, { maxLength: 2 }),
+      batches: fc.uniqueArray(batchArb, {
+        selector: (batch) => batch.id,
+        maxLength: 2,
+      }),
       messageSeq: countArb,
       reviewSeq: countArb,
       findingSeq: countArb,
