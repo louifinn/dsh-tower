@@ -2,7 +2,7 @@
 
 [English](../../guide/quickstart.md) | **简体中文**
 
-前置要求：DSH `0.2.1-rc.2`+、Node.js 22+、Git。安装 `dsh-tower` 并重启 DSH（见
+前置要求：DSH `0.2.2-rc.1`+、Node.js 24.9+、Git。安装 `dsh-tower` 并重启 DSH（见
 [安装](install-upgrade-migration.md)）。
 
 ## 1. 进入 Tower 模式

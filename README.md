@@ -60,9 +60,12 @@ Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan m
 
 ## 环境要求
 
-- DeepSeek Harness `0.2.1-rc.2`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
-- Node.js 22+
+- DeepSeek Harness `0.2.2-rc.1`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
+- Node.js 24.9+
 - Git（worktree 在本地创建，不需要联网）
+
+`scripts/support.json` 是唯一的公开支持基线。当 package engines、mount-smoke host pin、live CI 矩阵
+或 COMPATIBILITY 最新行与它不一致时，`npm run support:check` 会失败。
 
 ## 安装
 
@@ -228,7 +231,7 @@ worker 与 reviewer 是使用内置 `tower-worker` preset 的普通 DSH 子代�
 | `locale/`、`icon.svg` | 本地化与图标 |
 | `tests/` | 纯函数、协议 e2e、插件级测试；可选的真实 Web 运行时脚本 |
 | `ui-bundle/` | 可选 Client 小挂件（Tower 工具卡片、Tower·on 状态 chip、模式感知的 disabled 行、dock 摘要、临时 overlay 状态条），默认不安装 |
-| `.github/workflows/test.yml` | CI：Ubuntu 上 Node 22/24 与 Windows 上 Node 22 的离线套件、release 与覆盖率检查、Node 22 挂载 smoke 与种子失败 fixtures |
+| `.github/workflows/test.yml` | CI：Ubuntu 上 Node 22/24 与 Windows 上 Node 22 的离线套件、release 与覆盖率检查、Node 24 挂载 smoke 与种子失败 fixtures（固定 host 要求 Node >=24.9） |
 
 ## 开发与测试
 
@@ -246,12 +249,12 @@ npm test        # node --test tests/*.test.mjs
 
 | Job | 声明 | 证据 |
 |---|---|---|
-| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型与 domain 纯度全部成立 | `npm test`、`npm run docs:check`、五个 `docs:check:generated*`（含生成的类型词汇表）、`pack:check`、`architecture:check`、`types:coverage`、`types:strict:check`、`types:check`、`domain:check` |
+| `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型、支持清单与 domain 纯度全部成立 | `npm test`、`npm run support:check`、`npm run docs:check`、五个 `docs:check:generated*`（含生成的类型词汇表）、`pack:check`、`architecture:check`、`types:coverage`、`types:strict:check`、`types:check`、`domain:check` |
 | `test (22, windows)`（`windows-latest`，非必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
 | `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
 | `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |
-| `mount`（Node 22） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
-| `mount-fixtures`（Node 22，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
+| `mount`（Node 24） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
+| `mount-fixtures`（Node 24，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
 | `live (<固定 host 版本>)`（nightly/手动，非必需检查） | 浏览器 live suite 在固定 host 版本矩阵上仍能驱动真实 Web 运行时；push/PR 只做无浏览器的环境与解析检查 | nightly 跑 `npm run test:live -- --script nightly`；push 跑 `npm run test:live -- --check` |
 
 `test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与新增的 `test (22, windows)`。前两条是 `main` 的必需检查，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。它目前不是必需 context：让它变绿是本 issue 的验收，把它加入保护设置是 #94 的人工步骤。
@@ -262,7 +265,7 @@ live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，�
 
 `mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 28 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`，减去因 `tower-hmr` 随包关闭而不注册的 `tower_reload`；所有可选能力行全开时为 29 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
-host build 只固定在一个地方：`scripts/mount-smoke/host.json`，`COMPATIBILITY.md` 最新一行由单元测试强制与它一致，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
+host build 固定在 `scripts/mount-smoke/host.json`；`scripts/support.json` 记录公开支持基线，`npm run support:check` 保证 package engines、host pin、live 矩阵与 `COMPATIBILITY.md` 最新行一致，单元测试再保证该行与 pin 相等，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
 
 ## 文档
 

@@ -56,6 +56,11 @@ jobs:
       # long tier is nightly-only; see the `property-long` job below.
       - name: Property tests (PR tier)
         run: npm run test:property
+      # #M71: scripts/support.json is the single published support floor. This
+      # fails when the package engines, the mount-smoke host pin, the live matrix
+      # or the newest COMPATIBILITY row restates a different Node/DSH version.
+      - name: Support manifest
+        run: npm run support:check
       # #87: the resolver/env half of the live harness is cheap even on a clean
       # clone (no tests/live/node_modules, no browser). It catches a rotted
       # harness on every push while the browser run stays nightly (#47).
@@ -137,9 +142,9 @@ jobs:
         run: npm run domain:check
 
   # #95: does the packed bundle mount and register what it claims?
-  # Node 22 only (cost control); no model, no browser.
-  # The host build is the single pin in scripts/mount-smoke/host.json, which a
-  # unit test keeps equal to the newest COMPATIBILITY.md row.
+  # Node 24 only (the pinned host requires Node >=24.9; cost control); no model,
+  # no browser. The host build is the single pin in scripts/mount-smoke/host.json,
+  # which a unit test keeps equal to the newest COMPATIBILITY.md row.
   mount:
     name: mount
     runs-on: ubuntu-latest
@@ -148,7 +153,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - name: Install pnpm (the plugin CLI's package manager)
         run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
       - name: Mount the packed bundle in a throwaway profile
@@ -167,7 +172,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - name: Install pnpm (the plugin CLI's package manager)
         run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
       - name: Cache the pinned host install
@@ -184,7 +189,8 @@ jobs:
   # lockfile, boots a real @deepseek-ai/dsh Web runtime pinned by the matrix, and
   # proves the composition with one browser script. The pin is a matrix value so
   # bumping the host is a visible one-line diff; tests/live-harness.test.mjs keeps
-  # it equal to scripts/mount-smoke/host.json and the newest COMPATIBILITY row.
+  # it equal to scripts/mount-smoke/host.json and the newest COMPATIBILITY row,
+  # and scripts/check-support.mjs keeps it equal to scripts/support.json.
   live:
     name: live (${{ matrix.dsh }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -194,7 +200,7 @@ jobs:
       fail-fast: false
       matrix:
         dsh:
-          - '0.2.1-rc.2'
+          - '0.2.2-rc.1'
     env:
       DSH_LIVE: '1'
       DSH_HOST_VERSION: ${{ matrix.dsh }}
@@ -202,7 +208,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - name: Install dependencies
         run: npm ci
       # The reproducible live setup (#87): the package pinned in
