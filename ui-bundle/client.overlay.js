@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
         })
         return h(
           'div',
-          { 'data-tower-ui': 'status-strip', role: 'status', 'aria-live': 'polite', style: ST.stripWrap },
+          { 'data-tower-ui': 'status-strip', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', 'aria-label': text, style: ST.stripWrap },
           h('div', { style: ST.stripCard }, h('span', { 'aria-hidden': true, style: dotStyle(tone) }, null), h('span', null, text)),
         )
       }

@@ -122,6 +122,7 @@ window.__ModuleLoader__.load({
     function ReviewPolicySection(props) {
       const t = makeT(props)
       const form = readForm(props)
+      const sectionId = 'dsh-tower-review-policy'
       const [snapshot, setSnapshot] = React.useState(function () {
         return safeSnapshot(form)
       })
@@ -202,6 +203,8 @@ window.__ModuleLoader__.load({
         'section',
         {
           'data-dsh-tower-review-policy': '',
+          role: 'group',
+          'aria-labelledby': sectionId + '-title',
           style: {
             display: 'grid',
             gap: '10px',
@@ -211,13 +214,15 @@ window.__ModuleLoader__.load({
             background: 'var(--dsw-alias-bg-module-platform)',
           },
         },
-        h('div', { style: { color: 'var(--dsw-alias-label-primary)', fontWeight: 600 } }, t('config.title')),
-        h('p', { style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' } }, t('config.intro')),
+        h('div', { id: sectionId + '-title', role: 'heading', 'aria-level': 2, style: { color: 'var(--dsw-alias-label-primary)', fontWeight: 600 } }, t('config.title')),
+        h('p', { id: sectionId + '-intro', style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' } }, t('config.intro')),
         h(
           'div',
           {
             role: 'radiogroup',
-            'aria-label': t('config.title'),
+            'aria-labelledby': sectionId + '-title',
+            'aria-describedby': sectionId + '-intro',
+            'aria-busy': pending ? 'true' : undefined,
             style: { display: 'grid', gap: '8px' },
           },
           MODES.map(function (mode) {
@@ -244,6 +249,8 @@ window.__ModuleLoader__.load({
                 value: mode,
                 checked: active,
                 disabled: !writable || Boolean(pending),
+                'aria-labelledby': sectionId + '-' + mode + '-label',
+                'aria-describedby': sectionId + '-' + mode + '-description',
                 onChange: function () {
                   choose(mode)
                 },
@@ -251,8 +258,8 @@ window.__ModuleLoader__.load({
               h(
                 'span',
                 { style: { display: 'grid', gap: '2px' } },
-                h('span', { style: { color: 'var(--dsw-alias-label-primary)', fontWeight: 500 } }, t(`config.${mode}.label`)),
-                h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' } }, t(`config.${mode}.description`)),
+                h('span', { id: sectionId + '-' + mode + '-label', style: { color: 'var(--dsw-alias-label-primary)', fontWeight: 500 } }, t(`config.${mode}.label`)),
+                h('span', { id: sectionId + '-' + mode + '-description', style: { color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' } }, t(`config.${mode}.description`)),
               ),
             )
           }),
@@ -263,8 +270,10 @@ window.__ModuleLoader__.load({
         h(
           'p',
           {
+            id: sectionId + '-status',
             role: 'status',
             'aria-live': 'polite',
+            'aria-atomic': 'true',
             style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px', minHeight: '18px' },
           },
           pending ? t('config.saving') : notice ? t(`config.${notice}`) : t('config.current', { mode: t(`config.${selection}.label`) }),
@@ -274,6 +283,8 @@ window.__ModuleLoader__.load({
               'p',
               {
                 'data-dsh-tower-restart-hint': '',
+                id: sectionId + '-restart-hint',
+                role: 'note',
                 style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' },
               },
               t('config.restartHint'),

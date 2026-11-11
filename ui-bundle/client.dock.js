@@ -17,14 +17,19 @@ window.__ModuleLoader__.load({
         toneForStatus,
         shortCommit,
         blockersOf,
+        enumLabel,
+        reviewStatusLabel,
       } = helpers
       const { nextDockWriter, publishMode, clearMode } = mode
-
+      const STORED_MODE_KEYS = ['on', 'denied', 'repo', 'lock', 'lastBy', 'lastReason', 'at']
+      const STORED_MODE_MAX = 4096, STORED_MODE_TTL = 7 * 24 * 60 * 60 * 1000
       function renderDockHint(t) {
         return h(
           'div',
           {
             'data-tower-ui': 'dock-hint',
+            role: 'note',
+            'aria-label': translate(t, 'dock.hint.title'),
             title: translate(t, 'dock.hint.title'),
             style: ST.hint,
           },
@@ -47,7 +52,7 @@ window.__ModuleLoader__.load({
         }
         return null
       }
-      function dockResultModel(toolName, payload) {
+      function dockResultModel(toolName, payload, t) {
         if (!isPlainObject(payload)) return { tool: toolName, running: false, tone: 'none', key: 'dock.generic' }
         if (payload.__error === true) return { tool: toolName, running: false, tone: 'error', key: 'dock.generic' }
         if (typeof payload.text === 'string') {
@@ -75,8 +80,8 @@ window.__ModuleLoader__.load({
             tone: toneForStatus(payload.review.status),
             key: 'dock.review',
             params: {
-              status: typeof payload.review.status === 'string' ? payload.review.status : '?',
-              merge: typeof payload.review.mergeVerdict === 'string' ? payload.review.mergeVerdict : '?',
+              status: reviewStatusLabel(t, payload.review.status) || '?',
+              merge: enumLabel(t, 'mergeVerdict', payload.review.mergeVerdict) || '?',
             },
           }
         }
@@ -96,7 +101,7 @@ window.__ModuleLoader__.load({
             running: false,
             tone: 'ok',
             key: 'dock.complete',
-            params: { mission: typeof payload.mission.id === 'string' ? payload.mission.id : '?', commits: typeof payload.commits === 'number' ? payload.commits : 0 },
+            params: { missionId: typeof payload.mission.id === 'string' ? payload.mission.id : '?', commits: typeof payload.commits === 'number' ? payload.commits : 0 },
           }
         }
         if (toolName === 'tower_mission' && isPlainObject(payload.mission)) {
@@ -105,7 +110,10 @@ window.__ModuleLoader__.load({
             running: false,
             tone: toneForStatus(payload.mission.status),
             key: 'dock.mission',
-            params: { id: typeof payload.mission.id === 'string' ? payload.mission.id : '?', status: typeof payload.mission.status === 'string' ? payload.mission.status : '?' },
+            params: {
+              id: typeof payload.mission.id === 'string' ? payload.mission.id : '?',
+              status: enumLabel(t, 'missionStatus', payload.mission.status) || '?',
+            },
           }
         }
         if (toolName === 'tower_spawn') {
@@ -115,9 +123,9 @@ window.__ModuleLoader__.load({
             tone: 'ok',
             key: 'dock.spawn',
             params: {
-              role: typeof payload.role === 'string' ? payload.role : '?',
+              role: enumLabel(t, 'role', payload.role) || '?',
               name: typeof payload.name === 'string' ? payload.name : '?',
-              mission: typeof payload.missionId === 'string' ? payload.missionId : '?',
+              missionId: typeof payload.missionId === 'string' ? payload.missionId : '?',
             },
           }
         }
@@ -137,12 +145,13 @@ window.__ModuleLoader__.load({
             : { tool: toolName, running: false, tone: 'idle', key: 'dock.generic' }
         }
         if (toolName === 'tower_doctor') {
+          const status = enumLabel(t, 'doctor', payload.ok === true ? 'ok' : 'issues')
           return {
             tool: toolName,
             running: false,
             tone: payload.ok === true ? 'ok' : 'warn',
             key: 'dock.doctor',
-            params: { status: payload.ok === true ? 'ok' : 'issues' },
+            params: { status },
           }
         }
         if (toolName === 'tower_batch') {
@@ -150,17 +159,21 @@ window.__ModuleLoader__.load({
           const failed = summary !== null && Array.isArray(summary.failedChecks) ? summary.failedChecks.length : 0
           const pending = summary !== null && Array.isArray(summary.pendingChecks) ? summary.pendingChecks.length : 0
           const tone = payload.ok === true && failed === 0 && pending === 0 ? 'ok' : failed > 0 ? 'error' : 'warn'
+          const status =
+            summary !== null && typeof summary.status === 'string'
+              ? enumLabel(t, 'batchStatus', summary.status)
+              : enumLabel(t, 'doctor', payload.ok === true ? 'ok' : 'issues')
           return {
             tool: toolName,
             running: false,
             tone,
             key: 'dock.batch',
-            params: { status: summary !== null && typeof summary.status === 'string' ? summary.status : payload.ok === true ? 'ok' : 'issues' },
+            params: { status },
           }
         }
         return { tool: toolName, running: false, tone: 'idle', key: 'dock.generic' }
       }
-      function dockSelector(snapshot) {
+      function dockSelector(snapshot, t) {
         try {
           const legacy = snapshot ? snapshot.legacy : undefined
           const modeModel = modeModelFromLegacy(legacy, helpers)
@@ -173,7 +186,7 @@ window.__ModuleLoader__.load({
               summary =
                 signal.phase !== 'result'
                   ? { tool: signal.name, running: true, tone: 'idle' }
-                  : dockResultModel(signal.name, parsePayload(signal.block))
+                  : dockResultModel(signal.name, parsePayload(signal.block), t)
             }
           }
           return JSON.stringify({
@@ -190,15 +203,27 @@ window.__ModuleLoader__.load({
       function modeStorageKey(sessionId) {
         return 'dsh-tower-ui:mode:' + String(sessionId)
       }
+      // localStorage is browser-global and can hold foreign or corrupted data.
+      // Validate the whole snapshot; anything unexpected is discarded.
+      function normalizeStoredMode(value) {
+        if (!isPlainObject(value) || Object.keys(value).length !== STORED_MODE_KEYS.length || Object.keys(value).some((key) => !STORED_MODE_KEYS.includes(key))) return null
+        if (typeof value.on !== 'boolean' || typeof value.at !== 'number' || !Number.isFinite(value.at) || value.at <= 0 || value.at > Date.now() + 300000) return null
+        const text = (entry, max) => (entry == null ? null : typeof entry === 'string' && entry.length > 0 && entry.length <= max ? entry : undefined)
+        const repo = text(value.repo, 256), lastBy = text(value.lastBy, 256), lastReason = text(value.lastReason, 1024)
+        if ([repo, lastBy, lastReason].includes(undefined)) return null
+        const denied = value.denied == null ? null : Array.isArray(value.denied) && value.denied.length <= 64 && value.denied.every((entry) => typeof entry === 'string' && entry.length > 0 && entry.length <= 128) ? value.denied.slice() : undefined
+        if (denied === undefined) return null
+        const lock = value.lock == null ? null : isPlainObject(value.lock) && Object.keys(value.lock).every((key) => key === 'enabled' || key === 'held') && typeof value.lock.enabled === 'boolean' && typeof value.lock.held === 'boolean' ? { enabled: value.lock.enabled, held: value.lock.held } : undefined
+        if (lock === undefined) return null
+        return { on: value.on, denied, repo, lock, lastBy, lastReason, at: value.at }
+      }
       function readStoredMode(sessionId) {
         if (typeof sessionId !== 'string' || sessionId === '') return null
         try {
           const raw = globalThis.localStorage && globalThis.localStorage.getItem(modeStorageKey(sessionId))
-          if (!raw) return null
-          const parsed = JSON.parse(raw)
-          if (!isPlainObject(parsed) || typeof parsed.at !== 'number') return null
-          if (Date.now() - parsed.at > 7 * 24 * 60 * 60 * 1000) return null
-          return parsed
+          if (typeof raw !== 'string' || raw.length === 0 || raw.length > STORED_MODE_MAX) return null
+          const stored = normalizeStoredMode(JSON.parse(raw))
+          return stored !== null && Date.now() - stored.at <= STORED_MODE_TTL ? stored : null
         } catch {
           return null
         }
@@ -208,7 +233,7 @@ window.__ModuleLoader__.load({
         try {
           if (!globalThis.localStorage) return
           if (current.known === true && (current.on === true || current.on === false)) {
-            globalThis.localStorage.setItem(modeStorageKey(sessionId), JSON.stringify({
+            const serialized = JSON.stringify({
               on: current.on,
               denied: current.denied ?? null,
               repo: current.repo ?? null,
@@ -216,7 +241,8 @@ window.__ModuleLoader__.load({
               lastBy: current.lastBy ?? null,
               lastReason: current.lastReason ?? null,
               at: Date.now(),
-            }))
+            })
+            if (serialized.length <= STORED_MODE_MAX) globalThis.localStorage.setItem(modeStorageKey(sessionId), serialized)
           }
         } catch {
           // storage is best effort; the history-derived model remains the source
@@ -235,6 +261,7 @@ window.__ModuleLoader__.load({
       function renderModeChip(t, modeModel) {
         // Non-interactive on purpose: inputActions.submit() would submit (and
         // clobber) the composer draft; the tooltip is the affordance instead.
+        const title = modeTooltip(t, modeModel)
         return h(
           'div',
           {
@@ -242,7 +269,9 @@ window.__ModuleLoader__.load({
             'data-tower-mode': modeModel.on === true ? 'on' : 'off',
             role: 'status',
             'aria-live': 'polite',
-            title: modeTooltip(t, modeModel),
+            'aria-atomic': 'true',
+            'aria-label': title,
+            title,
             style: ST.modeChip,
           },
           h('span', { 'aria-hidden': true, style: dotStyle('ok') }),
@@ -252,6 +281,7 @@ window.__ModuleLoader__.load({
         )
       }
       function renderModeUnknown(t) {
+        const title = translate(t, 'dock.mode.unknownTooltip')
         return h(
           'div',
           {
@@ -259,7 +289,9 @@ window.__ModuleLoader__.load({
             'data-tower-mode': 'unknown',
             role: 'status',
             'aria-live': 'polite',
-            title: translate(t, 'dock.mode.unknownTooltip'),
+            'aria-atomic': 'true',
+            'aria-label': title,
+            title,
             style: ST.modeChip,
           },
           h('span', { 'aria-hidden': true, style: dotStyle('idle') }),
@@ -275,7 +307,7 @@ window.__ModuleLoader__.load({
       }
       function TowerDockLive(props) {
         const t = seatT(props)
-        const raw = props.useChat(dockSelector)
+        const raw = props.useChat((snapshot) => dockSelector(snapshot, t))
         let model = null
         if (typeof raw === 'string' && raw !== '') {
           try {
@@ -315,9 +347,18 @@ window.__ModuleLoader__.load({
             ? translate(t, summary.key, summary.params)
             : translate(t, 'dock.generic')
         const tone = summary.running === true ? 'idle' : summary.tone
+        const label = toolLabel(t, summary.tool) + translate(t, 'card.sep') + text
         return h(
           'div',
-          { 'data-tower-ui': 'dock', style: ST.dock, title: toolLabel(t, summary.tool) + translate(t, 'card.sep') + text },
+          {
+            'data-tower-ui': 'dock',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+            'aria-label': label,
+            style: ST.dock,
+            title: label,
+          },
           h('span', { 'aria-hidden': true, style: dotStyle(tone) }),
           h('span', { style: ST.dockTool }, toolLabel(t, summary.tool)),
           h('span', { style: ST.dim }, '·'),

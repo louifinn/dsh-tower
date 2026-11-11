@@ -37,6 +37,25 @@ const pair = (en, zh, enFile = 'locale/en.json', zhFile = 'locale/zh.json') => (
 const meta = (title, description) => ({ meta: { title, description } })
 const hasMessage = (findings, code, pattern) =>
   findings.some((entry) => entry.code === code && pattern.test(entry.message))
+
+// The client-side dictionary is shipped as a browser chunk, not JSON, so the
+// copy gate has to load it the same way the Web client does. Each dictionary
+// entry is rendered into all three label fields; the gate then sees the same
+// keys on both sides and can enforce parity, emptiness and the glossary.
+function loadClientLocales() {
+  let definition = null
+  const window = { __ModuleLoader__: { load(value) { definition = value } } }
+  new Function('window', read('ui-bundle/client.locales.js'))(window)
+  assert.ok(definition, 'client.locales.js must register through __ModuleLoader__')
+  return definition.factory()
+}
+function clientCopyPayload(dictionary, language) {
+  const components = {}
+  for (const [key, text] of Object.entries(dictionary)) components[key] = { title: text, summary: text, disables: text }
+  const description = language === 'zh' ? 'Tower UI 客户端词典。' : 'Tower UI client copy.'
+  return { meta: { title: 'Tower UI', description }, components }
+}
+const CLIENT_LOCALES_FILE = 'ui-bundle/client.locales.js'
 const cleanPair = () =>
   pair(meta('Tower', 'Missions and worktrees.'), meta('Tower', '任务线与工作树。'))
 
@@ -67,6 +86,50 @@ test('the shipped root, ui-bundle and generated row copy passes the copy gate (#
   assert.deepEqual(checkLocaleCopy(pairs), [])
   // The generated row labels are exactly the files the gate reads.
   for (const file of rowLocalePaths()) assert.ok(fs.existsSync(path.join(root, file)), file)
+})
+
+test('the ui-bundle client dictionaries pass parity, emptiness and glossary checks (#137)', () => {
+  const { EN, ZH } = loadClientLocales()
+  assert.deepEqual(Object.keys(EN), Object.keys(ZH), 'client dictionary key sets must match')
+  const findings = checkLocaleCopy([
+    pair(
+      clientCopyPayload(EN, 'en'),
+      clientCopyPayload(ZH, 'zh'),
+      CLIENT_LOCALES_FILE,
+      CLIENT_LOCALES_FILE,
+    ),
+  ])
+  // The dictionary intentionally names its own commands and tool ids in a few
+  // tooltips (`/tower off`, `tower_mode`), so the banned-syntax rules do not
+  // apply here; parity, non-emptiness and the glossary do.
+  const copyCodes = new Set(['locale-copy-parity', 'locale-copy-empty', 'locale-glossary', 'locale-copy-untranslated'])
+  const relevant = findings.filter((entry) => copyCodes.has(entry.code))
+  assert.deepEqual(relevant, [], JSON.stringify(relevant.slice(0, 20)))
+})
+
+test('the client-copy gate catches glossary drift and a missing dictionary key (#137)', () => {
+  const { EN, ZH } = loadClientLocales()
+  const drift = checkLocaleCopy([
+    pair(
+      clientCopyPayload(EN, 'en'),
+      clientCopyPayload({ ...ZH, 'tool.review': '评审' }, 'zh'),
+      CLIENT_LOCALES_FILE,
+      CLIENT_LOCALES_FILE,
+    ),
+  ])
+  assert.ok(drift.some((entry) => entry.code === 'locale-glossary'), JSON.stringify(drift.slice(0, 5)))
+
+  const missing = { ...ZH }
+  delete missing['tool.batch']
+  const parity = checkLocaleCopy([
+    pair(
+      clientCopyPayload(EN, 'en'),
+      clientCopyPayload(missing, 'zh'),
+      CLIENT_LOCALES_FILE,
+      CLIENT_LOCALES_FILE,
+    ),
+  ])
+  assert.ok(parity.some((entry) => entry.code === 'locale-copy-parity'), JSON.stringify(parity.slice(0, 5)))
 })
 
 test('config-key syntax fails in both languages (#137)', () => {

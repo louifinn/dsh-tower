@@ -57,7 +57,7 @@ and the split preserves the pre-split line total within 10%
 
 Tower mode is a Host-side session stance and there is no Client RPC for it. The dock derives it from the durable session history that the Chat projection exposes in `useChat(snapshot.legacy)`:
 
-- the `/tower on|off` command node (`kind: "command"`, `name: "tower"`, `args`, `outcome.kind`); bare `/tower` and `/tower <message>` mean "ensure on", `/tower reload` and `/tower base <branch>` leave the stance unchanged, and a failed command is ignored;
+- the `/tower on|off` command node (`kind: "command"`, `name: "tower"`, `args`, `outcome.kind`); bare `/tower` and `/tower <message>` mean "ensure on", while `/tower ack`, `/tower takeover [reason]`, `/tower reload` and `/tower base <branch>` operate on other state and leave the stance unchanged; a failed command is ignored;
 - `tower_mode` results (`mode: "on" | "off" | "unknown"`, `deniedWhileActive`, `workspaceLock`, `lastChange`);
 - `tower_control` results (`action: enter|exit`, `mode`, `changedBy`, `reason`).
 
@@ -75,6 +75,46 @@ While the displayed session is in Tower mode the bundle dynamically registers `t
 - `update_goal` unconditionally, because the guard special-cases its `action: "resume"`.
 
 Those entries register with `priority: -10`. The slot core renders the lowest priority for a key, so this shadows the native keyed views without replacing them; disposing the entries (mode off) restores the native views exactly. A denial result renders as a distinct **`Tower mode · disabled`** row (warn marker, label, the preserved denial message, and the `/tower off` hint) — not the generic error text styling. `update_goal` resume denials get the same row. A non-denial result that lands in one of those slots while the mode is on renders a defensive generic row (there is no native view to delegate to while the registration shadows it); ordinary tool errors are not misclassified as Tower-mode denials.
+
+## Accessibility and persisted state contract
+
+The bundle is a status surface, not an interactive control surface, so the
+minimum contract is deliberately small and test-enforced in
+`tests/ui-bundle.test.mjs`:
+
+- **Dock chip / unknown state**: `role="status"`, `aria-live="polite"`,
+  `aria-atomic="true"`, and an `aria-label` carrying the same text as the
+  tooltip. The chip is non-interactive on purpose (see above), so it has no
+  focus target and no click handler.
+- **Dock summary**: `role="status"`, `aria-live="polite"`, `aria-atomic="true"`,
+  and an `aria-label` with the tool label plus the localized summary text.
+- **Tool cards**: `role="group"` with the card headline as `aria-label`;
+  `aria-busy="true"` while the call is running. Rows whose tone is
+  error/warning/success also carry `data-tower-tone`, `role="note"`, and an
+  `aria-label` of the localized tone word plus the row text, so status is never
+  conveyed by colour alone.
+- **Overlay strip**: `role="status"`, `aria-live="polite"`,
+  `aria-atomic="true"`, `aria-label` equal to the notice text, and
+  `pointer-events: none` end-to-end.
+- **Review-policy settings control** (root `client.js`, native radios): the
+  section is a labelled group with a heading, the radiogroup is named by the
+  heading and described by the intro, each input is labelled and described by
+  its option spans, and the current/saved state plus the restart note are live
+  regions. Keyboard and focus behaviour is the browser's native radio group;
+  nothing is implemented with a div that only looks interactive.
+
+The dock stores a last-known mode per browser session. It validates the whole
+snapshot before display (plain object, exact keys, boolean `on`, bounded text,
+`denied` and `lock` shapes, a sane timestamp, and a 4 KiB raw cap) and discards
+foreign, corrupt, stale or oversized values in a `try`/`catch`; storage failure
+never breaks the dock, which then falls back to the history-derived model.
+
+The client locale dictionary is gated in `tests/locale-copy.test.mjs`: the test
+loads `client.locales.js` as a browser chunk, requires identical `en`/`zh` key
+sets, and runs the shared copy gate for empty text, the glossary terms and
+untranslated English. The banned config-key/tool-id/command/module rules are
+not applied to this dictionary because a few tooltips intentionally quote
+`/tower` and `tower_mode`.
 
 ## Verification status
 

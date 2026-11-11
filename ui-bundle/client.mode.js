@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({
   factory() {
     function towerCommandAction(args) {
       const raw = String(args === undefined || args === null ? '' : args).trim()
-      if (/^reload$/i.test(raw)) return null
-      if (/^base\s+\S+\s*$/i.test(raw)) return null
+      // ack/reload/takeover/base change other state, not the mode stance.
+      if (/^(?:ack|reload|takeover(?:\s+[\s\S]*)?|base\s+\S+\s*)$/i.test(raw)) return null
       const match = /^(on|off)(?:\s+[\s\S]*)?$/i.exec(raw)
       if (match) return match[1].toLowerCase()
       // Bare `/tower` and `/tower <message>` both mean "ensure on".
@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
       return name === '' ? null : name
     }
     // Fold the visible history into one model: the last recognized event wins,
-    // and `/tower reload|base` or a failed command leaves the stance unchanged.
+    // and /tower ack|takeover|reload|base or a failed command leaves it unchanged.
     function modeModelFromLegacy(legacy, helpers) {
       const { isPlainObject, parsePayload } = helpers
       const model = {
