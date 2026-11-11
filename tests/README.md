@@ -235,4 +235,4 @@ After installing/restarting desktop (Host plugins load at process start, so a co
 7. After `/tower off`, `todo_write` works again and the tower guard no longer blocks `update_goal`.
 8. After a restart, `tower_mode` is still on for the same session id (`$DSH_HOME/tower-mode/modes.json`).
 9. With `allowAgentControl: true`, `tower_control` exists; with the default `false` it does not.
-10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising all 25 blocker/failure codes (see the repository `README.md`).
+10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising the blocker/failure codes listed in [docs/reference/blockers.md](../docs/reference/blockers.md) (the repository `README.md` states the live surface).
