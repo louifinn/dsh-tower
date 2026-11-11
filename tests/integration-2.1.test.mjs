@@ -351,7 +351,7 @@ test('2.1 board/docs: boardLocation repo writes MISSIONS.md at the repository ro
 test('2.1 review exemption: gate blocks by default and honors the opt-in with a reason', async () => {
   const { root, repo } = makeRepo()
   // Reviews are optional by default; enable the global gate to test exemption.
-  writeRepoConfig(repo, { review: { requireReview: true } })
+  writeRepoConfig(repo, { review: { mode: 'required' } })
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {
@@ -373,7 +373,7 @@ test('2.1 review exemption: gate blocks by default and honors the opt-in with a 
     await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
     const before = await (await Tower.open(repo)).evaluateGate({ missionId, activity: {} })
     assert.ok(before.blockers.some((blocker) => blocker.code === 'review-exemption-invalid'))
-    writeRepoConfig(repo, { review: { requireReview: true }, gates: { allowReviewExemption: true } })
+    writeRepoConfig(repo, { review: { mode: 'required' }, gates: { allowReviewExemption: true } })
     const after = await (await Tower.open(repo)).evaluateGate({ missionId, activity: {} })
     assert.equal(after.blockers.some((blocker) => blocker.code === 'review-exemption-invalid'), false)
     assert.equal(after.blockers.some((blocker) => blocker.code === 'no-review'), false)
@@ -543,8 +543,9 @@ test('2.0.1 config: explicit legacy allowAgentControl survives Cordis schema def
   assert.equal(resolveTowerConfig(parsed).mode.allowAgentControl, true)
   assert.equal(resolveTowerConfig({}).mode.allowAgentControl, true)
   assert.equal(resolveTowerConfig({ mode: { allowAgentControl: false } }).mode.allowAgentControl, false)
-  assert.equal(resolveTowerConfig({}).review.requireReview, false)
-  assert.equal(resolveTowerConfig({ review: { requireReview: true } }).review.requireReview, true)
+  assert.equal(resolveTowerConfig({}).review.mode, 'optional')
+  assert.equal('requireReview' in resolveTowerConfig({}).review, false)
+  assert.equal(resolveTowerConfig({ review: { mode: 'required' } }).review.mode, 'required')
 })
 
 test('2.0.1 preflight: an unknown mission returns a lossless blocker shape', async () => {
@@ -689,9 +690,9 @@ test('2.0.1 doctor: an intentionally removed worktree is not a failure', async (
   }
 })
 
-test('2.0.3 review toggle: review.requireReview:false allows a merge without a reviewer', async () => {
+test('2.8.0 review policy: review.mode:optional allows a merge without a reviewer', async () => {
   const { root, repo } = makeRepo()
-  writeRepoConfig(repo, { review: { requireReview: false } })
+  writeRepoConfig(repo, { review: { mode: 'optional' } })
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {
@@ -712,6 +713,27 @@ test('2.0.3 review toggle: review.requireReview:false allows a merge without a r
     const merged = await call(tools, 'tower_merge', { repoRoot: repo, missionId })
     assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
     assert.ok(merged.mergedCommit)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('2.8.0 config: a repository that still sets review.requireReview is rejected before mounting', async () => {
+  const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { review: { requireReview: false } })
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await assert.rejects(
+      () => call(tools, 'tower_status', { repoRoot: repo }),
+      (error) => {
+        const text = `${error.code ?? ''} ${error.message ?? error}`
+        assert.match(text, /config-unknown-key/)
+        assert.match(text, /review\.requireReview/)
+        assert.match(text, /review\.mode/)
+        return true
+      },
+    )
   } finally {
     removeTemp(root)
   }

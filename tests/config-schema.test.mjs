@@ -129,24 +129,26 @@ test('resolution is a fixed point and review.mode semantics are unchanged', () =
   const cases = [
     {},
     { section: 'custom', allowAgentControl: false },
-    { review: { requireReview: true } },
-    { review: { requireReview: false } },
     { review: { mode: 'off' } },
     { review: { mode: 'optional' } },
     { review: { mode: 'required' } },
-    { review: { mode: 'required', requireReview: false } },
     { mode: { promptSection: 'custom', allowAgentControl: false }, review: { mode: 'optional' } },
   ]
   for (const raw of cases) {
     const once = resolveTowerConfig(raw)
     assert.deepEqual(resolveTowerConfig(once), once, JSON.stringify(raw))
   }
-  assert.equal(resolveTowerConfig({ review: { requireReview: true } }).review.mode, 'required')
-  assert.equal(resolveTowerConfig({ review: { requireReview: false } }).review.mode, 'optional')
   assert.equal(resolveTowerConfig({ review: { mode: 'off' } }).review.mode, 'off')
+  assert.equal(resolveTowerConfig({ review: { mode: 'optional' } }).review.mode, 'optional')
+  assert.equal(resolveTowerConfig({ review: { mode: 'required' } }).review.mode, 'required')
+  assert.equal('requireReview' in resolveTowerConfig({}).review, false)
   assert.throws(
     () => resolveTowerConfig({ review: { mode: 'optional', requireReview: true } }),
-    /config-invalid/,
+    (error) => {
+      assert.equal(error.code, 'config-unknown-key')
+      assert.match(error.message, /review\.requireReview/)
+      return true
+    },
   )
 })
 
@@ -154,6 +156,15 @@ test('removed keys still carry their upgrade note', () => {
   assert.throws(() => resolveTowerConfig({ docs: { board: {} } }), /tower-board component row/)
   assert.throws(() => resolveTowerConfig({ archive: { enabled: true } }), /tower-archive component row/)
   assert.throws(() => resolveTowerConfig({ tests: { autoChecks: true } }), /testRuns receipt/)
+  assert.throws(
+    () => resolveTowerConfig({ review: { requireReview: true } }),
+    (error) => {
+      assert.equal(error.code, 'config-unknown-key')
+      assert.match(error.message, /review\.requireReview was removed on 2026-11-11/)
+      assert.match(error.message, /review\.mode/)
+      return true
+    },
+  )
 })
 
 test('hand-written config pages link the generated single source and hold no key table', () => {
@@ -206,8 +217,8 @@ test('the gate catches drift, duplicates, a stale default, a changed count, a ha
   assert.ok(
     problemsFor((dir) => {
       const file = path.join(dir, CONFIG_REFERENCE_FILE)
-      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('config keys: 56', 'config keys: 55'))
-    }).some((problem) => problem.includes('header says 55 config keys')),
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('config keys: 55', 'config keys: 54'))
+    }).some((problem) => problem.includes('header says 54 config keys')),
   )
 
   assert.ok(

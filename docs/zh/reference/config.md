@@ -34,17 +34,14 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 }
 ```
 
-`review.mode` 就是审查策略：`off`、`optional` 或 `required`。`review.requireReview` 仍是为 2.5 时期
-配置保留的兼容别名（已弃用；`true` → `required`，`false` → `optional`），请优先使用 `review.mode`。
-同一层同时设置两者时，`requireReview:true` 与任何非 `required` 的 mode 冲突，会以 `config-invalid`
-拒绝并同时点名两个键。`requireReview:false` 与任何显式 mode 都不冲突：`off`、`optional`、`required`
-都接受，且以 mode 为准（`required` 仍然强制门禁；只有该 mode 才会把解析后的别名镜像回 `true`）。
-仓库层会独立解析：它可以放宽审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，
-仓库层不能自行提高 mode。
+`review.mode` 就是审查策略：`off`、`optional` 或 `required`。2.6 时期的布尔别名
+`review.requireReview` 已在 2.8.0 中彻底移除：仍在 profile 或仓库配置中设置它的配置会以
+`config-unknown-key` 被拒绝，错误会点名 `review.mode` 并给出映射（`true` → `required`，`false` →
+`optional`）作为升级办法。现在不再有第二个需要保持一致的 review 键。仓库层会独立解析：它可以放宽审查，
+但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，仓库层不能自行提高 mode。
 
-插件页控件显示的正是运行时解析出的策略：`review.mode` 存在时以它为准；只设置了 `review.requireReview`
-的配置会显示为「必需」（`true`）或「可选」（`false`）。保存任何选择都会在同一份 profile patch 中写入
-`review.mode`，并把 `review.requireReview` 置为 `false`，因此该别名不可能与所选 mode 矛盾。
+插件页控件显示的正是运行时解析出的策略：以 `review.mode` 为准，未设置 mode 时显示「可选」（默认值）。
+保存任何选择都只会在同一份 profile patch 中写入 `review.mode`，已不存在需要归一化的废弃别名。
 
 同样的三个选项也出现在插件页的 `dsh-tower` 配置区：**关闭**、**可选**（默认）和 **必需**，每个选项都有一行效果说明。
 该控件通过宿主设置表单写入 profile 配置，因此无需手动编辑文件，页面就会接受并显示所选值。

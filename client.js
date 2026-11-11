@@ -9,15 +9,13 @@
 // with three states.
 //
 // Saving goes through `ctx.configForms.get('tower-host')` (the Host entry id in
-// cordis.patch.yml). One `mutate([...])` call writes both review keys:
-// `review.mode` becomes the selected value and the deprecated scalar alias
-// `review.requireReview` is normalized to `false`, so the stored profile patch
-// can never contain a contradiction. The Host schema marks both keys volatile, so
-// the accepted values are reflected in place without reloading the plugin.
+// cordis.patch.yml). One `mutate([...])` call writes `review.mode` — the only
+// review policy key since the one-release `review.requireReview` alias was
+// physically removed in 2.8.0 (#M66). The Host schema marks the field volatile,
+// so the accepted value is reflected in place without reloading the plugin.
 //
-// The displayed selection is the *resolved* policy, not just `review.mode`: the
-// alias decides when `mode` is absent, exactly like `resolveReviewPolicy` in
-// domain/integration/review.js.
+// The displayed selection is the resolved `review.mode`, the same value
+// `reviewModeOf`/`resolveReviewPolicy` in domain/integration/review.js return.
 //
 // No build step, no new dependency, no Host/Client package imports: React comes
 // from the browser module table and theme colors use `--dsw-alias-*` tokens.
@@ -105,25 +103,20 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // The resolved policy: an explicit `mode` wins; otherwise the deprecated
-    // boolean alias decides (true -> required, false -> optional), like
-    // `resolveReviewPolicy`. Only a literal `true` can raise the mode, which is
-    // also the only value the resolver accepts beside a non-required mode.
+    // The resolved policy is exactly `review.mode`; an absent or unrecognized
+    // value displays the documented default. The retired boolean alias is never
+    // read (it is an unknown key since 2.8.0).
     function currentMode(snapshot) {
       const review = (snapshot && snapshot.value && snapshot.value.review) || {}
-      if (MODES.includes(review.mode)) return review.mode
-      return review.requireReview === true ? 'required' : DEFAULT_MODE
+      return MODES.includes(review.mode) ? review.mode : DEFAULT_MODE
     }
 
-    // Both review keys are written together: the selected mode, plus the alias
-    // normalized to `false`. An explicit `false` is required — leaving the key
-    // unset would restore the inherited default, and a stale `true` would
-    // contradict a non-required mode and make `resolveTowerConfig` throw.
+    // One mutate writes the one live review policy key. The retired
+    // `review.requireReview` alias is not written: it no longer exists in the
+    // schema, and a profile that still carries it is rejected at resolution with
+    // an upgrade note before this form can display a policy.
     function reviewOps(mode) {
-      return [
-        { op: 'set', path: ['review', 'mode'], value: mode },
-        { op: 'set', path: ['review', 'requireReview'], value: false },
-      ]
+      return [{ op: 'set', path: ['review', 'mode'], value: mode }]
     }
 
     function ReviewPolicySection(props) {

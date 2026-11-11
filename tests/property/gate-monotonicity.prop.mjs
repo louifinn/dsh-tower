@@ -447,7 +447,7 @@ runProperty({
         at: 1_699_999_999_000,
       },
       config: {
-        review: { requireReview: true },
+        review: { mode: 'required' },
         gates: { requireChecks: false, requireTests: false, allowReviewExemption: false },
       },
       activity: { [agentId]: 'running' },

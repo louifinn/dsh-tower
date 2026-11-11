@@ -233,7 +233,7 @@ export function modelNextMissionNumber(model) {
  * @returns {boolean}
  */
 export function modelReviewRequired(mission) {
-  return MODEL_CONFIG.review.requireReview === true
+  return MODEL_CONFIG.review.mode === 'required'
 }
 
 /**
@@ -241,7 +241,7 @@ export function modelReviewRequired(mission) {
  * @returns {boolean}
  */
 export function modelReviewExempt(mission) {
-  if (MODEL_CONFIG.review.requireReview === false) return true
+  if (MODEL_CONFIG.review.mode !== 'required') return true
   return (
     mission.reviewPolicy === 'none' &&
     MODEL_CONFIG.gates.allowReviewExemption === true &&
