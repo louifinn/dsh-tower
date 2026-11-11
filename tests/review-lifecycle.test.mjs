@@ -210,6 +210,20 @@ test('submission, gate, status and briefing agree on the newest same-round verdi
     assert.deepEqual(state.reviews.map((review) => review.seq), [1, 2])
     assert.deepEqual(state.reviews.map((review) => review.status), ['p1-1items', 'clean'])
 
+    // The markdown board (tower_status format:"markdown" / MISSIONS.md artifact)
+    // renders the shared latest verdict; a round-only reducer keeps the first
+    // stored row of the round and would show the stale R1 here.
+    const board = tower.boardMarkdown(state)
+    // The board labels the row by round, not ledger id, so the status/verdict
+    // text is what distinguishes the newest same-round verdict from the stale one.
+    assert.ok(board.includes('R1 clean/merge'), 'board shows the newest same-round verdict')
+    assert.doesNotMatch(board, /p1-1items/, 'board must not show the stale same-round verdict')
+    assert.deepEqual(
+      state.reviews.map((review) => review.id),
+      ['R1', 'R2'],
+      'projecting the board must not reorder the ledger',
+    )
+
     // Status projection.
     const status = await tower.status({ missionIds: ['M1'] })
     assert.equal(status.missions[0].review.id, 'R2')
