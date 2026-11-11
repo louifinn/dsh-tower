@@ -24,7 +24,7 @@
     "url": "https://github.com/louifinn/dsh-tower/issues"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24.9"
   },
   "exports": {
     ".": "./index.js",
@@ -78,6 +78,9 @@
     "types/",
     "cordis.patch.yml",
     "scripts/",
+    "!scripts/check-support.mjs",
+    "!scripts/check-workflow.mjs",
+    "!scripts/support.json",
     "locale/",
     "icon.svg",
     "README.md",
@@ -90,6 +93,7 @@
     "PRINCIPLES.md",
     "GLOSSARY.md",
     "docs/",
+    "!docs/operations/ci.md",
     "ui-bundle/",
     "ports/*.js"
   ],
@@ -113,9 +117,13 @@
     "smoke:fixtures": "node scripts/mount-smoke/fixtures.mjs",
     "release:check": "node scripts/release-check.mjs",
     "release:notes": "node scripts/release-notes.mjs",
+    "release:prepublish": "node scripts/release-check.mjs --mode prepublish && npm run support:check && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:blockers && npm run docs:check:generated:types && npm run docs:check:generated:components && npm run docs:check:generated:locale && npm run docs:check:generated:shapes && npm run pack:check",
+    "prepublishOnly": "npm run release:prepublish",
     "audit:issues": "node scripts/issue-audit.mjs",
     "audit:regressions": "node scripts/regression-audit.mjs",
     "surface:check": "node scripts/surface-baseline.mjs",
+    "support:check": "node scripts/check-support.mjs",
+    "workflow:check": "node scripts/check-workflow.mjs",
     "dev:hmr": "node scripts/enable-dev-hmr.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "docs:check:philosophy": "node scripts/check-philosophy.mjs",
@@ -146,7 +154,7 @@
     "types:coverage": "node scripts/types-coverage.mjs",
     "types:strict:check": "node scripts/types-strict.mjs",
     "types:strict:write": "node scripts/types-strict.mjs --write",
-    "check": "npm test && npm run test:property && npm run docs:check && npm run docs:check:philosophy && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:blockers && npm run docs:check:generated:types && npm run docs:check:generated:components && npm run docs:check:generated:locale && npm run docs:check:generated:shapes && npm run shape:audit && npm run docs:check:components && npm run blockers:check && npm run surface:check && npm run pack:check && npm run architecture:check && npm run types:coverage && npm run types:strict:check && npm run types:check && npm run domain:check",
+    "check": "npm test && npm run test:property && npm run support:check && npm run workflow:check && npm run docs:check && npm run docs:check:philosophy && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:blockers && npm run docs:check:generated:types && npm run docs:check:generated:components && npm run docs:check:generated:locale && npm run docs:check:generated:shapes && npm run shape:audit && npm run docs:check:components && npm run blockers:check && npm run surface:check && npm run pack:check && npm run architecture:check && npm run types:coverage && npm run types:strict:check && npm run types:check && npm run domain:check",
     "domain:metrics": "node scripts/domain-metrics.mjs",
     "domain:check": "node scripts/domain-metrics.mjs --check"
   },

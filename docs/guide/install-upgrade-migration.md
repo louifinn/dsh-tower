@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- DSH `0.2.1-rc.2`; see [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
-- Node.js 22+
+- DSH `0.2.2-rc.1`; see [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
+- Node.js 24.9+
 - Git (local worktrees; no network access is required)
 
 ## Install
@@ -29,6 +29,12 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.7.1 → 2.8.0 (#M71) — supported runtime floor is Node.js 24.9+ and DSH 0.2.2-rc.1**: DSH
+  0.2.2-rc.1 declares `engines.node >=24.9.0`, so Tower publishes the same floor in its package
+  engines and the package-lock root. `scripts/support.json` is the single manifest: the mount-smoke
+  host pin, the live CI matrix and the newest COMPATIBILITY row must agree with it, and `npm run
+  support:check` (part of `npm run check`) fails on any disagreement. There is no state or config
+  migration; upgrade Node to 24.9+ before installing 2.8.0, and restart DSH after the upgrade.
 - **2.7.0 → 2.8.0 (#M66) — `review.requireReview` is removed**: the one-release boolean alias
   introduced in 2.6.0 no longer exists. `review.mode` (`off`, `optional` or `required`) is the only
   review policy key; a profile or repository config that still writes `review.requireReview` is

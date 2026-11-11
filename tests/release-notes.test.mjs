@@ -366,7 +366,15 @@ test('the release checklist documents the cumulative policy and the exact comman
     'gh release edit',
     '--check',
     'authoritative',
+    // The release checklist also carries the mechanical release claim (#M74).
+    'npm run release:prepublish',
+    'prepublishOnly',
   ]) {
     assert.ok(release.includes(required), `docs/guide/release.md must document: ${required}`)
   }
+  // Publishing precedes tagging, and both gates run before their action.
+  assert.ok(
+    release.indexOf('npm run release:prepublish') < release.indexOf('npm publish --tag next'),
+    'the prepublish gate must be documented before publishing',
+  )
 })

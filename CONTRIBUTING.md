@@ -40,8 +40,9 @@ required checks:
 
 | Required context | What it proves |
 |---|---|
-| `test (22)` | offline suite, docs/pack/architecture/types/domain checks on Node 22 |
-| `test (24)` | the same jobs on Node 24 |
+| `test (22)` | offline suite, docs/pack/architecture/types/domain checks on Node 22 (legacy transition leg) |
+| `test (24)` | the same jobs on Node 24 (legacy transition leg) |
+| `test (22, windows)` | the same offline suite and offline gates on `windows-latest` (legacy transition leg) |
 | `mount` | the packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`) |
 
 The context names come from the workflow job id and matrix values. Renaming a job or a matrix value
@@ -52,12 +53,19 @@ smoke failures for evidence but is deliberately **not** a required context. The 
 (and manual-dispatch) only, runs on a pinned host matrix, and is evidence as well: it is never part of
 a push or a PR gate.
 
-The offline `test` matrix also has a `test (22, windows)` leg on `windows-latest` (Node 22). It runs the
-offline suite and the offline gates, not the release/coverage steps, so the platform branches are
-measured on a real Windows filesystem (see `tests/platform.test.mjs`). Its name is pinned through
-`matrix.name` so the two required contexts above stay byte-identical. The Windows leg is **not** a
-required context yet: #86 only asks that it exists and is green, and adding it to the protection setting
-is a separate human step.
+The supported runtime is gated by the `canonical` job: the contexts `test (24.9)`, `test (25)` and
+`test (24.9, windows)` each run exactly one `npm run check`, the same command a human runs locally
+(the Ubuntu Node 24.9 leg also runs the tag-only release check, the coverage table and the live-harness
+environment check). `npm run check` includes `npm run workflow:check`, which machine-checks this
+workflow contract. The legacy `test` matrix above is **frozen for one transition cycle** so the four
+required contexts keep reporting while the canonical legs prove themselves; do not add gates to it —
+add them to `npm run check`. [docs/operations/ci.md](docs/operations/ci.md) documents the two-step
+branch-protection cutover (new contexts first, then the legacy contexts and job), the exact `gh api`
+commands and the rollback.
+
+The `test (22, windows)` leg measures the platform branches on a real Windows filesystem (see
+`tests/platform.test.mjs`), and its name is pinned through `matrix.name` so the context string stays
+byte-identical.
 
 There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
 one maintainer, and a mandatory self-approval would be theatre. What replaces the second reviewer is a
@@ -102,7 +110,9 @@ cd dsh-tower
 npm test        # no dependencies to install; Node's built-in test runner only
 ```
 
-Requirements: Node.js 22+, Git. No package installation is needed for the offline example suite.
+Requirements: Node.js 24.9+ (the supported floor), Git. No package installation is needed for the
+offline example suite. The one-cycle legacy CI legs still run Node 22/24 to keep the old required
+contexts reporting; they are transition evidence, not a supported runtime claim.
 
 The property-based PR tier (`npm run test:property`) does need the dev dependencies: run `npm ci` once, then `npm run test:property`. It is part of `npm run check` and runs on every CI matrix leg; the nightly long tier is `npm run test:property:long`. See [tests/README.md](tests/README.md#property-based-tests-fast-check-130).
 
@@ -126,7 +136,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm test` passes locally (975 tests today, 974 run + 1 platform skip, including protocol end-to-end against a real temporary Git repository and mock spawn coverage), `npm run test:property` passes (112 generated property cases; also part of `npm run check`), and `npm run docs:check` passes.
+1. `npm run check` passes locally — it is the canonical gate, and the `canonical` CI legs run exactly that once per leg (the offline suite, the property PR tier, `npm run support:check`, `npm run workflow:check`, the docs/pack/architecture/types/domain gates).
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
@@ -171,15 +181,24 @@ no baseline, no badge.
 
 ## Releasing
 
-A release is six steps: bump → changelog → COMPATIBILITY row → publish → annotated tag → GitHub
-Release. The one-page procedure with exact commands is [docs/guide/release.md](docs/guide/release.md).
-It carries the two rules that are easy to get wrong: **publish before tagging** (or delete the tag if
-publish fails), and a release **may not be tagged while its milestone holds an open P0/P1** unless the
-release notes say why. `npm publish` is the only human-only step (2FA).
+A release is one page of steps with exact commands: [docs/guide/release.md](docs/guide/release.md).
+In short: prepare the release commit (bump `package.json`, move the changelog entries under a
+`## <version>` heading, add the `COMPATIBILITY.md` row and agree with `scripts/support.json`); run
+the prepublish gate (`npm run release:prepublish` — read-only, offline); publish, the human-only
+step with 2FA; create the annotated tag, run the tag guard, then push it; write the GitHub Release
+from cumulative notes.
+
+Two rules are easy to get wrong: **publish before tagging** (or delete the tag if publish fails),
+and a release **may not be tagged while its milestone holds an open P0/P1** unless the release
+notes say why. `npm publish` is the only human-only step (2FA).
 
 `npm run release:check` prints `git describe`, the previous tag, the commits since it and whether
-Unreleased is non-empty on every run. It warns on a PR and fails on a tag push whose
-`package.json` version did not move past the last tag or whose tag is not `v<version>`.
+Unreleased is non-empty on every run. It warns on a PR; on a tag push it fails closed when the tag
+is not an annotated `v<version>` object, its commit is not in HEAD's history, the tree is dirty,
+`package.json` did not move past the last tag, the CHANGELOG has no non-empty section for the
+version, or the support manifest disagrees with its restatements. The same guard also runs before
+`npm publish` through `prepublishOnly` (`npm run release:prepublish`, `--mode prepublish`), where a
+tag that does not exist yet is allowed because publishing precedes tagging.
 
 ## Tracker board
 

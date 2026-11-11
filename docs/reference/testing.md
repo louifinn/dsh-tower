@@ -4,6 +4,14 @@ Tower 2.1 can execute a repository's declared test discovery and turn its result
 completion evidence. Discovery is **opt-in by configuration**: a worktree with no
 `package.json.tower.testDiscovery` block behaves exactly as before.
 
+## Supported runtime
+
+Tower publishes one support floor: Node.js 24.9 or newer and DeepSeek Harness `0.2.2-rc.1` (the host
+declares `engines.node >=24.9.0`). `scripts/support.json` is the single manifest; `npm run
+support:check` fails when the package engines, the lock root engines, the mount-smoke host pin, the
+live CI matrix or the newest [COMPATIBILITY.md](../../COMPATIBILITY.md) row disagrees with it. The
+offline suite is plain `node --test`; jobs that boot the pinned host run Node 24.
+
 ## Configuration
 
 `package.json` (Tower Codex-compatible):

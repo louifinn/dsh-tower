@@ -4,8 +4,8 @@
 
 ## 环境要求
 
-- DSH `0.2.1-rc.2`；每个版本实际验证过的 host 构建见 [COMPATIBILITY.md](../../../COMPATIBILITY.md)
-- Node.js 22+
+- DSH `0.2.2-rc.1`；每个版本实际验证过的 host 构建见 [COMPATIBILITY.md](../../../COMPATIBILITY.md)
+- Node.js 24.9+
 - Git（本地 worktree；不需要网络访问）
 
 ## 安装
@@ -31,6 +31,11 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.7.1 → 2.8.0（#M71）—— 支持基线提升到 Node.js 24.9+ 与 DSH 0.2.2-rc.1**：DSH 0.2.2-rc.1
+  声明 `engines.node >=24.9.0`，因此 Tower 在 package engines 与 package-lock 根节点发布同一条基线。
+  `scripts/support.json` 是唯一的清单：mount-smoke host pin、live CI 矩阵与 COMPATIBILITY 最新行
+  必须与它一致，任何不一致都会让 `npm run support:check`（属于 `npm run check`）失败。没有 state
+  或配置迁移；安装 2.8.0 前把 Node 升级到 24.9+，升级后重启 DSH。
 - **2.7.0 → 2.8.0（#M66）—— 移除 `review.requireReview`**：2.6.0 引入的、保留一个版本的布尔别名已彻底移除。
   `review.mode`（`off`、`optional` 或 `required`）是唯一的审查策略键；仍在 profile 或仓库配置中写入
   `review.requireReview` 的配置会以 `config-unknown-key` 被拒绝，错误带日期注记，点名 `review.mode`

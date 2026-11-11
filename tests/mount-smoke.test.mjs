@@ -246,7 +246,11 @@ test('CI runs the seeded fixtures against one shared host install', () => {
   assert.equal(pkg.scripts['smoke:fixtures'], 'node scripts/mount-smoke/fixtures.mjs')
   assert.match(workflow, /^ {2}mount-fixtures:/m, 'the fixtures run as their own job')
   assert.match(workflow, /npm run smoke:fixtures -- --host-dir/)
-  assert.match(workflow, /actions\/cache@v4/, 'the pinned host install is cached between runs')
+  assert.match(
+    workflow,
+    /^ {8}uses: actions\/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4\.2\.3$/m,
+    'the pinned host install is cached by the SHA-pinned cache action with its version comment',
+  )
   assert.match(workflow, /hashFiles\('scripts\/mount-smoke\/host\.json'\)/)
   // Required contexts stay exactly `test (22)`, `test (24)` and `mount`; the
   // fixtures job is evidence, not a merge gate, so it must not borrow that name.
