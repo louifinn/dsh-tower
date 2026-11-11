@@ -13,6 +13,7 @@ import {
 } from '../domain/vocabulary.js'
 import {
   allowsAnonymous,
+  allowsConfigDiagnostic, openForAuthorization, isConfigResolutionError,
   anonymousActor,
   authorize,
   isRepositoryOptional,
@@ -21,7 +22,7 @@ import {
   resolveActor,
 } from './authorization.js'
 import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
-import { runtimeConfig } from './config.js'
+import { resolveTowerConfig, runtimeConfig } from './config.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
 import { runDoctor } from './doctor.js'
 import { createHmrBridge } from './hmr.js'
@@ -171,9 +172,9 @@ function normalizeToolArgs(args, aliases = {}) {
 // tool registrars already receive; it resolves through the kernel.
 const actorFor = resolveActor
 
-/** Authorize one call: tower_init bootstraps; a repoRoot-less repository-optional
- * row takes the absent path; a public row with unreadable state continues as the
- * anonymous actor. Gated rows rethrow the state error. */
+/** Authorize one call: tower_init bootstraps; a repoRoot-less optional row takes
+ * the absent path; public rows continue anonymously; the config-diagnostic doctor
+ * row degrades an unresolvable config instead of failing in the open path. */
 async function authorizeCall(name, args, exec) {
   if (name === 'tower_init') {
     let tower = null
@@ -187,10 +188,10 @@ async function authorizeCall(name, args, exec) {
     await authorize(name, actor, { args, tower: null, repositoryAbsent: true })
     return actor
   }
-  const tower = await openTower(args.repoRoot)
+  const tower = await openForAuthorization(name, args.repoRoot, openTower)
   let actor
   try {
-    actor = await resolveActor(tower, exec)
+    actor = tower ? await resolveActor(tower, exec) : anonymousActor(exec)
   } catch (error) {
     if (!allowsAnonymous(name)) throw error
     actor = anonymousActor(exec)
@@ -450,7 +451,7 @@ function define(ctx, definition) {
           // Default-deny authorization runs before any side effect: a denied
           // call must not take the workspace lock, write state, or spawn.
           const actor = await authorizeCall(rest.name, normalized, exec)
-          if (runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') {
+          if (!allowsConfigDiagnostic(rest.name) && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') {
             await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
           }
           value = await execute(normalized, exec, actor)
@@ -713,7 +714,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
     define,
     createTower,
     resolveRepo,
-    runtimeConfig,
+    runtimeConfig, resolveTowerConfig, isConfigResolutionError,
     runDoctor,
     // #84/#122: the doctor reports the full registered surface. It is always
     // registered itself, and it is the reporter that names a disabled component.
