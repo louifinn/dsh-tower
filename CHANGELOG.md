@@ -2,6 +2,51 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## 2.8.0（2026-11-12）
+
+> 2.7.1 未单独发布；本节与下方 2.7.1 节共同构成 2.8.0 的发布内容。
+
+### 新增
+
+- **单一契约与阻塞码注册表**：`domain/shapes/blockers.js` 成为全部 33 个门禁/合并/rebase 阻塞码的唯一定义，
+  生成中英双语 `docs/reference/blockers.md`，`blockers:check` 保证发射点与注册表一致；配置参考、错误目录与
+  生成文档改为从 schema/注册表派生，不再维护手写副本。
+- **单一审查解析器**：`domain/integration/review.js` 统一按 `round` + `seq` 排序，状态、mission 详情、看板、
+  briefing 与合并门禁使用同一“最新审查”，修复同一轮次旧裁决被误选的问题。
+- **有界活动日志**：新增 `activity.maxBytes`（默认 4 MiB，0 关闭）与 `activity.retention`（默认 5 段），
+  活动 JSONL 在追加前轮转、删除过期段并保持时间顺序；`tower_status`/`tower_doctor` 报告日志状态。
+- **进程内咨询式预算 ADR**：记录 spawn 退避与 send 限速是本进程/本仓库的 advisory 限制，不是跨进程配额或
+  安全边界（ADR 0008）。
+- **发布前安全门**：新增 `release:prepublish`（`prepublishOnly`）与 fail-closed 的 tag/prepublish 检查，
+  校验注解 tag、版本、CHANGELOG、COMPATIBILITY、support manifest、生成文档与 pack 清单。
+- **规范化 CI 与四上下文契约**：每个受支持平台只运行一次标准 `npm run check`；全部 action 使用 SHA 固定；
+  通过 `workflow:check` 强制约定；夜间失败自动开/更新 issue；分支保护最终固定为 `mount` + 三个 canonical
+  上下文（`test (24.9)`、`test (25)`、`test (24.9, windows)`），删除过渡期 legacy 任务。
+  发布前安全与 CI 契约均有真实 tamper 测试。
+
+### 变更
+
+- **Node.js 最低版本为 24.9**，支持宿主为 **DeepSeek Harness 0.2.2-rc.1**；`scripts/support.json` 是唯一
+  支持矩阵来源，`support:check` 与 mount/live/COMPATIBILITY 保持一致。
+- **移除 `review.requireReview`**（2.7.0 起已弃用）：审查强制策略只由 `review.mode`（`off` / `optional` /
+  `required`）控制；旧配置会以 `config-unknown-key` 拒绝并给出迁移提示。
+- **结构拆分，行为不变**：`host/tool-registry.js` 拆为 runtime/capabilities/observers，`index.js` 只保留
+  Cordis 装配，`app/tower.js`、`domain/components.js` 拆为职责单一的小模块；导出面、工具顺序与授权行为由
+  测试锁定。
+- 配置面由 55 键/15 段增至 **57 键/16 段**（新增 `activity` 两项）；state schema 仍为 v5，无需数据迁移。
+- 测试基线更新为 **1041 项声明（1040 通过 + 1 平台跳过）**，property 测试 **117** 个用例。
+
+### 修复
+
+- **Windows 全量测试稳定性**：锁心跳测试改为验证真实的 stale/heartbeat 关系，状态锁预算通过 `withStateLock`
+  真正生效，concurrency/git-mutex 测试不再依赖脆弱的墙钟阈值；已知的 `git-mutex-budget` 默认命令挂起在
+  `npm test` 中仍以隔离方式验证。
+- **活动日志轮转边界**：降低 `activity.retention` 后会删除所有超出保留窗口的旧段；截断/损坏段被跳过且不
+  影响按时间读取。
+- **CI 契约与文档一致性**：删除 legacy 任务后，挂载/实时/支持清单等测试改按最终四上下文断言；修复
+  `docs/operations/ci.md` 中“仍需后续修复”的过期说明，并以 release-gate 负向断言防止回归。
+- **COMPATIBILITY 与测试证据**：0.2.2-rc.1 行更新为 2.8.0 的 1041/117 实测数据与最终四上下文 CI。
+
 ## 2.7.1（2026-11-11）
 
 ### 新增

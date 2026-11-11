@@ -29,6 +29,13 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.8.0 — bounded activity log**: two optional tuning keys were added under `activity`:
+  `activity.maxBytes` (default 4 MiB, `0` disables rotation) and `activity.retention` (default 5
+  segments, range 1–100). The defaults preserve the previous unbounded behavior only up to the byte
+  limit; once the live log would exceed it, Tower rotates to `activity.jsonl.1`, shifts older segments
+  and deletes those beyond the retention window before appending. Existing logs are not rewritten on
+  upgrade, and no state migration is required. The config surface grows from 55 to 57 keys and from
+  15 to 16 sections.
 - **2.7.1 → 2.8.0 (#M71) — supported runtime floor is Node.js 24.9+ and DSH 0.2.2-rc.1**: DSH
   0.2.2-rc.1 declares `engines.node >=24.9.0`, so Tower publishes the same floor in its package
   engines and the package-lock root. `scripts/support.json` is the single manifest: the mount-smoke
