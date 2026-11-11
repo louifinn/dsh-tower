@@ -132,6 +132,24 @@ export class Tower {
     return this.deps.store.appendJsonl(this.paths.activity, entry, this.config.activity ?? {})
   }
 
+  /**
+   * Run one mutation inside the repo-wide state lock. The wait budget defaults
+   * to `mode.lockTimeoutMs`, the same cross-process lock tuning used by the
+   * mode store, so a repository can raise it once for both locks; a caller that
+   * passes `timeoutMs` explicitly wins. Before #M76 the app called
+   * `deps.store.withLock` directly, so that key only governed `modes.lock`.
+   * @template T
+   * @param {(paths: Record<string, any>, held: { token: string }) => Promise<T>} fn
+   * @param {{ timeoutMs?: number, [key: string]: any }} [options]
+   * @returns {Promise<T>}
+   */
+  async withStateLock(fn, options = {}) {
+    return this.deps.store.withLock(this.paths, fn, {
+      ...options,
+      timeoutMs: options.timeoutMs ?? this.config?.mode?.lockTimeoutMs ?? 5000,
+    })
+  }
+
   git(cwd, args, options = {}) {
     return this.deps.vcs.git(cwd, args, { timeoutMs: this.config.git?.timeoutMs, ...options })
   }

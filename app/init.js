@@ -154,7 +154,7 @@ async function restoreInitRefs(tower, deleted) {
 
 /** Phase 3a of `Tower.init` (#51): write the initial state under a short lock. */
 async function commitInitCreate(tower, prepared, acted, input) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     // Revision revalidation for the create path: prepare saw "absent", so a
     // state file that appeared meanwhile must never be overwritten.
     if (await tower.deps.store.exists(tower.paths.state)) {
@@ -199,7 +199,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
 
 /** Phase 3b of `Tower.init` (#51): owner claim and reanchor writes under a short lock. */
 async function commitInitExisting(tower, prepared, input) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) {
       throw new TowerToolError(

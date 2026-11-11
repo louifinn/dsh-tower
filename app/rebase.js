@@ -152,7 +152,7 @@ async function reconcileRebaseIntent(tower) {
     if (inspection.action === 'ambiguous') {
       throw stale(ambiguousRebaseIntentMessage(intent, inspection.tip))
     }
-    const applied = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    const applied = await tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       if (state.revision !== snapshot.revision) return false
       const current = state.rebaseIntent
@@ -201,7 +201,7 @@ export async function rebase(tower, input) {
   // commit leaves a durable marker instead of an unexplained moved branch.
   const token = tower.deps.ids.uuid()
   const startedAt = Date.now()
-  const intentRevision = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  const intentRevision = await tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) throw stale(STALE_PREPARE)
     const mission = findMission(state, prepared.missionId)
@@ -250,7 +250,7 @@ export async function rebase(tower, input) {
 
   // Phase 3 (#51): re-read state and revalidate the revision computed by the
   // intent write; the lock only holds the state mutation, never a subprocess.
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== intentRevision) throw stale(STALE_ACT)
     const mission = findMission(state, prepared.missionId)

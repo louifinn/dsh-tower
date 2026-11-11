@@ -48,6 +48,13 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Leases are coordination, not quotas.** `tower_resource` prevents accidental co-scheduling via a local
   JSON ledger; it does not cap CPU, memory, or process count. DSH exposes no public Job-object quota API,
   so OS-level isolation remains a deployment concern.
+- **Spawn backoff and send rate limits are process-local advisory budgets.** `SPAWN_BACKOFF` and
+  `SEND_RATE` in `host/tool-runtime.js` are ordinary in-memory counters keyed by repository root. They
+  protect one running session from a retry storm and an accidental message flood; they are **not
+  persisted**, **not shared between concurrent DSH processes**, **not a cross-process or platform quota**,
+  and **not a security or authorization control**. A restart clears them, and two Tower sessions on one
+  repository may each spend the full `send.maxPerMinute`. See
+  [ADR 0008](../adr/0008-process-local-advisory-budgets.md).
 - **Legacy import is read-only.** Imported snapshots live under the canonical state directory and are never
   activated, adopted, or resumed; an operator must explicitly re-plan/migrate work.
 

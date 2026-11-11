@@ -52,7 +52,7 @@ function planNeedsRead(input) {
 }
 
 export async function plan(tower, input = {}) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const now = Date.now()
     // A survey records the commit it reads and the tracked-status fingerprint at

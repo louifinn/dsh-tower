@@ -16,7 +16,7 @@ function fail(message, code = 'invalid-argument') {
 }
 
 export async function addFinding(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       if (!Array.isArray(state.findings)) state.findings = []
       const fields = normalizeFindingInput(input, state.missions)
@@ -54,7 +54,7 @@ export async function addFinding(tower, input) {
     const actor = normalizeFindingActor(input.actor)
     if (!wantsFindingUpdate(input)) return tower.readFindings(input)
 
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const all = state.findings ?? []
       const finding = all.find((entry) => entry.id === input.id)

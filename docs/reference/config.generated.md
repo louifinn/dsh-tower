@@ -24,7 +24,7 @@
 | `mode.denyTools` | `["create_goal","todo_write","team_task_create","team_task_update","team_task_reopen","team_task_list","spawn_teammate","wait_agent","workflow","ralph","subagent","subagent_fork"]` | Tools refused while Tower mode is active. |
 | `mode.storePath` | `` | Directory for modes.json; defaults to $DSH_HOME/tower-mode. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries. |
-| `mode.lockTimeoutMs` | `5000` | How long saveModes waits for the cross-process modes.lock before giving up. |
+| `mode.lockTimeoutMs` | `5000` | How long a caller waits for a cross-process lock (the repo state lock and the Tower-mode modes.lock) before giving up. |
 | `review.mode` | `"optional"` | Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker. |
 | `review.maxRoundsPerReviewer` | `5` | Review-round cap per reviewer per mission branch. |
 | `merge.timeoutMs` | `900000` | Default tower_merge timeout, including pre-merge hooks. |
@@ -42,7 +42,7 @@
 | `spawn.staleMs` | `15000` | Roster entries with no catalog activity after this age are marked stale and block merge (0 disables). |
 | `spawn.maxWaitMs` | `90000` | Upper bound for tower_spawn waitMs (default 90s, Kimi-compatible). |
 | `spawn.requireLease` | `` | Optional lease name tower_spawn must hold before starting a worker. |
-| `send.maxPerMinute` | `120` | Per-repository tower_send rate limit per minute (0 disables). |
+| `send.maxPerMinute` | `120` | Process-local advisory tower_send rate limit per minute (0 disables): an in-memory counter per process and repository, not a cross-process quota. |
 | `send.interruptDefault` | `false` | Default value of tower_send.interrupt when the caller omits it. |
 | `survey.sandbox` | `"none"` | Where a survey reads. none = the shared checkout with a read-only preset (writes and shell commands are impossible); detached = a disposable detached git worktree created at the recorded commit, with a sandbox preset that may write and run commands inside it. A detached sandbox is removed when the survey completes or is abandoned; it has no branch, never participates in merge/stale-base, and cannot commit its evidence. |
 | `tests.admission` | `"off"` | Run discovery before spawning a worker, when completing, or only on explicit tower_test (default off: repository code runs only on an explicit tower_test). |

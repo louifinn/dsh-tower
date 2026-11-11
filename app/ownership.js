@@ -204,7 +204,7 @@ export async function transferOwnership(tower, { caller, reason, readFacts }) {
       'ownership transfer requires readFacts so modes/lock/roster are read under the state lock',
     )
   }
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const facts = (await readFacts()) ?? {}
     const snapshot = ownershipSnapshot({

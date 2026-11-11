@@ -309,8 +309,10 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
     await tools.get('tower_plan').execute({ repoRoot: repo, missions }, exec)
     // The property under test is serialization, not the default 5 s lock
     // budget: sixteen concurrent tool calls can queue for longer than that on a
-    // loaded Windows runner. Give every waiter room to acquire the lock and
-    // keep the exact revision assertion below.
+    // loaded Windows runner. `mode.lockTimeoutMs` is the app's state-lock
+    // budget — `Tower.withStateLock` passes it to `store.withLock` — so raising
+    // it in the repo config gives every waiter room while the exact revision
+    // assertion below stays in place.
     writeRepoConfig(repo, { mode: { lockTimeoutMs: 60000 } })
     const tower = await Tower.open(repo)
     const before = await tower.load()
@@ -336,6 +338,49 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
       assert.ok(mission.notes.includes(`parallel note ${index}`), `M${index + 1} lost its concurrent note`)
     }
     assert.ok(after.revision > before.revision)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('Tower.withStateLock passes the configured mode.lockTimeoutMs to the state lock', async () => {
+  const { root, repo } = seedRepo('dsh-tower-concurrency-lock-budget-')
+  try {
+    const { defaultDeps } = await import('../adapters/default.js')
+    const calls = []
+    const deps = {
+      ...defaultDeps,
+      store: {
+        ...defaultDeps.store,
+        // Capture the options the app hands to the real lock port. The inner
+        // callable runs synchronously so the test measures wiring, not timing.
+        withLock: async (paths, fn, options) => {
+          calls.push({ paths, options })
+          return fn(paths, { token: 'test-token' })
+        },
+      },
+    }
+    const repoInfo = await deps.vcs.resolveRepo(repo)
+    const defaults = await deps.config.resolveRepoConfig(repoInfo)
+    assert.equal(defaults.mode.lockTimeoutMs, 5000, 'schema default is the fallback budget')
+
+    const tower = new Tower(repoInfo, defaults, deps)
+    assert.equal(await tower.withStateLock(async (_paths, held) => held.token), 'test-token')
+    assert.equal(calls.at(-1).options.timeoutMs, 5000)
+    assert.equal(calls.at(-1).paths.lock, tower.paths.lock)
+
+    // The path every tool handler takes: repo config is resolved by Tower.open,
+    // so the same key that tunes modes.lock now tunes the state lock too.
+    writeRepoConfig(repo, { mode: { lockTimeoutMs: 60000 } })
+    const configured = await Tower.open(repo, deps)
+    assert.equal(configured.config.mode.lockTimeoutMs, 60000)
+    await configured.withStateLock(async () => 'configured')
+    assert.equal(calls.at(-1).options.timeoutMs, 60000)
+
+    // A per-call budget still wins, and unrelated options pass through.
+    await configured.withStateLock(async () => 'explicit', { timeoutMs: 1234, pollMs: 7 })
+    assert.equal(calls.at(-1).options.timeoutMs, 1234)
+    assert.equal(calls.at(-1).options.pollMs, 7)
   } finally {
     removeTemp(root)
   }

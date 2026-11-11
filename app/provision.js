@@ -203,7 +203,7 @@ async function actProvision(tower, prepared) {
 
 /** Phase 3 of `Tower.provision` (#51): record the checkout under a short lock. */
 async function commitProvision(tower, prepared, acted) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === prepared.missionId)
     if (!mission) throw new TowerToolError('mission-not-found', `unknown mission "${prepared.missionId}"`)

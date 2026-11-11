@@ -238,7 +238,7 @@
     {
       "name": "mode.lockTimeoutMs",
       "class": "optional-config",
-      "note": "Bounded wait for the cross-process mode lock."
+      "note": "Bounded wait for the cross-process state and mode locks."
     },
     {
       "name": "review.mode",
@@ -339,7 +339,7 @@
     {
       "name": "send.maxPerMinute",
       "class": "optional-config",
-      "note": "Message rate limit; zero disables it."
+      "note": "Process-local advisory message rate limit; zero disables it."
     },
     {
       "name": "send.interruptDefault",

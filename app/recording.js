@@ -7,7 +7,7 @@ function fail(message, code = 'invalid-argument') {
 }
 
 export async function recordTestRun(tower, input = {}) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) fail(`unknown mission "${input.missionId}"`)
@@ -39,7 +39,7 @@ export async function recordTestRun(tower, input = {}) {
 }
 
 export async function recordLegacySnapshot(tower, snapshot) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (!Array.isArray(state.legacySnapshots)) state.legacySnapshots = []
     const existing = state.legacySnapshots.find((entry) => entry.sourceHash === snapshot.sourceHash)
@@ -54,7 +54,7 @@ export async function recordLegacySnapshot(tower, snapshot) {
 }
 
 export async function recordLegacyMap(tower, map) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (!Array.isArray(state.legacyMaps)) state.legacyMaps = []
     const existing = state.legacyMaps.find(

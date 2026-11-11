@@ -140,7 +140,7 @@ export const Config = Schema.object({
       .description('Tools refused while Tower mode is active.'),
     storePath: Schema.string().description('Directory for modes.json; defaults to $DSH_HOME/tower-mode.'),
     maxEntries: Schema.natural().min(1).max(2000).default(200).description('Maximum persisted mode entries.'),
-    lockTimeoutMs: Schema.natural().min(10).max(60000).default(5000).description('How long saveModes waits for the cross-process modes.lock before giving up.'),
+    lockTimeoutMs: Schema.natural().min(10).max(60000).default(5000).description('How long a caller waits for a cross-process lock (the repo state lock and the Tower-mode modes.lock) before giving up.'),
   })
     .default({})
     .description('Tower-mode behavior and persistence.'),
@@ -212,7 +212,7 @@ export const Config = Schema.object({
     maxPerMinute: Schema.natural()
       .min(0)
       .default(120)
-      .description('Per-repository tower_send rate limit per minute (0 disables).'),
+      .description('Process-local advisory tower_send rate limit per minute (0 disables): an in-memory counter per process and repository, not a cross-process quota.'),
     interruptDefault: Schema.boolean()
       .default(false)
       .description('Default value of tower_send.interrupt when the caller omits it.'),

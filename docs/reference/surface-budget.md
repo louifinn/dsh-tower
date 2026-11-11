@@ -130,8 +130,10 @@ two tuning keys and one section, recorded in
 sections 15 → 16, while the visible component count stays 12. The two keys,
 `activity.maxBytes` (default 4 MiB, `0` disables) and `activity.retention`
 (default 5 segments), are adapter policy: rotation is always on by default, the
-live file is renamed to a numbered segment rather than truncated, and the read
-paths in `tower_status`/`tower_complete`/`tower_roster` follow the segments. No
+live file is renamed to a numbered segment rather than truncated, and the
+activity-tail reads behind `tower_status` (dashboard and mission detail) follow
+the segments; `tower_complete` and `tower_roster` do not read the activity log,
+while `tower_doctor` inspects every segment read-only for its size accounting. No
 capability row or tool appears or disappears, so neither the component nor the
 tool count moves.
 
@@ -158,7 +160,7 @@ tool count moves.
 | `mode.denyTools` | core | The denied-tool list is part of the mode guard. |
 | `mode.storePath` | niche | Custom mode-store location added for one deployment workflow. Removal note: derive the path from `$DSH_HOME` in the next minor; no in-tree caller sets this key. |
 | `mode.maxEntries` | tuning | Bounds the persisted mode store. |
-| `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process mode lock. |
+| `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process state and mode locks. |
 | `review.mode` | core | The review policy itself (`off`/`optional`/`required`); the only review policy key since 2.8.0. |
 | `review.maxRoundsPerReviewer` | core | Caps review rounds; changes the review lifecycle. |
 | `merge.timeoutMs` | tuning | Default merge timeout; a per-call value wins. |
@@ -177,7 +179,7 @@ tool count moves.
 | `spawn.staleMs` | tuning | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | tuning | Upper bound for a blocking spawn wait. |
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
-| `send.maxPerMinute` | tuning | Message rate limit; zero disables it. |
+| `send.maxPerMinute` | tuning | Process-local advisory message rate limit; zero disables it. |
 | `send.interruptDefault` | tuning | Default for the interrupt-before-deliver flag. |
 | `tests.admission` | core | Chooses when repository code is executed. |
 | `tests.timeoutMs` | tuning | Per-command discovery timeout. |

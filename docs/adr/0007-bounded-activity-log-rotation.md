@@ -56,8 +56,10 @@ the live and rotated bytes and the segment count.
 - The activity log is bounded at roughly `maxBytes × (retention + 1)` bytes.
 - Existing repositories keep working: no migration, no schema change, and the
   live file remains `activity.jsonl`.
-- Status/detail/roster reads follow rotated segments instead of silently losing
-  history; a reader that names only the live file still gets the live tail.
+- The activity-tail reads that use `readActivityTail` — `tower_status` (dashboard and
+  mission detail) — follow rotated segments instead of silently losing history; a
+  reader that names only the live file still gets the live tail. `tower_complete`
+  and `tower_roster` never read the activity log, so rotation does not affect them.
 - Rotation is best effort. If the filesystem refuses every rename (for example a
   directory squatting on `activity.jsonl.1`), the log keeps growing until the
   obstruction is removed; the fallback is deliberately line-safe.

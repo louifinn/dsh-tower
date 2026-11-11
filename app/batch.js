@@ -16,7 +16,7 @@ function fail(message, code = 'batch-invalid') {
 }
 
 export async function createBatch(tower, input = {}, actor = 'tower') {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const normalized = validateBatchCreate(state, input)
       if (!Array.isArray(state.batches)) state.batches = []
@@ -36,7 +36,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
   }
 
   export async function closeBatch(tower, batchId, options = {}, actor = 'tower') {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const batch = (state.batches ?? []).find((entry) => entry.id === batchId)
       if (!batch) fail(`unknown batch "${batchId}"`)
@@ -55,7 +55,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
 
   /** @param {string} batchId @param {string} [actor] @param {string | null} [reason] */
   export async function abandonBatch(tower, batchId, actor = 'tower', reason = null) {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const batch = (state.batches ?? []).find((entry) => entry.id === batchId)
       if (!batch) fail(`unknown batch "${batchId}"`)

@@ -102,7 +102,7 @@ async function observeMergeIntent(tower, state, mission) {
  * the new state instead of overwriting it.
  */
 async function applyMergeIntentReconcile(tower, stateRevision, missionId, evidence) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
@@ -177,7 +177,7 @@ async function observeLandedMerge(tower, state, mission) {
 
 /** Locked write half of `reconcileLandedMerge`, guarded by the revision CAS. */
 async function applyLandedMergeReconcile(tower, stateRevision, missionId, observed) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
@@ -322,7 +322,7 @@ async function prepareFromState(tower, input, deps) {
  * next tower_merge/preflight instead of leaving an unexplained base tip.
  */
 async function recordMergeIntent(tower, plan) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     // State revision policy: the plan was built from `plan.stateRevision`; a
     // writer that slipped in before any Git mutation makes the plan stale and
@@ -503,7 +503,7 @@ async function runMergeGit(tower, plan, intent, deps) {
 
 /** Phase 3: apply the observed outcome under a short state lock. */
 async function commitMerge(tower, plan, recorded, outcome) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === plan.missionId)
     if (!mission) return missionMissingResult(plan.missionId)
