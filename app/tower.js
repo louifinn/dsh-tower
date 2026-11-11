@@ -129,6 +129,32 @@ export class Tower {
   }
 
   /**
+   * Persist the repository state file only through the token-checked write.
+   * The real store rejects a missing or stale token, so a caller must be the
+   * one holding the state lock (the `held` context passed to `withLock`). The
+   * in-memory test double predates that protocol and passes no lock context,
+   * so the unguarded fallback is limited to `held === undefined` (#167).
+   * @param {Record<string, any>} state
+   * @param {{ token?: string } | undefined} [held]
+   */
+  async writeState(state, held) {
+    const store = this.deps.store
+    if (typeof store.writeStateLocked === 'function') {
+      await store.writeStateLocked(this.paths, state, held?.token)
+      return
+    }
+    if (held === undefined) {
+      await store.writeJsonAtomic(this.paths.state, state)
+      return
+    }
+    throw new TowerToolError(
+      'state-locked',
+      `store does not support token-checked state writes (${this.paths.state})`,
+      { retryable: false, nextAction: 'pass the lock context from withLock, or use a store that implements writeStateLocked' },
+    )
+  }
+
+  /**
    * Resolve the repository and config through the injected ports.
    * @param {string} repoRoot
    * @param {Record<string, any>} deps
@@ -492,7 +518,7 @@ export class Tower {
    */
   /** Clear a stale merge intent only when the crash left no merge in progress
    * or no merge commit. Returns true when the intent was consumed. */
-  async reconcileMergeIntent(state, mission) {
+  async reconcileMergeIntent(state, mission, held) {
     const intent = state.mergeIntent
     if (!intent || intent.missionId !== mission.id || !mission.worktree) return false
     let head = null
@@ -520,7 +546,7 @@ export class Tower {
     delete state.mergeIntent
     state.revision += 1
     state.updatedAt = now
-    await this.deps.store.writeJsonAtomic(this.paths.state, state)
+    await this.writeState(state, held)
     await this.deps.store.appendJsonl(this.paths.activity, {
       at: now,
       type: 'merge',
@@ -532,7 +558,7 @@ export class Tower {
     return true
   }
 
-  async reconcileLandedMerge(state, mission) {
+  async reconcileLandedMerge(state, mission, held) {
     if (!['completed', 'blocked'].includes(mission.status)) return null
     if (!mission.worktree) return null
     const branch = mission.worktree.branch
@@ -587,7 +613,7 @@ export class Tower {
     state.revision += 1
     state.updatedAt = now
     validateState(state, this.paths.state)
-    await this.deps.store.writeJsonAtomic(this.paths.state, state)
+    await this.writeState(state, held)
     await this.deps.store.appendJsonl(this.paths.activity, {
       at: now,
       type: 'merge',

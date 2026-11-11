@@ -16,7 +16,7 @@ function fail(message, code = 'invalid-argument') {
 }
 
 export async function addFinding(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       if (!Array.isArray(state.findings)) state.findings = []
       const fields = normalizeFindingInput(input, state.missions)
@@ -29,7 +29,7 @@ export async function addFinding(tower, input) {
       state.updatedAt = now
 
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'finding',
@@ -54,7 +54,7 @@ export async function addFinding(tower, input) {
     const actor = normalizeFindingActor(input.actor)
     if (!wantsFindingUpdate(input)) return tower.readFindings(input)
 
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const all = state.findings ?? []
       const finding = all.find((entry) => entry.id === input.id)
@@ -64,7 +64,7 @@ export async function addFinding(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'finding',

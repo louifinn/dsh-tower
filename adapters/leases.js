@@ -16,6 +16,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 
 import { ensureDir, exists, writeJsonAtomic } from './store.js'
+import { acquireLock, lockRecord, readLock } from './lock.js'
 
 export const LEASE_SCHEMA_VERSION = 1
 // Matches the `leases.ttlMs` config default (900000); callers normally pass the
@@ -23,7 +24,6 @@ export const LEASE_SCHEMA_VERSION = 1
 export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000
 
 const LOCK_TIMEOUT_MS = 5000
-const LOCK_STALE_MS = 10000
 const LOCK_POLL_MS = 20
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
@@ -32,6 +32,7 @@ const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 export const UNLINK_ATTEMPTS = 12
 export const TRANSIENT_UNLINK_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
 
+/** @returns {never} */
 function fail(code, message) {
   /** @type {Error & {code?: string}} */
   const error = new Error(message)
@@ -144,68 +145,45 @@ async function readLeaseDocument(commonDir) {
   }
 }
 
-async function lockIsStale(lockFile) {
-  let stat
-  try {
-    stat = await fsp.stat(lockFile)
-  } catch (error) {
-    return error?.code === 'ENOENT'
-  }
-  let at = null
-  try {
-    at = Number(JSON.parse(await fsp.readFile(lockFile, 'utf8'))?.at)
-  } catch {
-    at = null
-  }
-  const age = at !== null && Number.isFinite(at) ? Date.now() - at : Date.now() - stat.mtimeMs
-  return age > LOCK_STALE_MS
-}
-
 /**
- * Serialize one lease mutation behind the `.lock` file (wx create). Waits
- * briefly for a live writer, removes only a demonstrably stale lock, and never
- * steals a fresh one. The lock is released only when the token still matches.
+ * Serialize one lease mutation behind the ledger's writer lock using the
+ * shared kernel. A live writer is waited for and eventually reported; it is
+ * never removed because its timestamp looks old. Only a provably dead PID is
+ * reclaimed, and the lock is released only when the token (and bytes) still
+ * match.
  */
 async function withLeaseLock(commonDir, fn) {
   const lockFile = leasesLockPath(commonDir)
   await ensureDir(path.dirname(lockFile))
   const token = crypto.randomUUID()
-  const record = JSON.stringify({ token, pid: process.pid, at: Date.now() })
-  const deadline = Date.now() + LOCK_TIMEOUT_MS
-
-  for (;;) {
-    try {
-      await fsp.writeFile(lockFile, record, { flag: 'wx' })
-      break
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error
-      if (await lockIsStale(lockFile)) {
-        await unlinkWithRetry(lockFile)
-        continue
-      }
-      if (Date.now() > deadline) {
-        const owner = await fsp.readFile(lockFile, 'utf8').catch(() => null)
-        fail(
-          'lease-busy',
-          `tower leases are locked by another writer${owner ? ` (${owner})` : ''}; retry after it finishes`,
-        )
-      }
-      await sleep(LOCK_POLL_MS)
-    }
+  const record = lockRecord(token, { kind: 'leases' })
+  const held = await acquireLock(lockFile, {
+    token,
+    record,
+    timeoutMs: LOCK_TIMEOUT_MS,
+    pollMs: LOCK_POLL_MS,
+    heartbeat: false,
+  })
+  if (!held) {
+    const owner = await readLock(lockFile)
+    const current = owner.record
+    const heartbeatAgeMs = owner.timing?.heartbeatAgeMs
+    const ownerError = /** @type {{ error?: string }} */ (owner).error
+    const facts = current
+      ? `pid ${current.pid ?? 'unknown'} (token ${current.token ?? 'missing'}), last heartbeat ${
+          typeof heartbeatAgeMs === 'number'
+            ? `${Math.round(heartbeatAgeMs)} ms ago (stale after ${owner.timing?.staleAfterMs ?? 'unknown'} ms)`
+            : 'unknown'
+        }; a stale heartbeat is diagnostic only and the live lock is not reclaimed`
+      : ownerError
+        ? `the lock record is unreadable (${ownerError})`
+        : 'the lock was released before it could be inspected'
+    fail('lease-busy', `tower leases are locked by another writer: ${facts}; retry after it finishes`)
   }
-
   try {
     return await fn()
   } finally {
-    try {
-      const current = await fsp.readFile(lockFile, 'utf8').catch(() => null)
-      if (current) {
-        const parsed = JSON.parse(current)
-        if (parsed && parsed.token === token) await unlinkWithRetry(lockFile)
-      }
-    } catch {
-      // A lock left behind by a crash is reported by the next writer, not fixed here.
-    }
+    await held.release()
   }
 }
 

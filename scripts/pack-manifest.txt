@@ -13,6 +13,7 @@ adapters/default.js
 adapters/git.js
 adapters/leases.js
 adapters/legacy.js
+adapters/lock.js
 adapters/persistence.js
 adapters/stateFile.js
 adapters/store-fs.js

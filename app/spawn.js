@@ -15,7 +15,7 @@ function fail(message, code = 'invalid-argument') {
 
 /** Record that a spawned agent failed or went idle, so roster state is truthful. */
 export async function recordSpawnOutcome(tower, input) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const entry = (state.roster ?? []).find((row) => row.name === input.name && row.missionId === input.missionId)
     if (!entry) return null
@@ -24,7 +24,7 @@ export async function recordSpawnOutcome(tower, input) {
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'spawn',
@@ -37,7 +37,7 @@ export async function recordSpawnOutcome(tower, input) {
 
 /** Record that a live agent was interrupted by the tower. */
 export async function recordInterrupt(tower, input) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const entry = (state.roster ?? []).find(
       (row) =>
@@ -50,7 +50,7 @@ export async function recordInterrupt(tower, input) {
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'spawn',
@@ -63,7 +63,7 @@ export async function recordInterrupt(tower, input) {
 
 /** Reserve a roster name before activation so a failed spawn is recoverable. */
 export async function reserveRoster(tower, input) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) fail(`unknown mission "${input.missionId}"`)
@@ -74,7 +74,7 @@ export async function reserveRoster(tower, input) {
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'spawn',
@@ -88,7 +88,7 @@ export async function reserveRoster(tower, input) {
 export async function recordSpawn(tower, input) {
   // Capture the spawn tip before taking the state lock (#51).
   const spawnTip = input.cwd ? ((await tower.tryGit(input.cwd, ['rev-parse', 'HEAD'])) ?? '').trim() || null : null
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) fail(`unknown mission "${input.missionId}"`)
@@ -110,7 +110,7 @@ export async function recordSpawn(tower, input) {
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'spawn',

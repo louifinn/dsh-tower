@@ -16,7 +16,7 @@ function fail(message, code = 'batch-invalid') {
 }
 
 export async function createBatch(tower, input = {}, actor = 'tower') {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const normalized = validateBatchCreate(state, input)
       if (!Array.isArray(state.batches)) state.batches = []
@@ -25,7 +25,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.revision += 1
       state.updatedAt = batch.createdAt
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: batch.createdAt,
         type: 'batch',
@@ -36,7 +36,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
   }
 
   export async function closeBatch(tower, batchId, options = {}, actor = 'tower') {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const batch = (state.batches ?? []).find((entry) => entry.id === batchId)
       if (!batch) fail(`unknown batch "${batchId}"`)
@@ -47,7 +47,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.revision += 1
       state.updatedAt = batch.closedAt
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, { at: batch.closedAt, type: 'batch', text: `closed ${batch.id}` })
       return { ok: true, batch, blockers: [], checks: result.checks ?? [] }
     })
@@ -55,7 +55,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
 
   /** @param {string} batchId @param {string} [actor] @param {string | null} [reason] */
   export async function abandonBatch(tower, batchId, actor = 'tower', reason = null) {
-    return tower.deps.store.withLock(tower.paths, async () => {
+    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const batch = (state.batches ?? []).find((entry) => entry.id === batchId)
       if (!batch) fail(`unknown batch "${batchId}"`)
@@ -66,7 +66,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.revision += 1
       state.updatedAt = batch.abandonedAt
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, { at: batch.abandonedAt, type: 'batch', text: `abandoned ${batch.id}` })
       return { ok: true, batch, alreadyAbandoned: false }
     })

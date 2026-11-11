@@ -2,9 +2,15 @@
 // `mode.workspaceLock` is enabled. Same-user trusted model, like the rest of
 // the Tower store: it prevents accidental double control, not a malicious
 // writer.
+//
+// Since #167 this lock uses the shared kernel in ./lock.js. A different live
+// session is never taken over because its heartbeat or `at` is old: only a
+// provably dead PID is reclaimed. A corrupt record fails closed (reported,
+// never removed), and release requires the exact token and bytes.
 import { fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { acquireLock, lockRecord, removeLockIfMatches, touchLock } from './lock.js'
 
 export function workspaceLockPath(commonDir) {
   return path.join(commonDir, 'dsh-tower', 'tower.lock')
@@ -33,79 +39,53 @@ async function readRecord(commonDir) {
 }
 
 /**
- * Remove the lock only if it is still the record we inspected. A concurrent
- * release/re-acquire must not be deleted by the loser of the race.
- */
-async function removeLockIfMatches(file, expectedToken, expectedRaw) {
-  const quarantine = `${file}.stale-${process.pid}-${crypto.randomUUID()}`
-  try {
-    await fsp.rename(file, quarantine)
-  } catch (error) {
-    if (error?.code === 'ENOENT') return true
-    throw error
-  }
-  let moved = null
-  try {
-    moved = await fsp.readFile(quarantine, 'utf8')
-  } catch {
-    moved = null
-  }
-  const same = expectedToken ? (() => {
-    try {
-      return JSON.parse(moved ?? '')?.token === expectedToken
-    } catch {
-      return false
-    }
-  })() : moved !== null && moved === expectedRaw
-  if (!same && moved !== null) {
-    await fsp.rename(quarantine, file).catch(() => {})
-    return false
-  }
-  await fsp.unlink(quarantine).catch(() => {})
-  return true
-}
-
-/**
  * Try to become the repository's Tower session.
+ *
+ * A record owned by the same session/agent is re-adopted with its existing
+ * token (the caller may have restarted and lost the in-memory token). Every
+ * other record is refused unless its PID is provably dead, in which case the
+ * kernel reclaims it by byte-verified CAS.
+ *
  * @returns {Promise<{acquired:boolean, record?:object, holder?:object|null, tookOver?:boolean, corrupt?:boolean}>}
  */
 export async function acquireWorkspaceLock(commonDir, options) {
   const { token, sessionId, agentId, staleMs = 300000, now = Date.now() } = options
-  await fsp.mkdir(path.dirname(workspaceLockPath(commonDir)), { recursive: true })
+  const file = workspaceLockPath(commonDir)
+  await fsp.mkdir(path.dirname(file), { recursive: true })
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const record = { token, sessionId, agentId, pid: process.pid, at: now }
-    try {
-      await fsp.writeFile(workspaceLockPath(commonDir), JSON.stringify(record), { flag: 'wx' })
-      return { acquired: true, record, tookOver: attempt > 0 }
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error
-      const { record: current, corrupt, file, raw } = await readRecord(commonDir)
-      if (corrupt || !current) {
-        // A corrupt lock is treated like an unknown holder; only a stale one
-        // is removed, so a concurrent writer is never silently overwritten.
-        let stale = false
-        try {
-          const stat = await fsp.stat(file)
-          stale = now - stat.mtimeMs > staleMs
-        } catch {
-          stale = true
-        }
-        if (stale) {
-          await removeLockIfMatches(file, null, raw)
-          continue
-        }
-        return { acquired: false, holder: null, corrupt: true }
-      }
-      if (current.sessionId === sessionId && current.agentId === agentId) {
-        await fsp.writeFile(workspaceLockPath(commonDir), JSON.stringify({ ...record, token: current.token }))
-        return { acquired: true, record: { ...record, token: current.token }, tookOver: false }
-      }
-      if (now - Number(current.at ?? 0) > staleMs) {
-        await removeLockIfMatches(file, current.token, raw)
-        continue
-      }
-      return { acquired: false, holder: current }
+    const record = lockRecord(token, { sessionId, agentId }, { now })
+    const held = await acquireLock(file, {
+      token,
+      record,
+      now,
+      timeoutMs: 0,
+      pollMs: 10,
+      heartbeat: false,
+      // A workspace record without a usable PID is never assumed dead: only
+      // the mode store's historical records opt into `invalidPidIsDead`.
+      invalidPidIsDead: false,
+    })
+    if (held) return { acquired: true, record, tookOver: held.reclaimed === true || attempt > 0 }
+
+    const current = await readRecord(commonDir)
+    if (current.corrupt) {
+      // Unreadable bytes are an unknown owner, not an abandoned lock. Removing
+      // them on a timer is how a concurrent writer gets overwritten.
+      return { acquired: false, holder: null, corrupt: true }
     }
+    if (!current.record) continue // raced with a release; try the exclusive create again
+    if (current.record.sessionId === sessionId && current.record.agentId === agentId) {
+      const refreshed = await touchLock(file, current.record.token, { now })
+      if (refreshed) {
+        return {
+          acquired: true,
+          record: { ...current.record, at: now },
+          tookOver: false,
+        }
+      }
+      continue // the record changed between read and touch
+    }
+    return { acquired: false, holder: current.record }
   }
   return { acquired: false, holder: null, corrupt: true }
 }
@@ -113,18 +93,20 @@ export async function acquireWorkspaceLock(commonDir, options) {
 /** Refresh the timestamp only when the lock still belongs to this session. */
 export async function touchWorkspaceLock(commonDir, options) {
   const { token, now = Date.now() } = options
-  const { record, file } = await readRecord(commonDir)
-  if (!record || record.token !== token) return false
-  await fsp.writeFile(file, JSON.stringify({ ...record, at: now }))
-  return true
+  if (typeof token !== 'string' || token.length === 0) return false
+  return touchLock(workspaceLockPath(commonDir), token, { now })
 }
 
-/** Release the lock only when this session owns it. */
+/**
+ * Release the lock only when this session owns it. A missing token never
+ * releases anything: there is no blind unlink.
+ */
 export async function releaseWorkspaceLock(commonDir, options) {
   const { token } = options
-  const { record, file, raw } = await readRecord(commonDir)
-  if (!record || (token && record.token !== token)) return false
-  return removeLockIfMatches(file, record.token, raw)
+  if (typeof token !== 'string' || token.length === 0) return false
+  const { record, file, raw, corrupt } = await readRecord(commonDir)
+  if (corrupt || !record || record.token !== token) return false
+  return removeLockIfMatches(file, token, raw)
 }
 
 export async function inspectWorkspaceLock(commonDir, options = {}) {
@@ -136,6 +118,7 @@ export async function inspectWorkspaceLock(commonDir, options = {}) {
     corrupt,
     self: sessionId !== undefined && record.sessionId === sessionId,
     holder: record,
+    // Diagnostic only: a stale live session is still the owner, not a target.
     stale: now - Number(record.at ?? 0) > staleMs,
   }
 }
