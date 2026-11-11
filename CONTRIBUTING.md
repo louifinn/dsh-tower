@@ -126,8 +126,8 @@ the push gates; CI schedules it nightly.
 
 ## What to change
 
-- `index.js` — Host entry: `/tower` command, mode guard, dynamic prompt section, `tower_control`.
-- `host/` — the composition root and session/process glue (`tool-registry.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
+- `index.js` — Host entry: Cordis apply/effect glue, the mode guard and prompt section; the `/tower` command lives in `host/mode-command.js` and the `tower_mode`/`tower_control` handler bodies in `host/session-tools.js`.
+- `host/` — the composition root and session/process glue (`tool-registry.js` facade over `tool-runtime.js`/`tool-capabilities.js`/`tool-observers.js`, `mode-state.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `host/preset-worker.js` / `host/preset-reviewer.js` — the two Tower-owned preset declaration rows (`dsh-tower/preset-*`). They keep the row config in `cordis.patch.yml`, forward it to `ctx.agentPresets.register()`, and give each preset row its own Plugins-page label; do not mount the shared `@deepseek-ai/dsh-agent-preset` for these rows.
 - `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; an invariant over a pure domain function belongs in `tests/property/*.prop.mjs` (fast-check) rather than a hand-rolled randomized loop, and `tests/no-random.test.mjs` enforces that. Live-runtime scripts are documented in `tests/README.md`.

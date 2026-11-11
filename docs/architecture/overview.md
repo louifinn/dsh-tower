@@ -98,23 +98,36 @@ To label a new row:
 The generated row files never touch the root locale `meta`.
 
 ```
-Host plugin (index.js)
+Host plugin (index.js — Cordis apply/effect glue)
  ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control)
- ├─ host/tool-registry.js -> registration aggregator, actor guards, shared helpers
+ ├─ host/mode-state.js -> mode entries/transitions + workspace hook
+ ├─ host/mode-command.js -> /tower command registration
+ ├─ host/session-tools.js -> tower_mode/tower_control handler bodies
+ ├─ host/tool-registry.js -> stable registry facade (re-exports the modules below)
+ ├─ host/tool-runtime.js -> runtime state, define(), openTower(), shared guards
+ ├─ host/tool-capabilities.js -> registration aggregators
  │                    (+ 27 define()-registered tools)
  │                    (+ tower_mode/tower_control registered by the Host entry, 29 total
  │                       once every optional capability row is on)
  │                    (tower_doctor/tower_recover are host tools, never switches)
+ ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
  ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)
  ├─ tools/index.js  -> thin public wiring (re-exports the registry + briefings)
- └─ app/tower.js   -> orchestration surface; delegates to use-case modules
+ └─ app/tower.js   -> orchestration facade; delegates to use-case modules
+       ├─ app/tower-paths.js, git-locks.js, merge-support.js
        ├─ app/init.js, provision.js, merge.js, rebase.js, teardown.js
        ├─ app/review.js, findings.js, batch.js, messages.js, roster.js
        ├─ app/plan.js, mission.js, checkCompletion.js, spawn.js, recording.js
        ├─ app/spawn-prechecks.js, spawn-support.js, briefing.js
        └─ app/archive.js, gate.js, read.js, board.js, missionContext.js, enrichedMissions.js
  host (composition root + process/session glue; the only layer that may hold ambient state):
-       host/tool-registry.js   registration aggregator + shared guards/helpers
+       host/tool-registry.js   stable registry facade over the three modules below
+       host/tool-runtime.js    runtime state, define(), actor guards, openTower
+       host/tool-capabilities.js  per-capability registration aggregators
+       host/tool-observers.js  roster/activity/evidence observers
+       host/mode-state.js      Tower mode entries, transitions, workspace hook
+       host/mode-command.js    /tower command registration
+       host/session-tools.js   tower_mode/tower_control handler bodies
        host/config.js          profile/repo config layers over the pure schema
        host/doctor.js          read-only environment contract and health checks
        host/capability-registry.js  mounted-component report for status/doctor
@@ -194,8 +207,10 @@ through the `deps` object:
 | `caseSensitivity` | CaseSensitivityPort: `detect` | `adapters/caseSensitivity.js` |
 
 `index.js` is the composition root: it calls `createDefaultDeps()` once and passes the object to
-`registerTowerTools`. The registry adopts and validates that object (`assertPorts`) instead of building
-its own adapter set, hands every tool an `openTower(repoRoot)` factory bound to those ports, and
+`registerCoreTowerTools` (re-exported by the `host/tool-registry.js` facade from `host/tool-runtime.js`
+and `host/tool-capabilities.js`). The tool runtime adopts and validates that object (`assertPorts`)
+instead of building its own adapter set, hands every tool an `openTower(repoRoot)` factory bound to
+those ports, and
 `Tower.open(repoRoot, deps)` / `new Tower(repo, config, deps)` validates the object again before use.
 `app/tower.js` itself imports no adapter and no `host/` module. The one piece of lock policy the app and
 the store share (the git-mutex budget, #93) is pure and lives in `domain/lockBudget.js`;
@@ -300,7 +315,8 @@ clear-stale-lock` with `confirm:"CLEAR_STALE_LOCK"` and `force:true` renames the
   The optional Web client (`ui-bundle/`) is its own tier with its own rules.
 - `tools/**` must stay thin and free of status/type literals (`tools-thin`, `tools-vocabulary`);
   `tools/index.js` is the thin public wiring module (it imports `host/tool-registry.js`, not a
-  `node:` module), while registration/shared machinery lives in `host/tool-registry.js`.
+  `node:` module), while registration/shared machinery lives behind that facade in
+  `host/tool-runtime.js` and `host/tool-capabilities.js`.
   Tools receive effectful helpers (repository resolution, leases, recovery, legacy import) from
   the registry instead of importing an adapter.
 - Aggregate files have size ceilings; top-level mutable state is limited to `host/**`
