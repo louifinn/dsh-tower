@@ -98,7 +98,12 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? 'reviewers may not run test discovery'
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
-  tower_reload: towerOnly('reload the Tower plugin'),
+  // tower_reload is repository-optional (ReloadInput): without a repoRoot it is a
+  // profile operation, not a repository-authorized one, so the kernel must not
+  // open a repository to authorize it. `repoOptional` is the explicit opt-in for
+  // that absent-repository path; a call that names a repository is still
+  // tower-only and the handler repeats the guard.
+  tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin'), repoOptional: true }),
   // Session tools: these report or change the calling session's Tower stance,
   // not repository state, so a repository access class cannot decide them.
   // tower_mode only reads the current mode entry keyed by the caller's agent
@@ -112,6 +117,28 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   // class, decide whether a session tool call may proceed.
   tower_control: Object.freeze({ allow: EVERYONE }),
 })
+
+/**
+ * True when a matrix row is explicitly public: it admits the anonymous access
+ * class, so a caller whose state cannot be read may still reach its handler.
+ *
+ * @param {string} tool
+ */
+export function allowsAnonymous(tool) {
+  const rule = AUTHORIZATION_MATRIX[tool]
+  return Array.isArray(rule?.allow) && rule.allow.includes(A.unknown)
+}
+
+/**
+ * True when a matrix row declares the repository-optional contract: the tool may
+ * be called without a repository, and that path is authorized without resolving
+ * a repository actor. A call that names a repository still follows the row.
+ *
+ * @param {string} tool
+ */
+export function isRepositoryOptional(tool) {
+  return AUTHORIZATION_MATRIX[tool]?.repoOptional === true
+}
 
 /**
  * Resolve the calling agent to a roster access class.
@@ -209,13 +236,21 @@ export function anonymousActor(exec) {
  *
  * @param {string} tool registered tool name
  * @param {any} actor result of resolveActor
- * @param {{ args?: any, tower?: any }} [context]
+ * @param {{ args?: any, tower?: any, repositoryAbsent?: boolean }} [context]
  */
 export async function authorize(tool, actor, context = {}) {
   const rule = AUTHORIZATION_MATRIX[tool]
   const access = actor?.access ?? A.unknown
   if (!rule) {
     throw new TowerToolError('not-authorized', `${tool} has no authorization policy; this tool is denied by default`)
+  }
+  // An explicit repository-optional call without a repository has no repository
+  // ownership to check. Only the anonymous actor can take this path: no
+  // repository identity can be proven without one. The tool is part of a
+  // capability row (tower-hmr), and supplying a repository opts back into the
+  // matrix row (tower-only for tower_reload).
+  if (context.repositoryAbsent === true && rule.repoOptional === true && access === A.unknown) {
+    return { tool, access, bootstrap: false, repositoryAbsent: true }
   }
   if (access === A.unknown) {
     const bootstrap = rule.bootstrap === true && !actor?.owner
