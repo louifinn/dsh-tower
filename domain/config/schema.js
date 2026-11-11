@@ -34,59 +34,6 @@ export const DEFAULT_DENY_TOOLS = [
 ]
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
-// #121: the `tools` group is gone. Every capability that used to be a
-// `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
-// component row is the switch. What remains here is genuine tuning policy.
-const GROUP_KEYS = ['init', 'mode', 'review', 'merge', 'git', 'worktrees', 'spawn', 'send', 'survey', 'tests', 'gates', 'docs', 'archive', 'leases', 'dev']
-
-const SECTION_KEYS = {
-  init: ['autoGitInit', 'snapshotDirty', 'autoExclude'],
-  mode: [
-    'promptSection',
-    'sectionAppend',
-    'allowAgentControl',
-    'autoPauseGoal',
-    'requireResumeAuthorization',
-    'requireHumanAckOnFirstEntry',
-    'workspaceLock',
-    'workspaceLockScope',
-    'planModePolicy',
-    'workspaceStaleMs',
-    'heartbeatMs',
-    'denyTools',
-    'storePath',
-    'maxEntries',
-    'lockTimeoutMs',
-  ],
-  review: ['mode', 'requireReview', 'maxRoundsPerReviewer'],
-  merge: ['timeoutMs', 'maxBufferBytes'],
-  git: ['timeoutMs'],
-  worktrees: ['root'],
-  spawn: [
-    'workerPreset',
-    'reviewerPreset',
-    'maxDepth',
-    'provider',
-    'workerModel',
-    'reviewerModel',
-    'surveyModel',
-    'maxLiveWorkers',
-    'staleMs',
-    'maxWaitMs',
-    'requireLease',
-  ],
-  send: ['maxPerMinute', 'interruptDefault'],
-  // #148 W2: where a survey reads. This is tuning, not a component: the
-  // tower-survey row is the switch; the placement decides whether write/shell
-  // side effects are rejected (shared) or absorbed by a disposable checkout.
-  survey: ['sandbox'],
-  tests: ['admission', 'timeoutMs', 'maxBytes', 'allowPackageDiscovery'],
-  gates: ['requireChecks', 'requireTests', 'allowReviewExemption', 'requireFreshSurvey', 'maxReportBytes'],
-  docs: ['boardLocation'],
-  archive: ['afterDays', 'maxMissions'],
-  leases: ['ttlMs'],
-  dev: ['reloadDelayMs', 'reloadRequiredIds'],
-}
 
 // #133/#135/#149: a removed key keeps failing as an unknown key — with an
 // upgrade note naming what replaced it. `docs.board` and `archive.enabled`
@@ -119,8 +66,6 @@ function removedKeyNote(group, key) {
   return ` — ${entry.note}`
 }
 
-const MODEL_KEYS = ['provider', 'model', 'reasoningEffort', 'maxTokens']
-
 const ModelSchema = () =>
   Schema.object({
     provider: Schema.string().description('Provider route override for this role.'),
@@ -128,6 +73,9 @@ const ModelSchema = () =>
     reasoningEffort: Schema.string().description('Optional reasoning effort override.'),
     maxTokens: Schema.natural().description('Optional output token cap.'),
   })
+
+// Derived from the schema factory above, never restated.
+const MODEL_KEYS = Object.keys(ModelSchema().dict ?? {})
 
 export const Config = Schema.object({
   section: Schema.string().description(
@@ -345,6 +293,27 @@ export const Config = Schema.object({
     .description('Development and hot-reload behavior.'),
 }).description('DSH Tower configuration')
 
+// #121: the `tools` group is gone. Every capability that used to be a
+// `tools.expose*` boolean is now a component row in `cordis.patch.yml`, and a
+// component row is the switch. The groups that remain are genuine tuning
+// policy (#148 W2: `survey.sandbox` is tuning; the `tower-survey` row is the
+// switch, and its placement only decides whether side effects are rejected or
+// absorbed by a disposable checkout).
+//
+// #M64: the Schemastery tree is the single source for validation, the surface
+// count and the generated reference. This allow-list is derived at call time,
+// so adding or removing a schema key is enough for all three to agree; nothing
+// may restate the key list (tests/config-schema.test.mjs mutates the tree to
+// prove the derivation is load-bearing).
+function configGroupKeys() {
+  const dict = Config.dict ?? {}
+  return Object.fromEntries(
+    Object.keys(dict)
+      .filter((key) => !LEGACY_KEYS.includes(key))
+      .map((group) => [group, Object.keys(dict[group]?.dict ?? {})]),
+  )
+}
+
 /**
  * The user-facing config surface (#84): every leaf key one level deep plus the
  * names of the object sections. The generated config reference, `tower_doctor`
@@ -430,14 +399,16 @@ function assertModelKeys(value, label) {
  * @param {string} label
  */
 export function assertKnownKeys(raw, label) {
-  const unknown = Object.keys(raw).filter((key) => !LEGACY_KEYS.includes(key) && !GROUP_KEYS.includes(key))
+  const groups = configGroupKeys()
+  const known = [...LEGACY_KEYS, ...Object.keys(groups)]
+  const unknown = Object.keys(raw).filter((key) => !known.includes(key))
   if (unknown.length > 0) {
     throw new TowerToolError(
       'config-unknown-key',
-      `${label} has unknown key(s) ${unknown.join(', ')} — config is { section?, allowAgentControl?, init?, mode?, review?, merge?, git?, worktrees?, spawn?, send?, tests?, gates?, docs?, archive?, leases?, dev? }`,
+      `${label} has unknown key(s) ${unknown.join(', ')} — config is { ${known.map((key) => `${key}?`).join(', ')} }`,
     )
   }
-  for (const [group, allowed] of Object.entries(SECTION_KEYS)) {
+  for (const [group, allowed] of Object.entries(groups)) {
     const value = raw[group]
     if (value === undefined) continue
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue

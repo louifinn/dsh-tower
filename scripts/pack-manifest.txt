@@ -231,6 +231,7 @@ scripts/architecture-waivers.json
 scripts/architecture.mjs
 scripts/check-blockers.mjs
 scripts/check-components.mjs
+scripts/check-config-reference.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
 scripts/check-philosophy.mjs
