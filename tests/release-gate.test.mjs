@@ -1118,6 +1118,9 @@ test('every in-scope page lists the seven protected required contexts (F51)', ()
     'docs/agents/workflow.md',
     'docs/operations/ci.md',
     'docs/operations/security.md',
+    // F53: the zh mirror is in scope now; keeping it here makes a future
+    // four-context regression in the translation fail the suite.
+    'docs/zh/operations/security.md',
   ]) {
     const text = read(file)
     for (const context of contexts) {
@@ -1131,6 +1134,12 @@ test('every in-scope page lists the seven protected required contexts (F51)', ()
     /seven required checks with `strict` branch protection: `test \(22\)`, `test \(24\)`,\s*`test \(22, windows\)`, `mount`, `test \(24\.9\)`, `test \(25\)` and\s*`test \(24\.9, windows\)`/,
   )
   assert.match(read('SECURITY.md'), /step 1[\s\S]*is live/)
+  // F53: the Chinese mirror must carry the same step-1-live / step-2-later
+  // wording, including the frozen legacy job that is not removed yet.
+  const zhSecurity = read('docs/zh/operations/security.md')
+  assert.match(zhSecurity, /step 1[\s\S]*已经生效/)
+  assert.match(zhSecurity, /冻结的 legacy job 继续报告/)
+  assert.match(zhSecurity, /step 2[\s\S]*尚未完成/)
   // The Windows leg is required now; "not required yet" prose is what F51
   // reported (README.md:253/260 and README.en.md:255/262 before this change).
   assert.doesNotMatch(read('README.md'), /`test \(22, windows\)`[^\n]*(非必需|不是必需|尚未必需)/)

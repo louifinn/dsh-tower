@@ -33,7 +33,12 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 本节描述的是**本仓库**，不是 Tower 所操作的仓库。服务端分支保护不是插件功能——Tower 只写入本地基线分支，无法配置远端——但 `dsh-tower` 为自己的 `main` 开启了保护，因为门禁代码本身也是攻击者最想修改的代码：
 
 - `main` 的所有变更都必须经过 pull request，且**对 admin 同样生效**，因此维护者也无法直接 push。
-- 必需检查为 `test (22)`、`test (24)`、`test (22, windows)` 与 `mount`。mount 任务会打包压缩包并在一次性 profile 中启动，所以“测试通过”不能把一个安装后不出现的 bundle 合入。
+- 必需检查为七项，并在 `strict` 保护下：`test (22)`、`test (24)`、`test (22, windows)`、`mount`、
+  `test (24.9)`、`test (25)` 与 `test (24.9, windows)`。mount 任务会打包压缩包并在一次性 profile 中
+  启动，所以“测试通过”不能把一个安装后不出现的 bundle 合入。这是两步切换的 step 1，已经生效：三条
+  legacy context、三条 canonical context 与 `mount` 同时必需，冻结的 legacy job 继续报告；step 2
+  （移除三条 legacy context 并删除冻结 job）是后续 PR，尚未完成。迁移机制与支撑它的 workflow 加固
+  记录在 [ci.md](../../operations/ci.md)；本节的职责是保护理由。
 - 禁止 force-push 与删除分支，已发布 tag 的历史不能被改写。
 - 不要求强制审批：只有一个维护者时，自我审批只是橡皮图章。替代它的是 two-key 路径的四行 PR 正文（failure mode、change、test、blast radius），见 [CONTRIBUTING.md](../../../CONTRIBUTING.md#landing-changes)。
 
