@@ -12,6 +12,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { hasCheckEvidence } from '../evidence.js'
+import { blocker } from './blockers.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
@@ -232,26 +233,26 @@ export function completionBlockers(mission, config = /** @type {TowerConfig} */ 
   /** @type {Blocker[]} */
   const blockers = []
   if (mission.status !== 'completed') {
-    blockers.push({
-      code: 'mission-not-completed',
-      detail:
+    blockers.push(
+      blocker(
+        'mission-not-completed',
         mission.status === 'blocked'
           ? `mission ${mission.id} is blocked: ${(mission.blockers ?? []).join('; ')}; clear the blockers to resume it`
           : `mission ${mission.id} is ${mission.status}; completion is required`,
-    })
+      ),
+    )
   }
   const open = (mission.tasks ?? []).filter((task) => task.status === 'open')
   if (open.length > 0) {
-    blockers.push({ code: 'tasks-open', detail: `${open.length} open task(s): ${open.map((task) => task.text).join('; ')}` })
+    blockers.push(blocker('tasks-open', `${open.length} open task(s): ${open.map((task) => task.text).join('; ')}`))
   }
   if ((mission.blockers ?? []).length > 0) {
-    blockers.push({ code: 'blockers-present', detail: (mission.blockers ?? []).join('; ') })
+    blockers.push(blocker('blockers-present', (mission.blockers ?? []).join('; ')))
   }
   if (config.gates?.requireChecks && !hasCheckEvidence(EVIDENCE, mission)) {
-    blockers.push({
-      code: 'no-check-evidence',
-      detail: `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`,
-    })
+    blockers.push(
+      blocker('no-check-evidence', `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`),
+    )
   }
   return blockers
 }
