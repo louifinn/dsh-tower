@@ -161,6 +161,7 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/authorization.js
 host/capability-archive.js
 host/capability-batch.js
 host/capability-board.js

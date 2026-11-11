@@ -20,6 +20,7 @@ process.env.DSH_HOME = home
 test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
+const { AUTHORIZATION_MATRIX } = await import('../host/authorization.js')
 const { loadModes } = await import('../host/modeStore.js')
 const { __testResetComponentRegistry, presetAvailable } = await import('../host/capability-registry.js')
 const batch = await import('../host/capability-batch.js')
@@ -164,7 +165,9 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
 
   const disabled = makeCtx()
   apply(disabled.ctx, { mode: { allowAgentControl: false } })
-  assert.equal(disabled.tools.has('tower_control'), false)
+  assert.equal(disabled.tools.has('tower_control'), false, 'allowAgentControl false keeps the model tool unmounted')
+  assert.ok(disabled.tools.has('tower_mode'), 'the read-only session report stays mounted')
+  assert.ok(AUTHORIZATION_MATRIX.tower_control, 'the matrix still pins the mode-policy row regardless of the profile gate')
 
   const controlled = makeCtx()
   apply(controlled.ctx, { allowAgentControl: true })
@@ -382,6 +385,34 @@ test('tower_control is gated by config and requires a reason', async () => {
   // The read-only reporter must never fail when the mode is unknown.
   const anonymous = await tools.get('tower_mode').execute({}, { agent: undefined })
   assert.equal(anonymous.mode, 'unknown')
+})
+
+test('session tools stay callable when the repository state is unreadable (F31)', async () => {
+  const { root, repo } = makeRepo()
+  try {
+    // Wiring the session tools through the kernel must not make a corrupt
+    // repository state turn the read-only mode report into an authorization
+    // error: resolution falls back to the anonymous actor and the public rows
+    // still decide. The report stays the diagnostic surface it was.
+    fs.mkdirSync(path.join(repo, '.git', 'dsh-tower'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), '{not json')
+
+    const { ctx, tools } = makeCtx()
+    apply(ctx, { allowAgentControl: true })
+    const agent = makeAgent('agent-corrupt-state', repo)
+
+    const view = await tools.get('tower_mode').execute({}, { agent })
+    assert.equal(view.mode, 'off')
+    assert.equal(view.agentId, 'agent-corrupt-state')
+
+    // Entering mode keys off the session, not the unreadable repository state.
+    const entered = await tools.get('tower_control').execute({ action: 'enter', reason: 'diagnose a corrupt repo' }, { agent })
+    assert.equal(entered.ok, true)
+    assert.equal(entered.mode, 'on')
+    assert.equal((await tools.get('tower_mode').execute({}, { agent })).mode, 'on')
+  } finally {
+    removeTemp(root)
+  }
 })
 
 test('#122: tower_doctor and tower_recover are registered for every configuration', () => {
