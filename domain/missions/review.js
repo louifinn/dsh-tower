@@ -6,6 +6,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { reviewedEvent } from '../events.js'
+import { latestReview, reviewsForBranch } from '../integration/review.js'
 import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 import { isReviewerRole } from '../roles.js'
 
@@ -94,29 +95,6 @@ export function normalizeReviewVerdict(input) {
 }
 
 /**
- * The latest review of one branch. Higher rounds win; routes that share a round
- * are ordered by submission sequence, so "latest" is the most recently recorded
- * verdict (#108).
- * @param {Review[]} reviews
- * @returns {Review | null}
- */
-function latestBranchReview(reviews) {
-  /** @type {Review | null} */
-  let latest = null
-  for (const review of reviews) {
-    if (!latest) {
-      latest = review
-      continue
-    }
-    const round = Number(review.round) || 0
-    const latestRound = Number(latest.round) || 0
-    if (round > latestRound) latest = review
-    else if (round === latestRound && (Number(review.seq) || 0) > (Number(latest.seq) || 0)) latest = review
-  }
-  return latest
-}
-
-/**
  * Decide whether this submission starts a new review round or appends to the
  * current one (#108). A completed mission always starts a new round. A mission
  * that is `active` accepts a later route for the tip that its current round
@@ -131,7 +109,9 @@ export function reviewAdmission({ mission, reviews, branch, tip }) {
   if (mission.status !== 'active') {
     fail(`mission ${mission.id} is ${mission.status}; only a completed mission can be reviewed`)
   }
-  const latest = latestBranchReview((reviews ?? []).filter((review) => review.branch === branch))
+  // The same resolver the merge gate and the read projections use: the most
+  // recently recorded verdict of the highest round, then its next tip check.
+  const latest = latestReview(reviewsForBranch(reviews, branch))
   if (!latest) {
     fail(`mission ${mission.id} is active and has no review round to append to; only a completed mission can be reviewed`)
   }

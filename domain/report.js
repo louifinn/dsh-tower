@@ -1,5 +1,6 @@
 // Pure human-readable mission board.
 // @ts-check
+import { latestReview, reviewsForBranch } from './integration/review.js'
 import { MISSION_STATUSES } from './mission.js'
 import { taskCounts } from './summary.js'
 
@@ -39,8 +40,11 @@ export function boardMarkdown(state, archive = null) {
   for (const mission of state.missions) {
     const tasks = taskCounts(mission.tasks ?? [])
     const branch = mission.worktree ? mission.worktree.branch : null
-    const reviews = branch ? (state.reviews ?? []).filter((review) => review.branch === branch) : []
-    const latest = reviews.length > 0 ? reviews.reduce((a, b) => (a.round >= b.round ? a : b)) : null
+    // The board shares the single resolver with status/briefing/gate: inside a
+    // round the most recently recorded verdict is the latest, so an appended
+    // clean route supersedes an earlier non-clean one instead of leaving the
+    // stale same-round verdict on the visible row.
+    const latest = latestReview(reviewsForBranch(state.reviews ?? [], branch))
     const reviewText = latest ? `R${latest.round} ${latest.status}/${latest.mergeVerdict}` : '—'
     lines.push(
       `| ${mission.id} | ${mission.status} | ${mission.kind} | ${String(mission.title).replaceAll('|', '\\|')} | ${

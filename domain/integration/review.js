@@ -203,12 +203,45 @@ export function reviewsForBranch(reviews, branch) {
 }
 
 /**
- * The latest review round, or null when the branch has no reviews.
+ * Order two review rows from older to newer. A higher round is always newer; two
+ * routes that share a round are ordered by submission sequence, so the most
+ * recently recorded verdict of a round is newer than an earlier one (#108). The
+ * comparison is strict: rows with equal round and sequence are equally recent
+ * and a caller keeping the first maximum does not swap them.
+ * @param {Review} left
+ * @param {Review} right
+ * @returns {number}
+ */
+export function compareReviewsByRecency(left, right) {
+  const round = (Number(left.round) || 0) - (Number(right.round) || 0)
+  if (round !== 0) return round
+  return (Number(left.seq) || 0) - (Number(right.seq) || 0)
+}
+
+/**
+ * The latest review row, or null when there is none. This is the single
+ * definition of "latest" shared by the merge gate, landed-merge detection, the
+ * status/briefing projections and review admission.
  * @param {Review[]} reviews
  * @returns {Review | null}
  */
 export function latestReview(reviews) {
-  return reviews.length > 0 ? reviews.reduce((left, right) => (left.round >= right.round ? left : right)) : null
+  /** @type {Review | null} */
+  let latest = null
+  for (const review of reviews) {
+    if (!latest || compareReviewsByRecency(review, latest) > 0) latest = review
+  }
+  return latest
+}
+
+/**
+ * Reviews ordered newest first, for read projections that display a short
+ * history. Equal rows keep their stored order.
+ * @param {Review[]} reviews
+ * @returns {Review[]}
+ */
+export function reviewsNewestFirst(reviews) {
+  return [...reviews].sort((left, right) => compareReviewsByRecency(right, left))
 }
 
 /**

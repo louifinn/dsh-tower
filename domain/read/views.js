@@ -1,6 +1,7 @@
 // Pure read-model projections for the status/detail/diff use cases. Loading
 // state, reading the activity tail, and running Git stay in app/read.js.
 // @ts-check
+import { reviewsNewestFirst } from '../integration/review.js'
 import { FINDING_STATUSES, MISSION_STATUSES } from '../mission.js'
 import { fullMission, findingSummary, taskCounts } from '../summary.js'
 
@@ -16,10 +17,14 @@ import { fullMission, findingSummary, taskCounts } from '../summary.js'
  */
 export function missionDetailView({ state, mission, activity }) {
   const branch = mission.worktree ? mission.worktree.branch : null
-  const reviews = (state.reviews ?? [])
-    .filter((review) => review.missionId === mission.id || (branch && review.branch === branch))
-    .slice()
-    .sort((left, right) => right.round - left.round)
+  // Reviews linked by mission id or by the mission's branch are shown; the
+  // order is the shared one (highest round first, and inside one round the most
+  // recently recorded verdict first), never raw storage order.
+  const reviews = reviewsNewestFirst(
+    (state.reviews ?? []).filter(
+      (review) => review.missionId === mission.id || (branch && review.branch === branch),
+    ),
+  )
   const findings = (state.findings ?? []).filter((finding) => finding.missionId === mission.id)
   const missionActivity = activity.filter((entry) => entry.missionId === mission.id)
   return {
