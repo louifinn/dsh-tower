@@ -115,10 +115,69 @@ export function stateLockToken(paths) {
 }
 
 /**
+ * The in-process token map proves this process *started* the mutation while
+ * holding the lock; it cannot prove the on-disk record still exists, or still
+ * belongs to this mutation. A reclaim/release race (or any other process) can
+ * move our record out of the lock path between `withLock` and the commit, and
+ * another writer can then own the path. Verify the record immediately before
+ * state.json is replaced, so a state write never lands under a lock we no
+ * longer hold (#167).
+ */
+async function verifyStateLockHolder(paths, token) {
+  const lockPath = paths.lock
+  const recordPath = String(paths?.state ?? 'state.json')
+  const held = await readLock(lockPath)
+  const failure = 'error' in held ? held.error : null
+  if (failure) {
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to write ${recordPath}: the state lock at ${lockPath} could not be verified (${failure})`,
+      {
+        retryable: false,
+        nextAction: `inspect ${lockPath} and retry the mutation through withLock`,
+        details: { reason: 'state-lock-unreadable', lockPath, expectedToken: token, error: String(failure) },
+      },
+    )
+  }
+  const record = held.record
+  if (!record) {
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to write ${recordPath}: the state lock at ${lockPath} is missing; the record was moved or reclaimed by another process while the mutation was in flight`,
+      {
+        retryable: false,
+        nextAction: 'retry the mutation through withLock; it did not own the lock when the write was attempted',
+        details: { reason: 'state-lock-missing', lockPath, expectedToken: token },
+      },
+    )
+  }
+  if (record.token !== token) {
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to write ${recordPath}: the state lock at ${lockPath} no longer carries this mutation token (owner pid ${record.pid ?? 'unknown'}, token ${record.token ?? 'missing'}); another writer owns the lock`,
+      {
+        retryable: false,
+        nextAction: 'the mutation did not write state; retry it through withLock once the current holder finishes',
+        details: {
+          reason: 'state-lock-holder-mismatch',
+          lockPath,
+          expectedToken: token,
+          actualToken: record.token ?? null,
+          pid: record.pid ?? null,
+        },
+      },
+    )
+  }
+}
+
+/**
  * Persist state.json only while this process holds the state lock with the
  * token from `withLock`. Any other caller — a read-only load that decided to
  * write, a stale token after a reclaim, or a direct write that bypassed the
  * lock — is refused instead of overwriting a concurrent writer's document.
+ * The on-disk record is re-verified before commit (and once more after
+ * serialisation, via the atomic writer's `verify` hook) so a record moved by
+ * another process during the mutation cannot slip a stale write through.
  *
  * @param {{ state: string }} paths
  * @param {unknown} state
@@ -133,7 +192,8 @@ export async function writeStateLocked(paths, state, token) {
       { retryable: false, nextAction: 'take the state lock with withLock and pass the token it issues' },
     )
   }
-  await writeJsonAtomic(paths.state, state)
+  await verifyStateLockHolder(paths, token)
+  await writeJsonAtomic(paths.state, state, { verify: () => verifyStateLockHolder(paths, token) })
 }
 
 /** Human-readable facts about a held lock for a waiter's error message. */

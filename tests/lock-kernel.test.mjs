@@ -14,12 +14,27 @@ import {
   lockLiveness,
   lockRecord,
   readLock,
+  reclaimDeadLock,
+  reclaimDeadLockSync,
   releaseLock,
   removeLockIfMatches,
+  removeLockIfMatchesSync,
 } from '../adapters/lock.js'
 import { pathsFor, withLock } from '../adapters/store.js'
 
 const DEAD_PID = 999999
+
+function deadRecord(token) {
+  const at = Date.now() - 60_000
+  return JSON.stringify({ token, pid: DEAD_PID, startedAt: at, since: at, at })
+}
+
+function quarantines(paths, prefix) {
+  return fs
+    .readdirSync(paths.dir)
+    .filter((name) => name.startsWith(prefix))
+    .map((name) => path.join(paths.dir, name))
+}
 
 function tempPaths() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-kernel-'))
@@ -158,6 +173,198 @@ test('lock kernel: release and acquire agree on the token that owns the file', a
     assert.ok(secondTry)
     assert.equal(await secondTry.release(), true)
     assert.equal(await fsp.readFile(paths.lock, 'utf8').catch(() => null), null)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #167 R63 P2-1: the restore of a quarantined record is an exclusive-create
+// CAS, not an overwriting rename. B reads a dead record, A replaces it with a
+// live one, and a third waiter wins the free path while B holds the bytes in
+// quarantine. B must keep C's record, preserve the moved bytes for audit, and
+// fail closed instead of reporting a clean loss and entering the critical
+// section.
+test('lock kernel: a three-waiter reclaim never clobbers the record that won the free path', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    fs.writeFileSync(paths.lock, deadRecord('dead-holder'))
+    const successor = JSON.stringify(lockRecord('a-holder', { marker: 'reclaimed-by-a' }))
+    const third = JSON.stringify(lockRecord('c-holder', { marker: 'third-waiter' }))
+    let moves = 0
+    await assert.rejects(
+      () =>
+        reclaimDeadLock(paths.lock, {
+          rename: async (from, to) => {
+            moves += 1
+            assert.equal(from, paths.lock)
+            // A reclaimed the dead record and re-acquired before B's move...
+            fs.writeFileSync(from, successor)
+            // B now quarantines A's live record; C wins the free lock path.
+            await fsp.rename(from, to)
+            assert.equal(fs.readFileSync(to, 'utf8'), successor)
+            fs.writeFileSync(from, third)
+          },
+          sleep: async () => {},
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.match(error.message, /lock integrity anomaly/)
+        assert.match(error.message, /was not overwritten/)
+        assert.equal(error.details.reason, 'lock-quarantine')
+        assert.equal(error.details.outcome, 'occupied')
+        assert.match(error.nextAction, /confirming no other writer is active/)
+        return true
+      },
+    )
+    assert.equal(moves, 1)
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), third, 'C keeps the record it created')
+    const preserved = quarantines(paths, 'state.lock.stale-')
+    assert.equal(preserved.length, 1, 'the moved live record is preserved for audit')
+    assert.equal(fs.readFileSync(preserved[0], 'utf8'), successor)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a reclaim whose restore cannot complete fails closed', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    fs.writeFileSync(paths.lock, deadRecord('dead-holder'))
+    const successor = JSON.stringify(lockRecord('live-successor', { marker: 'swapped-in' }))
+    let ran = false
+    await assert.rejects(
+      () =>
+        withLock(paths, async () => {
+          ran = true
+        }, {
+          timeoutMs: 150,
+          pollMs: 10,
+          heartbeatMs: 1000,
+          rename: async (from, to) => {
+            fs.writeFileSync(from, successor)
+            await fsp.rename(from, to)
+          },
+          copyFile: async () => {
+            const error = new Error('denied by test')
+            error.code = 'EPERM'
+            throw error
+          },
+          sleep: async () => {},
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.match(error.message, /restoring the quarantined lock record/)
+        assert.equal(error.details.outcome, 'failed')
+        assert.equal(error.details.error, 'EPERM')
+        return true
+      },
+    )
+    assert.equal(ran, false, 'the critical section must not run when the reclaim cannot be completed')
+    assert.equal(fs.existsSync(paths.lock), false)
+    const preserved = quarantines(paths, 'state.lock.stale-')
+    assert.equal(preserved.length, 1, 'the un-restorable live record stays on disk for recovery')
+    assert.equal(fs.readFileSync(preserved[0], 'utf8'), successor)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a sync reclaim also fails closed instead of clobbering a third waiter', () => {
+  const { root, paths } = tempPaths()
+  try {
+    fs.writeFileSync(paths.lock, deadRecord('dead-holder'))
+    const successor = JSON.stringify(lockRecord('a-holder', { marker: 'reclaimed-by-a' }))
+    const third = JSON.stringify(lockRecord('c-holder', { marker: 'third-waiter' }))
+    assert.throws(
+      () =>
+        reclaimDeadLockSync(paths.lock, {
+          renameSync: (from, to) => {
+            fs.writeFileSync(from, successor)
+            fs.renameSync(from, to)
+            fs.writeFileSync(from, third)
+          },
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.outcome, 'occupied')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), third)
+    const preserved = quarantines(paths, 'state.lock.stale-')
+    assert.equal(preserved.length, 1)
+    assert.equal(fs.readFileSync(preserved[0], 'utf8'), successor)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a release restore never overwrites a record created after the move', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const token = 'release-holder'
+    await acquireLock(paths.lock, { token, heartbeat: false, timeoutMs: 0 })
+    const staleRaw = fs.readFileSync(paths.lock, 'utf8')
+    const foreign = JSON.stringify(lockRecord('foreign-owner', { marker: 'foreign' }))
+    const third = JSON.stringify(lockRecord('c-holder', { marker: 'third-waiter' }))
+    fs.writeFileSync(paths.lock, foreign)
+    await assert.rejects(
+      () =>
+        removeLockIfMatches(paths.lock, token, staleRaw, {
+          rename: async (from, to) => {
+            await fsp.rename(from, to)
+            // C wins the path while the foreign record sits in quarantine.
+            fs.writeFileSync(from, third)
+          },
+          sleep: async () => {},
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.reason, 'lock-quarantine')
+        assert.equal(error.details.outcome, 'occupied')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), third, 'the release must not clobber C')
+    const preserved = quarantines(paths, 'state.lock.release-')
+    assert.equal(preserved.length, 1, 'the foreign record is preserved for audit')
+    assert.equal(fs.readFileSync(preserved[0], 'utf8'), foreign)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a sync release restore never overwrites a newer record', () => {
+  const { root, paths } = tempPaths()
+  try {
+    const staleRaw = deadRecord('stale-owner')
+    fs.writeFileSync(paths.lock, staleRaw)
+    const foreign = JSON.stringify(lockRecord('foreign-owner', { marker: 'foreign' }))
+    const third = JSON.stringify(lockRecord('c-holder', { marker: 'third-waiter' }))
+    assert.throws(
+      () =>
+        removeLockIfMatchesSync(paths.lock, 'stale-owner', staleRaw, {
+          renameSync: (from, to) => {
+            fs.writeFileSync(from, foreign)
+            fs.renameSync(from, to)
+            fs.writeFileSync(from, third)
+          },
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.outcome, 'occupied')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), third)
+    const preserved = quarantines(paths, 'state.lock.release-')
+    assert.equal(preserved.length, 1)
+    assert.equal(fs.readFileSync(preserved[0], 'utf8'), foreign)
   } finally {
     removeTemp(root)
   }

@@ -68,15 +68,33 @@ export function readJsonSync(file) {
   return parseJson(file, fs.readFileSync(file, 'utf8'))
 }
 
-export async function writeJsonAtomic(file, value) {
+/**
+ * Serialise, write a synced temp file, optionally verify a precondition, then
+ * rename over the destination. `options.verify` runs after the document has
+ * been serialised and the temp file closed but *before* the rename, so a
+ * caller can re-check ownership at the last possible moment; when it throws,
+ * the temp file is removed and state.json is left untouched. This keeps the
+ * state-write lock check out of the serialisation window (a `toJSON` that
+ * mutates the lock file cannot slip a stale write through).
+ */
+export async function writeJsonAtomic(file, value, options = {}) {
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${crypto.randomUUID()}`)
+  const payload = JSON.stringify(value, null, 2)
   const handle = await fsp.open(tmp, 'w')
   try {
-    await handle.writeFile(JSON.stringify(value, null, 2), 'utf8')
+    await handle.writeFile(payload, 'utf8')
     await handle.sync()
   } finally {
     await handle.close()
+  }
+  if (options.verify) {
+    try {
+      await options.verify()
+    } catch (error) {
+      await fsp.unlink(tmp).catch(() => {})
+      throw error
+    }
   }
   await renameWithRetry(tmp, file)
 }

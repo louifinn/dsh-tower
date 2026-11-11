@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
+import { lockRecord } from '../adapters/lock.js'
 import {
   isStateLockHeld,
   pathsFor,
@@ -132,6 +133,92 @@ test('a state-load migration persists through writeStateLocked with the held tok
       assert.equal(migratedState.updatedAt, 4321)
     })
     assert.equal(fs.existsSync(paths.state), false, 'the fake store records the write, it does not create the file')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #167 R63 P2-1: the in-process token map only proves the mutation *started*
+// inside withLock. The on-disk record is checked again before commit, so a
+// record moved/replaced during the mutation cannot let a stale writer land
+// state.json under a lock another process now owns.
+test('a lock record replaced between withLock and the state write is refused', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          fs.writeFileSync(paths.lock, JSON.stringify(lockRecord('intruder', { marker: 'clobbered' })))
+          await writeStateLocked(paths, { ok: true }, held.token)
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.match(error.message, /no longer carries this mutation token/)
+        assert.equal(error.details.reason, 'state-lock-holder-mismatch')
+        assert.equal(error.details.actualToken, 'intruder')
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false, 'the refused write must not create state.json')
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, 'intruder', 'the foreign lock is not removed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a state write with the lock record gone is refused', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          fs.unlinkSync(paths.lock)
+          await writeStateLocked(paths, { ok: true }, held.token)
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.match(error.message, /is missing/)
+        assert.equal(error.details.reason, 'state-lock-missing')
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a lock mutated during state serialisation cannot slip a stale write through', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          const state = {
+            toJSON() {
+              // Mutate the lock record while the document is being serialised,
+              // after the pre-write check but before the atomic rename.
+              fs.writeFileSync(paths.lock, JSON.stringify(lockRecord('intruder', { marker: 'serialisation' })))
+              return { ok: true }
+            },
+          }
+          await writeStateLocked(paths, state, held.token)
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.reason, 'state-lock-holder-mismatch')
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false, 'state.json must not be replaced')
+    assert.deepEqual(
+      fs.readdirSync(paths.dir).filter((name) => name.includes('.state.json.tmp-')),
+      [],
+      'the aborted write must remove its temp file',
+    )
   } finally {
     removeTemp(root)
   }

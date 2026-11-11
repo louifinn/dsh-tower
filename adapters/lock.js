@@ -11,13 +11,17 @@
 //     lost-update race this kernel exists to remove;
 //   - release and reclaim move the record to a private quarantine name, read
 //     the bytes back, and unlink only the record whose token (and, when given,
-//     exact bytes) still match. A foreign or newer record is restored.
+//     exact bytes) still match. A foreign or newer record is restored with an
+//     exclusive create that never overwrites a record which appeared at the
+//     lock path in the meantime; a restore that cannot complete fails closed
+//     instead of pretending the path is safe.
 //
 // The JSON/atomic helpers live in persistence.js; this module owns the lock
 // records and must not import persistence.js (persistence re-exports lockTiming
 // for compatibility, so a reverse import would create a cycle).
 import { fs, fsp } from './store-fs.js'
 import crypto from 'node:crypto'
+import { TowerToolError } from '../domain/errors.js'
 
 export const DEFAULT_LOCK_TIMEOUT_MS = 5000
 export const DEFAULT_LOCK_POLL_MS = 25
@@ -50,7 +54,9 @@ function sleepSync(ms) {
 /**
  * Windows can reject a rename while an indexer, antivirus, or a concurrent
  * reader still holds the destination; retry briefly instead of failing a
- * successful mutation. The temp file is removed when the rename never lands.
+ * successful mutation. The temp file is removed when the rename never lands,
+ * unless the caller moves the lock record itself (`unlinkOnFailure:false`):
+ * a failed lock move must never delete the only copy of a record.
  *
  * `options.rename` and `options.sleep` inject the syscall and the backoff so
  * both outcomes are testable on any OS (#86); production callers omit them.
@@ -64,7 +70,7 @@ export async function renameWithRetry(tmp, file, options = {}) {
       return
     } catch (error) {
       if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) {
-        await fsp.unlink(tmp).catch(() => {})
+        if (options.unlinkOnFailure !== false) await fsp.unlink(tmp).catch(() => {})
         throw error
       }
       await wait(10 + attempt * 15)
@@ -216,6 +222,110 @@ export function readLockSync(lockPath, options = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Exclusive restore (quarantine CAS)
+// ---------------------------------------------------------------------------
+
+/** Read the moved bytes back, retrying the Windows sharing errors a rename
+ *  just encountered. A non-transient failure (ENOENT, EACCES...) reports null
+ *  so the caller fails closed instead of guessing what the record held. */
+async function readQuarantined(file, options = {}) {
+  const wait = options.sleep ?? sleep
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fsp.readFile(file, 'utf8')
+    } catch (error) {
+      if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) return null
+      await wait(10 + attempt * 15)
+    }
+  }
+}
+
+function readQuarantinedSync(file, options = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return fs.readFileSync(file, 'utf8')
+    } catch (error) {
+      if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) return null
+      sleepSync(10 + attempt * 15)
+    }
+  }
+}
+
+/**
+ * Put a quarantined record back *without* replacing whatever is at the lock
+ * path now. `copyFile` with COPYFILE_EXCL is the compare-and-swap: EEXIST means
+ * a newer writer successfully created its record while the bytes were
+ * quarantined, so that record wins, the quarantined bytes stay for audit, and
+ * the caller must fail closed. Transient Windows sharing errors are retried
+ * with the kernel's rename budget; a persistent failure is also fail-closed.
+ *
+ * @returns {Promise<{restored:boolean, reason:'restored'|'occupied'|'failed', error?:any}>}
+ */
+async function restoreQuarantined(quarantine, lockPath, options = {}) {
+  const copyFile = options.copyFile ?? fsp.copyFile
+  const wait = options.sleep ?? sleep
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await copyFile(quarantine, lockPath, fs.constants.COPYFILE_EXCL)
+      return { restored: true, reason: 'restored' }
+    } catch (error) {
+      if (error?.code === 'EEXIST') return { restored: false, reason: 'occupied', error }
+      if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) {
+        return { restored: false, reason: 'failed', error }
+      }
+      await wait(10 + attempt * 15)
+    }
+  }
+}
+
+function restoreQuarantinedSync(quarantine, lockPath, options = {}) {
+  const copyFileSync = options.copyFileSync ?? fs.copyFileSync
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      copyFileSync(quarantine, lockPath, fs.constants.COPYFILE_EXCL)
+      return { restored: true, reason: 'restored' }
+    } catch (error) {
+      if (error?.code === 'EEXIST') return { restored: false, reason: 'occupied', error }
+      if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) {
+        return { restored: false, reason: 'failed', error }
+      }
+      sleepSync(10 + attempt * 15)
+    }
+  }
+}
+
+/**
+ * A moved record could not be put back. The lock path is in an unknown or
+ * inconsistent state, so the caller must not continue as if it had acquired
+ * or released cleanly. The quarantined bytes are preserved for audit and the
+ * message names them, because they may be the only copy of a live record.
+ */
+function lockRestoreAnomaly(lockPath, quarantine, outcome = {}) {
+  const errorCode = outcome.error?.code ?? null
+  const detail =
+    outcome.reason === 'occupied'
+      ? `a newer lock record appeared at ${lockPath} while the previous record was quarantined; it was not overwritten`
+      : outcome.reason === 'unreadable'
+        ? `the quarantined lock record at ${quarantine} could not be read back`
+        : `restoring the quarantined lock record to ${lockPath} failed (${errorCode ?? String(outcome.error?.message ?? outcome.error ?? 'unknown error')})`
+  return new TowerToolError(
+    'state-locked',
+    `lock integrity anomaly: ${detail}; the quarantined record was preserved at ${quarantine} for audit`,
+    {
+      retryable: false,
+      nextAction: `inspect ${quarantine} and the lock at ${lockPath}, then retry the mutation only after confirming no other writer is active`,
+      details: {
+        reason: 'lock-quarantine',
+        outcome: outcome.reason ?? 'failed',
+        lockPath,
+        quarantine,
+        error: errorCode,
+      },
+    },
+  )
+}
+
 /**
  * Reclaim only a record whose owner is provably dead. The record is moved to a
  * private quarantine, read back, and compared with the exact bytes inspected
@@ -237,22 +347,29 @@ export async function reclaimDeadLock(lockPath, options = {}) {
   }
   const verdict = lockLiveness(parsed, options)
   if (!verdict.dead) return false
-  const rename = options.rename ?? fsp.rename
   // Move, never delete: a concurrent writer may have replaced the record
   // between the read and the rename, so verify the quarantined bytes first.
   const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomUUID()}`
   try {
-    await rename(lockPath, quarantine)
+    await renameWithRetry(lockPath, quarantine, { ...options, unlinkOnFailure: false })
   } catch {
+    // The dead record is still at the lock path; nothing was changed.
     return false
   }
-  const moved = await fsp.readFile(quarantine, 'utf8').catch(() => null)
-  if (moved === null || moved !== original) {
-    if (moved !== null) await rename(quarantine, lockPath).catch(() => {})
+  const moved = await readQuarantined(quarantine, options)
+  if (moved !== null && moved === original) {
+    await fsp.unlink(quarantine).catch(() => {})
+    return true
+  }
+  if (moved === null) throw lockRestoreAnomaly(lockPath, quarantine, { reason: 'unreadable' })
+  const restored = await restoreQuarantined(quarantine, lockPath, options)
+  if (restored.restored) {
+    await fsp.unlink(quarantine).catch(() => {})
     return false
   }
-  await fsp.unlink(quarantine).catch(() => {})
-  return true
+  // A newer record won the free path: the reclaim must not clobber it and
+  // must not report a clean loss, because the moved record is still missing.
+  throw lockRestoreAnomaly(lockPath, quarantine, restored)
 }
 
 export function reclaimDeadLockSync(lockPath, options = {}) {
@@ -270,126 +387,130 @@ export function reclaimDeadLockSync(lockPath, options = {}) {
   }
   const verdict = lockLiveness(parsed, options)
   if (!verdict.dead) return false
-  const renameSync = options.renameSync ?? fs.renameSync
   const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomUUID()}`
   try {
-    renameSync(lockPath, quarantine)
+    renameWithRetrySync(lockPath, quarantine, options)
   } catch {
+    // The dead record is still at the lock path; nothing was changed.
     return false
   }
-  let moved = null
-  try {
-    moved = fs.readFileSync(quarantine, 'utf8')
-  } catch {
-    moved = null
+  const moved = readQuarantinedSync(quarantine, options)
+  if (moved !== null && moved === original) {
+    try {
+      fs.unlinkSync(quarantine)
+    } catch {
+      // the lock is already reclaimed; a leftover quarantine is inert
+    }
+    return true
   }
-  if (moved === null || moved !== original) {
-    if (moved !== null) {
-      try {
-        renameSync(quarantine, lockPath)
-      } catch {
-        // the newer record could not be restored; never delete it silently
-      }
+  if (moved === null) throw lockRestoreAnomaly(lockPath, quarantine, { reason: 'unreadable' })
+  const restored = restoreQuarantinedSync(quarantine, lockPath, options)
+  if (restored.restored) {
+    try {
+      fs.unlinkSync(quarantine)
+    } catch {
+      // the restored record is back at the lock path; a leftover copy is inert
     }
     return false
   }
-  try {
-    fs.unlinkSync(quarantine)
-  } catch {
-    // the lock is already reclaimed; a leftover quarantine is inert
+  throw lockRestoreAnomaly(lockPath, quarantine, restored)
+}
+
+/** Synchronous counterpart of the retrying, non-deleting lock-record move. */
+function renameWithRetrySync(from, to, options = {}) {
+  const renameSync = options.renameSync ?? fs.renameSync
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (error) {
+      if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) throw error
+      sleepSync(10 + attempt * 15)
+    }
   }
-  return true
 }
 
 // ---------------------------------------------------------------------------
 // Token-checked removal (CAS)
 // ---------------------------------------------------------------------------
 
+/** Token (+ optional exact bytes) check for a record read back from quarantine. */
+function quarantinedMatches(moved, expectedToken, expectedRaw) {
+  if (moved === null) return false
+  if (expectedRaw !== null && expectedRaw !== undefined && moved !== expectedRaw) return false
+  try {
+    return JSON.parse(moved)?.token === expectedToken
+  } catch {
+    return false
+  }
+}
+
 /**
  * Remove the lock only if the moved bytes still carry `expectedToken` and, when
  * `expectedRaw` is supplied, are byte-identical to the record the caller
- * inspected. The temporary quarantine is restored on any mismatch, so a
- * release can never unlink a foreign or newer record.
+ * inspected. The temporary quarantine is restored on any mismatch with an
+ * exclusive create, so a release can never unlink a foreign or newer record and
+ * a third writer that grabbed the free path is never overwritten. If that
+ * restore cannot complete, the release fails closed rather than reporting a
+ * clean result for an unknown lock path.
  *
  * `expectedRaw` makes the comparison a true CAS. Callers that only know the
  * token (legacy workspace release) still get the token check.
  */
 export async function removeLockIfMatches(file, expectedToken, expectedRaw, options = {}) {
   if (typeof expectedToken !== 'string' || expectedToken.length === 0) return false
-  const rename = options.rename ?? fsp.rename
   const quarantine = `${file}.release-${process.pid}-${crypto.randomUUID()}`
   try {
-    await rename(file, quarantine)
+    await renameWithRetry(file, quarantine, { ...options, unlinkOnFailure: false })
   } catch (error) {
     // The record disappeared between the caller's read and the move; it is not
     // ours to remove anymore (and never existed as this token).
     if (error?.code === 'ENOENT') return false
     throw error
   }
-  let moved = null
-  try {
-    moved = await fsp.readFile(quarantine, 'utf8')
-  } catch {
-    moved = null
+  const moved = await readQuarantined(quarantine, options)
+  if (quarantinedMatches(moved, expectedToken, expectedRaw)) {
+    await fsp.unlink(quarantine).catch(() => {})
+    return true
   }
-  let same = moved !== null
-  if (same && expectedRaw !== null && expectedRaw !== undefined) same = moved === expectedRaw
-  if (same && moved !== null) {
-    try {
-      same = JSON.parse(moved)?.token === expectedToken
-    } catch {
-      same = false
-    }
-  }
-  if (!same) {
-    if (moved !== null) await rename(quarantine, file).catch(() => {})
+  if (moved === null) throw lockRestoreAnomaly(file, quarantine, { reason: 'unreadable' })
+  const restored = await restoreQuarantined(quarantine, file, options)
+  if (restored.restored) {
+    await fsp.unlink(quarantine).catch(() => {})
     return false
   }
-  await fsp.unlink(quarantine).catch(() => {})
-  return true
+  throw lockRestoreAnomaly(file, quarantine, restored)
 }
 
 export function removeLockIfMatchesSync(file, expectedToken, expectedRaw, options = {}) {
   if (typeof expectedToken !== 'string' || expectedToken.length === 0) return false
-  const renameSync = options.renameSync ?? fs.renameSync
   const quarantine = `${file}.release-${process.pid}-${crypto.randomUUID()}`
   try {
-    renameSync(file, quarantine)
+    renameWithRetrySync(file, quarantine, options)
   } catch (error) {
     if (error?.code === 'ENOENT') return false
     throw error
   }
-  let moved = null
-  try {
-    moved = fs.readFileSync(quarantine, 'utf8')
-  } catch {
-    moved = null
-  }
-  let same = moved !== null
-  if (same && expectedRaw !== null && expectedRaw !== undefined) same = moved === expectedRaw
-  if (same && moved !== null) {
+  const moved = readQuarantinedSync(quarantine, options)
+  if (quarantinedMatches(moved, expectedToken, expectedRaw)) {
     try {
-      same = JSON.parse(moved)?.token === expectedToken
+      fs.unlinkSync(quarantine)
     } catch {
-      same = false
+      // inert leftover
     }
+    return true
   }
-  if (!same) {
-    if (moved !== null) {
-      try {
-        renameSync(quarantine, file)
-      } catch {
-        // the foreign record stays quarantined rather than being deleted
-      }
+  if (moved === null) throw lockRestoreAnomaly(file, quarantine, { reason: 'unreadable' })
+  const restored = restoreQuarantinedSync(quarantine, file, options)
+  if (restored.restored) {
+    try {
+      fs.unlinkSync(quarantine)
+    } catch {
+      // the restored record is back at the lock path; a leftover copy is inert
     }
     return false
   }
-  try {
-    fs.unlinkSync(quarantine)
-  } catch {
-    // inert leftover
-  }
-  return true
+  throw lockRestoreAnomaly(file, quarantine, restored)
 }
 
 // ---------------------------------------------------------------------------
