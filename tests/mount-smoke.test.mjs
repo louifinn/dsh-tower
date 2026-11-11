@@ -252,15 +252,16 @@ test('CI runs the seeded fixtures against one shared host install', () => {
     'the pinned host install is cached by the SHA-pinned cache action with its version comment',
   )
   assert.match(workflow, /hashFiles\('scripts\/mount-smoke\/host\.json'\)/)
-  // Required contexts stay exactly `test (22)`, `test (24)` and `mount`; the
-  // fixtures job is evidence, not a merge gate, so it must not borrow that name.
-  // #86: every matrix leg names its own context, so adding the Windows leg must
-  // not rename the two required ones (a renamed context never reports).
-  assert.match(workflow, /^ {4}name: \$\{\{ matrix\.name \}\}$/m, 'matrix legs pin their context names')
-  const matrixNames = [...workflow.matchAll(/^ {10}- name: (.+)$/gm)].map((match) => match[1])
-  assert.deepEqual(matrixNames, ['test (22)', 'test (24)', 'test (22, windows)'])
-  assert.match(workflow, /^ {12}os: windows-latest$/m, 'the Windows leg runs on windows-latest')
-  assert.match(workflow, /^ {12}os: ubuntu-latest$/m, 'the required legs stay on ubuntu-latest')
+  // W5-D: the required contexts are exactly `mount`, `test (24.9)`,
+  // `test (25)` and `test (24.9, windows)`; the fixtures job is evidence, not a
+  // merge gate, so it must not borrow one of those names. The frozen legacy
+  // `test` job is deleted and must not come back.
+  assert.doesNotMatch(workflow, /^ {2}test:$/m, 'the frozen legacy "test" job must stay deleted')
+  assert.match(workflow, /^ {4}name: \$\{\{ matrix\.label \}\}$/m, 'the canonical legs pin their required context names')
+  const matrixLabels = [...workflow.matchAll(/^ {12}label: (.+)$/gm)].map((match) => match[1])
+  assert.deepEqual(matrixLabels, ['test (24.9)', 'test (25)', 'test (24.9, windows)'])
+  assert.match(workflow, /^ {10}- os: windows-latest$/m, 'the Windows leg runs on windows-latest')
+  assert.match(workflow, /^ {10}- os: ubuntu-latest$/m, 'the required legs stay on ubuntu-latest')
   assert.equal((workflow.match(/^ {4}name: mount$/gm) ?? []).length, 1)
   assert.doesNotMatch(workflow, /^ {4}name: mount-fixtures$/m)
 })
