@@ -22,6 +22,7 @@ import { MISSION_STATUSES } from '../domain/mission.js'
 import { MISSION_KINDS } from '../domain/vocabulary.js'
 import { addAutoDeps } from '../domain/planning.js'
 import { dependencySatisfied } from '../domain/integration/gate.js'
+import { COMPLETION_INVARIANT_KEYS, completionInvariants } from '../domain/shapes/completion.js'
 
 const BUILD_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned']
 const SURVEY_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'abandoned']
@@ -138,12 +139,13 @@ test('completion invariants are data, not conditionals in the use case', () => {
   assert.deepEqual(
     {
       worktree: SHAPES.build.completion.requiresWorktree,
+      sandbox: SHAPES.build.completion.requiresSandbox,
       commits: SHAPES.build.completion.requiresCommits,
       clean: SHAPES.build.completion.requiresClean,
       head: SHAPES.build.completion.requiresHeadMatch,
       tracked: SHAPES.build.completion.requiresTrackedStatus,
     },
-    { worktree: true, commits: true, clean: true, head: false, tracked: false },
+    { worktree: true, sandbox: false, commits: true, clean: true, head: false, tracked: false },
   )
   assert.deepEqual(
     {
@@ -197,6 +199,72 @@ test('completion invariants are data, not conditionals in the use case', () => {
         dirtyPaths: [],
       }),
     (error) => error.code === 'invalid-argument' && /no commits/.test(error.message),
+  )
+})
+
+test('every shape completion carries the one invariant vocabulary', () => {
+  // The flag set is structural, not per-kind: a new shape cannot ship a partial
+  // completion contract and silently skip a dimension a generic layer reads.
+  const check = () => ({ commits: 0 })
+  for (const kind of SHAPE_KINDS) {
+    const completion = shapeFor(kind).completion
+    assert.deepEqual(
+      Object.keys(completion).filter((key) => key.startsWith('requires')),
+      [...COMPLETION_INVARIANT_KEYS],
+      `${kind} must declare exactly the shared invariant keys, in reference order`,
+    )
+    for (const key of COMPLETION_INVARIANT_KEYS) {
+      assert.equal(typeof completion[key], 'boolean', `${kind}.${key} must be concrete`)
+    }
+    assert.equal(typeof completion.check, 'function')
+  }
+  const detached = SHAPES.survey.resolveCompletion(
+    { id: 'M7', kind: 'survey', sandbox: '/tmp/M7-sandbox' },
+    { survey: { sandbox: 'none' } },
+  )
+  assert.deepEqual(
+    Object.keys(detached).filter((key) => key.startsWith('requires')),
+    [...COMPLETION_INVARIANT_KEYS],
+    'a placement-dependent set is built from the same vocabulary',
+  )
+  assert.deepEqual(
+    Object.entries(completionInvariants({ requiresClean: true }, check))
+      .filter(([key]) => key.startsWith('requires'))
+      .map(([key, value]) => [key, value]),
+    COMPLETION_INVARIANT_KEYS.map((key) => [key, key === 'requiresClean']),
+    'undeclared dimensions default to false, never to undefined',
+  )
+  assert.throws(
+    () => completionInvariants({ requiresBogus: true }, check),
+    (error) => error.code === 'invalid-argument' && /unknown completion invariant "requiresBogus"/.test(error.message),
+  )
+  assert.throws(
+    () => completionInvariants({ requiresClean: 'yes' }, check),
+    (error) => error.code === 'invalid-argument' && /"requiresClean" must be a boolean/.test(error.message),
+  )
+  assert.throws(
+    () => completionInvariants({}, undefined),
+    (error) => error.code === 'invalid-argument' && /check\(context\) function/.test(error.message),
+  )
+})
+
+test('build and survey share the common completion blockers', () => {
+  // The only per-kind difference is the build's merge-gate "closed mission owns
+  // a branch" row; everything a completion request must satisfy is shared.
+  const common = {
+    id: 'M3',
+    status: 'active',
+    tasks: [{ status: 'open', text: 'finish the work' }],
+    blockers: [],
+  }
+  const codes = (kind) => shapeFor(kind).completionBlockers({ ...common, kind }, {}).map((entry) => entry.code)
+  assert.deepEqual(codes('build'), ['mission-not-completed', 'tasks-open'])
+  assert.deepEqual(codes('build'), codes('survey'))
+  assert.deepEqual(
+    shapeFor('build')
+      .completionBlockers({ ...common, kind: 'build', status: 'merged' }, {})
+      .map((entry) => entry.code),
+    ['branch-owned-by-closed-missions', 'mission-not-completed', 'tasks-open'],
   )
 })
 

@@ -154,7 +154,15 @@ async function actProvision(tower, prepared) {
       // `--detach` creates no branch: the sandbox is a read-only commit checkout
       // that the agent may dirty, and it never participates in merge/stale-base.
       await tower.git(tower.root, ['worktree', 'add', '--detach', prepared.wtPath, prepared.readCommit])
-      await tower.ensureExcluded(prepared.wtPath)
+      try {
+        await tower.ensureExcluded(prepared.wtPath)
+      } catch (error) {
+        // The sandbox exists but its supporting workflow failed. Remove only the
+        // checkout this call just created (the path/branch existence checks ran
+        // immediately above) so a failure never wedges a re-provision.
+        await removeCreatedCheckout(tower, prepared)
+        throw error
+      }
       return { phase: 'created-sandbox', sandbox: prepared.wtPath }
     }
     if (mission.worktree) {
@@ -166,15 +174,23 @@ async function actProvision(tower, prepared) {
       fail(`branch already exists: ${prepared.branch}`)
     }
     await tower.git(tower.root, ['worktree', 'add', '-b', prepared.branch, prepared.wtPath, prepared.baseCommit])
-    await tower.ensureExcluded(prepared.wtPath)
-    const worktree = worktreeRecord({
-      path: prepared.wtPath,
-      branch: prepared.branch,
-      baseCommit: prepared.baseCommit,
-      createdAt: Date.now(),
-      realPath: await tower.deps.ownership.canonicalPath(prepared.wtPath),
-    })
-    return { phase: 'created', worktree }
+    try {
+      await tower.ensureExcluded(prepared.wtPath)
+      const worktree = worktreeRecord({
+        path: prepared.wtPath,
+        branch: prepared.branch,
+        baseCommit: prepared.baseCommit,
+        createdAt: Date.now(),
+        realPath: await tower.deps.ownership.canonicalPath(prepared.wtPath),
+      })
+      return { phase: 'created', worktree }
+    } catch (error) {
+      // Everything before `worktree add` proved the path and branch were free,
+      // so both artifacts belong to this call. A partial creation must not leave
+      // an unrecorded worktree/branch behind.
+      await removeCreatedCheckout(tower, prepared)
+      throw error
+    }
   }, tower.gitMutexOptions({ phase: 'provision' }))
 }
 
@@ -231,13 +247,25 @@ async function commitProvision(tower, prepared, acted) {
   })
 }
 
+/**
+ * Remove a checkout this provision call created. No lock is taken here: the act
+ * phase already holds the git mutex, and `rollbackProvision` takes it for the
+ * commit phase. Each step is best-effort so a failure in one does not strand the
+ * other artifact; the caller still rethrows the original error.
+ * @param {any} tower
+ * @param {{ mode?: string, wtPath: string, branch?: string }} prepared
+ */
+async function removeCreatedCheckout(tower, prepared) {
+  await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
+  if (prepared.mode !== 'detached' && prepared.branch) {
+    await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
+  }
+}
+
 /** Undo a created checkout outside the state lock (git mutex only). */
 async function rollbackProvision(tower, prepared) {
   await tower.deps.store.withGitLock(tower.paths, async () => {
-    await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
-    if (prepared.mode !== 'detached' && prepared.branch) {
-      await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
-    }
+    await removeCreatedCheckout(tower, prepared)
   }, tower.gitMutexOptions({ phase: 'provision' }))
 }
 

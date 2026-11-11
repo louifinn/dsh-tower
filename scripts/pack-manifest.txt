@@ -152,6 +152,7 @@ domain/roster.js
 domain/scope.js
 domain/shapes/blockers.js
 domain/shapes/build.js
+domain/shapes/completion.js
 domain/shapes/index.js
 domain/shapes/survey.js
 domain/state.js
