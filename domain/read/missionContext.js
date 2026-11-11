@@ -1,6 +1,7 @@
 // Pure mission-context projection: reviews, findings, and dependency statuses
 // for one mission. Loading state and activity stays in app/missionContext.js.
 // @ts-check
+import { reviewsForBranch, reviewsNewestFirst } from '../integration/review.js'
 import { fullMission, findingSummary } from '../summary.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -18,13 +19,9 @@ export function missionContextView({ state, mission, archived = [] }) {
   const archivedById =
     archived instanceof Map ? archived : new Map(archived.map((entry) => [entry.id, entry]))
   const branch = mission.worktree ? mission.worktree.branch : null
-  const reviews = branch
-    ? (state.reviews ?? [])
-        .filter((review) => review.branch === branch)
-        .slice()
-        .sort((left, right) => right.round - left.round)
-        .slice(0, 3)
-    : []
+  // The shared review ordering is round newest-first and, inside one round, the
+  // most recently recorded verdict first — never raw storage order.
+  const reviews = branch ? reviewsNewestFirst(reviewsForBranch(state.reviews, branch)).slice(0, 3) : []
   const findings = (state.findings ?? [])
     .filter((finding) => finding.missionId === mission.id)
     .slice()
