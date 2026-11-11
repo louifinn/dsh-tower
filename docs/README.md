@@ -29,9 +29,13 @@ Other useful pages: [When to use Tower](guide/scenarios-and-philosophy.md), [Ins
 **Reference**
 
 - [Tools](reference/tools.md)
+- [Generated tool catalogue](reference/tools.generated.md)
+- [Mission shapes (generated)](reference/shapes.md)
 - [Configuration](reference/config.md)
+- [Generated configuration reference](reference/config.generated.md)
 - [Blockers and failure codes](reference/blockers.md)
 - [Tool error codes](reference/errors.md)
+- [Generated error catalogue](reference/errors.generated.md)
 - [Events](reference/events.md)
 - [Testing and evidence](reference/testing.md)
 - [Batches, leases and legacy import](reference/operations.md)
