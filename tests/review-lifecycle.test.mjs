@@ -19,8 +19,12 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
 import { latestReview, reviewsNewestFirst } from '../domain/integration/review.js'
-import { reviewAdmission } from '../domain/missions/review.js'
+import { reviewAdmission, reviewRound } from '../domain/missions/review.js'
 import { validateState } from '../domain/state.js'
+import {
+  modelLatestReview,
+  modelRecordReview,
+} from './property/model/state-machine-model.mjs'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -174,6 +178,128 @@ test('latest review: the resolver and admission do not mutate their inputs', () 
         return true
       },
     )
+  }
+})
+
+test('reference model: latest review is the highest round, then the highest sequence', () => {
+  // The state-machine property compares `modelLatestReview` with the domain
+  // resolver. A round-only model keeps R1 in this ledger; the product's rule must
+  // pick the newer same-round R2 in both storage orders (#F44).
+  const model = {
+    missions: new Map(),
+    findings: new Map(),
+    reviews: [
+      {
+        id: 'R1',
+        missionId: 'M1',
+        branch: BRANCH,
+        round: 1,
+        seq: 1,
+        status: 'p1-1items',
+        merge: 'hold',
+        tip: TIP,
+        at: 0,
+        reviewer: 'reviewer-a',
+      },
+      {
+        id: 'R2',
+        missionId: 'M1',
+        branch: BRANCH,
+        round: 1,
+        seq: 2,
+        status: 'clean',
+        merge: 'merge',
+        tip: TIP,
+        at: 0,
+        reviewer: 'reviewer-b',
+      },
+    ],
+  }
+  assert.equal(modelLatestReview(model, BRANCH).id, 'R2')
+  model.reviews.reverse()
+  assert.equal(modelLatestReview(model, BRANCH).id, 'R2', 'storage order must not decide a same-round tie')
+
+  // The property's recorded-row adapter predates `seq` on the model row and
+  // passes only the persisted review. Recording must recover the submission
+  // order from the ledger id, otherwise a same-round tie would silently revert
+  // to "first stored row wins".
+  const adapterModel = {
+    missions: new Map([['M1', { id: 'M1', status: 'completed' }]]),
+    findings: new Map(),
+    reviews: [model.reviews[1]],
+  }
+  modelRecordReview(adapterModel, {
+    id: 'R2',
+    missionId: 'M1',
+    branch: BRANCH,
+    round: 1,
+    status: 'clean',
+    merge: 'merge',
+    tip: TIP,
+    at: 0,
+    reviewer: 'reviewer-b',
+  })
+  assert.equal(adapterModel.reviews[1].seq, 2)
+  assert.equal(modelLatestReview(adapterModel, BRANCH).id, 'R2')
+})
+
+test('legacy review rows without round or seq cannot produce a NaN round', async () => {
+  // Schema v5 keeps rows that predate `round`/`seq` readable. Admission treats
+  // the missing round as 0 and the round accounting opens the next positive
+  // round, so a submission over such a row can never persist NaN or round 0.
+  const legacy = {
+    id: 'R0',
+    missionId: 'M1',
+    branch: BRANCH,
+    reviewedCommit: TIP,
+    status: 'p1-1items',
+    mergeVerdict: 'hold',
+    findings: 'legacy finding',
+    checks: [],
+    decision: 'legacy decision',
+    reviewer: 'reviewer-legacy',
+    reviewerRole: 'reviewer',
+    at: 0,
+  }
+  assert.deepEqual(
+    reviewAdmission({
+      mission: { id: 'M1', status: 'active' },
+      reviews: [legacy],
+      branch: BRANCH,
+      tip: TIP,
+    }),
+    { appended: true, round: 0 },
+  )
+  assert.equal(reviewRound({ reviews: [legacy], branch: BRANCH, reviewerName: 'reviewer-fresh', maxRoundsPerReviewer: 5, round: 0 }).round, 1)
+  assert.equal(reviewRound({ reviews: [legacy], branch: BRANCH, reviewerName: 'reviewer-fresh', maxRoundsPerReviewer: 5 }).round, 1)
+
+  // End to end: a completed mission whose only prior row predates the recency
+  // keys opens round 1 and persists a state that validates.
+  const { root, tower, wt, branch } = await completedMission('dsh-tower-review-lifecycle-legacy-')
+  try {
+    const tip = await tower.revParse(wt, 'HEAD')
+    await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+      const state = await tower.load()
+      state.reviews = [...(state.reviews ?? []), { ...legacy, branch, reviewedCommit: tip }]
+      state.reviewSeq = 1
+      state.revision += 1
+      await tower.writeState(state, held)
+    })
+    const seeded = await tower.load()
+    assert.doesNotThrow(() => validateState(seeded, ''))
+    assert.equal(seeded.reviews[0].round, undefined)
+
+    await recordReviewer(tower, wt, branch, 'reviewer-a', 'agent-review-a')
+    const submitted = await tower.submitReview(routeInput('agent-review-a'))
+    assert.equal(submitted.appended, false)
+    assert.equal(submitted.round, 1)
+    assert.equal(submitted.review.id, 'R2')
+    assert.equal(submitted.review.round, 1)
+    const after = await tower.load()
+    assert.doesNotThrow(() => validateState(after, ''))
+    assert.deepEqual(after.reviews.map((review) => review.round), [undefined, 1])
+  } finally {
+    removeTemp(root)
   }
 })
 

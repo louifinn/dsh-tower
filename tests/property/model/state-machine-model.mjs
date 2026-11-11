@@ -27,6 +27,7 @@ import {
   modelCanPatchStatus,
   modelCanTransition,
   modelCanTransitionFinding,
+  modelCompareReviewsByRecency,
   modelFindingStatus,
 } from './tables.mjs'
 
@@ -59,6 +60,7 @@ import {
  * @property {string} missionId
  * @property {string | null} branch
  * @property {number} round
+ * @property {number} seq
  * @property {string} status
  * @property {string} merge
  * @property {string | null} tip
@@ -119,6 +121,8 @@ function reviewModel(review) {
     missionId: String(review.missionId),
     branch: typeof review.branch === 'string' ? review.branch : null,
     round: Number.isInteger(review.round) ? review.round : 0,
+    // Legacy rows may predate `seq`; the resolver coalesces a missing key to 0.
+    seq: Number.isInteger(review.seq) && review.seq >= 0 ? review.seq : 0,
     status: review.status,
     merge: review.mergeVerdict,
     tip: typeof review.reviewedCommit === 'string' ? review.reviewedCommit : null,
@@ -174,10 +178,12 @@ export function modelBranchReviews(model, branch) {
 }
 
 /**
- * The review a merge would gate on: highest round, and on a round tie the one
- * that appears first in the state's review list (the documented "latest review"
- * rule). Modeling it explicitly is what lets the property detect a change of
- * that rule.
+ * The review a merge would gate on. Highest round wins; inside one round the
+ * highest submission sequence wins, and a full tie keeps the first stored row —
+ * `modelCompareReviewsByRecency` transcribes the product's rule
+ * (`compareReviewsByRecency`/`latestReview` in domain/integration/review.js).
+ * Modeling it explicitly is what lets the property detect a change of that
+ * rule.
  * @param {Model} model
  * @param {string | null} branch
  * @returns {ModelReview | null}
@@ -185,7 +191,7 @@ export function modelBranchReviews(model, branch) {
 export function modelLatestReview(model, branch) {
   let latest = null
   for (const review of modelBranchReviews(model, branch)) {
-    if (latest === null || review.round > latest.round) latest = review
+    if (latest === null || modelCompareReviewsByRecency(review, latest) > 0) latest = review
   }
   return latest
 }
@@ -503,12 +509,34 @@ export function modelRebase(model, id, effect) {
 }
 
 /**
+ * The submission sequence for a recorded model row. The state-machine property's
+ * recorded-row adapter (tests/property/state-machine.prop.mjs:681-690) predates
+ * the model carrying `seq`, so it passes only the persisted row. A persisted
+ * review id is `R<seq>` (reviewRecord), so decode that order from the id; when
+ * the id is not in ledger shape, append after every stored row. Never NaN.
+ * @param {Model} model
+ * @param {ModelReview} review
+ * @returns {number}
+ */
+function recordedReviewSeq(model, review) {
+  if (Number.isInteger(review.seq) && review.seq >= 0) return review.seq
+  const match = /^R(\d+)$/.exec(String(review.id))
+  if (match) return Number(match[1])
+  let max = 0
+  for (const row of model.reviews) max = Math.max(max, row.seq)
+  return max + 1
+}
+
+/**
  * @param {Model} model
  * @param {ModelReview} review
  * @returns {void}
  */
 export function modelRecordReview(model, review) {
-  model.reviews.push(review)
+  // Keep the ordering key even though the property adapter does not pass it:
+  // two reviews may share a round, and the model must still pick the same row
+  // as the domain resolver.
+  model.reviews.push({ ...review, seq: recordedReviewSeq(model, review) })
   const mission = modelMission(model, review.missionId)
   // A verdict that is not clean returns a completed mission to active; a clean
   // verdict leaves it completed.

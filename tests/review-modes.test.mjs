@@ -219,7 +219,11 @@ test('review config: a repository layer overrides as a whole and cannot re-enabl
   try {
     configureRuntime({})
     writeRepoConfig(commonDir, { review: { mode: 'required' } })
-    assert.equal((await resolveRepoConfig({ commonDir })).review.mode, 'required')
+    const resolved = await resolveRepoConfig({ commonDir })
+    assert.equal(resolved.review.mode, 'required')
+    // #F47: the repository layer resolves review.mode only; the retired boolean
+    // alias is not mirrored back into the resolved object.
+    assert.equal('requireReview' in resolved.review, false)
 
     configureRuntime({ review: { mode: 'required' } })
     writeRepoConfig(commonDir, { review: { mode: 'off' } })

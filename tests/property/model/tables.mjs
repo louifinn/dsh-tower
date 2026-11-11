@@ -106,6 +106,24 @@ export const MODEL_REVIEW_STATUSES = Object.freeze([
 export const MODEL_MERGE_VERDICTS = Object.freeze(['merge', 'fix-then-merge', 'hold'])
 
 /**
+ * Order two review rows from older to newer, transcribed by hand from the
+ * documented rule (`docs/reference/...`): the highest recorded round wins, and
+ * inside one round the highest submission sequence wins. A full tie is equally
+ * recent, so a caller keeping the first maximum does not swap the rows. The
+ * product defines this rule once in `domain/integration/review.js`
+ * (`compareReviewsByRecency`); the model keeps its own copy so a silent change
+ * on either side makes the property disagree.
+ * @param {{ round?: number, seq?: number }} left
+ * @param {{ round?: number, seq?: number }} right
+ * @returns {number}
+ */
+export function modelCompareReviewsByRecency(left, right) {
+  const round = (Number(left.round) || 0) - (Number(right.round) || 0)
+  if (round !== 0) return round
+  return (Number(left.seq) || 0) - (Number(right.seq) || 0)
+}
+
+/**
  * The gate configuration every command runs under. Kept in the model (not read
  * from the repo config) so the property is self-contained and deterministic.
  * `review.mode:required` + `allowReviewExemption: true` exercises both the
