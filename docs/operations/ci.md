@@ -30,7 +30,8 @@ gate step after `npm run check`; the only extra steps are CI-only reports:
   the tag is an annotated tag object whose commit is in HEAD's history, the tree is clean, the tag
   matches `v<version>`, the version moved past the previous version tag, the CHANGELOG has a
   non-empty section for the version, and `scripts/support.json` agrees with its restatements.
-  Tag-only behavior, so one Node 24.9 leg is enough;
+  Tag-only behavior, so one Node 24.9 leg is enough; on a tag push the leg first restores the
+  annotated tag ref (see [the tag-push checkout hazard](#the-tag-push-checkout-hazard-m79));
 - **prepublish gate** (`npm run release:prepublish`, wired through `prepublishOnly`) — the same
   release claim in `--mode prepublish` plus `support:check`, the generated-docs checks and
   `pack:check`. It is read-only and offline and runs on `npm publish` itself, so a local publish
@@ -47,6 +48,29 @@ runs there. The canonical checkout uses `fetch-depth: 0` because the release che
 previous tag with `git describe --tags`; a depth-1 clone would hide the tags and downgrade a tag
 violation to a `[no-baseline]` warning.
 
+### The tag-push checkout hazard (#M79)
+
+On a tag push the checkout also rewrites the tag ref. `actions/checkout` runs with `fetch-tags: false`
+and fetches `+<tag commit>:refs/tags/<tag>`, which replaces the annotated tag object with a lightweight
+ref in the runner's checkout. The release check reads exactly that ref (`git cat-file -t
+refs/tags/<tag>`), so the v2.8.0 tag run failed with `error [tag-lightweight] refs/tags/v2.8.0 is a
+commit, not an annotated tag object` (run 43087228866) even though origin's tag was annotated. The
+canonical job therefore re-fetches the pushed tag ref after the gate steps and before the release
+check, on the release leg only:
+
+```yaml
+- name: Restore the annotated tag object
+  if: matrix.release && github.ref_type == 'tag'
+  run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+```
+
+The explicit refspec and `--force` are load-bearing. Fetching the commit SHA again
+(`+<sha>:refs/tags/<tag>`) recreates the lightweight ref, and `git fetch --tags` cannot be combined
+with the commit-to-tag fetch that checkout performs (`fatal: Cannot fetch both <sha> and
+refs/tags/<tag> to refs/tags/<tag>`), which is why this is a separate step rather than
+`fetch-tags: true`. The annotation requirement is not weakened: a genuinely lightweight tag still
+resolves to `commit` after the restore and the release check still refuses it.
+
 ### `npm run workflow:check`
 
 `npm run check` runs `node scripts/check-workflow.mjs`, which machine-checks the contract in this
@@ -54,6 +78,10 @@ document against the workflow text:
 
 - the canonical job carries the three supported contexts, checks out with `fetch-depth: 0` so the
   release check keeps its tag baseline, and runs `npm run check` exactly once per leg;
+- the tag-push release leg re-fetches the pushed tag ref (`git fetch --force origin
+  "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"`) after checkout and before
+  `npm run release:check`, gated by `matrix.release` and `github.ref_type == 'tag'`, so the release
+  check inspects the annotated tag object instead of the lightweight ref the checkout writes;
 - the required-context contract is exactly four contexts — the `canonical` job's three labels plus the
   `mount` job — and a reintroduced legacy `test` job is rejected;
 - every `uses:` is a 40-hex commit SHA with a `# vX.Y.Z` version comment;
@@ -67,14 +95,23 @@ document against the workflow text:
 `tests/workflow-contract.test.mjs` proves each rule is load-bearing by tampering with the real workflow
 text (reintroducing the legacy `test` job, removing a required canonical context, adding an extra
 matrix context, unpinning an action, widening permissions, dropping the canonical step, adding a
-second `npm run check`, dropping the canonical checkout's full history, sharing the concurrency group
-with the nightly schedule, moving the Node-24-only extras onto the Windows leg, unbounding artifact
-retention, breaking the issue dedupe). Run both gates locally with:
+second `npm run check`, dropping the canonical checkout's full history, dropping or reordering the
+annotated-tag restore step, ungating it, fetching the tag commit instead of the tag ref, dropping its
+`--force`, sharing the concurrency group with the nightly schedule, moving the Node-24-only extras
+onto the Windows leg, unbounding artifact retention, breaking the issue dedupe). Run the gates
+locally with:
 
 ```bash
 npm run workflow:check
 node --test tests/workflow-contract.test.mjs
+node --test tests/release-gate.test.mjs
 ```
+
+The release-gate suite includes a local simulation of the hazard: an annotated tag in a real origin
+repository, a clone whose checkout fetch overwrites `refs/tags/<tag>` with the commit (the release
+check fails with `[tag-lightweight]` and `tag-type=commit`), then the workflow's own restore command
+(which must still be present in the workflow text) puts the annotated object back, `git cat-file -t`
+reports `tag`, and the release check passes.
 
 ## Hardening
 
