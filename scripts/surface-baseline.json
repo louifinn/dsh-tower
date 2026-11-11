@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 55,
+      "value": 57,
       "decisions": [
         {
           "from": 64,
@@ -60,12 +60,19 @@
           "to": 55,
           "date": "2026-11-11",
           "note": "#M66 (2.8.0): physically retires review.requireReview, the one-release alias accepted by #M39. review.mode is the only review policy key; the boolean is now rejected as config-unknown-key with a dated upgrade note naming the surviving key and the true -> required / false -> optional mapping, so the config surface contracts by one with no replacement key. See docs/guide/install-upgrade-migration.md."
+        },
+        {
+          "from": 55,
+          "to": 57,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0007-bounded-activity-log-rotation.md",
+          "note": "#M76 (W5-B) bounds the append-only activity log: activity.maxBytes (default 4 MiB, 0 disables) and activity.retention (default 5) are tuning keys for adapter-enforced rotation. They are not a component row: rotation is always on by default and no capability disappears when it is tuned. The two keys are the only surface growth in this wave."
         }
       ]
     },
     "sections": {
       "seed": 15,
-      "value": 15,
+      "value": 16,
       "decisions": [
         {
           "from": 15,
@@ -87,6 +94,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148 W2 restores the survey section for its one tuning key, survey.sandbox (placement: none|detached). The section count returns to the 15 of the earlier shape cut; no other section changed and no component row was added (the sandbox preset is an internal child of the existing tower-survey group)."
+        },
+        {
+          "from": 15,
+          "to": 16,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0007-bounded-activity-log-rotation.md",
+          "note": "#M76 (W5-B) adds the activity section for its two tuning keys (activity.maxBytes, activity.retention). The section exists only to hold them; rotation is adapter behavior with no component row and no capability switch."
         }
       ]
     },

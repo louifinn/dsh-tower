@@ -97,7 +97,7 @@ export async function plan(tower, input = {}) {
 
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'plan',
       text: `created ${created.map((mission) => mission.id).join(', ')}`,

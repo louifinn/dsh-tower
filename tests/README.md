@@ -27,7 +27,8 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
 - `state-machine.test.mjs` — the documented mission transition table (allowed and denied) and the completion/merge entry points. The former seeded 200-step fuzz moved to `tests/property/state-machine.prop.mjs`, where fast-check shrinks a failing sequence instead of printing an unshrinkable loop.
 - `no-random.test.mjs` — the #130 PRNG guard: walks `tests/**/*.mjs` / `*.cjs` and fails if test inputs use `Math.random`, an inlined PRNG (mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG, `Math.imul`) or `node:crypto` randomness. The exemption list is explicit (live runtime plumbing, the cleanup helper's quarantine names, and the long-tier seed in the property harness) and a meta-test proves the scanner is not vacuous.
-- `workflow-contract.test.mjs` — the CI contract (#M72): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the four required legacy contexts, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous.
+- `workflow-contract.test.mjs` — the CI contract (#M72): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the three required legacy contexts plus the `mount` job, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous.
+- `activity-rotation.test.mjs` — #M76 bounded activity log: the pure policy/segment/plan helpers, append-driven rotation with retention, chronological tail reads across segments (including corrupt/truncated lines), the fallback that keeps appending to the live file when a rename cannot land, and `inspectActivityLog` accounting for doctor/status.
 - `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
 - `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
 - `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
@@ -57,6 +58,8 @@ All temporary repositories and state are created under the OS temp directory and
 
 Parallel file execution is the default and stays the default: `npm test` runs one process per file, exactly as CI does. If a Windows machine still fails because another program (antivirus, the search indexer) is holding a temp tree for longer than the bounded retry, `node --test --test-concurrency=1 tests/*.test.mjs` serialises the files to confirm that hypothesis. It is a diagnostic fallback, not the fix: a green run that only passes with `--test-concurrency=1` still has a teardown problem.
 
+Load-sensitive tests wait on observable state, not fixed sleeps: the lock-heartbeat case polls the rewritten record and checks the release through one event-loop turn, the parallel-writer case configures a lock budget that covers a loaded runner while still asserting the exact revision delta, and the git-mutex case waits for the waiting init to re-read the advanced clock before asserting it is still blocked. Residual constraint: on Windows the filesystem can still hold a handle after a child process exits, so a full parallel `npm test` can accumulate rename/unlink pressure even when each file passes; `tests/git-mutex-budget.test.mjs` is verified in isolation on Windows rather than inside the bounded parallel run, and no assertion is weakened to make the parallel run green.
+
 ### Coverage and watch mode
 
 ```powershell
@@ -70,7 +73,7 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
 
-Ten files carry **111 property cases** (the PR tier therefore generates 111 × 3 seeds × 100 runs = **33,300 inputs** per run; the long tier 111 × 2000 = 222,000):
+Eleven files carry **115 property cases** (the PR tier therefore generates 115 × 3 seeds × 100 runs = **34,500 inputs** per run; the long tier 115 × 2000 = 230,000):
 
 - `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
 - `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
@@ -82,6 +85,7 @@ Ten files carry **111 property cases** (the PR tier therefore generates 111 × 3
 - `gate-monotonicity.prop.mjs` — property 9: worsening completion or merge evidence (extra blocker, open task, missing checks, unknown/stale/busy worker, missing test receipt at a moved tip, worse review status/verdict) never removes an existing blocker or unblocks the gate; unrelated fields leave the blocker set unchanged. The documented exception — `running → inactive` clears `worker-busy` because the roster state *is* the evidence — is frozen explicitly.
 - `config-resolution.prop.mjs` — property 10: `resolveTowerConfig` is total over valid configs, is strictly one-pass idempotent (`resolve(resolve(raw))` deep-equals `resolve(raw)` for every generated config, including `{}`), all 16 `gates.requireTests` × `tests` group cells resolve (the old `true` + `enabled:false` contradiction retired with the `tests.enabled` switch, #136), and a config that still writes `tests.enabled` is rejected as `config-unknown-key`.
 - `error-catalogue.prop.mjs` — property 11: every `ERROR_CODES` entry is complete and reachable through `classifyError`, `renderErrorMessage` appends the ` — next:` segment exactly once (never twice), and a static scan proves every literal production constructor code is catalogued.
+- `boundaries.prop.mjs` — W5 boundary properties: the `host/tool-registry.js` facade re-exports each split-module binding from exactly one home, tool registration is a sorted idempotent set independent of order, component enablement follows its reference count in frozen row order, and the pure rotation plan keeps an ordered suffix within the configured segment budget without a filesystem read.
 
 Two tiers exist so the suite is affordable on every change and still thorough nightly:
 
@@ -113,7 +117,10 @@ Ubuntu Node 24.9 leg adds the tag-only release check, the coverage table and
 the tamper cases live in `tests/workflow-contract.test.mjs`.
 
 The legacy `test` matrix (`test (22)`, `test (24)`, `test (22, windows)`) is frozen for one transition
-cycle so the four required contexts on `main` keep reporting while the canonical legs prove themselves.
+cycle so its three required contexts keep reporting while the canonical legs prove themselves. Step 1
+of the branch-protection transition is live: `main` requires all seven contexts — the three legacy
+contexts, `mount`, and the three canonical legs — under `strict` protection. Step 2 (dropping the
+legacy contexts and job) is a later PR, not part of this cycle.
 [docs/operations/ci.md](../docs/operations/ci.md) documents the two-step branch-protection cutover and
 the SHA pins (every action — including the mount-fixtures cache and the live diagnostics upload — is
 pinned to a 40-hex commit with a `# vX.Y.Z` comment; `tests/mount-smoke.test.mjs` and

@@ -136,7 +136,7 @@ export async function complete(tower, input) {
 
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'complete',
       missionId: mission.id,

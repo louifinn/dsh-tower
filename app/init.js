@@ -174,7 +174,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
     })
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'init',
       text: initActivityText({
@@ -220,7 +220,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'init',
         text: ownerClaimActivityText(claimant),
@@ -236,7 +236,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'init',
         text: caseProbeActivityText(prepared.caseInsensitive),
@@ -252,7 +252,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'init', text: reanchorActivityText(prepared.base) })
+      await tower.appendActivity({ at: now, type: 'init', text: reanchorActivityText(prepared.base) })
     }
     return existingInitWriteResult({ state, statePath: tower.paths.state, dirty: prepared.dirty, reanchored })
   })

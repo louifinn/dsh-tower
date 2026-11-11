@@ -132,6 +132,8 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `docs.boardLocation` | `optional-config` | Chooses where the board is written; whether it is written is the tower-board component row (#133). |
 | `archive.afterDays` | `optional-config` | Archive age threshold inside the optional tower-archive component (#135). |
 | `archive.maxMissions` | `optional-config` | Hot terminal-mission cap. |
+| `activity.maxBytes` | `optional-config` | Bounded activity-log rotation threshold enforced by the store adapter (#M76); not a capability switch. |
+| `activity.retention` | `optional-config` | Number of rotated activity segments kept by the store adapter (#M76); not a capability switch. |
 | `leases.ttlMs` | `optional-config` | Tuning inside the optional tower-leases component. |
 | `dev.reloadDelayMs` | `optional-config` | Delay so a tool result is delivered before a scheduled reload inside the optional tower-hmr component. |
 | `dev.reloadRequiredIds` | `optional-config` | Loader ids passed to reconcileProfile as required by the tower-hmr component. |

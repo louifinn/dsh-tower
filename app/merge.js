@@ -113,7 +113,7 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
     state.revision += 1
     state.updatedAt = now
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'merge',
       missionId: mission.id,
@@ -194,7 +194,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'merge',
       missionId: mission.id,
@@ -542,7 +542,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'merge',
         missionId: mission.id,
@@ -569,7 +569,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
         state.revision += 1
         state.updatedAt = Date.now()
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: state.updatedAt,
           type: 'merge',
           missionId: mission.id,
@@ -599,7 +599,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
     state.revision += 1
     state.updatedAt = now
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'merge',
       missionId: mission.id,

@@ -25,7 +25,7 @@ export async function recordSpawnOutcome(tower, input) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'spawn',
       missionId: input.missionId,
@@ -51,7 +51,7 @@ export async function recordInterrupt(tower, input) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'spawn',
       missionId: entry.missionId,
@@ -75,7 +75,7 @@ export async function reserveRoster(tower, input) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'spawn',
       missionId: input.missionId,
@@ -111,7 +111,7 @@ export async function recordSpawn(tower, input) {
 
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'spawn',
       missionId: input.missionId,

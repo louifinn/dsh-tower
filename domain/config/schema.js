@@ -35,6 +35,12 @@ export const DEFAULT_DENY_TOOLS = [
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
 
+// Bounded activity log (#M76). The defaults are shared with the store adapter,
+// which must stay correct when it is called without a resolved config (older
+// tests and embedders call appendJsonl directly).
+export const DEFAULT_ACTIVITY_MAX_BYTES = 4 * 1024 * 1024
+export const DEFAULT_ACTIVITY_RETENTION = 5
+
 // #133/#135/#149/#M66: a removed key keeps failing as an unknown key — with an
 // upgrade note naming what replaced it. `docs.board` and `archive.enabled`
 // were component-shaped switches hiding in the config form, so their note
@@ -277,6 +283,24 @@ export const Config = Schema.object({
   })
     .default({})
     .description('Terminal-mission archival tuning. Whether archival runs at all is the tower-archive component row; archived missions are moved, never deleted.'),
+  activity: Schema.object({
+    maxBytes: Schema.natural()
+      .min(0)
+      .max(1024 * 1024 * 1024)
+      .default(DEFAULT_ACTIVITY_MAX_BYTES)
+      .description(
+        'Maximum size, in UTF-8 bytes, of the live activity log before it is rotated (default 4 MiB, 0 disables rotation). Rotation is enforced by the store adapter; the live file is renamed to a numbered segment, never truncated.',
+      ),
+    retention: Schema.natural()
+      .min(1)
+      .max(100)
+      .default(DEFAULT_ACTIVITY_RETENTION)
+      .description(
+        'Number of rotated activity segments to keep (default 5). Older segments are removed oldest first, so the newest history is always preserved.',
+      ),
+  })
+    .default({})
+    .description('Bounded append-only activity log (activity.jsonl) rotation. Segments are read by status/detail; rotation never drops a line that was already written.'),
   leases: Schema.object({
     ttlMs: Schema.natural().min(1000).max(86400000).default(900000).description('Default advisory lease lifetime; expiry never auto-releases.'),
   })
@@ -511,6 +535,7 @@ export function resolveTowerConfig(rawConfig) {
     gates: clone(parsed.gates ?? {}),
     docs: clone(parsed.docs ?? {}),
     archive: clone(parsed.archive ?? {}),
+    activity: clone(parsed.activity ?? {}),
     leases: clone(parsed.leases ?? {}),
     dev: clone(parsed.dev ?? {}),
   }

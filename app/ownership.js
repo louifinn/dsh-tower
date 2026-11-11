@@ -244,7 +244,7 @@ export async function transferOwnership(tower, { caller, reason, readFacts }) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'takeover',
       text: takeoverActivityText({ from: previousOwner, to: String(caller), reason }),

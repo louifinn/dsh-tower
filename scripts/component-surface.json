@@ -419,6 +419,16 @@
       "note": "Hot terminal-mission cap."
     },
     {
+      "name": "activity.maxBytes",
+      "class": "optional-config",
+      "note": "Bounded activity-log rotation threshold enforced by the store adapter (#M76); not a capability switch."
+    },
+    {
+      "name": "activity.retention",
+      "class": "optional-config",
+      "note": "Number of rotated activity segments kept by the store adapter (#M76); not a capability switch."
+    },
+    {
       "name": "leases.ttlMs",
       "class": "optional-config",
       "note": "Tuning inside the optional tower-leases component."

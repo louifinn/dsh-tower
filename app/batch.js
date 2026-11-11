@@ -26,7 +26,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.updatedAt = batch.createdAt
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: batch.createdAt,
         type: 'batch',
         text: `created ${batch.id}: ${batch.missionIds.join(', ')}`,
@@ -48,7 +48,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.updatedAt = batch.closedAt
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, { at: batch.closedAt, type: 'batch', text: `closed ${batch.id}` })
+      await tower.appendActivity({ at: batch.closedAt, type: 'batch', text: `closed ${batch.id}` })
       return { ok: true, batch, blockers: [], checks: result.checks ?? [] }
     })
   }
@@ -67,7 +67,7 @@ export async function createBatch(tower, input = {}, actor = 'tower') {
       state.updatedAt = batch.abandonedAt
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, { at: batch.abandonedAt, type: 'batch', text: `abandoned ${batch.id}` })
+      await tower.appendActivity({ at: batch.abandonedAt, type: 'batch', text: `abandoned ${batch.id}` })
       return { ok: true, batch, alreadyAbandoned: false }
     })
   }

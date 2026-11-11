@@ -223,7 +223,7 @@ async function commitProvision(tower, prepared, acted) {
       } catch (error) {
         return { phase: 'persist-error', error }
       }
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'sandbox',
         missionId: prepared.missionId,
@@ -244,7 +244,7 @@ async function commitProvision(tower, prepared, acted) {
     } catch (error) {
       return { phase: 'persist-error', error }
     }
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'worktree',
       missionId: prepared.missionId,

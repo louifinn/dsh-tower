@@ -60,11 +60,13 @@ code an attacker would most want to change:
 
 - `main` requires a pull request for every change, **enforced for admins**, so a direct push is
   rejected even for the maintainer.
-- Required checks are `test (22)`, `test (24)`, `test (22, windows)` and `mount`. The mount job packs the
-  tarball and boots it in a throwaway profile, so "the tests pass" cannot land a bundle that fails to
-  appear after `dsh plugin add`. The one-cycle transition to the supported Node 24.9/25 contexts, and
-  the workflow hardening that supports it, are owned by [ci.md](./ci.md); this section owns the
-  protection rationale.
+- Seven required checks, with `strict` branch protection: `test (22)`, `test (24)`,
+  `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and `test (24.9, windows)`. The mount job
+  packs the tarball and boots it in a throwaway profile, so "the tests pass" cannot land a bundle that
+  fails to appear after `dsh plugin add`. Step 1 of the two-step cutover is live: the three legacy
+  contexts and the three canonical legs are required together, and the frozen legacy job remains until
+  step 2 lands as a later PR. The transition mechanics and the workflow hardening that supports it are
+  owned by [ci.md](./ci.md); this section owns the protection rationale.
 - Force-push and branch deletion are blocked, so history cannot be rewritten under a published tag.
 - There are no mandatory approvals: with one maintainer, a self-approval requirement would be a rubber
   stamp. The evidence instead is the four-line PR body (failure mode, change, test, blast radius) for

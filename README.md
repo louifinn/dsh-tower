@@ -205,7 +205,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：29 个工具、41 个工具错误码、34 个进程内事件、55 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
+表面计数（实时，由 `npm run docs:check` 校验）：29 个工具、41 个工具错误码、34 个进程内事件、57 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
 
 稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 
@@ -258,7 +258,7 @@ npm test        # node --test tests/*.test.mjs
 | `mount-fixtures`（Node 24，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
 | `live (<固定 host 版本>)`（nightly/手动，非必需检查） | 浏览器 live suite 在固定 host 版本矩阵上仍能驱动真实 Web 运行时；push/PR 只做无浏览器的环境与解析检查 | nightly 跑 `npm run test:live -- --script nightly`；push 跑 `npm run test:live -- --check` |
 
-`test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与 `test (22, windows)`。它们是 `main` 的四个必需 context 中的三个，另一个是 `mount`，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。canonical 三条 leg（`test (24.9)`、`test (25)`、`test (24.9, windows)`）与这次 transition 的两步切换见 [docs/operations/ci.md](docs/operations/ci.md)：先加入三个 canonical context，一个完整周期后再移除三个 legacy context。
+`test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与 `test (22, windows)`，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。canonical 三条 leg 是 `test (24.9)`、`test (25)` 与 `test (24.9, windows)`。`main` 在 `strict` 保护下现在有七条必需 context：`test (22)`、`test (24)`、`test (22, windows)`、`mount`、`test (24.9)`、`test (25)`、`test (24.9, windows)`。这是两步切换的 step 1，已经生效：三条 legacy context、三条 canonical context 与 `mount` 同时必需，冻结的 legacy job 继续报告；step 2（移除三条 legacy context 并删除冻结 job）是后续 PR，尚未完成。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。两步切换的完整过程见 [docs/operations/ci.md](docs/operations/ci.md)。
 
 live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，改为 nightly `schedule`（另支持 `workflow_dispatch`），在固定 host 版本矩阵上运行；它的输出第一行打印解析后的 `DSH_HOME` 与 host 版本。push 上只保留 `--check`（环境 + Playwright 解析，无浏览器）。Playwright 由 `tests/live/package-lock.json` 固定，root 的 `npm ci` 不下载浏览器。
 

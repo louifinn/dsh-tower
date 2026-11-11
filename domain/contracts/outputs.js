@@ -90,6 +90,7 @@ const SCHEMAS = {
       findingsByStatus: S.obj(),
       reviews: S.int,
       config: S.obj({ path: S.any, repoConfigPresent: S.bool, spawn: S.obj() }),
+      activityLog: S.obj({ maxBytes: S.any, retention: S.any }),
       recentFindings: S.arr(S.obj()),
       missions: S.arr(S.obj()),
       activity: S.arr(S.obj()),
@@ -270,6 +271,7 @@ const SCHEMAS = {
       }),
       reports: S.any,
       surface: S.any,
+      activityLog: S.any,
       review: S.any,
       archive: S.obj({
         missions: S.any,

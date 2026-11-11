@@ -30,7 +30,7 @@ export async function addFinding(tower, input) {
 
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'finding',
         missionId: finding.missionId,
@@ -65,7 +65,7 @@ export async function addFinding(tower, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'finding',
         missionId: finding.missionId,

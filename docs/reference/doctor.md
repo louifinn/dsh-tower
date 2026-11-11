@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 55 · sections: 15 · tools: 29 (baseline 2026-10-23)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 29 (baseline 2026-10-23)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
@@ -18,7 +18,7 @@ It returns:
     "sections": 15,
     "tools": 29,
     "baselineDate": "2026-10-23",
-    "line": "config keys: 55 · sections: 15 · tools: 29"
+    "line": "config keys: 57 · sections: 16 · tools: 29"
   },
   "stateLock": {
     "held": true,

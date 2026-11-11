@@ -108,7 +108,7 @@ export async function cleanupSandbox(tower, missionId, options = {}) {
     fresh.updatedAt = now
     validateState(fresh, tower.paths.state)
     await tower.writeState(fresh, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'sandbox',
       missionId,

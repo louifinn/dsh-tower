@@ -28,7 +28,7 @@ export async function recordTestRun(tower, input = {}) {
     state.updatedAt = Date.now()
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: Date.now(),
       type: 'test',
       missionId: mission.id,

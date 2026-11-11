@@ -166,7 +166,7 @@ export async function submitReview(tower, input) {
 
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: now,
           type: 'review',
           missionId: mission.id,

@@ -307,6 +307,11 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
       scope: [`parallel-${index}/**`],
     }))
     await tools.get('tower_plan').execute({ repoRoot: repo, missions }, exec)
+    // The property under test is serialization, not the default 5 s lock
+    // budget: sixteen concurrent tool calls can queue for longer than that on a
+    // loaded Windows runner. Give every waiter room to acquire the lock and
+    // keep the exact revision assertion below.
+    writeRepoConfig(repo, { mode: { lockTimeoutMs: 60000 } })
     const tower = await Tower.open(repo)
     const before = await tower.load()
 
@@ -321,6 +326,7 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
     const results = await Promise.allSettled([...writes, ...reads])
     const rejected = results.filter((result) => result.status === 'rejected')
     assert.deepEqual(rejected, [], `no parallel operation may fail: ${rejected.map((result) => result.reason?.message).join('; ')}`)
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 16)
 
     const after = await tower.load()
     validateState(after, tower.paths.state)

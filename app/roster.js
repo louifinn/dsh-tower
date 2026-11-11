@@ -39,7 +39,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: now,
           type: 'roster',
           text: `released inactive slots: ${released.join(', ')}`,
@@ -60,7 +60,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: now,
           type: 'adopt',
           text: `retired ${retired.join(', ')}`,
@@ -81,7 +81,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'adopt', text: `missing ${missing.join(', ')}` })
+        await tower.appendActivity({ at: now, type: 'adopt', text: `missing ${missing.join(', ')}` })
       }
       return { missing }
     })
@@ -107,7 +107,7 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: now,
           type: 'watchdog',
           text: `stale ${marked.join(', ') || '-'}; idle ${idled.join(', ') || '-'}`,

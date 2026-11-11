@@ -171,7 +171,7 @@ async function reconcileRebaseIntent(tower) {
       }
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'rebase',
         missionId: intent.missionId,
@@ -275,7 +275,7 @@ export async function rebase(tower, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
+      await tower.appendActivity({ at: now, type: 'rebase', missionId: mission.id, text: 'conflict' })
       return rebaseConflictResult(outcome.detail)
     }
 
@@ -291,7 +291,7 @@ export async function rebase(tower, input) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'rebase',
       missionId: mission.id,
