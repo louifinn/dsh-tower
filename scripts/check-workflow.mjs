@@ -42,6 +42,16 @@ export const SUPPORTED_OS = {
 const SHA = /^[0-9a-f]{40}$/
 const VERSION_COMMENT = /^v\d+\.\d+\.\d+$/
 
+// #M79: actions/checkout on a tag push fetches the tag's commit into
+// refs/tags/<name> (`+<commit>:refs/tags/<name>` with fetch-tags: false), which
+// replaces the annotated tag object with a lightweight ref before the release
+// check runs. The canonical job must fetch the tag ref itself, force-updating
+// it, so that `<repo> origin +refs/tags/<name>:refs/tags/<name>` wins over the
+// checkout's commit-to-tag refspec. Tag mode then keeps refusing a genuine
+// lightweight tag: the restore writes the same commit and `git cat-file -t`
+// still reports `commit`.
+const TAG_REFSPEC = '+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}'
+
 const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** Remove a trailing ` # comment`, respecting single/double quoted spans. */
@@ -456,6 +466,49 @@ function evaluateRequiredContexts(jobs, problems) {
   }
 }
 
+/**
+ * #M79: the tag push leg must restore the pushed tag ref after checkout and
+ * before the release check. Keep this a hard rule: without the step the release
+ * check turns a legitimately annotated release tag into `tag-lightweight`, and
+ * after it the same step would be dead code.
+ */
+function evaluateTagPreservation(steps, releaseCheck, problems) {
+  const restores = steps.filter(
+    (step) => typeof step.run === 'string' && /^git fetch\s+--force\s+origin\s/.test(step.run.trim()),
+  )
+  if (restores.length === 0) {
+    problems.push(
+      `tag preservation: the canonical job must re-fetch the pushed tag ref ` +
+        `(git fetch --force origin "${TAG_REFSPEC}") before "npm run release:check"; ` +
+        'actions/checkout fetches the tag commit and leaves a lightweight ref that the release check refuses',
+    )
+    return
+  }
+  if (restores.length > 1) {
+    problems.push(`tag preservation: expected exactly one tag restore fetch step, found ${restores.length}`)
+  }
+  const step = restores[0]
+  if (!step.run.includes(TAG_REFSPEC)) {
+    problems.push(
+      `tag preservation: the restore step must fetch ${JSON.stringify(TAG_REFSPEC)} by ref, ` +
+        'not a commit SHA (a commit fetch writes the lightweight tag back)',
+    )
+  }
+  const condition = String(step.if ?? '')
+  if (!/matrix\.release/.test(condition) || !/github\.ref_type == 'tag'/.test(condition)) {
+    problems.push(
+      "tag preservation: the restore step must be gated by matrix.release and github.ref_type == 'tag' " +
+        'so it only runs on the tag-check release leg',
+    )
+  }
+  const releaseAt = releaseCheck ? steps.indexOf(releaseCheck) : -1
+  if (releaseAt < 0) {
+    problems.push('tag preservation: the canonical job must run "npm run release:check" after the tag restore step')
+  } else if (steps.indexOf(step) > releaseAt) {
+    problems.push('tag preservation: the annotated tag restore step must run before "npm run release:check"')
+  }
+}
+
 function evaluateCanonicalGate(jobs, problems) {
   const canonical = Object.values(jobs).find((job) => {
     const labels = matrixEntries(job).map((entry) => String(entry.label))
@@ -519,6 +572,7 @@ function evaluateCanonicalGate(jobs, problems) {
   } else if (String(liveCheck[0].if ?? '') !== 'matrix.release') {
     problems.push('canonical gate: the live harness check must be gated by matrix.release so it stays Node-24-only')
   }
+  evaluateTagPreservation(steps, exact('npm run release:check')[0], problems)
   const reimplemented = runSteps.filter((step) =>
     /^npm (test|run (test:property|support:check|docs:check|pack:check|surface:check|blockers:check|shape:audit|architecture:check|types:|domain:check))/.test(
       step.run.trim(),

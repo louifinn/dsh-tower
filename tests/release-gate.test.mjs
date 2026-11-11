@@ -779,6 +779,66 @@ test('a lightweight tag at HEAD fails the tag push guard', () => {
   }
 })
 
+// #M79: actions/checkout fetches a tag push's *commit* into refs/tags/<tag>
+// (fetch-tags: false), so a job that checks out the tag has a lightweight ref
+// even though origin's tag is annotated. This reproduces the overwrite, proves
+// the guard fails closed on it, then runs the workflow's own restore command and
+// proves the annotated object (and the gate) comes back.
+test('the tag-push checkout overwrite is repaired by the workflow restore step', () => {
+  const origin = makeRepo()
+  const checkoutRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-checkout-'))
+  try {
+    seedReleased(origin, '2.1.0')
+    origin.tag('v2.1.0')
+    const commit = origin.run('rev-parse', 'HEAD')
+    const tagObject = origin.run('rev-parse', 'refs/tags/v2.1.0')
+    assert.notEqual(commit, tagObject, 'an annotated tag object and its commit are different objects')
+
+    const clone = path.join(checkoutRoot, 'clone')
+    // `core.autocrlf=false` keeps the fixture's LF bytes on checkout, as they
+    // are on the Linux runner and in the repository; a CRLF rewrite would trip
+    // the support restatement parser before the tag guard under test runs.
+    execFileSync('git', ['-c', 'core.autocrlf=false', 'clone', '--no-tags', '--branch', 'main', origin.dir, clone], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const git = (...args) =>
+      execFileSync('git', args, { cwd: clone, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+    // The actions/checkout tag-push fetch (fetch-depth: 0, fetch-tags: false):
+    // `+<commit>:refs/tags/<tag>` overwrites the local ref with the commit.
+    git('fetch', '--no-tags', 'origin', `+${commit}:refs/tags/v2.1.0`)
+    assert.equal(git('cat-file', '-t', 'refs/tags/v2.1.0'), 'commit')
+    assert.equal(git('rev-parse', 'refs/tags/v2.1.0'), commit)
+
+    // The CI failure mode: the release check sees tag-type=commit and refuses
+    // the claim even though the pushed tag really is annotated.
+    const broken = runCli(clone, [], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v2.1.0' })
+    assert.equal(broken.status, 1, broken.output)
+    assert.match(broken.output, /\[tag-lightweight\]/)
+    assert.match(broken.output, /tag-type=commit reachable=yes/)
+
+    // Execute the workflow's restore command rather than a copy of it: dropping
+    // the step or its refspec from the workflow fails this test too.
+    const tagRefspec = '+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}'
+    assert.ok(
+      read('.github/workflows/test.yml').includes(`git fetch --force origin "${tagRefspec}"`),
+      'the canonical workflow must keep the explicit annotated-tag restore fetch',
+    )
+    git('fetch', '--force', 'origin', tagRefspec.replaceAll('${GITHUB_REF_NAME}', 'v2.1.0'))
+    assert.equal(git('cat-file', '-t', 'refs/tags/v2.1.0'), 'tag')
+    assert.equal(git('rev-parse', 'refs/tags/v2.1.0'), tagObject)
+
+    const repaired = runCli(clone, [], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v2.1.0' })
+    assert.equal(repaired.status, 0, repaired.output)
+    assert.match(repaired.output, /tag-type=tag reachable=yes worktree=clean/)
+    assert.match(repaired.output, /release-check: ok/)
+  } finally {
+    origin.cleanup()
+    removeTemp(checkoutRoot)
+  }
+})
+
 test('a tag on a commit outside HEAD history fails the tag push guard', () => {
   const repo = makeRepo()
   try {

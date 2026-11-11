@@ -81,6 +81,19 @@ jobs:
         run: |
           mkdir -p "$DSH_HOME"
           npm run test:live -- --check
+      # #M79: actions/checkout does not fetch the pushed tag ref. On a tag push
+      # it checks out the tag's commit and fetches `+<commit>:refs/tags/<tag>`
+      # (fetch-tags: false), which replaces the annotated tag object with a
+      # lightweight ref in this checkout: the release check then reads
+      # tag-type=commit and fails closed (`error [tag-lightweight]`, run
+      # 43087228866) even though origin's tag is annotated. Re-fetch the ref
+      # itself, on the same release leg and only on a tag push, so the gate
+      # inspects the annotated object. A genuine lightweight tag stays
+      # lightweight: the restore fetch writes the same commit and the guard
+      # still refuses it.
+      - name: Restore the annotated tag object
+        if: matrix.release && github.ref_type == 'tag'
+        run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
       - name: Release check
         if: matrix.release
         run: npm run release:check
