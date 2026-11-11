@@ -2,7 +2,9 @@
 
 [English](../../reference/tools.md) | **简体中文**
 
-所有工具都接受 `repoRoot`（目标 Git 仓库内的绝对路径）并返回 JSON。
+仓库级工具接受 `repoRoot`（目标 Git 仓库内的绝对路径）并返回 JSON；`tower_mode` 与
+`tower_control` 不需要仓库，`tower_reload` 的 `repoRoot` 是可选的（不带 `repoRoot` 的调用是
+profile 操作，而不是仓库授权操作）。
 本构建最多 29 个工具：下列 19 个核心仓库工具（含 `tower_interrupt`）、`tower_mode`、默认注册的
 `tower_control`（设 `mode.allowAgentControl:false` 可禁用）、始终注册的 `tower_doctor` 与
 `tower_recover`（#122），以及由组件行拥有的 `tower_reload`（`tower-hmr`）、`tower_test`
@@ -22,7 +24,9 @@ status 上的 `include_gate`/`includeGate`、adopt 上的 `retire_missing`/`reti
 
 roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tower_interrupt`、
 `tower_init`、`tower_plan`、`tower_spawn`、`tower_merge`、`tower_rebase`、`tower_teardown`、
-`tower_adopt`、`tower_reload`）**仅限控制塔**。`tower_batch` 的 create/close/abandon、`tower_resource`
+`tower_adopt`）**仅限控制塔**。`tower_reload` 在传入 `repoRoot` 时仅限控制塔；不传时是
+profile 操作，无需打开仓库即可授权（仍受 `tower-hmr` 组件行控制）。`tower_batch` 的
+create/close/abandon、`tower_resource`
 的 acquire/release、`tower_import_legacy`、`tower_legacy_map` 的 map 以及 review-exemption 规划
 仅限控制塔；它们的只读 status 动作对 roster 角色开放。worker 调用 `tower_mission` 时只能使用
 `task_done`/`task_drop`/`blocker`/`note`；状态变更、扩大 scope、`clear_blockers` 与 `completed`
@@ -55,8 +59,8 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
 | `tower_control` | `action`（`enter`/`exit`/`takeover`）、`reason` | 模型主动切换模式；`takeover` 在获得用户明确批准后，从已停用的属主转移仓库所有权；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
 | `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
-| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。传入 `repoRoot` 时调用者必须是控制塔。 |
-| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。从不写状态。 |
+| `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。不传 `repoRoot` 时是 profile 操作，无需打开仓库即可授权；传入 `repoRoot` 时调用者必须是控制塔。 |
+| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。当 `state.json` 更新或损坏而无法加载时，仍会从磁盘版本报告 `stateSchema.status`（`newer`/`invalid`）；从不写状态。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |

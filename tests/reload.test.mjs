@@ -121,6 +121,50 @@ test('HMR wiring: tower_reload and /tower reload reconcile the profile', async (
   }
 })
 
+test('HMR wiring: a repoRoot-less tower_reload needs no repository, but a supplied one stays tower-only', async () => {
+  const calls = []
+  const hmr = {
+    async runExclusive(operation) {
+      calls.push('runExclusive')
+      return operation()
+    },
+    async reconcileProfile(ids) {
+      calls.push({ ids })
+      return { warnings: [], pending: [] }
+    },
+  }
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx(hmr)
+  apply(ctx, {})
+  hmrComponent.apply(ctx)
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, { agent: { id: 'agent-owner' } })
+
+    // F39: the documented no-repoRoot call is a profile operation. It must not
+    // open a repository at all, or this call would fail with repo-invalid.
+    const profile = await tools.get('tower_reload').execute({}, { agent: { id: 'agent-stranger' } })
+    assert.equal(profile.ok, true)
+    assert.equal(profile.scheduled, true)
+
+    // The same non-owner supplying the repository is denied by the tower-only
+    // row: repository ownership is still enforced when it is named.
+    await assert.rejects(
+      () => tools.get('tower_reload').execute({ repoRoot: repo }, { agent: { id: 'agent-stranger' } }),
+      (error) => error.code === 'not-authorized' && /tower_reload|only the tower/.test(error.message),
+    )
+
+    // Positive control: the repository owner reaches the handler on that path.
+    const owned = await tools.get('tower_reload').execute({ repoRoot: repo }, { agent: { id: 'agent-owner' } })
+    assert.equal(owned.ok, true)
+    assert.equal(owned.scheduled, true)
+
+    await new Promise((resolve) => setTimeout(resolve, Math.max(20, profile.delayMs) + 80))
+    assert.ok(calls.includes('runExclusive'), 'the scheduled profile reload still ran')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('HMR wiring: without HMR the tool reports reload-unavailable and /tower reload explains why', async () => {
   const { ctx, tools, commands } = makeCtx(undefined)
   apply(ctx, {})

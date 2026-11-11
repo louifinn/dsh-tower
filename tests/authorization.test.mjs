@@ -23,7 +23,7 @@ import {
   registerTowerTools,
 } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
-import { ACTOR_ACCESS, AUTHORIZATION_MATRIX, anonymousActor, authorize, resolveActor } from '../host/authorization.js'
+import { ACTOR_ACCESS, AUTHORIZATION_MATRIX, allowsAnonymous, anonymousActor, authorize, isRepositoryOptional, resolveActor } from '../host/authorization.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -202,7 +202,7 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_import_legacy: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_legacy_map: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_test: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
-  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower], repoOptional: true }),
   // Session tools, not repository-authorized tools: they key off the calling
   // agent's session, so every access class reaches the handler's own gates.
   tower_mode: Object.freeze({
@@ -224,9 +224,9 @@ const ACCESS_CLASSES = Object.freeze([
 /**
  * Compare a matrix-shaped object against EXPECTED_MATRIX. Returns one problem
  * string per deviation (extra/missing row, allow-set drift, duplicate grant,
- * bootstrap flag, participant check); an empty array means the matrix is
- * pinned exactly. The mutation test feeds this checker damaged copies of the
- * real matrix and proves it notices.
+ * bootstrap flag, participant check, repository-optional flag); an empty array
+ * means the matrix is pinned exactly. The mutation test feeds this checker
+ * damaged copies of the real matrix and proves it notices.
  */
 function matrixProblems(matrix) {
   const problems = []
@@ -253,6 +253,9 @@ function matrixProblems(matrix) {
     }
     if ((typeof row.check === 'function') !== (expected.check === true)) {
       problems.push(`row "${key}" check is ${typeof row.check === 'function'}; expected ${expected.check === true}`)
+    }
+    if ((row.repoOptional === true) !== (expected.repoOptional === true)) {
+      problems.push(`row "${key}" repoOptional is ${row.repoOptional === true}; expected ${expected.repoOptional === true}`)
     }
   }
   return problems
@@ -344,7 +347,7 @@ test('authorization: the expected map pins every shipped tool and the matrix mat
   assert.deepEqual(
     matrixProblems(AUTHORIZATION_MATRIX),
     [],
-    'no row deviates from the expected allow set, bootstrap flag or participant check',
+    'no row deviates from the expected allow set, bootstrap flag, participant check or repository-optional flag',
   )
   assert.ok(Object.isFrozen(AUTHORIZATION_MATRIX), 'the matrix is immutable')
   for (const [name, row] of Object.entries(AUTHORIZATION_MATRIX)) {
@@ -452,6 +455,52 @@ test('authorization: every actor x tool cell resolves exactly as the expected ma
   }
 })
 
+test('authorization: tower_reload is repository-optional only through the anonymous absent-repository path', async () => {
+  assert.equal(isRepositoryOptional('tower_reload'), true)
+  assert.equal(isRepositoryOptional('tower_merge'), false)
+  const optional = Object.keys(EXPECTED_MATRIX).filter((tool) => EXPECTED_MATRIX[tool].repoOptional === true)
+  assert.deepEqual(optional, ['tower_reload'], 'exactly one row declares the repository-optional contract')
+  assert.equal(allowsAnonymous('tower_status'), true)
+  assert.equal(allowsAnonymous('tower_reload'), false, 'the absent path is not a public row')
+
+  const anonymous = anonymousActor(execFor('agent-reload-anon'))
+  // Without the explicit absent-repository path the anonymous actor is denied:
+  // a repository-present call is still decided by the tower-only row.
+  await assert.rejects(
+    () => authorize('tower_reload', anonymous),
+    (error) => assertCode(error, 'not-authorized', /requires a registered roster agent or the tower/),
+  )
+
+  // The F39 path: no repository, no roster, explicit repository-absent context.
+  const grant = await authorize('tower_reload', anonymous, { repositoryAbsent: true })
+  assert.equal(grant.access, ACTOR_ACCESS.unknown)
+  assert.equal(grant.repositoryAbsent, true)
+  assert.equal(grant.bootstrap, false)
+
+  // A resolved repository actor cannot borrow the absent path: without a
+  // repository there is no roster identity to prove.
+  await assert.rejects(
+    () => authorize('tower_reload', actorFor(ACTOR_ACCESS.worker), { repositoryAbsent: true }),
+    (error) => assertCode(error, 'not-authorized'),
+  )
+
+  // The flag does not weaken the repository-present contract.
+  for (const access of [ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown]) {
+    await assert.rejects(
+      () => authorize('tower_reload', actorFor(access)),
+      (error) => assertCode(error, 'not-authorized', /tower_reload|only the tower can reload/),
+      `tower_reload with a repository denies ${access}`,
+    )
+  }
+  assert.equal((await authorize('tower_reload', actorFor(ACTOR_ACCESS.tower))).access, ACTOR_ACCESS.tower)
+
+  // The absent-repository grant belongs to the declared row, not to every tool.
+  await assert.rejects(
+    () => authorize('tower_merge', anonymous, { repositoryAbsent: true }),
+    (error) => assertCode(error, 'not-authorized'),
+  )
+})
+
 test('authorization: the expected-map checker rejects a mutated matrix', () => {
   assert.deepEqual(matrixProblems(AUTHORIZATION_MATRIX), [], 'the shipped matrix matches the fixture')
 
@@ -490,6 +539,13 @@ test('authorization: the expected-map checker rejects a mutated matrix', () => {
   assert.match(matrixProblems(missingControl)[0], /missing row "tower_control"/)
   const narrowedMode = withRow(clone(), 'tower_mode', { allow: [ACTOR_ACCESS.tower] })
   assert.match(matrixProblems(narrowedMode)[0], /tower_mode/)
+
+  // The repository-optional contract is pinned in both directions: dropping it
+  // from tower_reload or lending it to another row is a deviation.
+  const noRepoOptional = withRow(clone(), 'tower_reload', { repoOptional: false })
+  assert.match(matrixProblems(noRepoOptional)[0], /tower_reload.*repoOptional/)
+  const borrowedRepoOptional = withRow(clone(), 'tower_merge', { repoOptional: true })
+  assert.match(matrixProblems(borrowedRepoOptional)[0], /tower_merge.*repoOptional/)
 
   const missing = clone()
   delete missing.tower_merge

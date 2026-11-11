@@ -12,8 +12,10 @@ import {
   isRunningActivity,
 } from '../domain/vocabulary.js'
 import {
+  allowsAnonymous,
   anonymousActor,
   authorize,
+  isRepositoryOptional,
   requireKnownActor,
   requireTowerActor,
   resolveActor,
@@ -169,33 +171,30 @@ function normalizeToolArgs(args, aliases = {}) {
 // tool registrars already receive; it resolves through the kernel.
 const actorFor = resolveActor
 
-/**
- * Resolve and authorize one tool call.
- *
- * tower_init is special: it may have to create the repository it runs in, so a
- * repository that cannot be opened yet becomes the anonymous actor and the
- * bootstrap matrix row decides. Every other tool opens its repository first
- * (preserving the [tower:repo-invalid] errors) and is authorized against it.
- *
- * @param {string} name
- * @param {any} args normalized tool arguments
- * @param {any} exec
- */
+/** Authorize one call: tower_init bootstraps; a repoRoot-less repository-optional
+ * row takes the absent path; a public row with unreadable state continues as the
+ * anonymous actor. Gated rows rethrow the state error. */
 async function authorizeCall(name, args, exec) {
   if (name === 'tower_init') {
     let tower = null
-    try {
-      tower = await openTower(args.repoRoot)
-    } catch {
-      // Opening may fail before the handler creates or claims the repository.
-      tower = null
-    }
+    try { tower = await openTower(args.repoRoot) } catch { tower = null }
     const actor = tower ? await resolveActor(tower, exec) : anonymousActor(exec)
     await authorize(name, actor, { args, tower })
     return actor
   }
+  if (isRepositoryOptional(name) && typeof args.repoRoot !== 'string') {
+    const actor = anonymousActor(exec)
+    await authorize(name, actor, { args, tower: null, repositoryAbsent: true })
+    return actor
+  }
   const tower = await openTower(args.repoRoot)
-  const actor = await resolveActor(tower, exec)
+  let actor
+  try {
+    actor = await resolveActor(tower, exec)
+  } catch (error) {
+    if (!allowsAnonymous(name)) throw error
+    actor = anonymousActor(exec)
+  }
   await authorize(name, actor, { args, tower })
   return actor
 }

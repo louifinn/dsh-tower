@@ -413,6 +413,12 @@ test('a state written by a newer plugin is refused and left byte-identical', asy
       () => call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'Nope', scope: ['x/**'] }] }),
       (error) => error.code === 'state-version-unsupported',
     )
+    // A known-only row must propagate the unreadable state too: the public-row
+    // fallback is a diagnostic surface, not a blanket downgrade to anonymous.
+    await assert.rejects(
+      () => call(tools, 'tower_inbox', { repoRoot: repo }),
+      (error) => error.code === 'state-version-unsupported',
+    )
     assert.equal(sha256(tower.paths.state), before, 'a refused newer state must not be rewritten')
     assert.deepEqual(backupsFor(tower), [], 'a refused newer state must not be backed up or migrated')
   } finally {
@@ -434,6 +440,11 @@ test('a corrupt state file stays state-corrupt and byte-identical', async () => 
       await assert.rejects(
         () => tools.get('tower_status').execute({ repoRoot: repo }, towerExec),
         /\[tower:state-corrupt\]/,
+      )
+      await assert.rejects(
+        () => call(tools, 'tower_inbox', { repoRoot: repo }),
+        /\[tower:state-corrupt\]/,
+        'a known-only row still sees the corrupt state instead of anonymous behavior',
       )
       assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text)
     }
@@ -514,11 +525,32 @@ test('tower_doctor reports the state schema version and the pending migration wi
       tower.paths.state,
       JSON.stringify({ ...readState(tower.paths.state), schemaVersion: SCHEMA_VERSION + 1 }, null, 2),
     )
+    const newerBefore = sha256(tower.paths.state)
     const newer = await call(tools, 'tower_doctor', { repoRoot: repo })
     assert.equal(newer.stateSchema.currentVersion, SCHEMA_VERSION + 1)
     assert.equal(newer.stateSchema.status, 'newer')
     assert.equal(newer.checks.find((check) => check.id === 'state-schema').status, 'fail')
     assert.equal(newer.ok, false)
+    assert.equal(sha256(tower.paths.state), newerBefore, 'doctor must not rewrite a newer state')
+    assert.deepEqual(backupsFor(tower), [], 'doctor must not back up or migrate a newer state')
+
+    // F40: a corrupt state must reach the handler as well. Authorization falls
+    // back to the anonymous actor for this public row, and the report names the
+    // unreadable schema instead of failing with a generic authorization error.
+    const corruptText = 'this is not json at all'
+    fs.writeFileSync(tower.paths.state, corruptText)
+    const corruptBefore = sha256(tower.paths.state)
+    const corrupt = await call(tools, 'tower_doctor', { repoRoot: repo })
+    assert.equal(corrupt.stateSchema.currentVersion, null)
+    assert.equal(corrupt.stateSchema.supportedVersion, SCHEMA_VERSION)
+    assert.deepEqual(corrupt.stateSchema.migrations, [])
+    assert.equal(corrupt.stateSchema.status, 'invalid')
+    const schemaCheck = corrupt.checks.find((check) => check.id === 'state-schema')
+    assert.equal(schemaCheck.status, 'fail')
+    assert.match(schemaCheck.detail, /could not be inspected/)
+    assert.equal(corrupt.ok, false)
+    assert.equal(sha256(tower.paths.state), corruptBefore, 'doctor must not rewrite a corrupt state')
+    assert.deepEqual(backupsFor(tower), [], 'doctor must not back up or migrate a corrupt state')
   } finally {
     removeTemp(root)
   }
