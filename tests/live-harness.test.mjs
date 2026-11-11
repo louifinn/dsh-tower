@@ -617,13 +617,19 @@ test('boot-smoke diagnostics are redacted and bounded before they are uploaded',
 test('the nightly live job uploads the boot-smoke diagnostics with if: always()', () => {
   const workflow = read('.github/workflows/test.yml')
   const liveJob = workflowJob(workflow, 'live')
+  const uploadMarker = 'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2'
   assert.equal(
-    (liveJob.match(/uses: actions\/upload-artifact@v4/g) ?? []).length,
+    (liveJob.match(/uses: actions\/upload-artifact@/g) ?? []).length,
     1,
     'exactly one diagnostic artifact upload belongs to the live job',
   )
+  assert.match(
+    liveJob,
+    /^\s*uses: actions\/upload-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+\s*$/m,
+    'the upload must be pinned to a commit SHA with a version comment',
+  )
 
-  const upload = workflowStep(liveJob, 'actions/upload-artifact@v4')
+  const upload = workflowStep(liveJob, uploadMarker)
   assert.match(upload, /^\s*- name: .+$/m, 'the upload step must be named for the run log')
   assert.match(upload, /^\s*if: always\(\)\s*$/m, 'the artifact must upload even when the smoke step failed')
   assert.match(upload, /^\s*name: live-boot-diagnostics\s*$/m)
@@ -637,7 +643,7 @@ test('the nightly live job uploads the boot-smoke diagnostics with if: always()'
 
   // Ordering: the upload covers the nightly run, it cannot precede it.
   assert.ok(
-    liveJob.indexOf('npm run test:live -- --script nightly') < liveJob.indexOf('actions/upload-artifact@v4'),
+    liveJob.indexOf('npm run test:live -- --script nightly') < liveJob.indexOf(uploadMarker),
     'the upload step must come after the nightly smoke',
   )
   // The diagnostics step leaves the host matrix and env contract untouched.

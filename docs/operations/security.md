@@ -60,9 +60,11 @@ code an attacker would most want to change:
 
 - `main` requires a pull request for every change, **enforced for admins**, so a direct push is
   rejected even for the maintainer.
-- Required checks are `test (22)`, `test (24)` and `mount`. The mount job packs the tarball and boots
-  it in a throwaway profile, so "the tests pass" cannot land a bundle that fails to appear after
-  `dsh plugin add`.
+- Required checks are `test (22)`, `test (24)`, `test (22, windows)` and `mount`. The mount job packs the
+  tarball and boots it in a throwaway profile, so "the tests pass" cannot land a bundle that fails to
+  appear after `dsh plugin add`. The one-cycle transition to the supported Node 24.9/25 contexts, and
+  the workflow hardening that supports it, are owned by [ci.md](./ci.md); this section owns the
+  protection rationale.
 - Force-push and branch deletion are blocked, so history cannot be rewritten under a published tag.
 - There are no mandatory approvals: with one maintainer, a self-approval requirement would be a rubber
   stamp. The evidence instead is the four-line PR body (failure mode, change, test, blast radius) for
