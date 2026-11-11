@@ -84,6 +84,31 @@ test('repo config: overrides profile values and keeps unset profile values', asy
   }
 })
 
+test('repo config: review.mode resolves without the removed requireReview mirror (#F47)', async () => {
+  const { root, repo } = makeRepo()
+  try {
+    configureRuntime({})
+    for (const mode of ['required', 'optional']) {
+      writeRepoConfig(repo, { review: { mode } })
+      const tower = await Tower.open(repo)
+      // The mode itself still drives the policy ...
+      assert.equal(tower.config.review.mode, mode, `review.mode:${mode} survives the repository layer`)
+      // ... and the retired alias is not injected into the resolved object.
+      // Before #F47 the required layer carried requireReview:true and the
+      // optional layer carried requireReview:false, so this assertion fails for
+      // both values rather than only for the true mirror.
+      assert.equal(
+        'requireReview' in tower.config.review,
+        false,
+        `resolved review for mode:${mode} must not carry the removed requireReview key`,
+      )
+    }
+  } finally {
+    configureRuntime({})
+    removeTemp(root)
+  }
+})
+
 test('repo config: mode.* keys cannot weaken the session mode guard', async () => {
   const { root, repo } = makeRepo()
   try {
