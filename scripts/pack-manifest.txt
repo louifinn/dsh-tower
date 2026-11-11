@@ -124,8 +124,8 @@ domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
 domain/errors.js
-domain/evidence.js
 domain/events.js
+domain/evidence.js
 domain/gate.js
 domain/integration/gate.js
 domain/integration/init.js
@@ -150,6 +150,7 @@ domain/report.js
 domain/roles.js
 domain/roster.js
 domain/scope.js
+domain/shapes/blockers.js
 domain/shapes/build.js
 domain/shapes/index.js
 domain/shapes/survey.js
@@ -228,6 +229,7 @@ ports/vcs.js
 reviewer.js
 scripts/architecture-waivers.json
 scripts/architecture.mjs
+scripts/check-blockers.mjs
 scripts/check-components.mjs
 scripts/check-docs.mjs
 scripts/check-pack.mjs
@@ -235,6 +237,7 @@ scripts/check-philosophy.mjs
 scripts/component-surface.json
 scripts/domain-metrics.mjs
 scripts/enable-dev-hmr.mjs
+scripts/generate-blockers-reference.mjs
 scripts/generate-capability-locale.mjs
 scripts/generate-component-surface.mjs
 scripts/generate-config-reference.mjs

@@ -1,6 +1,7 @@
 // Pure completion gate checks (#49). No repository I/O.
 // @ts-check
 import { shapeFor } from './shapes/index.js'
+import { blocker as blockerRecord } from './shapes/blockers.js'
 import { passingDiscovery } from './evidence.js'
 import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
@@ -48,7 +49,7 @@ export function mergeGateBlockers({
   const blockers = []
   /** @type {(code: string, detail: string) => void} */
   const push = (code, detail) => {
-    blockers.push({ code, detail })
+    blockers.push(blockerRecord(code, detail))
   }
   const inactive = new Set(inactiveStates)
   // #M39: only `review.mode:required` produces review blockers. `optional`

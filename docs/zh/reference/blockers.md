@@ -1,12 +1,16 @@
 # blocker 与失败码
 
+> 由 `npm run docs:generate:blockers` 从 `domain/shapes/blockers.js` 生成，请勿手工编辑。
+
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 32 个稳定 blocker/failure code。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 33 个稳定 blocker/failure code。
 
-下列审查 blocker（`no-review`、`review-mission-mismatch`、`not-clean`、`review-hold`、
-`review-not-approved`、`tip-moved`、`review-exemption-invalid`）只在 `review.mode` 为 `required`
+`survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
+变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。
+
+下列审查 blocker（`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`, `review-not-approved`, `tip-moved`, `review-exemption-invalid`）只在 `review.mode` 为 `required`
 时产生。`off` 或 `optional` 不会产生审查 blocker；`off` 还会移除 `tower_review` 并拒绝 reviewer spawn。
 
 ## 门禁 blocker（26 个）
@@ -40,7 +44,7 @@
 | `review-exemption-invalid` | `review.mode:required` 且 mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
 | `merge-intent-pending` | 崩溃/失败前记录了合并意图；先运行 `tower_merge` 对账，再进行其他门禁。 |
 
-## 合并失败（4 个）
+## 合并失败（5 个）
 
 | Code | 含义 / 下一步 |
 |---|---|
@@ -48,6 +52,7 @@
 | `merge-hook-failed` | 在产生提交之前钩子/进程失败；仓库已恢复，mission 保持 `completed`。重试；`timeout: true` 表示 git 进程超时，慢钩子请调大 `timeoutMs`。 |
 | `merge-shape` | Git 产生了意外的合并父提交；检查仓库，不要强推。 |
 | `batch-invalid` | batch id/成员/回执/检查引用无效，或 close 证据不完整。 |
+| `review-stale` | 已审查的提交包含在基线中，但分支 tip 不在：分支被部分合入或移动过。重新审查或手工修复分支；`tower_merge` 不会强制合并。 |
 
 已经落地的合并不是 blocker：`tower_merge` 会记录它（`reconciled`、`alreadyLanded`），或从失败调用中恢复
 （`recoveredFromFailure`、`warnings`）。
@@ -57,10 +62,10 @@
 | Code | 含义 / 下一步 |
 |---|---|
 | `worktree-dirty` | 提交或丢弃 worktree 改动后重试。 |
-| `rebase-conflict` | 真实冲突；mission 变为 `blocked`。手工解决后将其恢复为 `active`，再重试。 |
-| `worker-busy` | 该 mission 有 agent 正在运行；先等待或让其退役。 |
+| `rebase-conflict` | 真实冲突；mission 变为 `blocked`。手工解决后把 mission 恢复为 `active`，再重试。 |
+| `worker-busy` | 该 mission 的 roster agent 正在运行；等待或让其退役。 |
 
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 31 个（25 个门禁 + 4 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 33 个（26 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
