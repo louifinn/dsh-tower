@@ -70,7 +70,7 @@ config outside its component's `allowedOverrides`.
 
 #M39 grew the config surface by exactly one, 53 → 54: `review.mode`
 (`off`/`optional`/`required`) is the review policy, and the deprecated
-`review.requireReview` boolean stays accepted for one release as a normalized
+`review.requireReview` boolean stayed accepted for one release as a normalized
 alias. It is not a fifth component row: `preset-tower-reviewer` remains a
 capability row and `review.mode:off` simply leaves it unused (no `tower_review`,
 no reviewer spawn, no review blockers). The dated decision records both the new
@@ -114,6 +114,15 @@ and that copy was the second evidence shape the W4 audit removed. The receipt in
 left; it is deleted rather than kept as a dead tuning key. Sections and the
 visible component count do not move.
 
+#M66 retires the alias itself: config keys 56 → 55. `review.requireReview` was
+accepted for one release (#M39) and is now removed, so a config that still
+writes it fails with `config-unknown-key` and a dated upgrade note naming
+`review.mode` and the `true → required` / `false → optional` mapping. The
+surviving key keeps the same three modes; the review gate, the reviewer preset
+row and the exemption path are unchanged. The component surface drops the alias
+row with it (55 classified config keys), while the visible component count
+stays 12.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -138,8 +147,7 @@ visible component count do not move.
 | `mode.storePath` | niche | Custom mode-store location added for one deployment workflow. Removal note: derive the path from `$DSH_HOME` in the next minor; no in-tree caller sets this key. |
 | `mode.maxEntries` | tuning | Bounds the persisted mode store. |
 | `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process mode lock. |
-| `review.mode` | core | The review policy itself (`off`/`optional`/`required`); it replaces the deprecated boolean as the single gate switch. |
-| `review.requireReview` | core | Deprecated alias for `review.mode` (`true` → `required`, `false` → `optional`); retained for one release. |
+| `review.mode` | core | The review policy itself (`off`/`optional`/`required`); the only review policy key since 2.8.0. |
 | `review.maxRoundsPerReviewer` | core | Caps review rounds; changes the review lifecycle. |
 | `merge.timeoutMs` | tuning | Default merge timeout; a per-call value wins. |
 | `merge.maxBufferBytes` | tuning | Captured merge output buffer. |

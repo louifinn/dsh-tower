@@ -17,18 +17,11 @@
 //   required  a clean review bound to the branch tip is a merge blocker (the
 //             old `review.requireReview:true` behavior).
 //
-// `review.requireReview` stays accepted for one release as a normalized alias:
-// true -> required, false -> optional. Precedence for one raw config object is
-// deterministic:
-//
-//   * only the alias set: the alias decides;
-//   * only the mode set: the mode decides;
-//   * both set: an alias of `true` next to any mode other than `required` is a
-//     contradiction and is rejected naming both keys. An alias of `false` stays
-//     compatible with `off` because both mean "not required by merge" and the
-//     mode is the more specific policy. That asymmetry is also what keeps the
-//     resolver idempotent: it materializes the alias from the mode it resolved,
-//     and `required` is the only mode that mirrors back to `true`.
+// `review.requireReview` was accepted as a normalized alias for one release
+// (2.6): true meant `required`, false meant `optional`. It was physically
+// removed in 2.8.0 — a config that still sets it fails as an unknown key with
+// an upgrade note naming `review.mode`. The alias was never a second policy,
+// and the resolved config no longer mirrors it.
 // @ts-check
 import { TowerToolError } from '../errors.js'
 
@@ -99,28 +92,17 @@ export function isReviewMode(value) {
 }
 
 /**
- * The mode the deprecated boolean alias means.
- * @param {boolean} requireReview
- */
-export function legacyReviewMode(requireReview) {
-  return requireReview === true ? 'required' : DEFAULT_REVIEW_MODE
-}
-
-/**
  * The resolved mode for any config object the runtime may hold: a resolved
- * config, a raw profile/repo layer, or a hand-built test fixture. An explicit
- * `mode` always wins; otherwise the deprecated alias decides; otherwise the
- * documented default applies.
+ * config, a raw profile/repo layer, or a hand-built test fixture. `review.mode`
+ * is the only review policy key since 2.8.0; an absent or invalid value falls
+ * back to the documented default.
  * @param {{ review?: any } | null | undefined} [config]
  * @returns {'off' | 'optional' | 'required'}
  */
 export function reviewModeOf(config) {
   const review = config?.review ?? {}
   const mode = unwrapVolatile(review.mode)
-  if (isReviewMode(mode)) return mode
-  const alias = unwrapVolatile(review.requireReview)
-  if (typeof alias === 'boolean') return legacyReviewMode(alias)
-  return DEFAULT_REVIEW_MODE
+  return isReviewMode(mode) ? mode : DEFAULT_REVIEW_MODE
 }
 
 /**
@@ -143,37 +125,25 @@ export function reviewUnavailable(config) {
 
 /**
  * Resolve one raw `review` object (a profile, a repository layer, or a single
- * written config) into its mode. Rejects contradictory explicit values and an
- * unknown mode with an actionable `config-invalid` error.
+ * written config) into its mode. Rejects an unknown mode with an actionable
+ * `config-invalid` error. Since 2.8.0 `review.mode` is the only policy key; the
+ * retired `review.requireReview` boolean is rejected earlier as an unknown key
+ * by `assertKnownKeys`, so this resolver never accepts it.
  *
  * @param {any} rawReview
- * @returns {{ mode: 'off' | 'optional' | 'required', explicit: boolean, legacy: boolean }}
+ * @returns {{ mode: 'off' | 'optional' | 'required', explicit: boolean }}
  */
 export function resolveReviewPolicy(rawReview) {
   const review = rawReview && typeof rawReview === 'object' && !Array.isArray(rawReview) ? rawReview : {}
   const mode = unwrapVolatile(review.mode)
-  const alias = unwrapVolatile(review.requireReview)
   if (mode !== undefined && !isReviewMode(mode)) {
     throw new TowerToolError(
       'config-invalid',
       `review.mode must be one of ${REVIEW_MODES.join('|')}, got ${JSON.stringify(mode)}`,
     )
   }
-  if (alias !== undefined && typeof alias !== 'boolean') {
-    throw new TowerToolError(
-      'config-invalid',
-      'review.requireReview must be a boolean (deprecated alias: true -> required, false -> optional)',
-    )
-  }
-  if (mode !== undefined && alias === true && mode !== 'required') {
-    throw new TowerToolError(
-      'config-invalid',
-      `review.mode is ${JSON.stringify(mode)} but review.requireReview is true; set only review.mode (off|optional|required) — review.requireReview is a deprecated alias (true -> required, false -> optional) and may not contradict it`,
-    )
-  }
-  if (mode !== undefined) return { mode, explicit: true, legacy: alias !== undefined }
-  if (alias !== undefined) return { mode: legacyReviewMode(alias), explicit: true, legacy: true }
-  return { mode: DEFAULT_REVIEW_MODE, explicit: false, legacy: false }
+  if (mode !== undefined) return { mode, explicit: true }
+  return { mode: DEFAULT_REVIEW_MODE, explicit: false }
 }
 
 /**
@@ -203,12 +173,45 @@ export function reviewsForBranch(reviews, branch) {
 }
 
 /**
- * The latest review round, or null when the branch has no reviews.
+ * Order two review rows from older to newer. A higher round is always newer; two
+ * routes that share a round are ordered by submission sequence, so the most
+ * recently recorded verdict of a round is newer than an earlier one (#108). The
+ * comparison is strict: rows with equal round and sequence are equally recent
+ * and a caller keeping the first maximum does not swap them.
+ * @param {Review} left
+ * @param {Review} right
+ * @returns {number}
+ */
+export function compareReviewsByRecency(left, right) {
+  const round = (Number(left.round) || 0) - (Number(right.round) || 0)
+  if (round !== 0) return round
+  return (Number(left.seq) || 0) - (Number(right.seq) || 0)
+}
+
+/**
+ * The latest review row, or null when there is none. This is the single
+ * definition of "latest" shared by the merge gate, landed-merge detection, the
+ * status/briefing projections and review admission.
  * @param {Review[]} reviews
  * @returns {Review | null}
  */
 export function latestReview(reviews) {
-  return reviews.length > 0 ? reviews.reduce((left, right) => (left.round >= right.round ? left : right)) : null
+  /** @type {Review | null} */
+  let latest = null
+  for (const review of reviews) {
+    if (!latest || compareReviewsByRecency(review, latest) > 0) latest = review
+  }
+  return latest
+}
+
+/**
+ * Reviews ordered newest first, for read projections that display a short
+ * history. Equal rows keep their stored order.
+ * @param {Review[]} reviews
+ * @returns {Review[]}
+ */
+export function reviewsNewestFirst(reviews) {
+  return [...reviews].sort((left, right) => compareReviewsByRecency(right, left))
 }
 
 /**

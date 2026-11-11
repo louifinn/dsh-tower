@@ -27,7 +27,7 @@ const CONFIG = {
   git: { timeoutMs: 5000 },
   merge: { timeoutMs: 5000, maxBufferBytes: 64 * 1024 },
   spawn: { maxLiveWorkers: 4, staleMs: 0 },
-  review: { requireReview: true, maxRoundsPerReviewer: 5 },
+  review: { mode: 'required', maxRoundsPerReviewer: 5 },
   gates: { requireChecks: false, maxReportBytes: 32768, allowReviewExemption: false },
   // #133/#135: the board and archive are component rows, composed by the host.
   // This fixture supplies the probe directly and keeps both off, as the old

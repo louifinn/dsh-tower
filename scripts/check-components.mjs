@@ -660,7 +660,6 @@ export function checkRowLabelSources(patch, rowLocales) {
 // page. These names are the policy-shaped rows the gate refuses to see: a row
 // per mode (or one "review policy" row) is the shape the product replaced.
 export const REVIEW_POLICY_KEY = 'review.mode'
-export const REVIEW_ALIAS_KEY = 'review.requireReview'
 export const REVIEW_REVIEWER_ROW = 'preset-tower-reviewer'
 const REVIEW_POLICY_ROW_IDS = Object.freeze([
   'review',
@@ -677,12 +676,13 @@ const REVIEW_POLICY_ROW_IDS = Object.freeze([
  * configuration form, not a component row and not three mutually exclusive rows.
  *
  * The gate fails when a review-policy-shaped row exists, when a component
- * `allowedOverrides` or a shipped row's `config:` block owns `review.mode` (or
- * the deprecated alias), when the non-disableable required-mode gate is not
- * recorded on the forbidden list, and when a forbidden capability claims the
- * reviewer preset row as a disabler. The reviewer row is an optional capability:
- * it may be off while the policy is off or optional, and is only a precondition
- * (with an explanatory refusal) under required.
+ * `allowedOverrides` or a shipped row's `config:` block owns `review.mode` (the
+ * only review policy key since 2.8.0 removed the boolean alias), when the
+ * non-disableable required-mode gate is not recorded on the forbidden list, and
+ * when a forbidden capability claims the reviewer preset row as a disabler. The
+ * reviewer row is an optional capability: it may be off while the policy is off
+ * or optional, and is only a precondition (with an explanatory refusal) under
+ * required.
  *
  * @param {ReturnType<typeof parseComponentSurface>} surface
  * @param {{ patch?: ReturnType<typeof parseCordisPatch> }} live
@@ -693,7 +693,7 @@ export function checkReviewPolicySurface(surface, live) {
   const components = surface?.components ?? []
   const byName = new Map((surface?.keys ?? []).map((key) => [key.name, key]))
 
-  for (const name of [REVIEW_POLICY_KEY, REVIEW_ALIAS_KEY]) {
+  for (const name of [REVIEW_POLICY_KEY]) {
     const key = byName.get(name)
     if (!key) {
       record('review-policy-key', `${name} is missing from the component surface; the review policy needs an explicit class`)
@@ -725,7 +725,7 @@ export function checkReviewPolicySurface(surface, live) {
 
   for (const component of components) {
     for (const override of component.allowedOverrides ?? []) {
-      if (override !== REVIEW_POLICY_KEY && override !== REVIEW_ALIAS_KEY) continue
+      if (override !== REVIEW_POLICY_KEY) continue
       record(
         'review-policy-switch',
         `component "${component.id}" lists ${override} in allowedOverrides; the review policy is one tri-state configuration control and no component row may own it`,
@@ -735,7 +735,7 @@ export function checkReviewPolicySurface(surface, live) {
 
   for (const row of live?.patch?.rows ?? []) {
     for (const override of row.configOverrides ?? []) {
-      if (override.key !== REVIEW_POLICY_KEY && override.key !== REVIEW_ALIAS_KEY) continue
+      if (override.key !== REVIEW_POLICY_KEY) continue
       record(
         'review-policy-switch',
         `row "${row.id}" sets ${override.key} in cordis.patch.yml; the review policy is one tri-state configuration control, not a per-row switch`,

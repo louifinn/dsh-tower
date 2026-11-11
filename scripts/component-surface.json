@@ -243,12 +243,7 @@
     {
       "name": "review.mode",
       "class": "core",
-      "note": "The review policy: off, optional (default) or required, selected by one tri-state control on the plugin-page configuration form. It is configuration, not a component row and not three mutually exclusive rows. off intentionally removes tower_review, refuses reviewer spawn and makes the merge gate ignore review; optional never blocks a merge; required makes a clean tip-bound review a merge blocker. The reviewer preset row stays a capability the mode may leave unused."
-    },
-    {
-      "name": "review.requireReview",
-      "class": "core",
-      "note": "Deprecated one-release boolean alias for review.mode (true -> required, false -> optional; default optional). It is policy configuration and a deprecated alias, not a switch a row may own; false never overrides an explicit mode. Kept so 2.5 configurations keep working; remove after the 2.6 alias window."
+      "note": "The review policy: off, optional (default) or required, selected by one tri-state control on the plugin-page configuration form. It is configuration, not a component row and not three mutually exclusive rows. off intentionally removes tower_review, refuses reviewer spawn and makes the merge gate ignore review; optional never blocks a merge; required makes a clean tip-bound review a merge blocker. The reviewer preset row stays a capability the mode may leave unused. The deprecated review.requireReview boolean was removed in 2.8.0, so this is the only review policy key."
     },
     {
       "name": "review.maxRoundsPerReviewer",
@@ -474,7 +469,7 @@
     {
       "id": "review",
       "capability": "the review gate in required mode",
-      "reason": "The policy is one tri-state configuration control on the plugin-page form, not a component row: review.mode is off, optional (default) or required, and off is a documented mode that removes tower_review and makes the merge gate ignore review. What no group, row or boolean key may switch off is the gate once the mode is required: a completed mission still needs a clean review bound to the branch tip, and the exemption path stays explicit. review.requireReview is a deprecated one-release alias, not a switch. The reviewer preset row remains a capability the policy may leave unused, never a way to weaken required mode.",
+      "reason": "The policy is one tri-state configuration control on the plugin-page form, not a component row: review.mode is off, optional (default) or required, and off is a documented mode that removes tower_review and makes the merge gate ignore review. What no group, row or boolean key may switch off is the gate once the mode is required: a completed mission still needs a clean review bound to the branch tip, and the exemption path stays explicit. No second review switch exists: review.requireReview was removed in 2.8.0 and is rejected as an unknown key. The reviewer preset row remains a capability the policy may leave unused, never a way to weaken required mode.",
       "tools": [],
       "rowIds": [],
       "gatedBy": [

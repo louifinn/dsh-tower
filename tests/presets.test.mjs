@@ -252,13 +252,9 @@ test('preset validation fails closed before work starts (#64)', async () => {
       return true
     },
   )
-  // #M39: the reviewer preset is required only by `review.mode:required`. The
-  // deprecated alias must normalize to the same answer, and `off`/`optional`
-  // must not require a preset the mode intentionally does not use.
-  await assert.rejects(
-    () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { requireReview: true } }),
-    /review\.mode is required/,
-  )
+  // #M39/#M66: the reviewer preset is required only by `review.mode:required`.
+  // The 2.6 boolean alias was physically removed in 2.8.0 and is rejected by
+  // config resolution before preset validation, so it is not normalized here.
   assert.deepEqual(
     await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'off' } }),
     { checked: true, missing: [] },

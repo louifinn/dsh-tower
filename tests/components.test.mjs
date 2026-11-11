@@ -95,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 56 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 55 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 56)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 56)
+  assert.equal(report.surface.keys.length, 55)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 55)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -163,8 +163,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 56)
-  assert.equal(baseline.surfaces.configKeys.value, 56)
+  assert.equal(surface.keys.length, 55)
+  assert.equal(baseline.surfaces.configKeys.value, 55)
   assert.equal(realMergedPatch().visible.length, 12)
   assert.equal(baseline.surfaces.components.value, 12)
 })
@@ -174,9 +174,10 @@ test('the review policy is one tri-state control, not a component row (#M42)', (
   const live = { configKeys: configSurface().keys, patch: realMergedPatch() }
   assert.deepEqual(checkReviewPolicySurface(surface, live), [])
 
-  // The two policy keys are configuration/alias, never a switch.
+  // The policy key is configuration, never a switch, and the removed boolean
+  // alias is not a classified row any more.
   assert.equal(surface.keys.find((key) => key.name === 'review.mode').class, 'core')
-  assert.equal(surface.keys.find((key) => key.name === 'review.requireReview').class, 'core')
+  assert.equal(surface.keys.some((key) => key.name === 'review.requireReview'), false)
   assert.ok(!surface.components.some((component) => /review.*policy|^review$|^review-mode/.test(component.id)))
   assert.equal(surface.components.filter((component) => component.id === 'preset-tower-reviewer').length, 1)
 
@@ -439,9 +440,8 @@ test('a row may only override the config its component owns (#138)', () => {
   }
 
   // A component cannot allow itself a forbidden-to-disable key, and cannot name
-  // a key that does not exist. `review.requireReview` is no longer the example:
-  // #M42 classifies it as the deprecated policy alias (`core`), and the review
-  // policy's row-ownership rule is checked by checkReviewPolicySurface instead.
+  // a key that does not exist. The removed `review.requireReview` boolean is not
+  // a live key any more, so allowing it is the same failure as any ghost key.
   const forbidden = {
     ...surface,
     components: surface.components.map((component) =>
@@ -456,6 +456,18 @@ test('a row may only override the config its component owns (#138)', () => {
     ),
   }
   assert.ok(checkRowOverrides(unknown, live).some((entry) => entry.code === 'component-override-unknown'))
+  const removedAlias = {
+    ...surface,
+    components: surface.components.map((component) =>
+      component.id === 'tower-board' ? { ...component, allowedOverrides: ['review.requireReview'] } : component,
+    ),
+  }
+  assert.ok(
+    checkRowOverrides(removedAlias, live).some(
+      (entry) => entry.code === 'component-override-unknown' && /review\.requireReview/.test(entry.message),
+    ),
+    'the removed review alias must not come back through allowedOverrides',
+  )
 })
 
 test('every shipped cordis.patch.yml is discovered and accounted for (#138)', () => {
@@ -705,11 +717,14 @@ test('a baseline without a components entry is refused', () => {
   assert.throws(() => parseBaseline(withoutComponents), /components/)
 })
 
-test('integration: a row that owns the review policy fails the gate (#M42)', async () => {
-  for (const [label, block] of [
-    ['mode', 'mode: off'],
-    ['alias', 'requireReview: false'],
-  ]) {
+test('integration: a row that owns the review policy fails the gate (#M42, #M66)', async () => {
+  const cases = [
+    ['mode', 'mode: off', 'review-policy-switch', /review\.mode/],
+    // The removed alias is no longer a policy switch: a row that still sets it
+    // fails as an unknown row override, which is the physical-removal proof.
+    ['alias', 'requireReview: false', 'row-override-unknown', /review\.requireReview/],
+  ]
+  for (const [label, block, code, message] of cases) {
     const dir = gateRoot({
       'cordis.patch.yml': (text) =>
         text.replace(
@@ -721,10 +736,7 @@ test('integration: a row that owns the review policy fails the gate (#M42)', asy
       const report = await checkComponents(dir)
       assert.equal(report.ok, false, label)
       assert.ok(
-        report.findings.some(
-          (entry) =>
-            entry.code === 'review-policy-switch' && /review\.(?:mode|requireReview)/.test(entry.message),
-        ),
+        report.findings.some((entry) => entry.code === code && message.test(entry.message)),
         `${label}: ${JSON.stringify(report.findings, null, 2)}`,
       )
     } finally {

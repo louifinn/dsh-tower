@@ -12,6 +12,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
+import { boardMarkdown } from '../domain/report.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 const exec = { agent: { id: 'tower-status' } }
@@ -251,4 +252,61 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
   } finally {
     removeTemp(root)
   }
+})
+
+test('markdown board: the newest same-round verdict is latest, storage order is untouched', () => {
+  const state = {
+    repoRoot: '/repo',
+    base: 'main',
+    revision: 3,
+    updatedAt: 1_700_000_000_000,
+    missions: [
+      {
+        id: 'M1',
+        status: 'completed',
+        kind: 'build',
+        title: 'Same round board',
+        owner: 'worker-m1',
+        tasks: [],
+        worktree: { path: '/wt', branch: 'tower/m1', baseCommit: 'b' },
+      },
+    ],
+    findings: [],
+    roster: [],
+    // Append order is the audit trail: the stale route was recorded first.
+    reviews: [
+      {
+        id: 'R1',
+        missionId: 'M1',
+        branch: 'tower/m1',
+        round: 1,
+        seq: 1,
+        status: 'p1-1items',
+        mergeVerdict: 'fix-then-merge',
+      },
+      {
+        id: 'R2',
+        missionId: 'M1',
+        branch: 'tower/m1',
+        round: 1,
+        seq: 2,
+        status: 'clean',
+        mergeVerdict: 'merge',
+      },
+    ],
+  }
+  const board = boardMarkdown(state)
+  // The board labels the row by round: both same-round rows would print R1, so
+  // the status/verdict text is the load-bearing part. A round-only reducer picks
+  // the first stored row and prints "R1 p1-1items/fix-then-merge" here.
+  assert.ok(
+    board.includes('| M1 | completed | build | Same round board | worker-m1 | 0/0/0 | R1 clean/merge | — |'),
+    board,
+  )
+  assert.doesNotMatch(board, /p1-1items/, 'the stale same-round verdict must not be the latest on the board')
+  assert.deepEqual(
+    state.reviews.map((entry) => entry.id),
+    ['R1', 'R2'],
+    'projecting the board must not reorder the ledger',
+  )
 })

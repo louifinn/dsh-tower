@@ -31,6 +31,7 @@
 import path from 'node:path'
 import { findEvidence } from './evidence.js'
 import { shapeFor } from './shapes/index.js'
+import { assertBlockerCode } from './shapes/blockers.js'
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i
 const MAX_MISSIONS = 50
@@ -200,7 +201,7 @@ function missionInOpenBatch(state, missionId) {
 }
 
 function blocker(message, code = 'batch-invalid') {
-  return { code, message }
+  return { code: assertBlockerCode(code), message }
 }
 
 /**

@@ -109,6 +109,107 @@ test('v3 -> v4 is idempotent: a v4 document is a fixed point', () => {
   assert.equal(migrated.steps.length, 2)
 })
 
+/** A pre-v4 build-shaped v3 document: one build, no kind stamp, no dangling dep. */
+function buildOnlyV3() {
+  const document = fixture()
+  const build = { ...document.missions[0], deps: [] }
+  delete build.kind
+  document.missions = [build]
+  return document
+}
+
+/** One canonical document at every supported version, all describing the same work. */
+function documentsAtEveryVersion() {
+  const v3 = buildOnlyV3()
+  const v2 = structuredClone(v3)
+  v2.schemaVersion = 2
+  delete v2.caseInsensitive
+  const v1 = structuredClone(v2)
+  v1.schemaVersion = 1
+  const v4 = migrateState(structuredClone(v3), { to: 4 })
+  assert.equal(v4.state.schemaVersion, 4)
+  for (const [version, document] of Object.entries({ v1, v2, v3, v4: v4.state })) {
+    assert.equal(document.missions[0].kind, version === 'v4' ? 'build' : undefined, version)
+  }
+  return { v1, v2, v3, v4: v4.state }
+}
+
+test('every supported v1 -> v5 chain reaches the same v5 fixed point', () => {
+  const documents = documentsAtEveryVersion()
+  const prepared = {}
+  for (const [version, document] of Object.entries(documents)) {
+    const once = prepareState(structuredClone(document), 'state.json')
+    assert.equal(once.changed, true, version)
+    assert.equal(once.to, SCHEMA_VERSION, version)
+    // The migrated document is itself a current document: loading it again must
+    // not run a single step (the loader never bumps the revision twice).
+    const again = prepareState(structuredClone(once.state), 'state.json')
+    assert.equal(again.changed, false, `${version} must reach a fixed point`)
+    assert.deepEqual(again.state, once.state)
+    prepared[version] = once.state
+  }
+  // v1/v2 omit the kind and case-mode stamps; v3 has the pre-v4 shape fields;
+  // v4 was produced by the registry. All four must converge, not merely be
+  // idempotent on their own.
+  for (const version of ['v1', 'v2', 'v4']) {
+    assert.deepEqual(prepared[version], prepared.v3, `v${version} must converge to the v3 chain result`)
+  }
+})
+
+test('every registry step is a fixed point on its own output', () => {
+  const documents = documentsAtEveryVersion()
+  for (const step of STATE_MIGRATIONS) {
+    const input = documents[`v${step.from}`]
+    assert.ok(input, `a document must exist at v${step.from}`)
+    const once = step.migrate(structuredClone(input), {})
+    assert.deepEqual(step.migrate(structuredClone(once), {}), once, `v${step.from} -> v${step.to} must be a fixed point`)
+  }
+})
+
+test('a non-idempotent migration fails closed instead of rewriting state on every load', () => {
+  const state = { schemaVersion: 1, revision: 0, missions: [] }
+  const snapshot = JSON.stringify(state)
+  const increment = [
+    {
+      from: 1,
+      to: 2,
+      migrate: (document) => ({ ...document, migrationRuns: (document.migrationRuns ?? 0) + 1 }),
+    },
+  ]
+  assert.throws(
+    () => migrateState(state, { to: 2, migrations: increment, statePath: 'state.json' }),
+    (error) =>
+      error.code === 'state-migration-failed' &&
+      /state migration v1 -> v2 is not idempotent/.test(error.message) &&
+      /re-applying the step changes the document/.test(error.message),
+    'a step that keeps changing its output must be refused',
+  )
+
+  const throwsOnReapply = [
+    {
+      from: 1,
+      to: 2,
+      migrate: (() => {
+        let calls = 0
+        return (document) => {
+          calls += 1
+          if (calls > 1) throw new Error('cannot re-run')
+          return document
+        }
+      })(),
+    },
+  ]
+  assert.throws(
+    () => migrateState(state, { to: 2, migrations: throwsOnReapply }),
+    (error) =>
+      error.code === 'state-migration-failed' &&
+      /is not idempotent/.test(error.message) &&
+      /re-applying the step failed \(cannot re-run\)/.test(error.message),
+    'a step that cannot be re-applied must be refused too',
+  )
+  assert.equal(JSON.stringify(state), snapshot, 'the failed chain never mutates its input')
+})
+
 test('the shape document is one-way: v4 rejects a survey that still owns branch fields', () => {
   const prepared = prepareState(fixture(), 'state.json').state
   const withWorktree = structuredClone(prepared)

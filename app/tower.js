@@ -8,7 +8,6 @@ import { assertPorts } from '../ports/index.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 
 import { rebaseWaived } from '../domain/gate.js'
-import { isReviewExempt } from '../domain/integration/review.js'
 import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
@@ -18,7 +17,6 @@ export { missionSummary } from '../domain/summary.js'
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
 import { TowerToolError } from '../domain/errors.js'
 import { buildMissionEvent } from '../domain/events.js'
-import { applyLandedMerge } from '../domain/integration/merge.js'
 import { plan } from './plan.js'
 import { updateMission } from './mission.js'
 import { checkCompletion, complete } from './checkCompletion.js'
@@ -47,20 +45,6 @@ function mergeTimeoutMs(value, config) {
 async function commitParents(tower, cwd, sha) {
   const line = await tower.deps.vcs.tryGit(cwd, ['rev-list', '--parents', '-n', '1', sha])
   return line ? line.trim().split(/\s+/).slice(1) : []
-}
-
-/**
- * Find a reachable merge commit whose second parent is one of the known tips.
- * `--no-ff` merges put the integrated branch on the second parent, so this is
- * the concrete evidence that a mission's work already landed in the base.
- */
-async function findLandedMerge(tower, cwd, baseTip, tips) {
-  const revs = (await tower.deps.vcs.tryGit(cwd, ['rev-list', '--merges', baseTip])) ?? ''
-  for (const sha of revs.split('\n').filter(Boolean)) {
-    const parents = await commitParents(tower, cwd, sha)
-    if (parents.length >= 2 && tips.has(parents[1])) return { commit: sha, parents }
-  }
-  return null
 }
 
 function describeGitFailure(error) {
@@ -228,7 +212,6 @@ function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
 }
 
-import { validateState } from '../domain/state.js'
 import { boardMarkdown } from '../domain/report.js'
 import { diff, missionDetail, status } from './read.js'
 import { evaluateGate } from './gate.js'
@@ -645,138 +628,6 @@ export class Tower {
 
   async diff(input = {}) {
     return diff(this, input)
-  }
-
-  /**
-   * Record a merge that already landed in Git without being recorded here:
-   * a crashed/timed-out merge, a manual merge, or a rebase that fast-forwarded
-   * the branch to the base tip. The evidence is concrete: a clean merge review
-   * exists and either the branch tip or the reviewed commit is already an
-   * ancestor of the base.
-   */
-  /** Clear a stale merge intent only when the crash left no merge in progress
-   * or no merge commit. Returns true when the intent was consumed. */
-  async reconcileMergeIntent(state, mission, held) {
-    const intent = state.mergeIntent
-    if (!intent || intent.missionId !== mission.id || !mission.worktree) return false
-    let head = null
-    try {
-      head = await this.revParse(this.root, 'HEAD')
-    } catch {
-      return false
-    }
-    const mergeHeadPath = path.join(this.commonDir, 'MERGE_HEAD')
-    const inProgress = await this.deps.store.exists(mergeHeadPath)
-    if (inProgress) return false
-    let landed = null
-    if (head === intent.baseTip) {
-      landed = null // no merge commit was created; the intent is safe to drop
-    } else {
-      landed = await findLandedMerge(
-        this,
-        this.root,
-        head,
-        new Set([intent.branchTip, intent.baseTip].filter(Boolean)),
-      ).catch(() => null)
-      if (!landed) return false
-    }
-    const now = Date.now()
-    delete state.mergeIntent
-    state.revision += 1
-    state.updatedAt = now
-    await this.writeState(state, held)
-    await this.deps.store.appendJsonl(this.paths.activity, {
-      at: now,
-      type: 'merge',
-      missionId: mission.id,
-      text: landed
-        ? `reconciled merge intent; found landed commit ${String(landed.commit).slice(0, 7)}`
-        : 'cleared a merge intent that created no commit',
-    })
-    return true
-  }
-
-  async reconcileLandedMerge(state, mission, held) {
-    if (!['completed', 'blocked'].includes(mission.status)) return null
-    if (!mission.worktree) return null
-    const branch = mission.worktree.branch
-    const reviews = (state.reviews ?? []).filter((review) => review.branch === branch)
-    // #M39: reconciliation follows the same policy as the gate — only
-    // `review.mode:required` demands review evidence; `off`/`optional` reconcile
-    // a landed branch without one.
-    const exempt = isReviewExempt(mission, this.config)
-    if (reviews.length === 0 && !exempt) return null
-    const latest = reviews.length > 0 ? reviews.reduce((a, b) => (a.round >= b.round ? a : b)) : null
-    if (latest && !exempt && (latest.status !== 'clean' || latest.mergeVerdict !== 'merge')) return null
-    if (!latest && !exempt) return null
-    let baseTip
-    let branchTip
-    try {
-      baseTip = await this.revParse(this.root, state.base)
-      branchTip = await this.branchTip(mission)
-    } catch {
-      return null
-    }
-    const reviewedTip = latest?.reviewedCommit ?? null
-    const branchLanded = await this.isAncestor(this.root, branchTip, baseTip)
-    const reviewedLanded = reviewedTip ? await this.isAncestor(this.root, reviewedTip, baseTip) : false
-    if (!branchLanded) {
-      if (reviewedLanded) {
-        return {
-          ok: false,
-          missionId: mission.id,
-          blockers: [
-            {
-              code: 'review-stale',
-              detail: `reviewed commit ${reviewedTip.slice(0, 7)} is contained in ${state.base}, but branch tip ${branchTip.slice(0, 7)} is not; the branch was partially landed or moved — re-review or repair manually`,
-            },
-          ],
-        }
-      }
-      return null
-    }
-    const tips = new Set([branchTip, reviewedTip].filter(Boolean))
-    const found = await findLandedMerge(this, this.root, baseTip, tips)
-    const mergedCommit = found ? found.commit : branchTip
-    const now = Date.now()
-    if (state.mergeIntent?.missionId === mission.id) delete state.mergeIntent
-    const applied = applyLandedMerge({
-      mission,
-      mergedCommit,
-      note: found
-        ? `reconciled already-landed merge ${mergedCommit.slice(0, 7)} with parents [${found.parents.map((parent) => parent.slice(0, 7)).join(', ')}]`
-        : `reconciled already-landed merge: ${mergedCommit.slice(0, 7)} is contained in ${state.base} (no merge commit found)`,
-      now,
-    })
-    state.revision += 1
-    state.updatedAt = now
-    validateState(state, this.paths.state)
-    await this.writeState(state, held)
-    await this.deps.store.appendJsonl(this.paths.activity, {
-      at: now,
-      type: 'merge',
-      missionId: mission.id,
-      text: `reconciled already-landed ${mergedCommit.slice(0, 7)} on ${state.base}`,
-    })
-    this.emitEvents(applied.events, { revision: state.revision, at: now })
-    return {
-      ok: true,
-      reconciled: true,
-      alreadyLanded: true,
-      mergedCommit,
-      baseTip,
-      branchTip,
-      parents: found ? found.parents : null,
-      review: latest
-        ? {
-            round: latest.round,
-            status: latest.status,
-            mergeVerdict: latest.mergeVerdict,
-            reviewer: latest.reviewer,
-            reviewedCommit: reviewedTip,
-          }
-        : null,
-    }
   }
 
   async merge(input) {

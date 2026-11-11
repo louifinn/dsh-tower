@@ -2,13 +2,19 @@
 //
 // WHAT THIS FILE PINS
 // -------------------
-// `review.mode` has exactly three independent values and `review.requireReview`
-// is a one-release normalized alias:
+// `review.mode` has exactly three independent values:
 //
 //   off       review is intentionally unavailable (no tower_review, reviewer
 //             spawn refused, merge gate ignores review);
 //   optional  review is available but never blocks a merge (default);
 //   required  a clean review bound to the branch tip is a merge blocker.
+//
+// The boolean `review.requireReview` was a one-release normalized alias in 2.6
+// and was physically removed in 2.8.0 (#M66). It is now an unknown key: a config
+// that still sets it is rejected with `config-unknown-key` and a dated note that
+// names `review.mode` and the true -> required / false -> optional mapping. The
+// readers must not honor it either, so a hand-built config carrying the old
+// boolean cannot silently revive the review gate.
 //
 // The matrix is exercised per mode at every seam the policy touches: config
 // resolution (including the repository layer), reviewer-preset validation,
@@ -55,132 +61,108 @@ afterEach(() => {
 // Policy resolution: default, alias, precedence, conflict.
 // ---------------------------------------------------------------------------
 
-test('review mode: the default, the alias and the deterministic precedence', () => {
+test('review mode: the default and the three explicit modes', () => {
   assert.deepEqual(REVIEW_MODES, ['off', 'optional', 'required'])
   assert.equal(DEFAULT_REVIEW_MODE, 'optional')
 
-  assert.deepEqual(resolveReviewPolicy(undefined), { mode: 'optional', explicit: false, legacy: false })
-  assert.deepEqual(resolveReviewPolicy({}), { mode: 'optional', explicit: false, legacy: false })
-  assert.deepEqual(resolveReviewPolicy({ mode: 'off' }), { mode: 'off', explicit: true, legacy: false })
-  assert.deepEqual(resolveReviewPolicy({ requireReview: true }), { mode: 'required', explicit: true, legacy: true })
-  assert.deepEqual(resolveReviewPolicy({ requireReview: false }), { mode: 'optional', explicit: true, legacy: true })
-  // `false` is compatible with a more specific `off`: both mean "review never
-  // blocks a merge". This is what makes the resolved shape a fixed point.
-  assert.equal(resolveReviewPolicy({ mode: 'off', requireReview: false }).mode, 'off')
-  assert.equal(resolveReviewPolicy({ mode: 'required', requireReview: true }).mode, 'required')
+  assert.deepEqual(resolveReviewPolicy(undefined), { mode: 'optional', explicit: false })
+  assert.deepEqual(resolveReviewPolicy({}), { mode: 'optional', explicit: false })
+  assert.deepEqual(resolveReviewPolicy({ mode: 'off' }), { mode: 'off', explicit: true })
+  assert.deepEqual(resolveReviewPolicy({ mode: 'optional' }), { mode: 'optional', explicit: true })
+  assert.deepEqual(resolveReviewPolicy({ mode: 'required' }), { mode: 'required', explicit: true })
 
   assert.equal(reviewModeOf({}), 'optional')
   assert.equal(reviewModeOf({ review: { mode: 'off' } }), 'off')
-  assert.equal(reviewModeOf({ review: { requireReview: true } }), 'required')
-  assert.equal(reviewModeOf({ review: { requireReview: false } }), 'optional')
+  assert.equal(reviewModeOf({ review: { mode: 'optional' } }), 'optional')
+  assert.equal(reviewModeOf({ review: { mode: 'required' } }), 'required')
+  // The removed alias is not a live reader input: a hand-built object that still
+  // carries it must not switch the policy back on.
+  assert.equal(reviewModeOf({ review: { requireReview: true } }), 'optional')
+  assert.equal(reviewRequired({ review: { requireReview: true } }), false)
   assert.equal(reviewRequired({ review: { mode: 'required' } }), true)
   assert.equal(reviewRequired({ review: { mode: 'optional' } }), false)
   assert.equal(reviewUnavailable({ review: { mode: 'off' } }), true)
   assert.equal(reviewUnavailable({ review: { mode: 'required' } }), false)
 })
 
-test('review mode: contradictory explicit values are rejected naming both keys', () => {
-  for (const mode of ['off', 'optional']) {
+test('review mode: the removed boolean alias is rejected with a dated upgrade note', () => {
+  for (const value of [true, false]) {
     assert.throws(
-      () => resolveReviewPolicy({ mode, requireReview: true }),
+      () => resolveTowerConfig({ review: { requireReview: value } }),
       (error) => {
-        assert.equal(error.code, 'config-invalid')
-        assert.match(error.message, /review\.mode/)
+        assert.equal(error.code, 'config-unknown-key')
         assert.match(error.message, /review\.requireReview/)
-        assert.match(error.message, /deprecated alias/)
+        assert.match(error.message, /was removed on 2026-11-11/)
+        assert.match(error.message, /review\.mode/)
         return true
       },
     )
-    assert.throws(
-      () => resolveTowerConfig({ review: { mode, requireReview: true } }),
-      /review\.mode.*review\.requireReview/,
-    )
   }
+  assert.throws(
+    () => resolveTowerConfig({ review: { mode: 'required', requireReview: true } }),
+    (error) => {
+      assert.equal(error.code, 'config-unknown-key')
+      assert.match(error.message, /review\.requireReview/)
+      return true
+    },
+    'the contradiction no longer exists: the alias key itself is gone',
+  )
   assert.throws(() => resolveReviewPolicy({ mode: 'sometimes' }), /review\.mode must be one of off\|optional\|required/)
   assert.throws(() => resolveTowerConfig({ review: { mode: 'sometimes' } }), (error) => {
     assert.equal(error.code, 'config-invalid')
     return true
   })
-  assert.throws(() => resolveReviewPolicy({ requireReview: 'yes' }), /review\.requireReview must be a boolean/)
 })
 
 // ---------------------------------------------------------------------------
 // Resolved config: the mirror invariant and the fixed point.
 // ---------------------------------------------------------------------------
 
-test('review config: resolution materializes the mode and a consistent alias fixed point', () => {
+test('review config: resolution materializes the mode as a fixed point', () => {
   const cases = [
-    [{}, 'optional', false],
-    [{ review: {} }, 'optional', false],
-    [{ review: { mode: 'off' } }, 'off', false],
-    [{ review: { mode: 'optional' } }, 'optional', false],
-    [{ review: { mode: 'required' } }, 'required', true],
-    [{ review: { requireReview: true } }, 'required', true],
-    [{ review: { requireReview: false } }, 'optional', false],
-    [{ review: { mode: 'off', requireReview: false } }, 'off', false],
+    [{}, 'optional'],
+    [{ review: {} }, 'optional'],
+    [{ review: { mode: 'off' } }, 'off'],
+    [{ review: { mode: 'optional' } }, 'optional'],
+    [{ review: { mode: 'required' } }, 'required'],
   ]
-  for (const [raw, mode, alias] of cases) {
+  for (const [raw, mode] of cases) {
     const resolved = resolveTowerConfig(raw)
     assert.equal(resolved.review.mode, mode, JSON.stringify(raw))
-    assert.equal(resolved.review.requireReview, alias, JSON.stringify(raw))
+    assert.equal('requireReview' in resolved.review, false, `the removed alias is not materialized: ${JSON.stringify(raw)}`)
     assert.deepEqual(resolveTowerConfig(resolved), resolved, `one pass is a fixed point: ${JSON.stringify(raw)}`)
   }
   // The schema accepts the canonical key and exposes it as a live volatile
   // reference (#M40) so the Plugins page can edit it without a reload. It
   // deliberately does not materialize a default `mode`: Cordis may resolve the
-  // schema before `apply()`, and a materialized `mode:'optional'` would look
-  // like a user contradiction next to a legacy `requireReview:true`. The
-  // resolver applies the default instead.
+  // schema before `apply()`, so the resolver applies the optional default.
   assert.equal(Config({ review: { mode: 'off' } }).review.mode.get(), 'off')
   assert.equal(Config({}).review.mode.get(), undefined)
-  assert.equal(Config({}).review.requireReview.get(), false)
+  assert.equal(Config.dict.review.dict.requireReview, undefined, 'the removed alias is gone from the schema')
   assert.equal(resolveTowerConfig(Config({})).review.mode, 'optional')
-  // #M40 R46: both review keys must be volatile. The DSH settings form projects
-  // only fields under a `.volatile()` node, so a non-volatile alias would be
-  // hidden from the Plugins page and a legacy-only profile would render as
-  // Optional instead of its resolved Required. The tuning key stays ordinary.
+  // #M40 R46: the review policy must be volatile. The DSH settings form projects
+  // only fields under a `.volatile()` node, so a non-volatile mode would be
+  // hidden from the Plugins page. The tuning key stays ordinary.
   assert.equal(Config.dict.review.dict.mode.meta.volatile, true)
-  assert.equal(Config.dict.review.dict.requireReview.meta.volatile, true)
   assert.equal(Config.dict.review.dict.maxRoundsPerReviewer.meta.volatile, undefined)
   assert.equal(Config.dict.review.meta.volatile, undefined, 'the review group itself is not volatile')
-  // Legacy upgrade through a schema-materialized config: `Config()` fills the
-  // deprecated boolean's default, but the alias must still decide the mode.
-  assert.equal(resolveTowerConfig(Config({ review: { requireReview: true } })).review.mode, 'required')
-  assert.equal(resolveTowerConfig(Config({ review: { requireReview: false } })).review.mode, 'optional')
   // A key one level down is still checked against the review group.
   assert.throws(() => resolveTowerConfig({ review: { require_review: true } }), /config-unknown-key|review\.require_review/)
 })
 
-test('review config: Cordis-materialized shapes resolve without a false contradiction', () => {
-  // #M39 review R44: Cordis resolves the schema before `apply()`, so a profile
-  // that wrote only `review.mode:'required'` reaches the resolver as
-  // `required` + the deprecated boolean's materialized default `false`. That
-  // mirrored `false` is not a user contradiction: the mode is the specific
-  // policy and `false` never overrides it.
+test('review config: a Cordis-materialized mode resolves without a false contradiction', () => {
+  // #M39 review R44: Cordis resolves the schema before `apply()`. A profile that
+  // wrote only `review.mode:'required'` must still resolve to required, and the
+  // resolved shape must be a fixed point after the alias was removed.
   const cordisRequired = Config({ review: { mode: 'required' } })
   assert.equal(cordisRequired.review.mode.get(), 'required')
-  assert.equal(cordisRequired.review.requireReview.get(), false, 'Config materializes the deprecated default')
   const resolvedRequired = resolveTowerConfig(cordisRequired)
-  assert.equal(resolvedRequired.review.mode, 'required', 'mode wins over the materialized false')
-  assert.equal(resolvedRequired.review.requireReview, true, 'the resolved alias mirrors the mode')
+  assert.equal(resolvedRequired.review.mode, 'required')
   assert.deepEqual(resolveTowerConfig(resolvedRequired), resolvedRequired)
 
-  // The same holds for `off`: the materialized false is compatible, not a
-  // conflict, and the fixed point keeps the more specific mode.
   const cordisOff = Config({ review: { mode: 'off' } })
   assert.equal(cordisOff.review.mode.get(), 'off')
-  assert.equal(cordisOff.review.requireReview.get(), false)
   assert.equal(resolveTowerConfig(cordisOff).review.mode, 'off')
-
-  // An explicit `false` next to `required` is accepted too, with `required`
-  // winning; the mode is the specific policy, not the boolean.
-  const explicit = Config({ review: { mode: 'required', requireReview: false } })
-  assert.equal(explicit.review.mode.get(), 'required')
-  assert.equal(explicit.review.requireReview.get(), false, 'explicit false is preserved by the schema')
-  const resolvedExplicit = resolveTowerConfig(explicit)
-  assert.equal(resolvedExplicit.review.mode, 'required')
-  assert.equal(resolvedExplicit.review.requireReview, true)
-  assert.equal(resolveTowerConfig({ review: { mode: 'required', requireReview: false } }).review.mode, 'required')
 })
 
 test('review config: a live volatile write from the settings form reaches every reader', () => {
@@ -205,7 +187,7 @@ test('review config: a live volatile write from the settings form reaches every 
 
   ref[write]('optional')
   assert.equal(runtimeConfig().review.mode, 'optional')
-  assert.equal(runtimeConfig().review.requireReview, false)
+  assert.equal('requireReview' in runtimeConfig().review, false, 'the removed alias is not mirrored')
 
   // The resolved config is a plain snapshot: a later live write does not mutate
   // the value a caller already received.
@@ -236,14 +218,17 @@ test('review config: a repository layer overrides as a whole and cannot re-enabl
   const { root, commonDir } = makeCommonDir()
   try {
     configureRuntime({})
-    writeRepoConfig(commonDir, { review: { requireReview: true } })
-    assert.equal((await resolveRepoConfig({ commonDir })).review.mode, 'required')
+    writeRepoConfig(commonDir, { review: { mode: 'required' } })
+    const resolved = await resolveRepoConfig({ commonDir })
+    assert.equal(resolved.review.mode, 'required')
+    // #F47: the repository layer resolves review.mode only; the retired boolean
+    // alias is not mirrored back into the resolved object.
+    assert.equal('requireReview' in resolved.review, false)
 
     configureRuntime({ review: { mode: 'required' } })
     writeRepoConfig(commonDir, { review: { mode: 'off' } })
     const relaxed = await resolveRepoConfig({ commonDir })
     assert.equal(relaxed.review.mode, 'off')
-    assert.equal(relaxed.review.requireReview, false)
 
     // The profile owns the mounted tool surface: a repository may relax review
     // but cannot raise a mode whose tool was never registered.
@@ -259,10 +244,19 @@ test('review config: a repository layer overrides as a whole and cannot re-enabl
       },
     )
 
-    // A contradictory layer is rejected at read time, before any merge.
+    // The removed alias is rejected at read time, before any merge, with the
+    // upgrade note naming the surviving key.
     configureRuntime({})
-    writeRepoConfig(commonDir, { review: { mode: 'off', requireReview: true } })
-    await assert.rejects(() => resolveRepoConfig({ commonDir }), /review\.mode.*review\.requireReview/)
+    writeRepoConfig(commonDir, { review: { requireReview: true } })
+    await assert.rejects(
+      () => resolveRepoConfig({ commonDir }),
+      (error) => {
+        assert.equal(error.code, 'config-unknown-key')
+        assert.match(error.message, /review\.requireReview/)
+        assert.match(error.message, /review\.mode/)
+        return true
+      },
+    )
   } finally {
     removeTemp(root)
   }

@@ -12,8 +12,10 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { configureRuntime } from '../host/config.js'
 import { Tower } from '../host/tower.js'
 import { withLock } from '../adapters/store.js'
+import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -68,6 +70,27 @@ function backupsFor(tower) {
     .readdirSync(tower.paths.dir)
     .filter((name) => /^state\.json\.v\d+\.bak$/.test(name))
     .sort()
+}
+
+/**
+ * F41: a degraded report must name the resolution failure exactly once, replace
+ * the normal config row instead of duplicating it, and still run the rest of the
+ * read-only diagnostics. The value must stay valid against the declared output
+ * schema.
+ */
+function assertConfigFailure(doctor, doctorTool, { code, detail }) {
+  validateJsonSchema(doctorTool.output.schema, doctor)
+  assert.equal(doctor.ok, false, 'a config-resolution failure must degrade the report, not reject')
+  assert.equal(typeof doctor.configError, 'string')
+  assert.match(doctor.configError, new RegExp(`\\[tower:${code}\\]`))
+  assert.match(doctor.configError, detail)
+  const configRows = doctor.checks.filter((entry) => entry?.id === 'config')
+  assert.equal(configRows.length, 1, 'the normal config row is replaced, not duplicated')
+  assert.equal(configRows[0].status, 'fail')
+  assert.match(configRows[0].detail, new RegExp(`\\[tower:${code}\\]`))
+  assert.match(configRows[0].action, /repair the config/)
+  assert.equal(doctor.checks.find((entry) => entry?.id === 'state')?.status, 'pass')
+  assert.equal(doctor.stateSchema.status, 'current')
 }
 
 test('unreadable state degrades tower_status to a read-only diagnostic and leaves the file untouched', async () => {
@@ -160,6 +183,126 @@ test('unreadable state degrades tower_status to a read-only diagnostic and leave
     const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
     assert.equal(status.counts.planned, 1)
   } finally {
+    removeTemp(root)
+  }
+})
+
+test('F41: an invalid repository config still reaches tower_doctor as a degraded read-only report', async () => {
+  const { root, repo } = seedRepo('dsh-tower-faults-config-')
+  const { tools } = makeCtx()
+  const doctorTool = tools.get('tower_doctor')
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    await tools
+      .get('tower_plan')
+      .execute({ repoRoot: repo, missions: [{ title: 'Config fault fixture', scope: ['src/**'] }] }, exec)
+    const tower = await Tower.open(repo)
+    const configFile = path.join(tower.commonDir, 'dsh-tower', 'config.json')
+    fs.mkdirSync(path.dirname(configFile), { recursive: true })
+    const stateBefore = fs.readFileSync(tower.paths.state, 'utf8')
+    const variants = [
+      { label: 'invalid JSON', text: '{ "spawn": ', code: 'config-invalid', detail: /not valid JSON/ },
+      {
+        label: 'unknown key',
+        text: JSON.stringify({ allowAgentToggle: true }),
+        code: 'config-unknown-key',
+        detail: /unknown key/,
+      },
+      {
+        label: 'invalid value',
+        text: JSON.stringify({ merge: { timeoutMs: 5 } }),
+        code: 'config-invalid',
+        detail: /is invalid/,
+      },
+    ]
+    for (const variant of variants) {
+      fs.writeFileSync(configFile, variant.text)
+      const doctor = await doctorTool.execute({ repoRoot: repo }, exec)
+      assertConfigFailure(doctor, doctorTool, variant)
+      assert.equal(doctor.environmentContract.repoRoot, repo)
+      // Read-only means byte-identical: no state rewrite, no migration backup,
+      // and no normalisation of the broken config file.
+      assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), stateBefore, `${variant.label}: state must be untouched`)
+      assert.equal(fs.readFileSync(configFile, 'utf8'), variant.text, `${variant.label}: config must be untouched`)
+      assert.deepEqual(backupsFor(tower), [], `${variant.label}: no migration may run`)
+      // Only the config-diagnostic row degrades; every other tool fails closed.
+      const codePattern = new RegExp(`\\[tower:${variant.code}\\]`)
+      await assert.rejects(
+        () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+        codePattern,
+        `${variant.label}: status must report the config error`,
+      )
+      await assert.rejects(
+        () =>
+          tools
+            .get('tower_plan')
+            .execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['x/**'] }] }, exec),
+        codePattern,
+        `${variant.label}: plan must report the config error`,
+      )
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('F41: an invalid profile config degrades tower_doctor while writers stay closed', async () => {
+  const { root, repo } = seedRepo('dsh-tower-faults-profile-')
+  const { tools } = makeCtx()
+  const doctorTool = tools.get('tower_doctor')
+  try {
+    // configureRuntime() assigns the raw profile before it validates it, so a
+    // rejected plugin config (or a live `.volatile()` settings write) leaves an
+    // unresolvable profile behind — the second F41 seam.
+    configureRuntime({})
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    await tools
+      .get('tower_plan')
+      .execute({ repoRoot: repo, missions: [{ title: 'Profile fault fixture', scope: ['src/**'] }] }, exec)
+    const tower = await Tower.open(repo)
+    const stateBefore = fs.readFileSync(tower.paths.state, 'utf8')
+    const configFile = path.join(tower.commonDir, 'dsh-tower', 'config.json')
+    const variants = [
+      { label: 'unknown key', raw: { allowAgentToggle: true }, code: 'config-unknown-key', detail: /unknown key/ },
+      { label: 'invalid value', raw: { merge: { timeoutMs: 5 } }, code: 'config-invalid', detail: /is invalid/ },
+    ]
+    for (const variant of variants) {
+      let rejected = null
+      try {
+        configureRuntime(variant.raw)
+      } catch (error) {
+        rejected = error
+      }
+      assert.equal(rejected?.code, variant.code, `${variant.label}: configureRuntime must reject the profile`)
+      try {
+        const doctor = await doctorTool.execute({ repoRoot: repo }, exec)
+        assertConfigFailure(doctor, doctorTool, variant)
+        assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), stateBefore, `${variant.label}: state must be untouched`)
+        assert.equal(fs.existsSync(configFile), false, `${variant.label}: the doctor must not create a repo config`)
+        const codePattern = new RegExp(`\\[tower:${variant.code}\\]`)
+        await assert.rejects(() => tools.get('tower_status').execute({ repoRoot: repo }, exec), codePattern)
+        await assert.rejects(
+          () =>
+            tools
+              .get('tower_plan')
+              .execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['y/**'] }] }, exec),
+          codePattern,
+        )
+      } finally {
+        configureRuntime({})
+      }
+    }
+    // A resolvable profile restores the healthy report.
+    // A resolvable profile restores the ordinary report: the degraded marker is
+    // gone and the config row is no longer a hard failure. (The report as a
+    // whole can still be `ok:false` for unrelated environment checks in this
+    // mock host, so assert on the config row rather than `ok`.)
+    const healthy = await doctorTool.execute({ repoRoot: repo }, exec)
+    validateJsonSchema(doctorTool.output.schema, healthy)
+    assert.equal(healthy.configError, undefined)
+    assert.notEqual(healthy.checks.find((entry) => entry.id === 'config')?.status, 'fail')
+  } finally {
+    configureRuntime({})
     removeTemp(root)
   }
 })

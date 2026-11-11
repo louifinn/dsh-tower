@@ -5,7 +5,8 @@
 // resolve a shape through `./index.js` and never compare `mission.kind`.
 // @ts-check
 import { TowerToolError } from '../errors.js'
-import { hasCheckEvidence } from '../evidence.js'
+import { blocker } from './blockers.js'
+import { baseCompletionBlockers, completionInvariants } from './completion.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
@@ -105,35 +106,14 @@ export function checkCompletion({ mission, commits, clean, dirtyPaths }) {
  * @returns {Blocker[]}
  */
 export function completionBlockers(mission, config = /** @type {TowerConfig} */ ({})) {
-  /** @type {Blocker[]} */
-  const blockers = []
+  const blockers = baseCompletionBlockers(mission, config, EVIDENCE)
   if (isTerminal(mission.status)) {
-    blockers.push({
-      code: 'branch-owned-by-closed-missions',
-      detail: `mission ${mission.id} is ${mission.status}; a merge never flips a closed mission — re-plan the work under a new title`,
-    })
-  }
-  if (mission.status !== 'completed') {
-    blockers.push({
-      code: 'mission-not-completed',
-      detail:
-        mission.status === 'blocked'
-          ? `mission ${mission.id} is blocked: ${(mission.blockers ?? []).join('; ')}; clear the blockers to resume it`
-          : `mission ${mission.id} is ${mission.status}; completion is required`,
-    })
-  }
-  const open = (mission.tasks ?? []).filter((task) => task.status === 'open')
-  if (open.length > 0) {
-    blockers.push({ code: 'tasks-open', detail: `${open.length} open task(s): ${open.map((task) => task.text).join('; ')}` })
-  }
-  if ((mission.blockers ?? []).length > 0) {
-    blockers.push({ code: 'blockers-present', detail: (mission.blockers ?? []).join('; ') })
-  }
-  if (config.gates?.requireChecks && !hasCheckEvidence(EVIDENCE, mission)) {
-    blockers.push({
-      code: 'no-check-evidence',
-      detail: `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`,
-    })
+    blockers.unshift(
+      blocker(
+        'branch-owned-by-closed-missions',
+        `mission ${mission.id} is ${mission.status}; a merge never flips a closed mission — re-plan the work under a new title`,
+      ),
+    )
   }
   return blockers
 }
@@ -237,14 +217,14 @@ export const buildShape = Object.freeze({
   acceptsResult: false,
   evidence: EVIDENCE,
   planFields,
-  completion: Object.freeze({
-    requiresWorktree: true,
-    requiresCommits: true,
-    requiresClean: true,
-    requiresHeadMatch: false,
-    requiresTrackedStatus: false,
-    check: /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
-  }),
+  completion: completionInvariants(
+    {
+      requiresWorktree: true,
+      requiresCommits: true,
+      requiresClean: true,
+    },
+    /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
+  ),
   completionBlockers,
   dependencySatisfied,
   spawn,

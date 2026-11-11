@@ -11,7 +11,7 @@
 // placement enforces the fingerprint as a completion invariant.
 // @ts-check
 import { TowerToolError } from '../errors.js'
-import { hasCheckEvidence } from '../evidence.js'
+import { baseCompletionBlockers, completionInvariants } from './completion.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').Blocker} Blocker */
@@ -184,26 +184,23 @@ export function resolvePreset(mission, config = /** @type {TowerConfig} */ ({}))
 }
 
 /** Shared-checkout completion invariants (the default placement). */
-const SHARED_COMPLETION = Object.freeze({
-  requiresWorktree: false,
-  requiresSandbox: false,
-  requiresCommits: false,
-  requiresClean: false,
-  requiresHeadMatch: true,
-  requiresTrackedStatus: true,
-  check: /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
-})
+const SHARED_COMPLETION = completionInvariants(
+  {
+    requiresHeadMatch: true,
+    requiresTrackedStatus: true,
+  },
+  /** @type {(ctx: any) => { commits: number }} */ (checkCompletion),
+)
 
 /** Detached-sandbox completion invariants. */
-const SANDBOX_COMPLETION = Object.freeze({
-  requiresWorktree: false,
-  requiresSandbox: true,
-  requiresCommits: true,
-  requiresClean: false,
-  requiresHeadMatch: true,
-  requiresTrackedStatus: false,
-  check: /** @type {(ctx: any) => { commits: number }} */ (checkSandboxCompletion),
-})
+const SANDBOX_COMPLETION = completionInvariants(
+  {
+    requiresSandbox: true,
+    requiresCommits: true,
+    requiresHeadMatch: true,
+  },
+  /** @type {(ctx: any) => { commits: number }} */ (checkSandboxCompletion),
+)
 
 /**
  * The completion invariants for the checkout the mission was provisioned in.
@@ -229,31 +226,7 @@ export function resolveCompletion(mission, _config = /** @type {TowerConfig} */ 
  * @returns {Blocker[]}
  */
 export function completionBlockers(mission, config = /** @type {TowerConfig} */ ({})) {
-  /** @type {Blocker[]} */
-  const blockers = []
-  if (mission.status !== 'completed') {
-    blockers.push({
-      code: 'mission-not-completed',
-      detail:
-        mission.status === 'blocked'
-          ? `mission ${mission.id} is blocked: ${(mission.blockers ?? []).join('; ')}; clear the blockers to resume it`
-          : `mission ${mission.id} is ${mission.status}; completion is required`,
-    })
-  }
-  const open = (mission.tasks ?? []).filter((task) => task.status === 'open')
-  if (open.length > 0) {
-    blockers.push({ code: 'tasks-open', detail: `${open.length} open task(s): ${open.map((task) => task.text).join('; ')}` })
-  }
-  if ((mission.blockers ?? []).length > 0) {
-    blockers.push({ code: 'blockers-present', detail: (mission.blockers ?? []).join('; ') })
-  }
-  if (config.gates?.requireChecks && !hasCheckEvidence(EVIDENCE, mission)) {
-    blockers.push({
-      code: 'no-check-evidence',
-      detail: `mission ${mission.id} has no completion checks; gates.requireChecks is enabled`,
-    })
-  }
-  return blockers
+  return baseCompletionBlockers(mission, config, EVIDENCE)
 }
 
 /**

@@ -114,15 +114,11 @@ runProperty({
     assert.ok(Array.isArray(resolved.mode.denyTools) && resolved.mode.denyTools.length > 0, 'denyTools is always populated')
     assert.equal(typeof resolved.mode.promptSection, 'string', 'mode.promptSection is always a string')
     assert.equal(resolved.section, resolved.mode.promptSection, 'section mirrors promptSection')
-    // #M39: `review.mode` is always one of the three documented values, and the
-    // deprecated boolean mirror is exactly `mode === 'required'` — the invariant
-    // that makes a second resolution a fixed point.
+    // #M39/#M66: `review.mode` is always one of the three documented values, and
+    // the resolved shape carries no alias mirror any more: the one-release
+    // `review.requireReview` boolean was removed in 2.8.0.
     assert.ok(['off', 'optional', 'required'].includes(resolved.review.mode), 'review.mode resolves to one of the three modes')
-    assert.equal(
-      resolved.review.requireReview,
-      resolved.review.mode === 'required',
-      'the deprecated alias mirrors review.mode',
-    )
+    assert.equal('requireReview' in resolved.review, false, 'the removed alias is not materialized')
   },
 })
 
@@ -147,7 +143,7 @@ runProperty({
     assert.equal(resolved.section, '')
     assert.equal(resolved.gates.requireTests, false)
     assert.equal(resolved.tests.admission, 'off')
-    assert.equal(resolved.review.requireReview, false)
+    assert.equal('requireReview' in resolved.review, false)
     assert.equal(resolved.review.mode, 'optional', 'the documented default review policy is optional')
   },
 })
@@ -231,6 +227,27 @@ runProperty({
       () => resolveTowerConfig({ gates: { requireTests: true }, tests: { enabled } }),
       'config-unknown-key',
       /tests\.enabled/,
+    )
+  },
+})
+
+runProperty({
+  name: 'config rejection: the removed review.requireReview alias is rejected as an unknown key (#M66)',
+  arbitrary: fc.record(
+    {
+      mode: fc.option(fc.constantFrom('off', 'optional', 'required'), { nil: undefined }),
+      requireReview: fc.boolean(),
+    },
+    { requiredKeys: ['requireReview'] },
+  ),
+  predicate: (review) => {
+    // 2.8.0 retired the one-release boolean alias. It must fail loudly with the
+    // dated upgrade note naming review.mode, never resolve to a silently
+    // different review posture.
+    assertRejects(
+      () => resolveTowerConfig({ review }),
+      'config-unknown-key',
+      /review\.requireReview.*removed on 2026-11-11[\s\S]*review\.mode/,
     )
   },
 })

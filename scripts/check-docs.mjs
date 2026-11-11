@@ -5,6 +5,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EVENT_COUNT, LEGACY_TOOL_EVENT_NAMES } from '../domain/events.js'
+import { ERROR_CODES } from '../domain/errors.js'
+import { BLOCKER_CODE_VALUES } from '../domain/shapes/blockers.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
@@ -23,44 +25,12 @@ const toolNames = [...new Set([...toolsSource.matchAll(/name: '(tower_[a-z_]+)'/
   .sort()
 const missingTools = toolNames.filter((name) => !documentedTools.includes(`\`${name}\``))
 
-const towerSource = read('app/tower.js')
+// #M62 W2-A: the blocker vocabulary has one registry (the same module the
+// generated reference renders from). This gate no longer greps app/tower.js or
+// carries a second list, so adding a registry entry is the only way to add a
+// documented code, and it cannot be missed here.
 const blockersSource = read('docs/reference/blockers.md')
-const blockerCodes = new Set()
-for (const match of towerSource.matchAll(/push\(\s*'([a-z][a-z-]+)'/g)) blockerCodes.add(match[1])
-for (const code of [
-  'mission-missing',
-  'mission-not-completed',
-  'tasks-open',
-  'blockers-present',
-  'branch-missing',
-  'stale-base',
-  'out-of-scope',
-  'base-dirty',
-  'deps-unmerged',
-  'survey-stale',
-  'no-review',
-  'review-mission-mismatch',
-  'not-clean',
-  'review-hold',
-  'review-not-approved',
-  'tip-moved',
-  'worker-busy',
-  'base-wrong-branch',
-  'branch-owned-by-closed-missions',
-  'merge-conflict',
-  'merge-hook-failed',
-  'merge-shape',
-  'rebase-conflict',
-  'worktree-dirty',
-  'no-check-evidence',
-  'worker-stale',
-  'worker-status-unknown',
-  'tests-missing',
-  'tests-failed',
-  'review-exemption-invalid',
-  'merge-intent-pending',
-  'batch-invalid',
-]) blockerCodes.add(code)
+const blockerCodes = new Set(BLOCKER_CODE_VALUES)
 const missingBlockers = [...blockerCodes].filter((code) => !blockersSource.includes(`\`${code}\``)).sort()
 
 // #75: the legacy alias list comes from the same event table the generated
@@ -69,9 +39,10 @@ const eventNames = LEGACY_TOOL_EVENT_NAMES.map((name) => name.replace(/^tower\//
 const documentedEvents = read('docs/reference/events.md')
 const missingEvents = eventNames.filter((name) => !documentedEvents.includes(`\`tower/${name}\``))
 
-const errorsSource = read('domain/errors.js')
+// #M62 W2-A: import the catalogue instead of re-parsing domain/errors.js;
+// the same object feeds the generated error reference.
 const documentedErrors = read('docs/reference/errors.md')
-const errorCodes = [...new Set([...errorsSource.matchAll(/^ {2}'([a-z][a-z-]+)':/gm)].map((match) => match[1]))].sort()
+const errorCodes = Object.keys(ERROR_CODES).sort()
 const missingErrors = errorCodes.filter((code) => !documentedErrors.includes(`\`${code}\``))
 
 const packageJson = JSON.parse(read('package.json'))
@@ -85,13 +56,13 @@ if (missingErrors.length > 0) problems.push(`docs/reference/errors.md misses cod
 if (missingEvents.length > 0) problems.push(`docs/reference/events.md misses events: ${missingEvents.join(', ')}`)
 if (missingChangelog) problems.push(`CHANGELOG.md misses version ${packageJson.version}`)
 
-// Counts and high-risk defaults are part of the contract, not just names.
+// Counts are part of the contract, not just names. The config reference and
+// its defaults are owned by scripts/check-config-reference.mjs (#M64): this file
+// must not restate config keys, because the Schemastery tree is the source.
 const toolsDoc = read('docs/reference/tools.md')
 const blockersDoc = read('docs/reference/blockers.md')
 const errorsDoc = read('docs/reference/errors.md')
 const eventsDoc = read('docs/reference/events.md')
-const configDoc = read('docs/reference/config.md')
-const zhConfigDoc = read('docs/zh/reference/config.md')
 if (!toolsDoc.includes(`up to ${toolNames.length} tools`)) {
   problems.push(`docs/reference/tools.md must state "up to ${toolNames.length} tools"`)
 }
@@ -103,17 +74,6 @@ if (!errorsDoc.includes(`${errorCodes.length} tool error codes`)) {
 }
 if (!eventsDoc.includes(`${EVENT_COUNT} process-local events`)) {
   problems.push(`docs/reference/events.md must state ${EVENT_COUNT} process-local events`)
-}
-for (const required of [
-  '| `tests.admission` | `off` |',
-  '| `review.requireReview` | `false` |',
-  '| `mode.allowAgentControl` | `true` |',
-  '| `git.timeoutMs` | `15000` |',
-]) {
-  if (!configDoc.includes(required)) problems.push(`docs/reference/config.md misses required default: ${required}`)
-}
-if (!zhConfigDoc.includes('| `tests.admission` | `off` |')) {
-  problems.push('docs/zh/reference/config.md misses the tests.admission default')
 }
 
 // Chinese parity: when the translation tree exists it must cover the same

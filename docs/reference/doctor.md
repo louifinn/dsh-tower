@@ -8,17 +8,17 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 15 · tools: 29 (baseline 2026-10-23)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 55 · sections: 15 · tools: 29 (baseline 2026-10-23)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 57,
+    "configKeys": 55,
     "sections": 15,
     "tools": 29,
     "baselineDate": "2026-10-23",
-    "line": "config keys: 57 · sections: 15 · tools: 29"
+    "line": "config keys: 55 · sections: 15 · tools: 29"
   },
   "stateLock": {
     "held": true,
@@ -81,6 +81,44 @@ It returns:
 }
 ```
 
+### When config resolution fails
+
+Doctor is the one diagnostic that stays reachable when the configuration cannot be resolved: an unknown
+key, an invalid value, or an unreadable/corrupt repository config. Every other tool opens the Tower
+first, so config resolution runs before the handler and the call fails closed. For `tower_doctor` only,
+`config-invalid`/`config-unknown-key` from that open path is not rethrown: the call continues with an
+anonymous actor, the handler opens the repository without the layer that failed, and it returns a
+degraded report instead:
+
+```json
+{
+  "ok": false,
+  "configError": "[tower:config-unknown-key] Tower config has unknown key(s) ...",
+  "checks": [
+    {
+      "id": "config",
+      "status": "fail",
+      "detail": "[tower:config-unknown-key] Tower config has unknown key(s) ...",
+      "action": "repair the config named in the detail (profile config or <git-common-dir>/dsh-tower/config.json), then re-run tower_doctor"
+    },
+    { "id": "state", "status": "pass", "detail": ".../state.json revision 7" }
+  ]
+}
+```
+
+`configError` carries the resolution error verbatim, and the `config` check is replaced (never
+duplicated) with a `fail` whose `detail` is the same error and whose `action` names the repair. The rest
+of the report is still computed without the failed layer: the profile config when it still resolves,
+otherwise the code defaults. The call is read-only: it never writes, never
+migrates, and does not normalise `<git-common-dir>/dsh-tower/config.json`. The doctor row also skips the
+lazy workspace-lock hook, which would resolve the config it just reported and could acquire a lock; a
+read-only diagnostic must not write.
+
+The exception is opt-in per authorization-matrix row (`configDiagnostic: true`, set only on the public
+`tower_doctor` row). `tower_status`, `tower_plan`, every writer and every other read-only tool still fail
+closed with `[tower:config-invalid]`/`[tower:config-unknown-key]`, so a broken config is never reported
+as a healthy repository.
+
 `surface` (and the `surface` check) reports the concept budget in the same format
 as the generated references: `config keys: N · sections: N · tools: N`, plus the
 committed baseline date from `scripts/surface-baseline.json`. The counts are live:
@@ -142,10 +180,6 @@ missions stay hot and `state.json` keeps growing. A missing archive directory is
 paused until it is repaired rather than overwriting it. Nothing is lost while the archive is unreadable:
 the eligible missions stay in `state.json`.
 
-Checks cover: git availability, repository identity, state schema/load, repo config presence,
-worker/reviewer preset names, subagents and HMR services, workspace lock holder/staleness, live roster,
-worktree existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy`nsnapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the check`nnotes the removed count) instead of being reported as missing.
-
 `caseInsensitive` is the mode `tower_init` detected once on the checkout's filesystem; `null` means
 "not detected yet" and the `case-mode` check is a `warn`. `comparisonMode` is the comparison scope
 matching actually uses: `case-insensitive` folds both sides, `case-sensitive` stays byte-exact. Doctor
@@ -155,9 +189,10 @@ applies.
 
 Checks cover: git availability, repository identity, state schema/load, the detected case mode, repo
 config presence, worker/reviewer preset names, subagents and HMR services, state lock age/heartbeat,
-workspace lock holder/staleness, live roster, worktree existence/ownership/dirtiness, test-discovery policy, legacy
-snapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the
-check notes the removed count) instead of being reported as missing.
+workspace lock holder/staleness, live roster, worktree existence/ownership/dirtiness, test-discovery policy,
+completion-report sizes, archive health, legacy snapshots, batches and leases. Missions intentionally
+cleaned up by `tower_teardown` are skipped (the check notes the removed count) instead of being reported as
+missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,

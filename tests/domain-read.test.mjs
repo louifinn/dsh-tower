@@ -199,6 +199,24 @@ test('mission-detail projection filters findings/activity and sorts reviews', ()
   assert.equal(view.mission.id, 'M1')
 })
 
+test('mission-detail reviews use the shared newest-first order inside one round', () => {
+  const target = mission({ id: 'M1', worktree: { path: '/wt', branch: 'tower/m1', baseCommit: 'b' } })
+  // Append order is the audit trail: the stale route was recorded first.
+  const stored = Object.freeze([
+    Object.freeze(
+      review({ id: 'R1', seq: 1, status: 'p1-1items', mergeVerdict: 'fix-then-merge' }),
+    ),
+    Object.freeze(review({ id: 'R2', seq: 2, status: 'clean', mergeVerdict: 'merge' })),
+  ])
+  const view = missionDetailView({ state: { reviews: stored }, mission: target, activity: [] })
+  assert.deepEqual(view.reviews.map((entry) => entry.id), ['R2', 'R1'])
+  assert.deepEqual(
+    stored.map((entry) => entry.id),
+    ['R1', 'R2'],
+    'the detail projection must not reorder the ledger',
+  )
+})
+
 test('diff projection applies the byte limit and truncation flag', () => {
   const patch = 'x'.repeat(70 * 1024)
   const base = {

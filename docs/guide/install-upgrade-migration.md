@@ -29,6 +29,14 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.7.0 → 2.8.0 (#M66) — `review.requireReview` is removed**: the one-release boolean alias
+  introduced in 2.6.0 no longer exists. `review.mode` (`off`, `optional` or `required`) is the only
+  review policy key; a profile or repository config that still writes `review.requireReview` is
+  rejected as `config-unknown-key` with a dated note that names `review.mode` and the mapping
+  (`true` → `required`, `false` → `optional`) as the remedy. The three modes resolve exactly as
+  before, so there is no state or review-policy migration; the config key count drops 56 → 55.
+  Saving from the plugin page writes only `review.mode`, and the doctor now reports a profile that
+  never pinned `review.mode` instead of normalizing an alias.
 - **2.6.0 → 2.7.0 (#148/#149) — mission shapes, survey tasks, and state schema v5**: a completed
   survey is a read of a commit, not a write of a branch. `tower_plan({kind:"survey"})` records
   `readCommit` and `readDirty`, creates no branch or worktree, and completes only while HEAD and the
@@ -74,9 +82,9 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   A profile that starts with the policy `off` never registered `tower_review`; switching to
   `optional` or `required` changes the merge gate immediately, but the tool appears only after a DSH
   restart (or a profile reload), and the plugin page states that after such a save.
-  Upgrade: replace `review.requireReview: true|false` with `review.mode: required|optional`; keep the
-  alias only if the same config is shared with older 2.5 installations, and remove it after this
-  release. No state migration.
+  Upgrade: replace `review.requireReview: true|false` with `review.mode: required|optional`. The
+  alias was accepted for one release only and is removed in 2.8.0 (see the 2.7.0 → 2.8.0 note); a
+  config that keeps it is rejected rather than silently resolved. No state migration.
 
 - **2.4.2 → 2.5.0 (#131/#133/#135/#136/#142)**: three component-shaped config
   keys are gone — `tests.enabled`, `docs.board`, and `archive.enabled`. The
@@ -138,8 +146,9 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   runs `npm publish --tag next`, and `latest` stays on 2.0.4 until a stable release.
 - **2.0.3 → 2.0.4**: no state/config migration. This is a security-hardening and integrity release
   (authorization, merge SHA binding, dirty-worktree completion, stale-lock recovery, limited test/git
-  process environment, `tower_recover`, UI 0.2.2). Review the review policy (`review.mode`, or the
-  deprecated `review.requireReview` alias), `tests.admission` and worker tool permissions against your
+  process environment, `tower_recover`, UI 0.2.2). Review the review policy (`review.mode`; the
+  deprecated `review.requireReview` alias was removed in 2.8.0), `tests.admission` and worker tool
+  permissions against your
   threat model after upgrading.
 - **2.0.1 → 2.0.3**: no state migration. Independent review became **optional by default** in 2.0.3
   (today's `review.mode:optional`); set `review.mode:required` to keep the old review-gated merges.

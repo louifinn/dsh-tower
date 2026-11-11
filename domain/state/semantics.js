@@ -176,6 +176,15 @@ export function assertStateSemantics(state, where) {
       if (!MERGE_VERDICTS.includes(review.mergeVerdict)) {
         fail(`review ${review.id} has unknown merge verdict ${review.mergeVerdict}${where}`)
       }
+      // Round/sequence are the two recency keys the shared review resolver reads
+      // (round first, then the submission sequence inside one round). A row that
+      // carries a malformed key would silently sort as revision 0.
+      if (review.round !== undefined && (!Number.isInteger(review.round) || review.round < 1)) {
+        fail(`review ${review.id} has invalid round ${review.round}${where}`)
+      }
+      if (review.seq !== undefined && (!Number.isInteger(review.seq) || review.seq < 0)) {
+        fail(`review ${review.id} has invalid sequence ${review.seq}${where}`)
+      }
     }
   }
   // Batches have their own generic lifecycle (#149 W3), not a mission shape. The

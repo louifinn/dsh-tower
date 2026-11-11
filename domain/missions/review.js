@@ -6,6 +6,7 @@
 // @ts-check
 import { TowerToolError } from '../errors.js'
 import { reviewedEvent } from '../events.js'
+import { latestReview, reviewsForBranch } from '../integration/review.js'
 import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 import { isReviewerRole } from '../roles.js'
 
@@ -94,26 +95,15 @@ export function normalizeReviewVerdict(input) {
 }
 
 /**
- * The latest review of one branch. Higher rounds win; routes that share a round
- * are ordered by submission sequence, so "latest" is the most recently recorded
- * verdict (#108).
- * @param {Review[]} reviews
- * @returns {Review | null}
+ * The recency round recorded on a review row, or 0 when a legacy row predates
+ * the key. State semantics keep rows without `round` readable (schema v5), and
+ * the shared resolver already coalesces the key the same way; the round
+ * accounting must not turn a missing key into `NaN`.
+ * @param {Review} review
+ * @returns {number}
  */
-function latestBranchReview(reviews) {
-  /** @type {Review | null} */
-  let latest = null
-  for (const review of reviews) {
-    if (!latest) {
-      latest = review
-      continue
-    }
-    const round = Number(review.round) || 0
-    const latestRound = Number(latest.round) || 0
-    if (round > latestRound) latest = review
-    else if (round === latestRound && (Number(review.seq) || 0) > (Number(latest.seq) || 0)) latest = review
-  }
-  return latest
+function storedReviewRound(review) {
+  return Number(review.round) || 0
 }
 
 /**
@@ -123,6 +113,10 @@ function latestBranchReview(reviews) {
  * reviewed: the first non-clean verdict already returned it to `active`, and the
  * remaining routes spawned against the same tip must still record their
  * verdicts. A verdict for a tip that moved is rejected with an explanation.
+ *
+ * A legacy latest row without a `round` is treated as round 0: it appends to the
+ * recorded (round-less) round and `reviewRound` opens the next positive round
+ * rather than persisting 0 or `NaN`.
  * @param {{ mission: Mission, reviews: Review[] | undefined, branch: string, tip: string }} params
  * @returns {{ appended: boolean, round: number | null }}
  */
@@ -131,26 +125,30 @@ export function reviewAdmission({ mission, reviews, branch, tip }) {
   if (mission.status !== 'active') {
     fail(`mission ${mission.id} is ${mission.status}; only a completed mission can be reviewed`)
   }
-  const latest = latestBranchReview((reviews ?? []).filter((review) => review.branch === branch))
+  // The same resolver the merge gate and the read projections use: the most
+  // recently recorded verdict of the highest round, then its next tip check.
+  const latest = latestReview(reviewsForBranch(reviews, branch))
   if (!latest) {
     fail(`mission ${mission.id} is active and has no review round to append to; only a completed mission can be reviewed`)
   }
+  const latestRound = storedReviewRound(latest)
+  const roundText = latestRound > 0 ? `round ${latestRound}` : 'the recorded round (legacy row without a round)'
   if (latest.reviewedCommit !== tip) {
     const cause =
       latest.status === 'clean'
         ? 'the reviewed tip moved'
-        : `review round ${latest.round} (${latest.status}) returned it to active and the reviewed tip moved`
+        : `review ${roundText} (${latest.status}) returned it to active and the reviewed tip moved`
     fail(
-      `mission ${mission.id} is active: ${cause} (${String(latest.reviewedCommit).slice(0, 7)} -> ${tip.slice(0, 7)}); only review routes for the same reviewed tip can append to round ${latest.round} — return the mission to completed before starting a new round`,
+      `mission ${mission.id} is active: ${cause} (${String(latest.reviewedCommit).slice(0, 7)} -> ${tip.slice(0, 7)}); only review routes for the same reviewed tip can append to ${roundText} — return the mission to completed before starting a new round`,
     )
   }
-  return { appended: true, round: latest.round }
+  return { appended: true, round: latestRound }
 }
 
 /**
  * Compute the review round and enforce the per-reviewer cap. `round` joins the
- * round `reviewAdmission` selected for an appended route; omitted, the
- * submission opens the next round.
+ * round `reviewAdmission` selected for an appended route; omitted (or 0/absent
+ * for a legacy row) the submission opens the next round.
  * @param {{ reviews: Review[] | undefined, branch: string, reviewerName: string, maxRoundsPerReviewer: unknown, round?: number | null }} params
  * @returns {{ reviewerRounds: number, round: number }}
  */
@@ -163,11 +161,10 @@ export function reviewRound({ reviews, branch, reviewerName, maxRoundsPerReviewe
       `reviewer ${reviewerName} reached the ${maxReviewRounds}-round cap for ${branch}; continue with a different reviewer`,
     )
   }
-  const round = Number.isInteger(sharedRound)
-    ? /** @type {number} */ (sharedRound)
-    : prior.length === 0
-      ? 1
-      : Math.max(...prior.map((review) => review.round)) + 1
+  const round =
+    typeof sharedRound === 'number' && Number.isInteger(sharedRound) && sharedRound > 0
+      ? sharedRound
+      : Math.max(0, ...prior.map(storedReviewRound)) + 1
   return { reviewerRounds, round }
 }
 
