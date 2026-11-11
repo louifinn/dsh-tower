@@ -112,6 +112,9 @@ test('scope: a case-mismatched source fails on a case-sensitive checkout and pas
     scope: ['src/**'],
   })
   try {
+    // On a case-sensitive filesystem `SRC/` and `src/` are different
+    // directories, so `git mv` needs the destination directory to exist.
+    fs.mkdirSync(path.join(ctx.wt, 'src'), { recursive: true })
     git(ctx.wt, ['mv', 'SRC/旧.txt', 'src/new.txt'])
     git(ctx.wt, ['commit', '-m', 'rename from case-mismatched directory'])
 
