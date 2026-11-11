@@ -87,7 +87,8 @@ Doctor is the one diagnostic that stays reachable when the configuration cannot 
 key, an invalid value, or an unreadable/corrupt repository config. Every other tool opens the Tower
 first, so config resolution runs before the handler and the call fails closed. For `tower_doctor` only,
 `config-invalid`/`config-unknown-key` from that open path is not rethrown: the call continues with an
-anonymous actor, the handler runs on the code defaults, and it returns a degraded report instead:
+anonymous actor, the handler opens the repository without the layer that failed, and it returns a
+degraded report instead:
 
 ```json
 {
@@ -107,7 +108,8 @@ anonymous actor, the handler runs on the code defaults, and it returns a degrade
 
 `configError` carries the resolution error verbatim, and the `config` check is replaced (never
 duplicated) with a `fail` whose `detail` is the same error and whose `action` names the repair. The rest
-of the report is still computed on the code defaults. The call is read-only: it never writes, never
+of the report is still computed without the failed layer: the profile config when it still resolves,
+otherwise the code defaults. The call is read-only: it never writes, never
 migrates, and does not normalise `<git-common-dir>/dsh-tower/config.json`. The doctor row also skips the
 lazy workspace-lock hook, which would resolve the config it just reported and could acquire a lock; a
 read-only diagnostic must not write.

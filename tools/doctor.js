@@ -61,7 +61,7 @@ export function registerDoctorTool(ctx, deps) {
     // F41: a config-resolution failure must not fail the call in the tool-registry
     // open path. The public row declares the config-diagnostic contract (see
     // host/authorization.js), so an unresolved profile/repo config reaches this
-    // handler, which opens the repository read-only with code defaults and
+    // handler, which opens the repository read-only without the failed layer and
     // reports the failure as a failed `config` check instead.
     async execute(args, exec) {
       let tower
