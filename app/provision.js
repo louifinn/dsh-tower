@@ -153,13 +153,18 @@ async function actProvision(tower, prepared) {
       if (await tower.deps.store.exists(prepared.wtPath)) fail(`sandbox path already exists: ${prepared.wtPath}`)
       // `--detach` creates no branch: the sandbox is a read-only commit checkout
       // that the agent may dirty, and it never participates in merge/stale-base.
-      await tower.git(tower.root, ['worktree', 'add', '--detach', prepared.wtPath, prepared.readCommit])
+      // The add itself is inside the rollback path: git can create and register
+      // the checkout and still fail (a post-checkout hook, a checkout error),
+      // and a leftover path would wedge every re-provision on the existence
+      // check above (#M65 R1 P1).
       try {
+        await tower.git(tower.root, ['worktree', 'add', '--detach', prepared.wtPath, prepared.readCommit])
         await tower.ensureExcluded(prepared.wtPath)
       } catch (error) {
-        // The sandbox exists but its supporting workflow failed. Remove only the
-        // checkout this call just created (the path/branch existence checks ran
-        // immediately above) so a failure never wedges a re-provision.
+        // The sandbox may exist but its creation/supporting workflow failed.
+        // Remove only the checkout this call just created (the path existence
+        // check ran immediately above, under the git mutex) so a failure never
+        // wedges a re-provision.
         await removeCreatedCheckout(tower, prepared)
         throw error
       }
@@ -173,8 +178,12 @@ async function actProvision(tower, prepared) {
     if ((await tower.tryGit(tower.root, ['show-ref', '--verify', '--quiet', `refs/heads/${prepared.branch}`])) !== null) {
       fail(`branch already exists: ${prepared.branch}`)
     }
-    await tower.git(tower.root, ['worktree', 'add', '-b', prepared.branch, prepared.wtPath, prepared.baseCommit])
+    // The add itself is inside the rollback path: git creates the branch and
+    // the registered checkout before its final steps, so an add failure can
+    // leave either behind (#M65 R1 P1). The precheck above ran under the git
+    // mutex, so whatever this call finds afterwards is its own.
     try {
+      await tower.git(tower.root, ['worktree', 'add', '-b', prepared.branch, prepared.wtPath, prepared.baseCommit])
       await tower.ensureExcluded(prepared.wtPath)
       const worktree = worktreeRecord({
         path: prepared.wtPath,
@@ -185,9 +194,7 @@ async function actProvision(tower, prepared) {
       })
       return { phase: 'created', worktree }
     } catch (error) {
-      // Everything before `worktree add` proved the path and branch were free,
-      // so both artifacts belong to this call. A partial creation must not leave
-      // an unrecorded worktree/branch behind.
+      // A partial creation must not leave an unrecorded worktree/branch behind.
       await removeCreatedCheckout(tower, prepared)
       throw error
     }
@@ -248,18 +255,32 @@ async function commitProvision(tower, prepared, acted) {
 }
 
 /**
- * Remove a checkout this provision call created. No lock is taken here: the act
- * phase already holds the git mutex, and `rollbackProvision` takes it for the
- * commit phase. Each step is best-effort so a failure in one does not strand the
- * other artifact; the caller still rethrows the original error.
+ * Remove a checkout this provision call created. No lock is taken here: both
+ * callers already hold the git mutex and ran the path/branch existence checks
+ * immediately before creating, so every artifact found here belongs to this
+ * call. It is also the rollback for a failed `git worktree add` itself, which
+ * can fail after creating the branch or registering the checkout (#M65 R1 P1).
+ * Each step is best-effort so a failure in one does not strand the other; the
+ * caller still rethrows the original error.
+ *
+ * The branch is deleted only when it still points at the prepared base commit.
+ * The existence precheck ran under the mutex, but git cannot prove who created a
+ * same-named branch that appears in between, so a branch at another commit is
+ * left untouched rather than discarded.
  * @param {any} tower
- * @param {{ mode?: string, wtPath: string, branch?: string }} prepared
+ * @param {{ mode?: string, wtPath: string, branch?: string, baseCommit?: string }} prepared
  */
 async function removeCreatedCheckout(tower, prepared) {
+  // Removing a registered checkout also deletes its directory. A worktree add
+  // that failed before registration leaves no directory (git removes its own
+  // target), so this step is a no-op for that case.
   await tower.git(tower.root, ['worktree', 'remove', '--force', prepared.wtPath]).catch(() => {})
-  if (prepared.mode !== 'detached' && prepared.branch) {
-    await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
-  }
+  if (prepared.mode === 'detached' || !prepared.branch) return
+  const tip = await tower.tryGit(tower.root, ['rev-parse', '--verify', '--quiet', `refs/heads/${prepared.branch}^{commit}`])
+  if (tip === null) return
+  const base = await tower.tryGit(tower.root, ['rev-parse', '--verify', '--quiet', `${prepared.baseCommit}^{commit}`])
+  if (base === null || tip !== base) return
+  await tower.git(tower.root, ['branch', '-D', prepared.branch]).catch(() => {})
 }
 
 /** Undo a created checkout outside the state lock (git mutex only). */
