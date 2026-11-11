@@ -181,15 +181,24 @@ no baseline, no badge.
 
 ## Releasing
 
-A release is six steps: bump → changelog → COMPATIBILITY row → publish → annotated tag → GitHub
-Release. The one-page procedure with exact commands is [docs/guide/release.md](docs/guide/release.md).
-It carries the two rules that are easy to get wrong: **publish before tagging** (or delete the tag if
-publish fails), and a release **may not be tagged while its milestone holds an open P0/P1** unless the
-release notes say why. `npm publish` is the only human-only step (2FA).
+A release is one page of steps with exact commands: [docs/guide/release.md](docs/guide/release.md).
+In short: prepare the release commit (bump `package.json`, move the changelog entries under a
+`## <version>` heading, add the `COMPATIBILITY.md` row and agree with `scripts/support.json`); run
+the prepublish gate (`npm run release:prepublish` — read-only, offline); publish, the human-only
+step with 2FA; create the annotated tag, run the tag guard, then push it; write the GitHub Release
+from cumulative notes.
+
+Two rules are easy to get wrong: **publish before tagging** (or delete the tag if publish fails),
+and a release **may not be tagged while its milestone holds an open P0/P1** unless the release
+notes say why. `npm publish` is the only human-only step (2FA).
 
 `npm run release:check` prints `git describe`, the previous tag, the commits since it and whether
-Unreleased is non-empty on every run. It warns on a PR and fails on a tag push whose
-`package.json` version did not move past the last tag or whose tag is not `v<version>`.
+Unreleased is non-empty on every run. It warns on a PR; on a tag push it fails closed when the tag
+is not an annotated `v<version>` object, its commit is not in HEAD's history, the tree is dirty,
+`package.json` did not move past the last tag, the CHANGELOG has no non-empty section for the
+version, or the support manifest disagrees with its restatements. The same guard also runs before
+`npm publish` through `prepublishOnly` (`npm run release:prepublish`, `--mode prepublish`), where a
+tag that does not exist yet is allowed because publishing precedes tagging.
 
 ## Tracker board
 

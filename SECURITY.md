@@ -20,8 +20,9 @@ protected with:
 
 - a pull request required for every change, with **admins enforced** — a direct push is rejected even
   for the maintainer;
-- required checks `test (22)`, `test (24)` and `mount` — the packed bundle must mount and register its
-  surface before a change can merge, and a red or missing check blocks the merge;
+- required checks `test (22)`, `test (24)`, `test (22, windows)` and `mount` — the offline suite, the
+  documentation and support gates and the packed bundle must all pass before a change can merge, and a
+  red or missing check blocks the merge;
 - force-pushes and branch deletion blocked, so a released tag's history cannot be rewritten;
 - no mandatory approvals and no CODEOWNERS gate. With one maintainer, self-merge is the workflow;
   what replaces the second approval is the four-line PR body for the two-key paths in
