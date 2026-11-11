@@ -1100,16 +1100,8 @@ test('the release checklist covers prepare, prepublish, publish, tag and notes',
   assert.ok(release.indexOf('node scripts/release-check.mjs --mode tag') < release.indexOf('git push origin'))
 })
 
-test('every in-scope page lists the seven protected required contexts (F51)', () => {
-  const contexts = [
-    'test (22)',
-    'test (24)',
-    'test (22, windows)',
-    'mount',
-    'test (24.9)',
-    'test (25)',
-    'test (24.9, windows)',
-  ]
+test('every in-scope page lists the four protected required contexts (F51)', () => {
+  const contexts = ['mount', 'test (24.9)', 'test (25)', 'test (24.9, windows)']
   for (const file of [
     'SECURITY.md',
     'README.md',
@@ -1128,34 +1120,37 @@ test('every in-scope page lists the seven protected required contexts (F51)', ()
     }
   }
   // SECURITY.md is the verification source of truth: its required-checks line
-  // must name all seven in one place, with strict protection and the live step 1.
+  // must name all four in one place, with strict protection and the completed cutover.
   assert.match(
     read('SECURITY.md'),
-    /seven required checks with `strict` branch protection: `test \(22\)`, `test \(24\)`,\s*`test \(22, windows\)`, `mount`, `test \(24\.9\)`, `test \(25\)` and\s*`test \(24\.9, windows\)`/,
+    /four required checks with `strict` branch protection: `mount`, `test \(24\.9\)`, `test \(25\)` and\s*`test \(24\.9, windows\)`/,
   )
-  assert.match(read('SECURITY.md'), /step 1[\s\S]*is live/)
-  // F53: the Chinese mirror must carry the same step-1-live / step-2-later
-  // wording, including the frozen legacy job that is not removed yet.
+  assert.match(read('SECURITY.md'), /cutover is\s+complete/)
+  // F53: the Chinese mirror must carry the same four-context, cutover-complete
+  // wording; the frozen legacy job no longer exists.
   const zhSecurity = read('docs/zh/operations/security.md')
-  assert.match(zhSecurity, /step 1[\s\S]*已经生效/)
-  assert.match(zhSecurity, /冻结的 legacy job 继续报告/)
-  assert.match(zhSecurity, /step 2[\s\S]*尚未完成/)
+  assert.match(zhSecurity, /必需检查为四项/)
+  assert.match(zhSecurity, /两步切换已经完成/)
+  assert.doesNotMatch(zhSecurity, /冻结的 legacy job 继续报告/)
   // The Windows leg is required now; "not required yet" prose is what F51
   // reported (README.md:253/260 and README.en.md:255/262 before this change).
   assert.doesNotMatch(read('README.md'), /`test \(22, windows\)`[^\n]*(非必需|不是必需|尚未必需)/)
   assert.doesNotMatch(read('README.en.md'), /`test \(22, windows\)`[^\n]*(not required|not a required)/)
 })
 
-test('the CI doc documents the hardened guard, the live step 1 and the prepublish gate', () => {
+test('the CI doc documents the hardened guard, the completed cutover and the prepublish gate', () => {
   const ci = read('docs/operations/ci.md')
   assert.match(ci, /npm run release:prepublish/)
   assert.match(ci, /prepublishOnly/)
   assert.match(ci, /annotated tag object/)
-  assert.match(ci, /The required contexts are\s+now seven:[\s\S]*?`test \(24\.9, windows\)`/)
-  assert.match(ci, /Step 1 of the two-step transition is applied and live/)
-  assert.match(ci, /Step 2 — not done yet/)
-  // The canonical transition is still documented in one place.
-  assert.match(ci, /two-step transition/i)
+  assert.match(ci, /The cutover is\s+\*\*complete\*\*/)
+  assert.match(ci, /required contexts are the four that remain/)
+  assert.match(ci, /Step 2 — applied: four contexts, no legacy job/)
+  assert.match(ci, /deletes the frozen `test` job/)
+  assert.match(ci, /reintroduced legacy `test` job is rejected/)
+  assert.doesNotMatch(ci, /Step 2 — not done yet/)
+  // The two-step cutover is still documented in one place.
+  assert.match(ci, /two steps/i)
 })
 
 test('the board doc holds the three saved queries and their verified shape', () => {

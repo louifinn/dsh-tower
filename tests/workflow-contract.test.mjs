@@ -1,6 +1,7 @@
-// CI workflow contract (#M72): the canonical gate, the one-cycle transition
-// contexts, least-privilege permissions, pinned actions and the nightly failure
-// reporter are checked in scripts/check-workflow.mjs. This file proves each
+// CI workflow contract (#M72/W5-D): the canonical gate, the four final required
+// contexts (mount plus the three canonical legs), least-privilege permissions,
+// pinned actions and the nightly failure reporter are checked in
+// scripts/check-workflow.mjs. This file proves each
 // rule is load-bearing: every case tampers with the real workflow (or the real
 // package scripts) and expects the named problem, so the gate cannot silently
 // stop checking something.
@@ -40,8 +41,12 @@ test('the checked-in workflow satisfies the CI contract', () => {
   assert.deepEqual(result.problems, [])
   assert.equal(result.ok, true)
   assert.deepEqual(result.facts.canonicalLegs, SUPPORTED_CONTEXTS)
-  assert.deepEqual(result.facts.requiredContexts, ['test (22)', 'test (24)', 'test (22, windows)', 'mount'])
-  assert.equal(result.facts.pinnedActions, 15, 'all 15 action uses must be SHA-pinned')
+  assert.deepEqual(result.facts.requiredContexts, ['mount', 'test (24.9)', 'test (25)', 'test (24.9, windows)'])
+  assert.equal(
+    result.facts.pinnedActions,
+    13,
+    'all 13 remaining action uses must be SHA-pinned (the deleted legacy job carried two)',
+  )
   assert.equal(result.facts.nightlyFailureJob, true)
   assert.deepEqual(evaluatePackageWire(pkg).problems, [])
 })
@@ -64,10 +69,38 @@ test('tamper: a second canonical step is rejected', () => {
   assert.ok(problems.some((problem) => problem.includes('found 2')), JSON.stringify(problems))
 })
 
-test('tamper: removing a required legacy context is rejected', () => {
-  const text = tamper('          - name: test (22)\n', '          - name: test (22, legacy)\n')
+test('tamper: a reintroduced legacy test job is rejected', () => {
+  const text = tamper(
+    '  nightly-failure:\n',
+    '  test:\n    name: ${{ matrix.name }}\n\n  nightly-failure:\n',
+  )
   const problems = problemsFor(text)
-  assert.ok(problems.some((problem) => problem.includes('legacy matrix must be exactly')), JSON.stringify(problems))
+  assert.ok(
+    problems.some((problem) => problem.includes('frozen legacy job "test" must stay deleted')),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: removing a required canonical context is rejected', () => {
+  const text = tamper('            label: test (25)\n', '            label: test (25, ubuntu)\n')
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some((problem) => problem.includes('must report the canonical contexts')),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: an extra matrix context beyond the required four is rejected', () => {
+  const text = tamper(
+    '            label: test (24.9, windows)\n',
+    '            label: test (24.9, windows)\n          - os: ubuntu-latest\n            node: ' +
+      "'25'\n            release: false\n            label: test (25, docker)\n",
+  )
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some((problem) => problem.includes('canonical matrix must be exactly')),
+    JSON.stringify(problems),
+  )
 })
 
 test('tamper: renaming the required mount context is rejected', () => {
@@ -120,7 +153,7 @@ test('tamper: the canonical checkout must not drop fetch-depth: 0', () => {
       '          # #M72/R90: the Node 24.9 leg also runs `npm run release:check`, which\n' +
       '          # resolves the previous release with `git describe --tags`; a shallow\n' +
       '          # clone hides the tags and degrades a tag violation to a no-baseline\n' +
-      '          # warning. Full history here, like the frozen legacy checkout above.\n' +
+      '          # warning. Full history here keeps the tags visible.\n' +
       '          fetch-depth: 0\n',
     '',
   )
@@ -225,7 +258,7 @@ test('the CLI is green on the checkout and fails on a tampered copy', (t) => {
   assert.equal(ok.status, 0, ok.stderr)
   assert.match(
     ok.stdout,
-    /^workflow check: 3 canonical legs run "npm run check" once; 4 required legacy contexts preserved; 15 actions SHA-pinned; nightly failure issue job present$/m,
+    /^workflow check: 3 canonical legs run "npm run check" once; 4 required contexts \(mount plus the canonical legs\); 13 actions SHA-pinned; nightly failure issue job present$/m,
   )
 
   const json = spawnSync(process.execPath, [script, '--json'], { cwd: repoRoot, encoding: 'utf8' })
