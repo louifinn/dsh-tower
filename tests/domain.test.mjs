@@ -36,12 +36,12 @@ test('pure merge gate returns review/worker/test blockers from snapshots', async
     branch: 'b',
     branchTip: 'tip',
     review: { missionId: 'M1', round: 1, status: 'clean', mergeVerdict: 'merge', reviewedCommit: 'old' },
-    config: { review: { requireReview: true }, gates: { requireTests: true } },
+    config: { review: { mode: 'required' }, gates: { requireTests: true } },
     activity: { a1: 'running' },
     inactiveStates: ['inactive'],
   }).map((blocker) => blocker.code)
   assert.deepEqual(blockers, ['tip-moved', 'worker-busy', 'tests-missing'])
-  assert.deepEqual(mergeGateBlockers({ mission, roster: [], config: { review: { requireReview: false } } }), [])
+  assert.deepEqual(mergeGateBlockers({ mission, roster: [], config: { review: { mode: 'optional' } } }), [])
 })
 
 test('#140: tests-missing names the tower-tests row when the component is off', async () => {

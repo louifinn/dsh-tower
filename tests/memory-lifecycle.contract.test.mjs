@@ -27,7 +27,7 @@ const WORKTREE = '/virtual/worktrees/M1'
 const WORKER = { name: 'worker-1', role: 'worker', agentId: 'agent-worker' }
 const REVIEWER = { name: 'reviewer-1', role: 'reviewer', agentId: 'agent-reviewer' }
 const CONFIG = {
-  review: { requireReview: true },
+  review: { mode: 'required' },
   gates: { requireChecks: false, allowReviewExemption: false },
   spawn: { maxLiveWorkers: 4 },
 }

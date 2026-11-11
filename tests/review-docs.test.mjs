@@ -100,7 +100,8 @@ test('the generated reference keeps the review gate non-disableable without call
   assert.match(section, /\| the review gate in required mode \|/)
   assert.doesNotMatch(section, /\| the review contract \|/)
   assert.match(reference, /\| `review\.mode` \| `core` \|/)
-  assert.match(reference, /\| `review\.requireReview` \| `core` \|/)
+  // #M66: the 2.6 alias row is physically gone from the generated surface.
+  assert.doesNotMatch(reference, /\| `review\.requireReview` \|/)
 
   // The module header states the same distinction, so the source comment cannot
   // drift back to calling the review contract a forbidden capability.

@@ -501,7 +501,7 @@ test('mode state is provided as ctx.tower and is disposable', () => {
 
 test('mode entry refuses when a required preset is missing (#64)', async () => {
   const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
-  apply(ctx, { review: { requireReview: true } })
+  apply(ctx, { review: { mode: 'required' } })
   await assert.rejects(() => callCommand(commands, makeAgent('agent-preset-missing'), ''), /preset-missing/)
   assert.equal(ctx.tower.get('agent-preset-missing'), undefined)
 })
@@ -754,14 +754,17 @@ test('#121: review.mode required with the reviewer row off is locked with an exp
   )
 })
 
-test('#M39: review.requireReview is a normalized alias for review.mode', async () => {
-  const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
-  compose(ctx)
-  // The deprecated boolean still reaches the same lock (true -> required).
-  apply(ctx, { review: { requireReview: true } })
-  await assert.rejects(
-    () => callCommand(commands, makeAgent('agent-reviewer-off-alias'), ''),
-    /review\.mode is required/,
+test('#M66: the removed review.requireReview alias is rejected by config resolution', async () => {
+  const { resolveTowerConfig } = await import('../host/config.js')
+  assert.throws(
+    () => resolveTowerConfig({ review: { requireReview: true } }),
+    (error) => {
+      assert.equal(error.code, 'config-unknown-key')
+      assert.match(error.message, /review\.requireReview/)
+      assert.match(error.message, /removed on 2026-11-11/)
+      assert.match(error.message, /review\.mode/)
+      return true
+    },
   )
 })
 
