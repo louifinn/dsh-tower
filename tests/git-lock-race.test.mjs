@@ -12,6 +12,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
 import { removeStaleGitLocks } from '../app/tower.js'
+import { createStorePort } from '../adapters/store-fs.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -144,6 +145,90 @@ test('git lock: a newer lock created after the claim is never unlinked', async (
     assert.deepEqual(quarantineFiles(ctx.commonDir), [])
   } finally {
     removeTemp(ctx.root)
+  }
+})
+
+// #M57 R68 P2-1: `exists()` + `rename()` is a check-then-act. A third writer
+// can create its lock between the check and the rename, and rename replaces the
+// destination on every supported platform, so the stale bytes would overwrite a
+// live lock. The restore is an exclusive create instead: the third writer's
+// record survives and the mismatched quarantine is kept for audit.
+test('git lock: a lock created between the mismatch and the restore is never overwritten', async () => {
+  const ctx = await lockFixture('dsh-tower-git-lock-restore-race-')
+  try {
+    fs.writeFileSync(ctx.lockPath, 'old lock\n')
+    ageLock(ctx.lockPath, 120000)
+    const store = realStore(ctx.tower)
+    const foreign = 'foreign lock\n'
+    const third = 'third writer lock\n'
+    let thirdCreated = false
+    const createThird = () => {
+      if (thirdCreated) return
+      thirdCreated = true
+      fs.writeFileSync(ctx.lockPath, third)
+    }
+    const racing = {
+      ...store,
+      async rename(from, to) {
+        if (from === ctx.lockPath) {
+          // The record was replaced after our snapshot but before our claim:
+          // the quarantined bytes no longer match, so the restore branch runs.
+          fs.writeFileSync(from, foreign)
+          return store.rename(from, to)
+        }
+        return store.rename(from, to)
+      },
+      // Pre-fix restore path: the check observed a free path and the third
+      // writer created its lock immediately afterwards.
+      async exists(file) {
+        const free = await store.exists(file)
+        if (file === ctx.lockPath && !thirdCreated) {
+          createThird()
+          return false
+        }
+        return free
+      },
+      // Fixed restore path: the third writer appears immediately before the
+      // exclusive create, which must fail with EEXIST instead of replacing it.
+      async copyFileExclusive(from, to) {
+        if (to === ctx.lockPath) createThird()
+        return store.copyFileExclusive(from, to)
+      },
+    }
+
+    const result = await removeStaleGitLocks(towerWithStore(ctx.tower, racing), ctx.commonDir)
+
+    assert.equal(thirdCreated, true)
+    assert.deepEqual(result.removed, [])
+    assert.deepEqual(result.retained, [{ name: 'index.lock', reason: 'replaced-quarantined' }])
+    assert.equal(fs.readFileSync(ctx.lockPath, 'utf8'), third, 'the third writer keeps its lock')
+    const preserved = quarantineFiles(ctx.commonDir)
+    assert.equal(preserved.length, 1, 'the quarantined record is kept for audit')
+    assert.equal(fs.readFileSync(path.join(ctx.commonDir, preserved[0]), 'utf8'), foreign)
+  } finally {
+    removeTemp(ctx.root)
+  }
+})
+
+// The primitive the restore relies on is itself a CAS: COPYFILE_EXCL reports
+// EEXIST and leaves both records byte-identical, unlike rename.
+test('store port: copyFileExclusive refuses to replace an existing destination', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-store-exclusive-'))
+  try {
+    const source = path.join(root, 'quarantine')
+    const destination = path.join(root, 'lock')
+    fs.writeFileSync(source, 'quarantined\n')
+    fs.writeFileSync(destination, 'newer writer\n')
+    const store = createStorePort()
+
+    await assert.rejects(
+      () => store.copyFileExclusive(source, destination),
+      (error) => error.code === 'EEXIST',
+    )
+    assert.equal(fs.readFileSync(destination, 'utf8'), 'newer writer\n')
+    assert.equal(fs.readFileSync(source, 'utf8'), 'quarantined\n')
+  } finally {
+    removeTemp(root)
   }
 })
 

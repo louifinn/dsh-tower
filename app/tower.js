@@ -135,22 +135,23 @@ async function sameLockSnapshot(store, file, snapshot) {
 }
 
 /**
- * Put a mismatched quarantine back, but only when the lock path is still free.
- * A newer writer that already claimed the path wins: the quarantine is kept as
- * evidence instead of overwriting it.
+ * Restore a mismatched quarantine with an exclusive create: EEXIST means a
+ * newer writer owns the path (`exists()` + `rename()` would replace it), and
+ * failures keep the quarantined bytes for audit.
  * @param {any} store
  * @param {string} quarantine
  * @param {string} file
  * @returns {Promise<boolean>}
  */
 async function restoreQuarantinedGitLock(store, quarantine, file) {
+  if (typeof store?.copyFileExclusive !== 'function') return false
+  let restored = false
   try {
-    if (await store.exists(file)) return false
-    await store.rename(quarantine, file)
-    return true
-  } catch {
-    return false
-  }
+    await store.copyFileExclusive(quarantine, file)
+    restored = true
+    await store.unlink(quarantine)
+  } catch {}
+  return restored
 }
 
 /** Per-call unique quarantine name; pid and clocks separate processes and calls. */
