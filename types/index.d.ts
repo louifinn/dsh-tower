@@ -60,6 +60,8 @@ export type ErrorCode =
   | 'review-disabled'
   | 'not-authorized'
   | 'workspace-busy'
+  | 'mode-store-corrupt'
+  | 'mode-persist-failed'
   | 'owner-live'
   | 'owner-busy'
   | 'approval-unavailable'

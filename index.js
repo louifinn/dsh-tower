@@ -218,6 +218,8 @@ function enterMode(ctx, key, agent, by, reason) {
     goalNote,
     planModeCleared: plan.cleared,
     planModeResult: plan.result ?? null,
+    changed: !wasOn,
+    mode: 'on',
     persisted: saved.ok === true,
     persistError: saved.ok === true ? null : saved.error ?? 'the mode store could not be saved',
   }
@@ -225,12 +227,62 @@ function enterMode(ctx, key, agent, by, reason) {
 
 async function exitMode(key, by, reason) {
   const previous = modeState.get(key)
-  if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null, persisted: true, persistError: null }
+  if (!previous) {
+    return {
+      wasOn: false,
+      pausedGoal: null,
+      goalNote: null,
+      by,
+      reason: reason ?? null,
+      changed: false,
+      mode: 'off',
+      persisted: true,
+      persistError: null,
+      error: null,
+    }
+  }
   const wasOn = previous.on === true
   // Keep a timestamped off tombstone so a concurrent save from another
   // session cannot resurrect this mode entry.
   modeState.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
   const saved = persistModes()
+  if (!saved.ok) {
+    // F33: a failed off is not an off. Restore the previous entry so memory
+    // matches the last persisted state, keep the workspace lock (its token was
+    // only observed in memory), and report an actionable failure. The disk
+    // copy was never written, so releasing the lock here would strand it.
+    modeState.set(key, previous)
+    const saveError = saved.error ?? 'the mode store could not be saved'
+    // The nested save error can carry its own `— next:` action (for example
+    // state-corrupt); drop it so renderErrorMessage appends the mode code's
+    // recovery action instead of hiding it.
+    const detail = String(saveError).split(' — next:')[0]
+    const lockNote = previous.lock ? '; the previous workspace lock was kept' : ''
+    const error = new TowerToolError(
+      'mode-persist-failed',
+      `Tower mode remains ${wasOn ? 'ON' : 'OFF'} because the mode store could not be saved: ${detail}${lockNote}`,
+      { details: { operation: 'off', saveError: String(saveError) } },
+    )
+    return {
+      wasOn,
+      pausedGoal: previous.pausedGoal ?? null,
+      goalNote: null,
+      by,
+      reason: reason ?? null,
+      changed: false,
+      mode: wasOn ? 'on' : 'off',
+      persisted: false,
+      persistError: saveError,
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+        nextAction: error.nextAction,
+      },
+    }
+  }
+  // Only a persisted off may release the workspace lock: the token came from
+  // the entry that was just written to disk.
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
   }
@@ -240,8 +292,11 @@ async function exitMode(key, by, reason) {
     goalNote: null,
     by,
     reason: reason ?? null,
-    persisted: saved.ok === true,
-    persistError: saved.ok === true ? null : saved.error ?? 'the mode store could not be saved',
+    changed: wasOn,
+    mode: 'off',
+    persisted: true,
+    persistError: null,
+    error: null,
   }
 }
 
@@ -676,13 +731,18 @@ export function apply(ctx, rawConfig) {
             ok: persisted,
             action: args.action,
             mode: modeOn(key) ? 'on' : 'off',
-            changed: args.action === 'enter' ? !outcome.wasOn : outcome.wasOn,
+            changed: outcome.changed ?? (args.action === 'enter' ? !outcome.wasOn : outcome.wasOn),
             changedBy: 'agent',
             reason,
             pausedGoal: outcome.pausedGoal ?? null,
             goalNote: outcome.goalNote ?? null,
             persisted,
-            ...(persisted ? {} : { error: outcome.persistError ?? 'the mode store could not be saved' }),
+            ...(persisted
+              ? {}
+              : {
+                  error: outcome.error?.message ?? outcome.persistError ?? 'the mode store could not be saved',
+                  ...(outcome.error?.code ? { errorCode: outcome.error.code } : {}),
+                }),
           }
         },
       }),
@@ -782,6 +842,13 @@ export function apply(ctx, rawConfig) {
           }
         }
         if (!persisted) {
+          if (outcome.error) {
+            // F33: the rollback changed nothing, so describeChange would claim
+            // "Tower mode OFF" for a session that is still on. Report the real
+            // failure and keep any carried instruction visible.
+            const carried = forwarded ? (message ? ` Carried your instruction: ${message}` : ' Carried your attachments.') : ''
+            return { kind: 'error', text: `${outcome.error.message}${carried}` }
+          }
           return {
             kind: 'error',
             text: `${describeChange(active, outcome, forwarded, message, allowAgentControl)} The mode change was applied in memory but could not be persisted: ${outcome.persistError}; it may be lost on restart.`,

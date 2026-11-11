@@ -28,6 +28,22 @@
     "phase": "merge",
     "heldMs": 92000
   },
+  "ownership": {
+    "owner": "session-abc",
+    "caller": null,
+    "sameOwner": false,
+    "ownerMode": "off",
+    "modeStoreStatus": "ok",
+    "modeStoreFile": "D:/home/tower-mode/modes.json",
+    "modeStoreError": null,
+    "ownerLock": false,
+    "foreignLock": false,
+    "liveRoster": [],
+    "unreadMessages": 0,
+    "orphanLock": false,
+    "blockers": [],
+    "takeoverAvailable": true
+  },
   "archive": {
     "missions": 3,
     "archivedMissions": 12,
@@ -52,9 +68,20 @@
 
 `stateLock`（以及 `state-lock` 检查）报告锁的年龄（`ageMs`，从记录的 `since` 起算）与心跳新鲜度
 （`heartbeatAgeMs`，从最后一次 `at` 起算），并对照过期窗口（`staleAfterMs = 3 × 1000 ms`）。
-PID 存活并不等于写者存活：停止心跳的持有者会报告 `stale: true`，下一次 mutation 会回收它（或用
-`tower_recover clear-stale-lock force:true` 移到备份）；心跳新鲜则报告为持有中，绝不会被抢走。
-这样无需手工读取 `state.lock` 就能诊断 PID 被复用的情况。
+PID 存活并不等于写者存活：停止心跳的持有者会报告 `stale: true`，但“存活但静默”的持有者
+**绝不会被自动回收**。只有 PID 被证实已死亡的锁才会由下一次 mutation 原子回收。要回收
+“存活但静默”的锁，需要操作者确认进程已消失，并运行
+`tower_recover clear-stale-lock force:true` 且提供 `confirm:"CLEAR_STALE_LOCK"`；该操作会把锁记录
+移到备份，而不是删除它。这样无需手工读取 `state.lock` 就能诊断 PID 被复用的情况。
+
+`ownership`（以及 `tower-owner`/`workspace-lock` 检查）与 `tower_status` 返回同一个只读所有权快照；
+state 或所有权事实无法读取时为 `null`。字段包括 `owner`、`caller`、`sameOwner`、`ownerMode`、
+`modeStoreStatus`、`modeStoreFile`、`modeStoreError`、`ownerLock`、`foreignLock`、`liveRoster`、
+`unreadMessages`、`orphanLock`、`blockers` 与 `takeoverAvailable`。`modeStoreStatus` 为
+`missing`、`ok` 或 `corrupt`。为 `corrupt` 时，`ownerMode` 是 `unknown`（绝不会是 `off`），
+`blockers` 的第一项为 `mode-store-corrupt` 并附带修复动作，`takeoverAvailable` 为 `false`：
+takeover 会 fail closed，而不会把不可读的模式存储误判为属主不活动。doctor 与 status 通过
+这个字段保持一致。
 
 `gitLock`（以及 `git-lock` 检查）报告仓库级 git 互斥锁：被 merge/rebase/init/teardown/provision 持有时为
 `{held, pid, phase, heldMs}`，空闲时为 `{held: false}`。merge 可以合法持有到配置的 merge 超时（默认 15 分钟），
