@@ -67,12 +67,12 @@ While the mode is on the dock shows a `Tower · on` chip with `role="status"` / 
 
 ## Mode-aware denied-tool rows (#12)
 
-The Host guard returns a plain tool error like `tower mode: <tool> is disabled while Tower mode is active; use the Tower tools or /tower off` (and `tower mode: goals cannot be resumed while Tower mode is active; use /tower off first` for `update_goal` resume).
+The Host guard returns a plain tool error like `tower mode: <tool> is disabled while Tower mode is active; use the Tower tools or run /tower off`, or — for an agent in a repository whose workspace lock another Tower session holds — `tower mode: <tool> is disabled because this repository is under Tower mode (…); run /tower off in that session first, or /tower takeover <reason> here once it is gone`.
 
 While the displayed session is in Tower mode the bundle dynamically registers `tool.call.toolview` entries for:
 
-- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise `host/config.js` `DEFAULT_DENY_TOOLS` (`create_goal`, `todo_write`, `team_task_create`, `team_task_update`, `team_task_reopen`, `team_task_list`, `spawn_teammate`, `wait_agent`, `workflow`, `ralph`, `subagent`, `subagent_fork`);
-- `update_goal` unconditionally, because the guard special-cases its `action: "resume"`.
+- `tower_mode.deniedWhileActive` when the latest `tower_mode` output lists it, otherwise the static mirror of `domain/deny-owners.js` `DEFAULT_DENY_TOOLS` — every tool the foreign orchestration owners register (`create_goal`, `get_goal`, `update_goal`, `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `subagent`, `subagent_fork`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `todo_write`, `wait_agent`, `workflow`, `ralph`);
+- `update_goal` also when an older `tower_mode` result (≤ 2.8.0, whose list omitted it) is the latest visible one.
 
 Those entries register with `priority: -10`. The slot core renders the lowest priority for a key, so this shadows the native keyed views without replacing them; disposing the entries (mode off) restores the native views exactly. A denial result renders as a distinct **`Tower mode · disabled`** row (warn marker, label, the preserved denial message, and the `/tower off` hint) — not the generic error text styling. `update_goal` resume denials get the same row. A non-denial result that lands in one of those slots while the mode is on renders a defensive generic row (there is no native view to delegate to while the registration shadows it); ordinary tool errors are not misclassified as Tower-mode denials.
 

@@ -130,10 +130,12 @@ domain/contracts/tool-inputs/integration.js
 domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
+domain/deny-owners.js
 domain/errors.js
 domain/events.js
 domain/evidence.js
 domain/gate.js
+domain/generated/deny-surface.js
 domain/integration/gate.js
 domain/integration/init.js
 domain/integration/liveness.js

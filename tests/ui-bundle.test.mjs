@@ -1032,21 +1032,10 @@ test('mode on without tower_mode uses the default deny list plus update_goal', a
   const bundle = await components()
   render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
   const keys = deniedRegistrations(bundle.registrations).map((entry) => entry.options.key).sort()
-  const expected = [
-    'create_goal',
-    'todo_write',
-    'team_task_create',
-    'team_task_update',
-    'team_task_reopen',
-    'team_task_list',
-    'spawn_teammate',
-    'wait_agent',
-    'workflow',
-    'ralph',
-    'subagent',
-    'subagent_fork',
-    'update_goal',
-  ].sort()
+  // #161: the fallback list mirrors the host's deny-by-owner default, so the
+  // expectation is derived from the same source instead of a second copy.
+  const { DEFAULT_DENY_TOOLS } = await import('../domain/deny-owners.js')
+  const expected = [...new Set([...DEFAULT_DENY_TOOLS, 'update_goal'])].sort()
   assert.deepEqual(keys, expected)
 
   // An empty deniedWhileActive list also falls back to the defaults.

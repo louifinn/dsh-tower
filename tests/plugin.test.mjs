@@ -271,19 +271,54 @@ test('guard: denied tools while active, allowed again after /tower off', async (
   const agent = makeAgent('agent-guard')
   await callCommand(commands, agent, '')
 
-  const denied = ['create_goal', 'todo_write', 'team_task_create', 'team_task_update', 'team_task_reopen', 'spawn_teammate']
-  for (const name of denied) {
+  // #161: the deny set is every tool the foreign orchestration owners register
+  // (domain/deny-owners.js derives it; tests/deny-surface.test.mjs keeps the
+  // generated inventory honest), so the check here reads the same source.
+  const { DEFAULT_DENY_TOOLS } = await import('../domain/deny-owners.js')
+  for (const name of DEFAULT_DENY_TOOLS) {
     const reason = guard({ agent, name, arguments: {} })
     assert.equal(typeof reason, 'string', `${name} must be denied while active`)
     assert.match(reason, /tower mode/)
+    assert.match(reason, /\/tower off/, `${name} refusal names a runnable next step`)
   }
-  assert.match(guard({ agent, name: 'update_goal', arguments: { action: 'resume' } }), /cannot be resumed/)
-  assert.equal(guard({ agent, name: 'update_goal', arguments: { action: 'pause' } }), undefined)
+  assert.match(guard({ agent, name: 'update_goal', arguments: { action: 'pause' } }), /update_goal is disabled/)
   assert.equal(guard({ agent, name: 'tower_plan', arguments: {} }), undefined)
   assert.equal(guard({ agent: makeAgent('someone-else'), name: 'create_goal', arguments: {} }), undefined)
 
   await callCommand(commands, agent, 'off')
   assert.equal(guard({ agent, name: 'create_goal', arguments: {} }), undefined)
+})
+
+test('guard: the deny scope is the workspace, so a second session on the same checkout is denied (#161 D4)', async () => {
+  const real = makeCtx()
+  apply(real.ctx, {})
+  const guard = real.guards[0]
+  assert.ok(guard, 'the guard must be installed')
+
+  const { repo } = makeRepo()
+  const commonDir = path.join(repo, '.git')
+  const lockFile = workspaceLockPath(commonDir)
+  const teammate = makeAgent('teammate-other-session', repo)
+  const teammateTool = { agent: teammate, name: 'send_message', arguments: {} }
+
+  // No lock on the repository: a foreign session is not under Tower mode.
+  assert.equal(guard(teammateTool), undefined, 'without a tower lock there is nothing to deny')
+
+  // A held workspace lock puts every agent in the repository under Tower mode.
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true })
+  fs.writeFileSync(lockFile, JSON.stringify({ token: 't-1', sessionId: 'tower-owner-session', agentId: 'tower-owner-session', pid: process.pid, at: Date.now() }))
+  const reason = guard(teammateTool)
+  assert.equal(typeof reason, 'string', 'a teammate on a locked checkout is denied')
+  assert.match(reason, /send_message is disabled because this repository is under Tower mode/)
+  assert.match(reason, /tower-owner-/, 'the holder is named (12-char session prefix)')
+  assert.match(reason, /run \/tower off in that session first/)
+  assert.match(reason, /\/tower takeover <reason>/)
+  // A corrupt record fails closed: unknown owner, still under Tower mode.
+  fs.writeFileSync(lockFile, '{not json')
+  assert.match(guard(teammateTool), /under Tower mode \(another Tower session\)/)
+  // Non-orchestration tools stay available to the second session.
+  assert.equal(guard({ agent: teammate, name: 'read', arguments: {} }), undefined)
+  assert.equal(guard({ agent: teammate, name: 'tower_status', arguments: {} }), undefined)
 })
 
 test('prompt section is dynamic per agent and mentions agent control by default', async () => {

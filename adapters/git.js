@@ -2,6 +2,8 @@ import { TowerToolError } from '../domain/errors.js'
 // Minimal git port: array arguments only, bounded output, no shell.
 import { execFile } from './vcs-git.js'
 import path from 'node:path'
+// node:fs reaches this adapter only through the single fs boundary (#50).
+import { fs } from './store-fs.js'
 
 const GIT_TIMEOUT_MS = 15000
 const MAX_BUFFER = 16 * 1024 * 1024
@@ -265,8 +267,7 @@ export async function diffChanges(cwd, range, options) {
  * @param {string} repoRoot
  * @returns {Promise<{ root: string, commonDir: string, branch: string | null }>}
  */
-export async function resolveRepo(repoRoot) {
-  if (typeof repoRoot !== 'string' || repoRoot.trim().length === 0) {
+export async function resolveRepo(repoRoot) {  if (typeof repoRoot !== 'string' || repoRoot.trim().length === 0) {
     throw new TowerToolError('repo-invalid', 'repoRoot is required')
   }
   if (!path.isAbsolute(repoRoot)) {
@@ -293,6 +294,51 @@ export async function resolveRepo(repoRoot) {
     root,
     commonDir,
     branch: branch && branch.trim() ? branch.trim() : null,
+  }
+}
+
+/**
+ * Synchronously best-effort resolve the common git dir of a working directory
+ * (#161 D4): walk up for `.git` — a directory is its own common dir, a file is
+ * a worktree pointer whose `gitdir:` line names the common dir. The mode guard
+ * is a synchronous call, so it cannot spawn `git rev-parse`; the authoritative
+ * resolution for every tool path stays `resolveRepo`. Returns null when no
+ * `.git` is found on the way up.
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+export function resolveCommonDirSync(cwd) {
+  if (typeof cwd !== 'string' || cwd.trim().length === 0 || !path.isAbsolute(cwd)) return null
+  let dir = path.resolve(cwd)
+  if (fs.statSync(dir, { throwIfNoEntry: false })?.isFile() === true) dir = path.dirname(dir)
+  while (true) {
+    const dotGit = path.join(dir, '.git')
+    const info = fs.statSync(dotGit, { throwIfNoEntry: false })
+    if (info?.isDirectory()) return dotGit
+    if (info?.isFile()) {
+      try {
+        const text = fs.readFileSync(dotGit, 'utf8')
+        const match = /gitdir:\s*(\S+)/.exec(text)
+        const target = match ? match[1].replace(/\/+$/, '') : ''
+        if (!target) return null
+        let gitDir = path.isAbsolute(target) ? path.resolve(target) : path.resolve(dir, target)
+        // A worktree's gitdir is per-worktree; the common dir every Tower
+        // record shares lives behind its `commondir` pointer (relative to
+        // the gitdir it sits in), exactly as `git rev-parse
+        // --git-common-dir` resolves it.
+        const commonPointer = path.join(gitDir, 'commondir')
+        if (fs.statSync(commonPointer, { throwIfNoEntry: false })?.isFile() === true) {
+          const common = fs.readFileSync(commonPointer, 'utf8').trim()
+          if (common) gitDir = path.resolve(gitDir, common)
+        }
+        return gitDir
+      } catch {
+        return null
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) return null
+    dir = parent
   }
 }
 

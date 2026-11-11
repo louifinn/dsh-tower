@@ -34,7 +34,8 @@ import {
 } from './host/mode-state.js'
 import { registerTowerCommand } from './host/mode-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
-import { touchWorkspaceLock } from './adapters/workspaceLock.js'
+import { inspectWorkspaceLockSync, touchWorkspaceLock } from './adapters/workspaceLock.js'
+import { resolveCommonDirSync } from './adapters/git.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
@@ -91,18 +92,38 @@ export function apply(ctx, rawConfig) {
   // process still owns; a reloaded plugin restores the entries from modes.json.
   ctx.effect(() => () => releaseOwnedLocks())
 
+  // #161: the deny set is owned, not named — `isDeniedTool` answers from the
+  // component-owner registry (domain/deny-owners.js), so an upstream
+  // orchestration tool is denied the day it ships. Two scopes deny:
+  // the tower's own session, and — D4 — any agent whose repository is under
+  // the workspace lock (a teammate spawned before entry, or a second session
+  // on the same checkout). Every refusal names a runnable next step.
+  const workspaceTowerHolder = (agent) => {
+    try {
+      const cwd = agentCwd(agent)
+      if (!cwd) return null
+      const commonDir = resolveCommonDirSync(cwd)
+      if (!commonDir) return null
+      const info = inspectWorkspaceLockSync(commonDir)
+      return info.held ? info : null
+    } catch {
+      // An unexpected read error must not crash the pipeline; the workspace
+      // lock itself remains enforced where it is acquired (mode-state.js).
+      return null
+    }
+  }
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
+      if (!isDeniedTool(execution.name)) return undefined
       const key = agentKey(execution.agent)
-      if (!key || !modeOn(key)) return undefined
-      if (isDeniedTool(execution.name)) {
-        return `tower mode: ${execution.name} is disabled while Tower mode is active; use the Tower tools or /tower off`
+      if (key && modeOn(key)) {
+        return `tower mode: ${execution.name} is disabled while Tower mode is active; use the Tower tools or run /tower off`
       }
-      if (execution.name === 'update_goal') {
-        const args = execution.arguments
-        if (args && typeof args === 'object' && args.action === 'resume') {
-          return 'tower mode: goals cannot be resumed while Tower mode is active; use /tower off first'
-        }
+      const holder = workspaceTowerHolder(execution.agent)
+      if (holder) {
+        const id = String(holder.holder?.sessionId ?? holder.holder?.agentId ?? '').trim()
+        const who = holder.corrupt || id === '' ? 'another Tower session' : `Tower session ${id.slice(0, 12)}`
+        return `tower mode: ${execution.name} is disabled because this repository is under Tower mode (${who}); run /tower off in that session first, or /tower takeover <reason> here once it is gone`
       }
       return undefined
     }),
@@ -157,7 +178,7 @@ export function apply(ctx, rawConfig) {
     ctx.tools.register({
       name: 'tower_mode',
       description:
-        'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, any goal paused on entry, the workspace lock, HMR availability and the plugin version.',
+        'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, any goal paused and any Agent Team left on entry, the workspace lock, HMR availability and the plugin version.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output: {
         schema: {
@@ -168,6 +189,7 @@ export function apply(ctx, rawConfig) {
             allowAgentControl: { type: 'boolean' },
             lastChange: {},
             pausedGoal: {},
+            releasedTeam: {},
             deniedWhileActive: { type: 'array', items: { type: 'string' } },
             persistedAt: { type: 'string' },
             pluginVersion: {},
@@ -222,7 +244,9 @@ export function apply(ctx, rawConfig) {
               previousOwner: {},
               unreadMessages: { type: 'number' },
               pausedGoal: {},
+              releasedTeam: {},
               goalNote: {},
+              teamNote: {},
               error: { type: 'string' },
             },
             required: ['ok'],

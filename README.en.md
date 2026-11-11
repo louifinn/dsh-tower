@@ -170,7 +170,9 @@ enforced by `npm run docs:check:components`.
     mode:
       allowAgentControl: true
       autoPauseGoal: true
-      denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
+      # denyTools defaults to every tool the foreign orchestration owners
+      # register (Agent Teams, goal, todo, ralph, subagent, workflow); an
+      # explicit list replaces that default and a repository may only widen it
     review:
       mode: optional            # one tri-state control: off, optional (default) or required
       maxRoundsPerReviewer: 5
