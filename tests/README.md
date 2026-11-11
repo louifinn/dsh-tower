@@ -27,7 +27,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
 - `state-machine.test.mjs` — the documented mission transition table (allowed and denied) and the completion/merge entry points. The former seeded 200-step fuzz moved to `tests/property/state-machine.prop.mjs`, where fast-check shrinks a failing sequence instead of printing an unshrinkable loop.
 - `no-random.test.mjs` — the #130 PRNG guard: walks `tests/**/*.mjs` / `*.cjs` and fails if test inputs use `Math.random`, an inlined PRNG (mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG, `Math.imul`) or `node:crypto` randomness. The exemption list is explicit (live runtime plumbing, the cleanup helper's quarantine names, and the long-tier seed in the property harness) and a meta-test proves the scanner is not vacuous.
-- `workflow-contract.test.mjs` — the CI contract (#M72): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the three required legacy contexts plus the `mount` job, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous.
+- `workflow-contract.test.mjs` — the CI contract (#M72/W5-D): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the four required contexts (those three legs plus the `mount` job), no legacy `test` job, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous.
 - `activity-rotation.test.mjs` — #M76 bounded activity log: the pure policy/segment/plan helpers, append-driven rotation with retention, chronological tail reads across segments (including corrupt/truncated lines), the fallback that keeps appending to the live file when a rename cannot land, and `inspectActivityLog` accounting for doctor/status.
 - `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
 - `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
@@ -89,7 +89,7 @@ Eleven files carry **117 property cases** (the PR tier therefore generates 117 �
 
 Two tiers exist so the suite is affordable on every change and still thorough nightly:
 
-- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs inside `npm run check`; the canonical CI legs run that command once each, and the frozen legacy `test` matrix still runs this tier explicitly for one transition cycle.
+- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs inside `npm run check`; each canonical CI leg runs that command once, so the PR tier runs on all three supported runtime legs.
 - **Long tier** — `npm run test:property:long`. 2000 runs on one seed drawn from `node:crypto`, plus an `fc.statistics` distribution report for each property that supplies a `classify` function, so a shrinking corpus or a lopsided generator shows up in the log. It runs only in the nightly/manual `property-long` CI job (`schedule` / `workflow_dispatch`, never on push or pull_request) and locally with `npm run test:property:long` (the script selects the tier through `tests/property/tiers/long.env` and `node --env-file`, which works on Windows and POSIX).
 
 A failing property is replayable. Re-run the same seed and the recorded fast-check path:
@@ -107,7 +107,7 @@ When a property fails the harness also writes a JSON artifact to `tests/property
 
 The same PR also added `tests/no-random.test.mjs`, which fails if a future test reintroduces a hand-rolled PRNG instead of using fast-check. It scans every `tests/**/*.mjs` / `*.cjs` file for `Math.random`, mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG/linear-congruential code, `Math.imul` mixing, and `randomUUID`/`randomBytes`/`randomInt`/`randomFill` used as a test input. The documented exemptions are `tests/live/**` (runtime plumbing), `tests/helpers/cleanup.mjs` (quarantine directory names) and `tests/property/helpers/harness.mjs` (the long tier's `node:crypto` seed, which fast-check replay covers); an inline `prng-guard: allow <reason>` annotation is available for a future justified exception. Seed selection belongs to fast-check plus `FC_SEED`/`FC_PATH`, not to a local PRNG.
 
-### CI: the canonical gate and the workflow contract (#M72)
+### CI: the canonical gate, the four required contexts and the workflow contract (#M72/W5-D)
 
 CI does not keep its own hand-maintained list of gates. The `canonical` job runs `npm run check`
 **exactly once** on each supported leg — `test (24.9)`, `test (25)` and `test (24.9, windows)` — and the
@@ -116,12 +116,10 @@ Ubuntu Node 24.9 leg adds the tag-only release check, the coverage table and
 (`scripts/check-workflow.mjs`), so the workflow contract is checked locally and in every canonical leg;
 the tamper cases live in `tests/workflow-contract.test.mjs`.
 
-The legacy `test` matrix (`test (22)`, `test (24)`, `test (22, windows)`) is frozen for one transition
-cycle so its three required contexts keep reporting while the canonical legs prove themselves. Step 1
-of the branch-protection transition is live: `main` requires all seven contexts — the three legacy
-contexts, `mount`, and the three canonical legs — under `strict` protection. Step 2 (dropping the
-legacy contexts and job) is a later PR, not part of this cycle.
-[docs/operations/ci.md](../docs/operations/ci.md) documents the two-step branch-protection cutover and
+The branch-protection cutover is complete. `main` requires exactly four contexts under `strict`
+protection: `mount`, `test (24.9)`, `test (25)` and `test (24.9, windows)`. The legacy `test` job is
+deleted and the contract gate rejects a reintroduced one.
+[docs/operations/ci.md](../docs/operations/ci.md) documents the two-step cutover and
 the SHA pins (every action — including the mount-fixtures cache and the live diagnostics upload — is
 pinned to a 40-hex commit with a `# vX.Y.Z` comment; `tests/mount-smoke.test.mjs` and
 `tests/live-harness.test.mjs` require those pinned forms). Run the gates locally with:
@@ -166,6 +164,10 @@ release check exited 0 in that same checkout:
 | Surface, pack, workflow, support | `surface:check` (57 keys / 16 sections / 29 tools, 12 visible), `pack:check` (337 files), `workflow:check` (3 canonical legs, 4 legacy contexts, 15 SHA pins), `support:check` (Node >=24.9, DSH 0.2.2-rc.1) | 0 |
 | Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (both tsconfigs), `domain:check` (42.3% pure) | 0 |
 | Release claim | `release:check` | 0 (one expected `version-not-bumped` warning; this branch does not bump the version) |
+
+The W5 `workflow:check` row records that run's numbers (3 canonical legs, 4 legacy contexts, 15 SHA
+pins). W5-D then deleted the frozen legacy job, so the final contract is 4 required contexts (`mount`
+plus the three canonical legs) and 13 SHA pins.
 
 Environment caveats and residual known failures: the only non-pass declaration is the Windows
 `# SKIP` above; the bounded, isolated and property runs have no failing or cancelled declarations.

@@ -168,7 +168,7 @@ test('one manifest catches every disagreeing restatement', (t) => {
   }
 })
 
-test('the gate is wired into npm run check and the CI test job', () => {
+test('the gate is wired into npm run check and the canonical CI gate', () => {
   const pkg = readJson(repoRoot, 'package.json')
   assert.equal(pkg.scripts['support:check'], 'node scripts/check-support.mjs')
   const chain = pkg.scripts.check.split('&&').map((step) => step.trim())
@@ -176,8 +176,16 @@ test('the gate is wired into npm run check and the CI test job', () => {
   assert.ok(support !== -1, 'check must run the support gate')
   assert.ok(chain.indexOf('npm run test:property') < support, 'the cheap static gate follows the offline suites')
   assert.ok(support < chain.indexOf('npm run docs:check'), 'the gate runs before the docs checks')
+  // W5-D: the legacy per-gate CI step is deleted; the canonical job runs the
+  // whole `npm run check` chain, so the support gate still gates every push.
   const workflow = read(repoRoot, '.github/workflows/test.yml')
-  assert.match(workflow, /- name: Support manifest\n {8}run: npm run support:check/)
+  assert.doesNotMatch(workflow, /- name: Support manifest/, 'the deleted legacy per-gate step must not come back')
+  assert.doesNotMatch(workflow, /^ {2}test:$/m, 'the frozen legacy "test" job must stay deleted')
+  assert.match(
+    workflow,
+    /^ {6}- name: Canonical gate \(npm run check\)\n {8}run: npm run check$/m,
+    'the canonical CI gate runs npm run check, which chains the support gate',
+  )
 })
 
 test('the CLI is green on the checkout and fails on a tampered copy', (t) => {

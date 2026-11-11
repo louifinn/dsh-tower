@@ -3,10 +3,10 @@
 //
 // The workflow is the published claim about how a change is gated. This gate
 // keeps that claim tied to `npm run check`, to the runtime the package
-// supports, and to the branch-protection context names that must keep
-// reporting during the one-cycle cutover (docs/operations/ci.md). It is
-// deliberately string/structure based: no runtime dependency, and a tampered
-// workflow text is testable in memory (tests/workflow-contract.test.mjs).
+// supports, and to the four branch-protection context names (the completed
+// cutover: `mount` plus the three canonical legs, docs/operations/ci.md). It
+// is deliberately string/structure based: no runtime dependency, and a
+// tampered workflow text is testable in memory (tests/workflow-contract.test.mjs).
 //
 // Every action is pinned to a 40-hex commit SHA with a `# vX.Y.Z` comment, and
 // the concurrency group is event-qualified so the nightly schedule has its own
@@ -23,12 +23,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const WORKFLOW_FILE = '.github/workflows/test.yml'
 
 // Branch protection on `main` requires these context strings byte for byte.
-// They stay until step 1 of the two-step cutover (docs/operations/ci.md).
-export const REQUIRED_CONTEXTS = ['test (22)', 'test (24)', 'test (22, windows)']
-export const REQUIRED_MOUNT_CONTEXT = 'mount'
-
-// The transition contexts: the supported runtime, one canonical gate each.
+// The two-step cutover is complete (docs/operations/ci.md): the legacy
+// `test (22)`-style contexts are gone, and these four are the contract.
+export const MOUNT_CONTEXT = 'mount'
 export const SUPPORTED_CONTEXTS = ['test (24.9)', 'test (25)', 'test (24.9, windows)']
+export const REQUIRED_CONTEXTS = [MOUNT_CONTEXT, ...SUPPORTED_CONTEXTS]
 export const SUPPORTED_NODES = {
   'test (24.9)': '24.9',
   'test (25)': '25',
@@ -296,7 +295,7 @@ function evaluateNightlyReporter(job, problems) {
     problems.push('nightly failure: the reporter condition must test contains(needs.*.result, \'failure\')')
   }
   const needs = jobList(job, 'needs')
-  for (const id of ['test', 'canonical', 'mount']) {
+  for (const id of ['canonical', 'mount']) {
     if (!needs.includes(id)) problems.push(`nightly failure: needs must include "${id}"`)
   }
   const at = job.lines.findIndex((line) => /^ {4}permissions:\s*$/.test(line))
@@ -431,33 +430,29 @@ function evaluateSupportedNodes(jobs, problems) {
   }
 }
 
-function evaluateLegacyContexts(jobs, problems) {
-  const legacy = jobs.test
-  if (!legacy) {
-    problems.push('required context: the frozen legacy job "test" is missing')
-  } else {
-    if (String(jobField(legacy, 'name') ?? '') !== '${{ matrix.name }}') {
-      problems.push('required context: the legacy job must keep name: ${{ matrix.name }}')
-    }
-    const entries = matrixEntries(legacy)
-    const names = entries.map((entry) => String(entry.name))
-    if (JSON.stringify(names) !== JSON.stringify(REQUIRED_CONTEXTS)) {
-      problems.push(`required context: the legacy matrix must be exactly ${JSON.stringify(REQUIRED_CONTEXTS)}, found ${JSON.stringify(names)}`)
-    }
-    const expectedNodes = { 'test (22)': 22, 'test (24)': 24, 'test (22, windows)': 22 }
-    for (const entry of entries) {
-      const name = String(entry.name)
-      if (expectedNodes[name] !== undefined && Number(entry.node) !== expectedNodes[name]) {
-        problems.push(`required context: "${name}" must stay on Node ${expectedNodes[name]}, found ${entry.node}`)
-      }
-      if (name === 'test (22, windows)' && entry.os !== 'windows-latest') {
-        problems.push('required context: "test (22, windows)" must stay on windows-latest')
-      }
-    }
+function evaluateRequiredContexts(jobs, problems) {
+  if (jobs.test) {
+    problems.push(
+      'required context: the frozen legacy job "test" must stay deleted; the canonical job reports every required context',
+    )
   }
   const mount = jobs.mount
-  if (!mount || String(jobField(mount, 'name') ?? '') !== REQUIRED_MOUNT_CONTEXT) {
-    problems.push('required context: the required "mount" job context is missing')
+  if (!mount || String(jobField(mount, 'name') ?? '') !== MOUNT_CONTEXT) {
+    problems.push(`required context: the required "${MOUNT_CONTEXT}" job context is missing`)
+  }
+  const canonical = Object.values(jobs).find((job) => {
+    const labels = matrixEntries(job).map((entry) => String(entry.label))
+    return SUPPORTED_CONTEXTS.every((label) => labels.includes(label))
+  })
+  if (!canonical) {
+    problems.push(`required context: the workflow must report the canonical contexts ${JSON.stringify(SUPPORTED_CONTEXTS)}`)
+    return
+  }
+  const labels = matrixEntries(canonical).map((entry) => String(entry.label))
+  if (JSON.stringify(labels) !== JSON.stringify(SUPPORTED_CONTEXTS)) {
+    problems.push(
+      `required context: the canonical matrix must be exactly ${JSON.stringify(SUPPORTED_CONTEXTS)}, found ${JSON.stringify(labels)}`,
+    )
   }
 }
 
@@ -566,7 +561,7 @@ export function evaluateWorkflow(text) {
   evaluateArtifacts(jobs, problems)
   evaluateNpmCache(jobs, problems)
   evaluateSupportedNodes(jobs, problems)
-  evaluateLegacyContexts(jobs, problems)
+  evaluateRequiredContexts(jobs, problems)
   const canonical = evaluateCanonicalGate(jobs, problems)
   const nightly = jobs['nightly-failure']
   if (!nightly) {
@@ -579,7 +574,7 @@ export function evaluateWorkflow(text) {
     problems,
     facts: {
       canonicalLegs: SUPPORTED_CONTEXTS,
-      requiredContexts: [...REQUIRED_CONTEXTS, REQUIRED_MOUNT_CONTEXT],
+      requiredContexts: REQUIRED_CONTEXTS,
       pinnedActions: pinned,
       nightlyFailureJob: Boolean(nightly),
       canonicalJob: canonical,
@@ -646,7 +641,7 @@ function main() {
     const { facts } = result
     console.log(
       `workflow check: ${facts.canonicalLegs.length} canonical legs run "npm run check" once; ` +
-        `${facts.requiredContexts.length} required legacy contexts preserved; ` +
+        `${facts.requiredContexts.length} required contexts (mount plus the canonical legs); ` +
         `${facts.pinnedActions} actions SHA-pinned; nightly failure issue job present`,
     )
   }

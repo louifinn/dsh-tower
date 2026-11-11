@@ -251,28 +251,24 @@ Every push and PR runs the same set of jobs; each job backs one checkable claim 
 
 | Job | Claim | Evidence |
 |---|---|---|
-| `test (22)`, `test (24)` (Ubuntu) | the offline suite, documentation consistency, generated references, the published file list, architecture, types, the support manifest, and domain purity all hold | `npm test`, `npm run support:check`, `npm run docs:check`, the five `docs:check:generated*` checks (including the generated type vocabulary), `pack:check`, `architecture:check`, `types:coverage`, `types:strict:check`, `types:check`, `domain:check` |
-| `test (22, windows)` (`windows-latest`, required) | the same offline suite and offline gates hold on a real Windows filesystem, so path casing, the `pwsh` shell, and the rename/unlink retries are measured instead of assumed | `npm test` plus the same offline gates as Ubuntu (no release/coverage) |
-| `test`'s `Coverage (Node 22)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
-| `test`'s `Release check` step (Node 22) | a tag is a claim: the tag is an annotated tag object, its commit is in HEAD's history, the tree is clean, the version moved past the previous version tag, the changelog carries a section for that version, and the support manifest agrees | `npm run release:check` |
+| `test (24.9)`, `test (25)` (Ubuntu) | the canonical supported-runtime legs: one `npm run check` per leg — the offline suite, documentation consistency, generated references, the published file list, architecture, types, the support manifest, the workflow contract, and domain purity all hold | `npm run check` |
+| `test (24.9, windows)` (`windows-latest`, required) | the same canonical `npm run check` on a real Windows filesystem, so path casing, the `pwsh` shell, and the rename/unlink retries are measured instead of assumed | `npm run check` |
+| `test (24.9)`'s `Coverage (Node 24.9)` step | coverage is actually measured in CI (reported only: no threshold, no badge) | `npm run test:coverage` |
+| `test (24.9)`'s `Release check` step (Node 24.9) | a tag is a claim: the tag is an annotated tag object, its commit is in HEAD's history, the tree is clean, the version moved past the previous version tag, the changelog carries a section for that version, and the support manifest agrees | `npm run release:check` |
 | `publish`'s `prepublishOnly` hook (local, run automatically by `npm publish`) | the same release claim before publishing, plus the support manifest, generated references and the published file list; read-only, offline, no tree writes | `npm run release:prepublish` |
-| `mount` (Node 24) | the packed tarball, added through the plugin CLI to a throwaway profile, mounts in the real loader and registers the surface the bundle claims | `npm run smoke:mount` |
-| `mount-fixtures` (Node 24, not required) | the mount smoke still goes red for the right seeded reasons (a renamed tool id, a removed skills section), with one cached host install shared by all runs | `npm run smoke:fixtures -- --host-dir <cached host>` |
+| `mount` (Node 24.9) | the packed tarball, added through the plugin CLI to a throwaway profile, mounts in the real loader and registers the surface the bundle claims | `npm run smoke:mount` |
+| `mount-fixtures` (Node 24.9, not required) | the mount smoke still goes red for the right seeded reasons (a renamed tool id, a removed skills section), with one cached host install shared by all runs | `npm run smoke:fixtures -- --host-dir <cached host>` |
 | `live (<pinned host build>)` (nightly/manual, not required) | the browser live suite still drives a real Web runtime on the pinned host-version matrix; push/PR runs only the browserless environment and resolution check | nightly runs `npm run test:live -- --script nightly`; push runs `npm run test:live -- --check` |
 
-The `test` matrix pins each leg's context string through `matrix.name`: `test (22)`, `test (24)` and
-`test (22, windows)`, and they keep their exact names; adding an `os` matrix key without an explicit
-name would rename them to `test (22, ubuntu-latest)`, and protected `main` would wait for a context
-that never reports. The canonical legs are `test (24.9)`, `test (25)` and
-`test (24.9, windows)`. Under `strict` branch protection, `main` now requires seven contexts:
-`test (22)`, `test (24)`, `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and
-`test (24.9, windows)`. This is step 1 of the two-step transition and it is live: the three legacy
-contexts, the three canonical legs and `mount` are required together, and the frozen legacy job
-keeps reporting; step 2 — dropping the three legacy contexts and the frozen job — is a later PR and
-has not happened. The Windows leg is Node 22 only and runs the offline suite and offline gates (no
-browser, no live suite, no release/coverage), in parallel with the existing jobs, so it does not
-extend the critical path. The full two-step cutover is documented in
-[docs/operations/ci.md](docs/operations/ci.md).
+The three canonical legs pin each leg's context string through `matrix.label`: `test (24.9)`,
+`test (25)` and `test (24.9, windows)`, and they keep their exact names; adding an `os` matrix key
+without an explicit label would rename them to `test (24.9, ubuntu-latest)`, and protected `main`
+would wait for a context that never reports. Under `strict` branch protection, `main` requires four
+contexts: `mount`, `test (24.9)`, `test (25)` and `test (24.9, windows)`. The two-step cutover is
+complete: the three legacy `test (22)`-style contexts are gone and the frozen legacy job is deleted.
+The Windows leg runs the full `npm run check` (no browser, no live suite, no release/coverage) in
+parallel with the Ubuntu legs, so it does not extend the critical path. The cutover, its verification
+command and its rollback are documented in [docs/operations/ci.md](docs/operations/ci.md).
 
 The live suite downloads a browser and boots a real host, so it is out of push/PR: it runs on a nightly `schedule` (also `workflow_dispatch`) on a pinned host-version matrix, and its first output line prints the resolved `DSH_HOME` and host version. Push keeps only `--check` (environment + Playwright resolution, no browser). Playwright is pinned by `tests/live/package-lock.json`; the root `npm ci` downloads no browsers.
 

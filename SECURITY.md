@@ -20,12 +20,12 @@ protected with:
 
 - a pull request required for every change, with **admins enforced** — a direct push is rejected even
   for the maintainer;
-- seven required checks with `strict` branch protection: `test (22)`, `test (24)`,
-  `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and `test (24.9, windows)` — the offline
-  suite, the documentation and support gates, the canonical Node 24.9/25 legs and the packed bundle
-  must all pass before a change can merge, and a red or missing check blocks the merge. This is step 1
-  of the two-step transition and it is live: the three legacy contexts and the canonical three are
-  required together, and the frozen legacy job is deleted only in step 2 (a later PR);
+- four required checks with `strict` branch protection: `mount`, `test (24.9)`, `test (25)` and
+  `test (24.9, windows)` — the packed bundle and the canonical Node 24.9/25 legs, each running the full
+  offline suite and documentation/support gates through `npm run check`, must all pass before a change
+  can merge, and a red or missing check blocks the merge. The two-step branch-protection cutover is
+  complete: the three legacy `test (22)`-style contexts are gone and the frozen legacy job is deleted,
+  so these four are the whole contract;
 - force-pushes and branch deletion blocked, so a released tag's history cannot be rewritten;
 - no mandatory approvals and no CODEOWNERS gate. With one maintainer, self-merge is the workflow;
   what replaces the second approval is the four-line PR body for the two-key paths in

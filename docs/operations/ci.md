@@ -1,4 +1,4 @@
-# CI: the canonical gate and the one-cycle cutover
+# CI: the canonical gate and the completed branch-protection cutover
 
 This repository has one CI workflow, [`.github/workflows/test.yml`](../../.github/workflows/test.yml). Its
 job is not to re-test things `npm run check` already tests; its job is to **be** `npm run check` on the
@@ -10,16 +10,14 @@ a booted host, a browser) and the nightly failure report.
 | Context | Runner | What it proves |
 |---|---|---|
 | `test (24.9)`, `test (25)`, `test (24.9, windows)` | Ubuntu / Ubuntu / Windows, Node 24.9 / 25 / 24.9 | One canonical `npm run check` per leg. The Ubuntu 24.9 leg also runs the tag-only release check, the coverage table and the live-harness environment check. |
-| `test (22)`, `test (24)`, `test (22, windows)` | Ubuntu / Ubuntu / Windows, Node 22 / 24 / 22 | **Legacy transition contexts.** The frozen step-by-step gate list, kept byte-for-byte; they are still required during step 1 of the branch-protection transition and are removed only in step 2. |
-| `mount` | Ubuntu, Node 24.9 | The packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`). Required context, unchanged by this transition. |
+| `mount` | Ubuntu, Node 24.9 | The packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`). Required context. |
 | `mount-fixtures` | Ubuntu, Node 24.9 | Seeded mount-smoke failures against one cached host install. Evidence only, never a merge gate. |
 | `live (0.2.2-rc.1)` | Ubuntu, Node 24.9 | Nightly/manual-only real Web runtime pinned by the matrix; never gates a push or PR. |
 | `property-long` | Ubuntu, Node 24.9 | Nightly/manual-only 2000-run property tier. Evidence only. |
 | `nightly failure report` | Ubuntu | Schedule-only reporter: opens or updates **one** issue with the failing job names and the run URL. |
 
-The legacy `test` job is frozen on purpose. It is the evidence the old context names still claim
-(Node 22/24 hands-on), and `tests/live-harness.test.mjs` and `tests/mount-smoke.test.mjs` assert its
-shape. Do not add gates to it; new gates belong in `npm run check`. It is deleted in step 2 below.
+There is no legacy job. The workflow reports exactly the four required contexts — the three canonical
+legs above and `mount` — and the branch-protection setting requires exactly those four.
 
 ## The canonical gate
 
@@ -56,9 +54,8 @@ document against the workflow text:
 
 - the canonical job carries the three supported contexts, checks out with `fetch-depth: 0` so the
   release check keeps its tag baseline, and runs `npm run check` exactly once per leg;
-- the frozen legacy job still carries the three legacy context strings (`test (22)`, `test (24)`,
-  `test (22, windows)`) on their pinned OS/Node versions, and the `mount` job still reports the
-  required `mount` context;
+- the required-context contract is exactly four contexts — the `canonical` job's three labels plus the
+  `mount` job — and a reintroduced legacy `test` job is rejected;
 - every `uses:` is a 40-hex commit SHA with a `# vX.Y.Z` version comment;
 - top-level `permissions` is exactly `contents: read`, `concurrency` is per-ref and per-event with
   `cancel-in-progress` limited to pushes/PRs, every job that runs `npm ci` sets `cache: npm` on
@@ -68,10 +65,11 @@ document against the workflow text:
   `actions: read`, and opens/comments on one stable-titled issue with the run URL.
 
 `tests/workflow-contract.test.mjs` proves each rule is load-bearing by tampering with the real workflow
-text (unpinning an action, widening permissions, removing a required context, dropping the canonical
-step, adding a second `npm run check`, dropping the canonical checkout's full history, sharing the
-concurrency group with the nightly schedule, moving the Node-24-only extras onto the Windows leg,
-unbounding artifact retention, breaking the issue dedupe). Run both gates locally with:
+text (reintroducing the legacy `test` job, removing a required canonical context, adding an extra
+matrix context, unpinning an action, widening permissions, dropping the canonical step, adding a
+second `npm run check`, dropping the canonical checkout's full history, sharing the concurrency group
+with the nightly schedule, moving the Node-24-only extras onto the Windows leg, unbounding artifact
+retention, breaking the issue dedupe). Run both gates locally with:
 
 ```bash
 npm run workflow:check
@@ -119,27 +117,27 @@ via a `files` negation in `package.json`, because the reviewed
 [`scripts/pack-manifest.txt`](../../scripts/pack-manifest.txt) is updated in a separate packaging
 change. Remove the negation and add the path to the manifest in one commit.
 
-## The branch-protection transition
+## The branch-protection cutover
 
 `main` is protected, admin enforcement is on, and the protection setting is owned by the repository
-admin. An agent token without admin permission must not attempt to change it. The required contexts are
-now seven: `test (22)`, `test (24)`, `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and
-`test (24.9, windows)` — all seven are required, including the Windows leg and both the legacy and the
-canonical sets, under `strict: true`. **Step 1 of the two-step transition is applied and live.** The
+admin. An agent token without admin permission must not attempt to change it. The cutover is
+**complete**: the required contexts are the four that remain — `mount`, `test (24.9)`, `test (25)` and
+`test (24.9, windows)` — under `strict: true`, and the workflow no longer has a legacy `test` job. The
 setting is authoritative, the verification command is in
-[SECURITY.md](../../SECURITY.md#repository-protection-on-main), and this section records what was
-applied, what step 2 still changes, and how to roll back.
+[SECURITY.md](../../SECURITY.md#repository-protection-on-main), and this section records how the two
+steps were applied and how to roll back.
 
 The canonical legs report from the moment the workflow change lands, but a required context that is not
-yet in the protection setting is ignored, and removing an old context before its replacement is
-required makes every open PR unmergeable. Hence two steps. Step 1 kept all four legacy entries and added
-the three canonical contexts, so the transition can prove the canonical legs without a window in which
-an open PR has no working gate.
+in the protection setting is ignored, and removing an old context before its replacement is required
+makes every open PR unmergeable. Hence two steps: step 1 kept all four legacy entries and added the
+three canonical contexts, and step 2 dropped the legacy contexts only after the canonical legs had
+proven themselves.
 
-### Step 1 — applied and live: seven required contexts
+### Step 1 — completed: seven contexts during the transition
 
-The admin changed the setting from the four legacy strings to seven contexts. This is the applied body
-(and the rollback target until step 2 lands):
+The admin first changed the setting from the four legacy strings to seven contexts: the three legacy
+`test (22)`-style contexts, `mount`, and the three canonical legs. This body is kept as the history of
+the transition:
 
 ```bash
 gh api --method PATCH \
@@ -160,22 +158,10 @@ gh api --method PATCH \
 JSON
 ```
 
-Verify the seven contexts; every PR must now merge green with all seven reporting:
+### Step 2 — applied: four contexts, no legacy job
 
-```bash
-gh api repos/louifinn/dsh-tower/branches/main/protection/required_status_checks \
-  --jq '{strict: .strict, contexts: .contexts}'
-```
-
-The frozen legacy `test` job and its three contexts stay in place for one full cycle: do not delete the
-job or remove the legacy contexts while step 1 is live. Step 2 below is a later PR and has **not** been
-performed.
-
-### Step 2 — not done yet: drop the legacy contexts, then the legacy job (admin + one follow-up PR)
-
-This is the remaining step and it has not been performed. After a cycle in which all seven reported
-green on a merged PR, remove the three legacy `test` contexts and keep the supported ones plus `mount`
-(again mirror the recorded `strict`):
+After a full cycle in which all seven reported green on merged PRs, the admin applied the final
+setting — the three canonical legs plus `mount`, mirroring the recorded `strict`:
 
 ```bash
 gh api --method PATCH \
@@ -184,42 +170,41 @@ gh api --method PATCH \
 {
   "strict": true,
   "contexts": [
+    "mount",
     "test (24.9)",
     "test (25)",
-    "test (24.9, windows)",
-    "mount"
+    "test (24.9, windows)"
   ]
 }
 JSON
 ```
 
-The follow-up PR then deletes the frozen `test` job from the workflow and updates the gates that still
-name it: `REQUIRED_CONTEXTS` in [`scripts/check-workflow.mjs`](../../scripts/check-workflow.mjs),
-`tests/live-harness.test.mjs` (the push-level `test`-job assertions), `tests/mount-smoke.test.mjs` (the
-matrix-name assertion) and the required-context tables in [CONTRIBUTING.md](../../CONTRIBUTING.md). No
-other job changes: `mount`, `mount-fixtures`, `live`, `property-long` and `nightly-failure` are already
-named for the supported runtime.
+The same change deletes the frozen `test` job from the workflow and updates the gates that named it:
+the required-context contract and legacy-job rejection in
+[`scripts/check-workflow.mjs`](../../scripts/check-workflow.mjs), the tamper cases in
+`tests/workflow-contract.test.mjs`, the required-context tables in
+[CONTRIBUTING.md](../../CONTRIBUTING.md#landing-changes), and the offline-suite assertions that pinned
+the deleted job's shape in `tests/live-harness.test.mjs`, `tests/mount-smoke.test.mjs` and
+`tests/support-manifest.test.mjs`. Those three suites now pin the final four-context contract, so the
+canonical legs report green on the cutover itself. No other job changes: `mount`, `mount-fixtures`,
+`live`, `property-long` and `nightly-failure` are already named for the supported runtime.
+
+Verify the four contexts; every PR must merge green with all four reporting:
+
+```bash
+gh api repos/louifinn/dsh-tower/branches/main/protection/required_status_checks \
+  --jq '{strict: .strict, contexts: .contexts}'
+```
 
 ### Rollback
 
-**Before step 2**, rollback is one settings change: `PATCH` the required contexts back to the four
-legacy strings. Nothing else needs to change because the frozen `test` job still runs and still reports
-the old names:
+Rolling back means restoring the job before the protection setting: `git revert` the commit that
+deleted the frozen `test` job, then `PATCH` the required contexts back to the seven-context body above.
+A branch-protection change alone cannot resurrect a deleted job, so the revert must land (or at least
+be ready) before the contexts point at names that no longer report.
 
-```bash
-gh api --method PATCH \
-  repos/louifinn/dsh-tower/branches/main/protection/required_status_checks \
-  --input - <<'JSON'
-{
-  "strict": true,
-  "contexts": ["test (22)", "test (24)", "test (22, windows)", "mount"]
-}
-JSON
-```
-
-**After step 2**, roll back the protection setting with the same command and `git revert` the
-follow-up commit that deleted the frozen `test` job. Record that commit's SHA in the PR that performs
-step 2; a branch protection change alone cannot resurrect a deleted job.
+If only the setting is wrong and the workflow is unchanged, `PATCH` the four-context body again; the
+stored `strict` value must match the live setting.
 
 ## Related
 

@@ -348,7 +348,7 @@ test('the live banner names the resolved DSH_HOME and host version', () => {
   }
 })
 
-test('CI keeps the offline suite and protocol e2e on push, and moves the live run to a nightly pinned matrix', () => {
+test('CI runs the offline suite and protocol e2e inside the canonical push gate, and keeps the live run on a nightly pinned matrix', () => {
   const workflow = read('.github/workflows/test.yml')
   const onBlock = workflow.slice(workflow.indexOf('on:'), workflow.indexOf('\njobs:'))
   for (const trigger of ['push:', 'pull_request:', 'schedule:', 'workflow_dispatch:']) {
@@ -356,13 +356,18 @@ test('CI keeps the offline suite and protocol e2e on push, and moves the live ru
   }
   assert.match(onBlock, /cron: '\d+ \d+ \* \* \*'/)
 
-  const testJob = workflowJob(workflow, 'test')
-  assert.match(testJob, /run: npm test/)
-  assert.match(testJob, /Offline suite \(includes protocol end-to-end\)/)
+  // W5-D: the frozen legacy `test` job is deleted; the canonical job is the only
+  // push gate and runs the whole `npm run check` chain, whose first step is the
+  // offline suite (protocol e2e included).
+  assert.doesNotMatch(workflow, /^ {2}test:$/m, 'the frozen legacy "test" job must stay deleted; the canonical job reports every required context')
+  const canonicalJob = workflowJob(workflow, 'canonical')
+  const checkChain = JSON.parse(read('package.json')).scripts.check.split('&&').map((step) => step.trim())
+  assert.equal(checkChain[0], 'npm test', 'the canonical gate must start with the offline suite')
+  assert.match(canonicalJob, /^ {8}run: npm run check$/m, 'push CI runs the canonical gate')
   assert.ok(fs.existsSync(path.join(root, 'tests', 'protocol.e2e.test.mjs')))
-  assert.doesNotMatch(testJob, /npm ci --prefix tests\/live/, 'push CI must not download the live harness')
-  assert.doesNotMatch(testJob, /playwright install/, 'push CI must not download a browser')
-  assert.match(testJob, /npm run test:live -- --check/, 'push CI still checks the harness environment/resolution')
+  assert.doesNotMatch(canonicalJob, /npm ci --prefix tests\/live/, 'push CI must not download the live harness')
+  assert.doesNotMatch(canonicalJob, /playwright install/, 'push CI must not download a browser')
+  assert.match(canonicalJob, /npm run test:live -- --check/, 'push CI still checks the harness environment/resolution')
 
   const liveJob = workflowJob(workflow, 'live')
   assert.match(liveJob, /if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/, 'the live suite never runs on push/PR')
@@ -408,7 +413,7 @@ test('every live DSH_HOME in the workflow sits under the guard os.tmpdir() contr
   }
 
   const jobs = homes.map((block) => jobNameAtLine(workflow, block.line))
-  assert.ok(jobs.includes('test'), 'push CI still checks the harness with an isolated home')
+  assert.ok(jobs.includes('canonical'), 'push CI still checks the harness with an isolated home')
   assert.ok(jobs.includes('live'), 'the nightly live job declares an isolated home')
 })
 

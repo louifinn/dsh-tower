@@ -36,22 +36,19 @@ visible rows in 2.4.0 — is the fourth baselined surface.
 
 `main` is protected with `strict` branch protection. Every change lands through a pull request; direct
 pushes to `main` are rejected, including the maintainer's, because protection is enforced for admins.
-To merge, a PR must pass all seven required checks:
+To merge, a PR must pass all four required checks:
 
 | Required context | What it proves |
 |---|---|
-| `test (22)` | offline suite, docs/pack/architecture/types/domain checks on Node 22 (legacy transition leg) |
-| `test (24)` | the same jobs on Node 24 (legacy transition leg) |
-| `test (22, windows)` | the same offline suite and offline gates on `windows-latest` (legacy transition leg) |
 | `mount` | the packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`) |
-| `test (24.9)` | the canonical supported-runtime leg: offline suite and `npm run check` on Node 24.9 |
-| `test (25)` | the canonical supported-runtime leg on Node 25 |
-| `test (24.9, windows)` | the canonical supported-runtime leg on `windows-latest` |
+| `test (24.9)` | the canonical supported-runtime leg: one full `npm run check` on Node 24.9 |
+| `test (25)` | the canonical supported-runtime leg on Node 25: one full `npm run check` |
+| `test (24.9, windows)` | the canonical supported-runtime leg on `windows-latest`: one full `npm run check` |
 
-This is step 1 of the two-step branch-protection transition and it is **live**: the three legacy
-contexts, the three canonical contexts and `mount` are required together, with `strict` enabled. The
-frozen legacy job and its three contexts stay in place for the transition; step 2 — dropping the three
-legacy contexts and deleting the frozen job — is a later PR and has not happened.
+The two-step branch-protection cutover is **complete**: the four contexts above are required under
+`strict`, the three legacy `test (22)`-style contexts are gone, and the frozen legacy `test` job is
+deleted. [docs/operations/ci.md](docs/operations/ci.md) records how step 1 and step 2 were applied and
+how to roll back.
 
 The context names come from the workflow job id and matrix values. Renaming a job or a matrix value
 changes the required context; update the protection setting in the same PR, or the check never reports
@@ -65,15 +62,11 @@ The supported runtime is gated by the `canonical` job: the contexts `test (24.9)
 `test (24.9, windows)` each run exactly one `npm run check`, the same command a human runs locally
 (the Ubuntu Node 24.9 leg also runs the tag-only release check, the coverage table and the live-harness
 environment check). `npm run check` includes `npm run workflow:check`, which machine-checks this
-workflow contract. The legacy `test` matrix above is **frozen for one transition cycle** so the three
-legacy required contexts keep reporting while the canonical legs prove themselves; do not add gates
-to it — add them to `npm run check`. [docs/operations/ci.md](docs/operations/ci.md) documents the
-two-step branch-protection cutover: step 1, with all seven contexts required under `strict`, is live;
-step 2 (dropping the legacy contexts and job) is a later PR. The doc records the exact `gh api`
-commands and the rollback.
+workflow contract against the workflow text. New gates belong in `npm run check`, never in a
+CI-only step. The doc records the exact `gh api` commands, the applied setting and the rollback.
 
-The `test (22, windows)` leg measures the platform branches on a real Windows filesystem (see
-`tests/platform.test.mjs`), and its name is pinned through `matrix.name` so the context string stays
+The `test (24.9, windows)` leg measures the platform branches on a real Windows filesystem (see
+`tests/platform.test.mjs`), and its name is pinned through `matrix.label` so the context string stays
 byte-identical.
 
 There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
@@ -120,9 +113,7 @@ npm test        # no dependencies to install; Node's built-in test runner only
 ```
 
 Requirements: Node.js 24.9+ (the supported floor), Git. No package installation is needed for the
-offline example suite. The one-cycle legacy CI legs still run Node 22/24 to keep the three legacy
-required contexts reporting alongside the canonical contexts; they are transition evidence, not a
-supported runtime claim.
+offline example suite.
 
 The property-based PR tier (`npm run test:property`) does need the dev dependencies: run `npm ci` once, then `npm run test:property`. It is part of `npm run check` and runs on every CI matrix leg; the nightly long tier is `npm run test:property:long`. See [tests/README.md](tests/README.md#property-based-tests-fast-check-130).
 
