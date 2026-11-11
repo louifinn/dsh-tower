@@ -9,17 +9,30 @@ on:
     - cron: '17 6 * * *'
   workflow_dispatch:
 
+# #M72: least privilege by default. The workflow token starts read-only; the
+# nightly failure reporter is the only job that writes and it opts into
+# `issues: write` on the job itself, so a push/PR step cannot edit issues.
+permissions:
+  contents: read
+
+# #M72: one run per ref. A superseded push/PR run is cancelled because its
+# result can no longer be reported; scheduled and manual runs are never
+# cancelled, so the nightly evidence and its issue report always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
 jobs:
   # #86: the platform branches get a real OS, not only a Linux runner.
-  # The required contexts are exactly `test (22)`, `test (24)` and `mount`
-  # (branch protection matches the string byte for byte). Each leg therefore
-  # carries its full context in `matrix.name`; do not add an `os` matrix key
-  # without one, or GitHub would rename the checks to `test (22, ubuntu-latest)`
-  # and protected `main` would never merge again.
+  # The required contexts are exactly `test (22)`, `test (24)`, `test (22,
+  # windows)` and `mount` (branch protection matches the string byte for byte).
   #
-  # Windows is Node 22 only: the leg exists for platform coverage, not for a
-  # second Node matrix. It runs the offline suite and the offline gates, and
-  # skips the Node 22 Ubuntu-only release and coverage steps.
+  # #M72 TRANSITION: this job is the one-cycle legacy leg. Its matrix and step
+  # list are frozen on purpose: it is the evidence the old context names still
+  # promise (`tests/live-harness.test.mjs` and `tests/mount-smoke.test.mjs`
+  # assert this shape). The canonical gate lives in the `canonical` job below;
+  # docs/operations/ci.md describes the two-step branch-protection cutover and
+  # the follow-up that deletes this job. Do not add gates here.
   test:
     name: ${{ matrix.name }}
     timeout-minutes: 25
@@ -38,12 +51,12 @@ jobs:
             os: windows-latest
             node: 22
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # The release gate compares the version against tags; a shallow clone
           # would make every branch look untagged.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -141,19 +154,78 @@ jobs:
       - name: Pure domain share
         run: npm run domain:check
 
+  # #M72: the canonical gate. Each supported runtime leg runs exactly one
+  # `npm run check` — the same command CONTRIBUTING tells a human to run — so
+  # the CI gate cannot drift from package.json. These contexts are named for
+  # the supported runtime (`test (24.9)`, `test (25)`, `test (24.9, windows)`)
+  # and become the required ones at step 1 of the cutover in
+  # docs/operations/ci.md; the frozen `test` job above keeps reporting the old
+  # names byte for byte until the admin updates branch protection.
+  #
+  # The extra reports after the canonical gate are CI-only and Node-24-only:
+  # the tag-only release check (#97), the coverage table (#81), and the live
+  # harness environment/Playwright resolution check (#87, no browser, no host).
+  canonical:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: '24.9'
+            release: true
+            label: test (24.9)
+          - os: ubuntu-latest
+            node: '25'
+            release: false
+            label: test (25)
+          - os: windows-latest
+            node: '24.9'
+            release: false
+            label: test (24.9, windows)
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Canonical gate (npm run check)
+        run: npm run check
+      # #47: keep the TMPDIR/DSH_HOME pairing; the guard rejects a home that is
+      # not below os.tmpdir(), and TMPDIR makes both name the same root.
+      - name: Live harness check (environment + Playwright resolution, no browser)
+        if: matrix.release
+        env:
+          DSH_LIVE: '1'
+          TMPDIR: ${{ runner.temp }}
+          DSH_HOME: ${{ runner.temp }}/dsh-live-check
+        run: |
+          mkdir -p "$DSH_HOME"
+          npm run test:live -- --check
+      - name: Release check
+        if: matrix.release
+        run: npm run release:check
+      - name: Coverage (Node 24.9)
+        if: matrix.release
+        run: npm run test:coverage
+
   # #95: does the packed bundle mount and register what it claims?
-  # Node 24 only (the pinned host requires Node >=24.9; cost control); no model,
-  # no browser. The host build is the single pin in scripts/mount-smoke/host.json,
-  # which a unit test keeps equal to the newest COMPATIBILITY.md row.
+  # Node >=24.9 (the pinned host floor; cost control); no model, no browser.
+  # The host build is the single pin in scripts/mount-smoke/host.json, which a
+  # unit test keeps equal to the newest COMPATIBILITY.md row.
   mount:
     name: mount
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
-          node-version: 24
+          node-version: '24.9'
       - name: Install pnpm (the plugin CLI's package manager)
         run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
       - name: Mount the packed bundle in a throwaway profile
@@ -164,19 +236,23 @@ jobs:
   # #95: the seeded-failure proof, not only the green run. The control plus both
   # seeds each run the real smoke against a copy, so one cached host install is
   # shared through --host-dir instead of three installs. Evidence only, never a
-  # merge gate: the required contexts stay `test (22)`, `test (24)` and `mount`.
+  # merge gate: the required contexts stay `test (22)`, `test (24)`, `test (22,
+  # windows)` and `mount`.
   mount-fixtures:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
-          node-version: 24
+          node-version: '24.9'
       - name: Install pnpm (the plugin CLI's package manager)
         run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
       - name: Cache the pinned host install
-        uses: actions/cache@v4
+        # #M72: kept on the v4 tag for one transition cycle because
+        # tests/mount-smoke.test.mjs asserts this form; pin the SHA as soon as
+        # that contract test accepts the pinned form (docs/operations/ci.md).
+        uses: actions/cache@v4 # tag pin: v4.2.3
         with:
           path: ~/.cache/dsh-tower/mount-host
           key: dsh-tower-mount-host-${{ runner.os }}-${{ hashFiles('scripts/mount-smoke/host.json') }}
@@ -205,10 +281,11 @@ jobs:
       DSH_LIVE: '1'
       DSH_HOST_VERSION: ${{ matrix.dsh }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
-          node-version: 24
+          node-version: '24.9'
+          cache: npm
       - name: Install dependencies
         run: npm ci
       # The reproducible live setup (#87): the package pinned in
@@ -242,7 +319,11 @@ jobs:
       # failure evidence, not a durable product.
       - name: Upload live boot diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        # #M72: kept on the v4 tag for one transition cycle because
+        # tests/live-harness.test.mjs asserts this job's single artifact upload
+        # in its tag form; pin the SHA as soon as that contract test accepts the
+        # pinned form (docs/operations/ci.md).
+        uses: actions/upload-artifact@v4 # tag pin: v4.6.2
         with:
           name: live-boot-diagnostics
           path: |
@@ -256,16 +337,18 @@ jobs:
   # seed never reds a push/PR. On failure the harness writes seed/path/
   # counterexample JSON under tests/property/.artifacts/; upload it so the
   # failure is replayable from the run page. Evidence only, never a merge gate:
-  # the required contexts stay `test (22)`, `test (24)` and `mount`.
+  # the required contexts stay `test (22)`, `test (24)`, `test (22, windows)`
+  # and `mount`.
   property-long:
+    name: property-long
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
-          node-version: 22
+          node-version: '24.9'
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -273,10 +356,52 @@ jobs:
         run: npm run test:property:long
       - name: Upload property failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: property-artifacts
           path: tests/property/.artifacts/
           if-no-files-found: ignore
           retention-days: 7
 
+  # #M72: one issue per repository, not one issue per failure. Runs only on the
+  # nightly schedule and only when a gated job failed; it lists the failing job
+  # display names and the run URL. `issues: write` is granted to this job alone
+  # (the token is the workflow token, never a personal one), and `actions: read`
+  # is what the jobs API needs to name the failures.
+  nightly-failure:
+    name: nightly failure report
+    if: always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure')
+    needs:
+      - test
+      - canonical
+      - mount
+      - mount-fixtures
+      - live
+      - property-long
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the single nightly failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # runner.temp is empty on this job, so build the URL from the run id.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          failing=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | unique | join(", ")')
+          if [ -z "$failing" ]; then
+            failing="unknown (the jobs API reported no failed job)"
+          fi
+          body=$(printf 'The scheduled `%s` workflow failed.\n\nRun: %s\n\nFailing jobs: %s\n\nThis issue is updated in place by the `nightly-failure` job; it is one issue per repository, not one issue per failure.\n' "$GITHUB_WORKFLOW" "$RUN_URL" "$failing")
+          number=$(gh issue list --state open --search 'in:title "Nightly test workflow failure"' --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "Nightly test workflow failure" --body "$body"
+          fi

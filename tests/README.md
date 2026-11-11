@@ -27,6 +27,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
 - `state-machine.test.mjs` — the documented mission transition table (allowed and denied) and the completion/merge entry points. The former seeded 200-step fuzz moved to `tests/property/state-machine.prop.mjs`, where fast-check shrinks a failing sequence instead of printing an unshrinkable loop.
 - `no-random.test.mjs` — the #130 PRNG guard: walks `tests/**/*.mjs` / `*.cjs` and fails if test inputs use `Math.random`, an inlined PRNG (mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG, `Math.imul`) or `node:crypto` randomness. The exemption list is explicit (live runtime plumbing, the cleanup helper's quarantine names, and the long-tier seed in the property harness) and a meta-test proves the scanner is not vacuous.
+- `workflow-contract.test.mjs` — the CI contract (#M72): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the four required legacy contexts, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous.
 - `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
 - `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
 - `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
@@ -84,7 +85,7 @@ Ten files carry **111 property cases** (the PR tier therefore generates 111 × 3
 
 Two tiers exist so the suite is affordable on every change and still thorough nightly:
 
-- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs in the `test` CI job right after `npm test`, on all three matrix legs, and is part of `npm run check`.
+- **PR tier** — `npm run test:property`. 100 runs per seed × three fixed seeds (`PR_SEEDS` in the harness). Deterministic: the same seeds always generate the same inputs, so a red build is reproducible. This runs inside `npm run check`; the canonical CI legs run that command once each, and the frozen legacy `test` matrix still runs this tier explicitly for one transition cycle.
 - **Long tier** — `npm run test:property:long`. 2000 runs on one seed drawn from `node:crypto`, plus an `fc.statistics` distribution report for each property that supplies a `classify` function, so a shrinking corpus or a lopsided generator shows up in the log. It runs only in the nightly/manual `property-long` CI job (`schedule` / `workflow_dispatch`, never on push or pull_request) and locally with `npm run test:property:long` (the script selects the tier through `tests/property/tiers/long.env` and `node --env-file`, which works on Windows and POSIX).
 
 A failing property is replayable. Re-run the same seed and the recorded fast-check path:
@@ -101,6 +102,25 @@ $env:FC_SEED='131'; $env:FC_PATH='0:4:0:2:0:2:0:0'; node --test tests/property/s
 When a property fails the harness also writes a JSON artifact to `tests/property/.artifacts/` (gitignored) with the test name, tier, seed, path, run count, counterexample, error and the exact replay environment. The nightly `property-long` job uploads that directory on failure. Writing artifacts is the harness's only filesystem side effect; keep properties themselves pure.
 
 The same PR also added `tests/no-random.test.mjs`, which fails if a future test reintroduces a hand-rolled PRNG instead of using fast-check. It scans every `tests/**/*.mjs` / `*.cjs` file for `Math.random`, mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG/linear-congruential code, `Math.imul` mixing, and `randomUUID`/`randomBytes`/`randomInt`/`randomFill` used as a test input. The documented exemptions are `tests/live/**` (runtime plumbing), `tests/helpers/cleanup.mjs` (quarantine directory names) and `tests/property/helpers/harness.mjs` (the long tier's `node:crypto` seed, which fast-check replay covers); an inline `prng-guard: allow <reason>` annotation is available for a future justified exception. Seed selection belongs to fast-check plus `FC_SEED`/`FC_PATH`, not to a local PRNG.
+
+### CI: the canonical gate and the workflow contract (#M72)
+
+CI does not keep its own hand-maintained list of gates. The `canonical` job runs `npm run check`
+**exactly once** on each supported leg — `test (24.9)`, `test (25)` and `test (24.9, windows)` — and the
+Ubuntu Node 24.9 leg adds the tag-only release check, the coverage table and
+`npm run test:live -- --check`. `npm run check` includes `npm run workflow:check`
+(`scripts/check-workflow.mjs`), so the workflow contract is checked locally and in every canonical leg;
+the tamper cases live in `tests/workflow-contract.test.mjs`.
+
+The legacy `test` matrix (`test (22)`, `test (24)`, `test (22, windows)`) is frozen for one transition
+cycle so the four required contexts on `main` keep reporting while the canonical legs prove themselves.
+[docs/operations/ci.md](../docs/operations/ci.md) documents the two-step branch-protection cutover, the
+SHA pins and the two documented tag-pin exceptions. Run the gates locally with:
+
+```powershell
+npm run workflow:check
+node --test tests/workflow-contract.test.mjs
+```
 
 ## 2. Real Web runtime (isolated profile)
 
