@@ -64,7 +64,7 @@ that never got a sandbox keeps the shared invariants for the same reason.
 
 | Kind | Invariants | Check |
 |---|---|---|
-| `build` | requiresWorktree=true, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false | `checkCompletion` |
+| `build` | requiresWorktree=true, requiresSandbox=false, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false | `checkCompletion` |
 | `survey` | requiresWorktree=false, requiresSandbox=false, requiresCommits=false, requiresClean=false, requiresHeadMatch=true, requiresTrackedStatus=true | `checkCompletion` |
 
 ## Role

@@ -126,6 +126,34 @@ export function defaultPresetFor(kind, config = {}, mission = null) {
 }
 
 /**
+ * Resolve the completion invariants a generic layer must satisfy before it may
+ * record `completed`. A shape with a placement-dependent contract resolves it
+ * from the mission (a recorded detached sandbox wins over current config);
+ * every other shape keeps its static set. Callers use this instead of poking
+ * `shape.completion`/`shape.resolveCompletion` themselves, so the shared
+ * `domain/shapes/completion.js` vocabulary is the only way an invariant set is
+ * built.
+ * @param {typeof buildShape | typeof surveyShape} shape
+ * @param {Mission} mission
+ * @param {import('../../types/index.js').TowerConfig} [config]
+ * @returns {Readonly<{
+ *   requiresWorktree: boolean,
+ *   requiresSandbox: boolean,
+ *   requiresCommits: boolean,
+ *   requiresClean: boolean,
+ *   requiresHeadMatch: boolean,
+ *   requiresTrackedStatus: boolean,
+ *   check: (context: any) => { commits: number },
+ * }>}
+ */
+export function completionFor(shape, mission, config = {}) {
+  if ('resolveCompletion' in shape && typeof shape.resolveCompletion === 'function') {
+    return shape.resolveCompletion(mission, config)
+  }
+  return shape.completion
+}
+
+/**
  * Refuse branch-shaped actions for a shape that has no branch. The message tells
  * the caller what to do instead, so the refusal is actionable rather than a bare
  * "invalid transition".

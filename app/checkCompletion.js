@@ -8,7 +8,7 @@ import {
   completionReport,
   applyCompletion,
 } from '../domain/missions/completion.js'
-import { shapeFor } from '../domain/shapes/index.js'
+import { completionFor, shapeFor } from '../domain/shapes/index.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { sweepArchive } from './archive.js'
@@ -94,13 +94,7 @@ export async function checkCompletion(tower, input) {
     maxReportBytes: tower.config.gates?.maxReportBytes,
   })
   const shape = shapeFor(mission.kind)
-  const invariants = /** @type {{
-   *   requiresWorktree: boolean, requiresSandbox: boolean, requiresCommits: boolean,
-   *   requiresClean: boolean, requiresHeadMatch: boolean, requiresTrackedStatus: boolean,
-   *   check: (ctx: any) => { commits: number },
-   * }} */ ('resolveCompletion' in shape && typeof shape.resolveCompletion === 'function'
-    ? shape.resolveCompletion(mission, tower.config)
-    : shape.completion)
+  const invariants = completionFor(shape, mission, tower.config)
   if (invariants.requiresWorktree && !mission.worktree) {
     throw new TowerToolError('invalid-argument', `mission ${mission.id} has no worktree`)
   }

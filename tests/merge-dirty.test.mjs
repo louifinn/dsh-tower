@@ -250,3 +250,19 @@ test('merge: a concurrent edit to a merge-owned path is preserved, not restored'
     removeTemp(ctx.root)
   }
 })
+
+test('one merge finalizer: app/tower.js carries no duplicate reconciler', () => {
+  // The two-phase merge path in app/merge.js is the only observer/writer for
+  // landed merges; `app/tower.js` may only delegate to it. A second in-class
+  // reconciler would write state without the revision CAS the finalizer owns,
+  // so this scan keeps the duplicate from being reintroduced silently.
+  const source = fs.readFileSync(new URL('../app/tower.js', import.meta.url), 'utf8')
+  for (const symbol of ['findLandedMerge', 'reconcileMergeIntent', 'reconcileLandedMerge']) {
+    assert.equal(source.includes(symbol), false, `${symbol} must not come back to app/tower.js`)
+  }
+  assert.match(
+    source,
+    /return merge\(this, input, \{ describeGitFailure, mergeTimeoutMs, commitParents, removeStaleGitLocks, MERGE_MAX_BUFFER \}\)/,
+    'the one merge entry point delegates to app/merge.js',
+  )
+})

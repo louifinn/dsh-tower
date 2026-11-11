@@ -193,10 +193,34 @@ export function migrationChain(from, to = SCHEMA_VERSION, migrations = STATE_MIG
 }
 
 /**
+ * Order-independent JSON rendering for the fixed-point comparison. Migration
+ * steps build documents with spreads and insertions, so a raw `JSON.stringify`
+ * comparison would flag two equivalent trees whose key order differs.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const object = /** @type {Record<string, unknown>} */ (value)
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/**
  * Apply the registry to a parsed document. Pure: the input object is never
  * touched and the returned document has the target `schemaVersion`. The same
  * `MigrationContext` object reaches every step, so a step may consume a value
  * the loader resolved once (the legacy survey read).
+ *
+ * Every step is also required to be a fixed point: re-applying it to its own
+ * output must yield the same document. A non-idempotent step (one that keeps
+ * appending, re-deriving or re-stamping on every load) fails closed here instead
+ * of silently rewriting a user's state on the next load.
  *
  * @param {Record<string, any>} state
  * @param {{ statePath?: string, to?: number, migrations?: readonly StateMigration[] } & MigrationContext} [options]
@@ -246,6 +270,30 @@ export function migrateState(state, options = {}) {
       )
     }
     current = { ...next, schemaVersion: step.to }
+    /** @type {any} */
+    let reapplied
+    try {
+      reapplied = step.migrate(current, context)
+    } catch (error) {
+      throw new TowerToolError(
+        'state-migration-failed',
+        `state migration v${step.from} -> v${step.to} is not idempotent${where}: re-applying the step failed (${String(error?.message ?? error)})`,
+        {
+          cause: error,
+          nextAction:
+            'the original state.json was not modified; report this migration bug so the step becomes a fixed point',
+        },
+      )
+    }
+    if (!isPlainObject(reapplied) || canonicalJson(reapplied) !== canonicalJson(current)) {
+      const detail = isPlainObject(reapplied)
+        ? 're-applying the step changes the document'
+        : `re-applying the step returned ${reapplied === null ? 'null' : typeof reapplied}`
+      throw new TowerToolError('state-migration-failed', `state migration v${step.from} -> v${step.to} is not idempotent${where}: ${detail}`, {
+        nextAction:
+          'the original state.json was not modified; report this migration bug so the step becomes a fixed point',
+      })
+    }
     steps.push({ from: step.from, to: step.to })
   }
   return { state: current, from: /** @type {number} */ (from), to, steps }
