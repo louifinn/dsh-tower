@@ -10,60 +10,40 @@
 //
 // `/tower reload` asks DSH HMR to reconcile this profile and reload the Tower
 // plugin from disk when the HMR service is present (dev/linked installs).
+//
+// W5-A: this file is the Cordis apply/effect glue only. The mode state and
+// transitions live in `host/mode-state.js`, the `/tower` command in
+// `host/mode-command.js`, and the two session-tool bodies in
+// `host/session-tools.js`.
 import fs from 'node:fs'
-import { randomUUID } from 'node:crypto'
 import { authorizeSessionCall, registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
-import { Tower } from './host/tower.js'
-import { readOwnership, performTakeover } from './host/ownership.js'
-import { takeoverQuestionDetail } from './app/ownership.js'
-import { loadModesDetailed, saveModesDetailed, storePath } from './host/modeStore.js'
-import { ModeState } from './host/modeState.js'
-import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './host/config.js'
-import { TowerToolError } from './domain/errors.js'
-import { resolveRepo } from './adapters/git.js'
+import { Config as ConfigSchema, configureRuntime } from './host/config.js'
 import {
-  acquireWorkspaceLock,
-  inspectWorkspaceLock,
-  releaseWorkspaceLock,
-  touchWorkspaceLock,
-  workspaceLockToken,
-} from './adapters/workspaceLock.js'
-import { assertRuntimePreconditions } from './host/presets.js'
-import { currentHmrBridge } from './host/capability-registry.js'
+  agentCwd,
+  agentKey,
+  configSection,
+  createWorkspaceHook,
+  isDeniedTool,
+  loadModes,
+  modeOn,
+  modeState,
+  planModeState,
+  releaseOwnedLocks,
+  setDenyTools,
+} from './host/mode-state.js'
+import { registerTowerCommand } from './host/mode-command.js'
+import { runTowerControl, runTowerMode } from './host/session-tools.js'
+import { touchWorkspaceLock } from './adapters/workspaceLock.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
 export const Config = ConfigSchema
 
-const modeState = new ModeState()
-/** @type {{ status: 'missing'|'ok'|'corrupt', file: string|null, error: string|null }} */
-let modeStoreLoad = { status: 'missing', file: null, error: null }
-let denyTools = new Set(DEFAULT_DENY_TOOLS)
-
-function modeOn(key) {
-  const entry = key ? modeState.get(key) : undefined
-  return Boolean(entry && entry.on === true)
-}
-const READ_ONLY_TOOL_NAMES = new Set([
-  'tower_status',
-  'tower_roster',
-  'tower_diff',
-  'tower_preflight',
-  'tower_doctor',
-])
+// The plugin version is read by the composition entry because `host/` modules
+// may not touch `fs` (architecture `fs-surface`); it is passed into the
+// `tower_mode` body. The value and its failure behavior are unchanged.
 let pluginVersion = null
-
-const BASE_REMINDER = [
-  'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
-  'Mission tracking lives in tower_plan / tower_mission / tower_status, not todo_write or the Team task board.',
-  'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_preflight.',
-  'Tower mode changes are explicit and recorded; the user can always use /tower on|off.',
-].join(' ')
-
-const AGENT_CONTROL_NOTE =
-  'You may also enter or leave Tower mode with tower_control when the user intent or task state clearly calls for it; always state a concrete reason.'
-
 function readPluginVersion() {
   if (pluginVersion !== null) return pluginVersion
   try {
@@ -75,371 +55,20 @@ function readPluginVersion() {
   return pluginVersion
 }
 
-function agentKey(agent) {
-  if (!agent) return null
-  const key = agent.id ?? agent.session
-  return key === undefined || key === null ? null : String(key)
-}
-
-/** The session's working directory; DSH keeps it in the session header. */
-function agentCwd(agent) {
-  return agent?.session?.header?.cwd ?? agent?.cwd ?? null
-}
-
-async function openTowerFor(agent) {
-  const cwd = agentCwd(agent)
-  if (!cwd) throw new TowerToolError('invalid-argument', 'this command needs a session with a working directory')
-  return Tower.open(cwd, createDefaultDeps())
-}
-
-function configSection(config, allowAgentControl) {
-  const configured = config.mode.promptSection && config.mode.promptSection.trim().length > 0
-    ? config.mode.promptSection
-    : BASE_REMINDER
-  const appended = config.mode.sectionAppend && config.mode.sectionAppend.trim().length > 0
-    ? ` ${config.mode.sectionAppend.trim()}`
-    : ''
-  const control = allowAgentControl ? ` ${AGENT_CONTROL_NOTE}` : ''
-  return `${configured}${appended}${control}`
-}
-
-function persistModes() {
-  const config = runtimeConfig()
-  return saveModesDetailed(modeState, config.mode.storePath || undefined, config.mode.maxEntries, {
-    timeoutMs: config.mode.lockTimeoutMs,
-  })
-}
-
-/** Parse `/tower` arguments: bare and free text both mean "ensure on". */
-function parseTowerInput(rawInput) {
-  const raw = String(rawInput ?? '').trim()
-  const takeover = /^takeover(?:\s+([\s\S]+))?$/i.exec(raw)
-  if (takeover) return { action: 'takeover', reason: (takeover[1] ?? '').trim() }
-  if (/^reload$/i.test(raw)) return { action: 'reload' }
-  const match = /^(on|off)(?:\s+([\s\S]*))?$/i.exec(raw)
-  if (match) return { action: 'mode', active: match[1].toLowerCase() === 'on', message: (match[2] ?? '').trim() }
-  return { action: 'mode', active: true, message: raw }
-}
-
-/**
- * Pause an active goal through the goals service when Tower mode starts.
- * DSH exposes `ctx.goals.get/pause`, so no projection guesswork is needed.
- */
-function pauseActiveGoal(ctx, agent) {
-  const goals = ctx.get('goals')
-  if (!goals || typeof goals.get !== 'function' || typeof goals.pause !== 'function') {
-    return { attempted: false, reason: 'no goals service' }
-  }
-  try {
-    const view = goals.get(agent)
-    if (!view) return { attempted: false, reason: 'no goal' }
-    if (view.phase !== 'active') return { attempted: false, reason: `goal is ${view.phase}` }
-    const paused = goals.pause(agent, { id: view.id, revision: view.revision })
-    return {
-      attempted: true,
-      ok: true,
-      goal: {
-        id: String(paused.id),
-        revision: paused.revision,
-        objective: paused.objective,
-        phase: paused.phase,
-      },
-    }
-  } catch (error) {
-    return { attempted: true, ok: false, reason: String(error?.message ?? error) }
-  }
-}
-
-function planModeState(ctx, agent) {
-  const service = ctx.get?.('planMode')
-  if (!service || !agent) return { available: false, active: false, pending: false, service: null }
-  try {
-    const state = service.get(agent) ?? {}
-    return { available: true, active: state.active === true, pending: state.pending === true, service }
-  } catch {
-    return { available: false, active: false, pending: false, service: null }
-  }
-}
-
-/** Tower and plan mode are mutually exclusive; clearing is the default policy. */
-function clearPlanModeForTower(ctx, agent) {
-  const state = planModeState(ctx, agent)
-  if (!state.available || (!state.active && !state.pending)) {
-    return { attempted: state.available, cleared: false, refused: false, result: null }
-  }
-  if (runtimeConfig().mode.planModePolicy === 'refuse') {
-    return { attempted: true, cleared: false, refused: true, result: null }
-  }
-  try {
-    const result = state.service.set(agent, false)
-    return { attempted: true, cleared: true, refused: false, result }
-  } catch (error) {
-    return { attempted: true, cleared: false, refused: false, error: String(error?.message ?? error) }
-  }
-}
-
-function enterMode(ctx, key, agent, by, reason) {
-  const previous = modeState.get(key)
-  const wasOn = Boolean(previous && previous.on)
-  const plan = clearPlanModeForTower(ctx, agent)
-  if (plan.refused) {
-    throw new TowerToolError(
-      'invalid-transition',
-      'plan mode is active and mode.planModePolicy is "refuse"; exit plan mode before entering Tower',
-    )
-  }
-  const autoPauseGoal = runtimeConfig().mode.autoPauseGoal !== false
-  let pausedGoal = previous?.pausedGoal ?? null
-  let goalNote = null
-  if (!wasOn && autoPauseGoal) {
-    const paused = pauseActiveGoal(ctx, agent)
-    if (paused.attempted && paused.ok) pausedGoal = paused.goal
-    else if (paused.attempted && !paused.ok) goalNote = `pause-failed: ${paused.reason}`
-    else if (paused.reason && paused.reason !== 'no goal' && paused.reason !== 'no goals service') {
-      goalNote = paused.reason
-    }
-  }
-  const now = Date.now()
-  modeState.set(key, {
-    on: true,
-    pausedGoal,
-    lock: previous?.lock ?? null,
-    baseBranch: previous?.baseBranch ?? null,
-    planModeCleared: plan.cleared,
-    humanAckAt: by === 'user' ? previous?.humanAckAt ?? now : previous?.humanAckAt ?? null,
-    lastDisclosure: previous?.lastDisclosure ?? 'full',
-    lastChange: { by, action: 'on', reason: reason ?? null, at: now },
-    at: now,
-  })
-  const saved = persistModes()
-  return {
-    wasOn,
-    pausedGoal,
-    goalNote,
-    planModeCleared: plan.cleared,
-    planModeResult: plan.result ?? null,
-    changed: !wasOn,
-    mode: 'on',
-    persisted: saved.ok === true,
-    persistError: saved.ok === true ? null : saved.error ?? 'the mode store could not be saved',
-  }
-}
-
-async function exitMode(key, by, reason) {
-  const previous = modeState.get(key)
-  if (!previous) {
-    return {
-      wasOn: false,
-      pausedGoal: null,
-      goalNote: null,
-      by,
-      reason: reason ?? null,
-      changed: false,
-      mode: 'off',
-      persisted: true,
-      persistError: null,
-      error: null,
-    }
-  }
-  const wasOn = previous.on === true
-  // Keep a timestamped off tombstone so a concurrent save from another
-  // session cannot resurrect this mode entry.
-  modeState.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
-  const saved = persistModes()
-  if (!saved.ok) {
-    // F33: a failed off is not an off. Restore the previous entry so memory
-    // matches the last persisted state, keep the workspace lock (its token was
-    // only observed in memory), and report an actionable failure. The disk
-    // copy was never written, so releasing the lock here would strand it.
-    modeState.set(key, previous)
-    const saveError = saved.error ?? 'the mode store could not be saved'
-    // The nested save error can carry its own `— next:` action (for example
-    // state-corrupt); drop it so renderErrorMessage appends the mode code's
-    // recovery action instead of hiding it.
-    const detail = String(saveError).split(' — next:')[0]
-    const lockNote = previous.lock ? '; the previous workspace lock was kept' : ''
-    const error = new TowerToolError(
-      'mode-persist-failed',
-      `Tower mode remains ${wasOn ? 'ON' : 'OFF'} because the mode store could not be saved: ${detail}${lockNote}`,
-      { details: { operation: 'off', saveError: String(saveError) } },
-    )
-    return {
-      wasOn,
-      pausedGoal: previous.pausedGoal ?? null,
-      goalNote: null,
-      by,
-      reason: reason ?? null,
-      changed: false,
-      mode: wasOn ? 'on' : 'off',
-      persisted: false,
-      persistError: saveError,
-      error: {
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-        nextAction: error.nextAction,
-      },
-    }
-  }
-  // Only a persisted off may release the workspace lock: the token came from
-  // the entry that was just written to disk.
-  if (previous.lock) {
-    await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
-  }
-  return {
-    wasOn,
-    pausedGoal: previous.pausedGoal ?? null,
-    goalNote: null,
-    by,
-    reason: reason ?? null,
-    changed: wasOn,
-    mode: 'off',
-    persisted: true,
-    persistError: null,
-    error: null,
-  }
-}
-
-function forwardInstruction(agent, message, attachments) {
-  const content = [...(Array.isArray(attachments) ? attachments : [])]
-  if (message) content.push({ type: 'text', text: message })
-  if (content.length === 0) return false
-  if (!agent || typeof agent.steer !== 'function') {
-    throw new Error('the calling agent cannot accept a steering message')
-  }
-  // `Agent.steer` takes a COMPLETE UserMessage (`id` + `role` + `content` +
-  // `source`), not a `{content, source}` init. Passing the init shape used to
-  // insert a role-less message into the inbox; the next model request then
-  // failed with 422 "messages[N]: missing field `role`" and the session could
-  // no longer produce valid requests. Mirror `createUserMessage()` here, since
-  // a local bundle cannot import `@deepseek-ai/dsh-llm` from the installation.
-  agent.steer({
-    id: randomUUID(),
-    role: 'user',
-    content,
-    source: { kind: 'user' },
-  })
-  return true
-}
-
-function describeChange(active, outcome, forwarded, message, allowAgentControl) {
-  const lines = []
-  if (active) {
-    lines.push(outcome.wasOn ? 'Tower mode remains on.' : 'Tower mode ON. Use the Tower tools; goal, todo, and Team delegation tools are disabled.')
-  } else {
-    lines.push(outcome.wasOn ? 'Tower mode OFF. Normal collaboration tools are available again.' : 'Tower mode is already off.')
-  }
-  if (outcome.pausedGoal) {
-    lines.push(`A goal was paused on entry ("${outcome.pausedGoal.objective ?? outcome.pausedGoal.id}"); resume it yourself when ready.`)
-  }
-  if (outcome.goalNote) lines.push(`Goal handling: ${outcome.goalNote}`)
-  if (forwarded) lines.push(message ? `Carried your instruction: ${message}` : 'Carried your attachments.')
-  if (!allowAgentControl) lines.push('Only the human can change Tower mode.')
-  return lines.join(' ')
-}
-
 export function apply(ctx, rawConfig) {
   const config = configureRuntime(rawConfig)
   const allowAgentControl = config.mode.allowAgentControl === true
   const reminder = configSection(config, allowAgentControl)
-  const loadedModes = loadModesDetailed(config.mode.storePath || undefined)
-  modeState.replace(loadedModes.modes)
-  modeStoreLoad = {
-    status: loadedModes.status,
-    file: loadedModes.file,
-    error: loadedModes.error ?? null,
-  }
+  const loadedModes = loadModes(config)
   if (loadedModes.status === 'corrupt') {
     console.warn(
       `[dsh-tower] the mode store is corrupt and was not loaded (${loadedModes.file}): ${loadedModes.error}; sessions start with Tower mode off until the file is repaired`,
     )
   }
   if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
-  denyTools = new Set(config.mode.denyTools)
+  setDenyTools(config.mode.denyTools)
 
-  const workspace = {
-    /** Lazily acquire the advisory workspace lock on the first repo-scoped tool. */
-    async ensure(repoRoot, exec, toolName) {
-      if (runtimeConfig().mode.workspaceLock !== true) return
-      if (runtimeConfig().mode.workspaceLockScope === 'mutations' && READ_ONLY_TOOL_NAMES.has(toolName)) return
-      const key = agentKey(exec?.agent)
-      if (!key) return
-      const entry = modeState.get(key)
-      if (!entry || entry.on !== true) return
-      const repo = await resolveRepo(repoRoot)
-      const existing = entry.lock
-      if (existing && existing.commonDir !== repo.commonDir) {
-        throw new TowerToolError(
-          'workspace-busy',
-          `this Tower session already owns ${existing.commonDir}; /tower off before switching repositories`,
-        )
-      }
-      const result = await acquireWorkspaceLock(repo.commonDir, {
-        token: existing?.token ?? workspaceLockToken(),
-        sessionId: key,
-        agentId: key,
-        staleMs: Number(runtimeConfig().mode.workspaceStaleMs) || 300000,
-      })
-      if (!result.acquired) {
-        const holder = result.holder
-          ? `session ${String(result.holder.sessionId).slice(0, 12)} (since ${
-              Number.isFinite(Number(result.holder.at))
-                ? new Date(Number(result.holder.at)).toISOString()
-                : 'unknown'
-            })`
-          : 'an unreadable lock'
-        throw new TowerToolError(
-          'workspace-busy',
-          `workspace ${repo.root} is locked by ${holder}; another Tower session must /tower off or set mode.workspaceLock:false`,
-        )
-      }
-      entry.lock = { token: result.record.token, commonDir: repo.commonDir }
-      const saved = persistModes()
-      if (!saved.ok) {
-        throw new Error(
-          `workspace lock for ${repo.root} was acquired, but the mode store could not be saved: ${saved.error ?? 'unknown error'}`,
-        )
-      }
-    },
-    async status(entry, key) {
-      if (!entry?.lock) return { enabled: runtimeConfig().mode.workspaceLock === true, held: false }
-      const info = await inspectWorkspaceLock(entry.lock.commonDir, {
-        sessionId: key ?? null,
-        staleMs: Number(runtimeConfig().mode.workspaceStaleMs) || 300000,
-      }).catch(() => null)
-      return {
-        enabled: runtimeConfig().mode.workspaceLock === true,
-        held: info?.held === true,
-        commonDir: entry.lock.commonDir,
-        self: info?.self === true,
-        stale: info?.stale === true || info === null,
-        holder: info?.holder ?? null,
-      }
-    },
-    basePreference(exec) {
-      const key = agentKey(exec?.agent)
-      return key && modeOn(key) ? modeState.get(key)?.baseBranch ?? null : null
-    },
-    modeInfo(exec) {
-      const key = agentKey(exec?.agent)
-      if (!key) return null
-      const entry = modeState.get(key)
-      const history = [...modeState.values()]
-        .map((value) => value?.lastChange)
-        .filter((change) => change && typeof change.at === 'number')
-        .sort((a, b) => b.at - a.at)
-        .slice(0, 10)
-      return {
-        mode: modeOn(key) ? 'on' : entry ? 'off' : 'unknown',
-        allowAgentControl: runtimeConfig().mode.allowAgentControl === true,
-        lastChange: entry?.lastChange ?? null,
-        history,
-        workspaceLock: entry?.lock
-          ? { enabled: runtimeConfig().mode.workspaceLock === true, commonDir: entry.lock.commonDir }
-          : null,
-      }
-    },
-  }
+  const workspace = createWorkspaceHook()
 
   // #69: the host entry is the composition root — the adapters are constructed
   // once here and injected into the tool layer and every Tower instance.
@@ -460,19 +89,13 @@ export function apply(ctx, rawConfig) {
 
   // On dispose (including an HMR reload) release advisory workspace locks this
   // process still owns; a reloaded plugin restores the entries from modes.json.
-  ctx.effect(() => () => {
-    for (const entry of modeState.values()) {
-      if (entry?.lock) {
-        releaseWorkspaceLock(entry.lock.commonDir, { token: entry.lock.token }).catch(() => {})
-      }
-    }
-  })
+  ctx.effect(() => () => releaseOwnedLocks())
 
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
       const key = agentKey(execution.agent)
       if (!key || !modeOn(key)) return undefined
-      if (denyTools.has(execution.name)) {
+      if (isDeniedTool(execution.name)) {
         return `tower mode: ${execution.name} is disabled while Tower mode is active; use the Tower tools or /tower off`
       }
       if (execution.name === 'update_goal') {
@@ -529,6 +152,7 @@ export function apply(ctx, rawConfig) {
   // define() aggregate, so each handler authorizes first through the same
   // default-deny kernel (host/authorization.js). The matrix covers all 29
   // shipped tools, including these two; no tool bypasses the decision point.
+  // The post-authorization body lives in host/session-tools.js.
   ctx.effect(() =>
     ctx.tools.register({
       name: 'tower_mode',
@@ -557,34 +181,7 @@ export function apply(ctx, rawConfig) {
       },
       async execute(_args, exec) {
         await authorizeSessionCall('tower_mode', exec, agentCwd(exec.agent))
-        const key = agentKey(exec.agent)
-        const entry = key ? modeState.get(key) : undefined
-        return {
-          mode: entry && entry.on === true ? 'on' : key ? 'off' : 'unknown',
-          agentId: key,
-          allowAgentControl,
-          lastChange: entry?.lastChange ?? null,
-          lastDisclosure: entry?.lastDisclosure ?? null,
-          pausedGoal: entry?.pausedGoal ?? null,
-          deniedWhileActive: [...denyTools],
-          persistedAt: storePath(config.mode.storePath || undefined),
-          modeStore: modeStoreLoad,
-          pluginVersion: readPluginVersion(),
-          hotReload: (() => {
-            // #121/#122: the tower-hmr component row owns the bridge. When the
-            // row is off the capability is reported, never silently absent.
-            const bridge = currentHmrBridge()
-            return bridge ? bridge.status() : { available: false, disabled: true, component: 'tower-hmr' }
-          })(),
-          planMode: (() => {
-            const state = planModeState(ctx, exec.agent)
-            return { available: state.available, active: state.active, pending: state.pending }
-          })(),
-          baseBranch: entry?.baseBranch ?? null,
-          workspaceLock: entry
-            ? await workspace.status(entry, key)
-            : { enabled: config.mode.workspaceLock === true, held: false },
-        }
+        return runTowerMode(ctx, exec, { config, allowAgentControl, workspace, pluginVersion: readPluginVersion() })
       },
     }),
   )
@@ -635,230 +232,11 @@ export function apply(ctx, rawConfig) {
         },
         async execute(args, exec) {
           await authorizeSessionCall('tower_control', exec, agentCwd(exec.agent))
-          const key = agentKey(exec.agent)
-          if (!key) return { ok: false, error: 'tower_control requires a live calling agent' }
-          if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
-            throw new TowerToolError('invalid-argument', 'tower_control requires a non-empty reason')
-          }
-          const reason = args.reason.trim()
-          if (args.action === 'takeover') {
-            if (!modeOn(key)) {
-              throw new TowerToolError('invalid-transition', 'takeover requires this session to be in Tower mode; run /tower on first')
-            }
-            const tower = await openTowerFor(exec.agent)
-            const facts = await readOwnership(tower, { caller: key })
-            if (facts.snapshot.sameOwner) {
-              return {
-                ok: true,
-                action: 'takeover',
-                approved: true,
-                transferred: false,
-                alreadyOwner: true,
-                owner: key,
-                previousOwner: null,
-                unreadMessages: facts.snapshot.unreadMessages,
-                reason,
-                mode: 'on',
-              }
-            }
-            const blocker = facts.snapshot.blockers[0]
-            if (blocker) throw new TowerToolError(blocker.code, blocker.detail)
-            const questions = ctx.get('userQuestions')
-            if (!questions || typeof questions.ask !== 'function') {
-              throw new TowerToolError(
-                'approval-unavailable',
-                'ownership transfer needs the DSH userQuestions service, which this profile does not expose',
-              )
-            }
-            let answer
-            try {
-              answer = await questions.ask({
-                agent: exec.agent,
-                signal: exec.signal,
-                questions: [
-                  {
-                    id: 'tower-ownership',
-                    header: 'Tower ownership',
-                    question: 'Transfer Tower ownership to this session?',
-                    detail: takeoverQuestionDetail(facts.snapshot, reason),
-                    options: [
-                      { label: 'Transfer ownership', description: 'Make this session the Tower owner; history and unread messages are kept.' },
-                      { label: 'Keep current owner', description: 'Leave ownership unchanged.' },
-                    ],
-                  },
-                ],
-              })
-            } catch (error) {
-              const code = error?.cause?.code ?? error?.code
-              if (code === 'ASK_CANCELLED') {
-                exec.concludeTurn?.()
-                return { ok: true, action: 'takeover', approved: false, cancelled: true, reason, mode: 'on' }
-              }
-              throw error
-            }
-            const list = Array.isArray(answer?.answers) ? answer.answers : Array.isArray(answer) ? answer : []
-            const choice = list.find((item) => item?.id === 'tower-ownership')
-            const selected = Array.isArray(choice?.selected) ? choice.selected : []
-            const approved = selected.length === 1 && selected[0] === 'Transfer ownership' && !choice?.custom
-            if (!approved) {
-              return { ok: true, action: 'takeover', approved: false, transferred: false, reason, mode: 'on', selected }
-            }
-            const result = await performTakeover(tower, { caller: key, reason })
-            return {
-              ...result,
-              ok: true,
-              action: 'takeover',
-              approved: true,
-              changedBy: 'agent',
-              reason,
-              mode: modeOn(key) ? 'on' : 'off',
-            }
-          }
-          if (args.action === 'enter' && !modeOn(key)) {
-            await assertRuntimePreconditions(ctx, config)
-          }
-          const outcome =
-            args.action === 'enter'
-              ? (() => {
-                  if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !modeState.get(key)?.humanAckAt) {
-                    throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
-                  }
-                  return enterMode(ctx, key, exec.agent, 'agent', reason)
-                })()
-              : await exitMode(key, 'agent', reason)
-          const persisted = outcome.persisted !== false
-          return {
-            ok: persisted,
-            action: args.action,
-            mode: modeOn(key) ? 'on' : 'off',
-            changed: outcome.changed ?? (args.action === 'enter' ? !outcome.wasOn : outcome.wasOn),
-            changedBy: 'agent',
-            reason,
-            pausedGoal: outcome.pausedGoal ?? null,
-            goalNote: outcome.goalNote ?? null,
-            persisted,
-            ...(persisted
-              ? {}
-              : {
-                  error: outcome.error?.message ?? outcome.persistError ?? 'the mode store could not be saved',
-                  ...(outcome.error?.code ? { errorCode: outcome.error.code } : {}),
-                }),
-          }
+          return runTowerControl(ctx, args, exec, { config })
         },
       }),
     )
   }
 
-  ctx.inject(['commands'], (commandCtx) => {
-    commandCtx.commands.register({
-      name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
-      input: { hint: '[on|off|reload|ack|takeover <reason>|base <branch>] [message]', attachments: true },
-      handler: async ({ agent, rawInput, attachments }) => {
-        const key = agentKey(agent)
-        if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
-        const raw = String(rawInput ?? '').trim()
-        if (/^ack$/i.test(raw)) {
-          const previous = modeState.get(key) ?? { on: false }
-          modeState.set(key, { ...previous, on: previous.on === true, humanAckAt: Date.now(), at: Date.now() })
-          const saved = persistModes()
-          if (!saved.ok) {
-            return {
-              kind: 'error',
-              text: `Human acknowledgement recorded in memory, but the mode store could not be saved: ${saved.error ?? 'unknown error'}. It may be lost on restart.`,
-            }
-          }
-          return { kind: 'success', text: 'Human acknowledgement recorded; the model may now make the first Tower-mode entry in this session.' }
-        }
-        const baseMatch = raw.match(/^base\s+(\S+)\s*$/i)
-        if (baseMatch) {
-          const entry = modeState.get(key)
-          if (!entry || entry.on !== true) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
-          entry.baseBranch = baseMatch[1]
-          const saved = persistModes()
-          if (!saved.ok) {
-            return {
-              kind: 'error',
-              text: `Tower base preference set to "${entry.baseBranch}" in memory, but the mode store could not be saved: ${saved.error ?? 'unknown error'}. It may be lost on restart.`,
-            }
-          }
-          return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }
-        }
-        const parsed = parseTowerInput(rawInput)
-        if (parsed.action === 'reload') {
-          // #121: /tower reload is the tower-hmr component. The row is shipped
-          // off, so the error names the component instead of an invisible key.
-          const bridge = currentHmrBridge()
-          if (!bridge) {
-            return { kind: 'error', text: 'Tower reload is disabled by component tower-hmr; enable the tower-hmr row in the plugin page and restart DSH.' }
-          }
-          if (!bridge.available) {
-            return { kind: 'error', text: 'Tower reload is unavailable: this DSH profile has no HMR service. Restart DSH instead.' }
-          }
-          const outcome = bridge.schedule()
-          return {
-            kind: 'success',
-            text: `Tower reload scheduled in ${outcome.delayMs}ms (required entries: ${outcome.requiredIds.join(', ')}). If the new code does not appear, restart DSH.`,
-          }
-        }
-        if (parsed.action === 'takeover') {
-          if (!parsed.reason) return { kind: 'error', text: 'Usage: /tower takeover <reason>. The reason is recorded in the activity log.' }
-          try {
-            const tower = await openTowerFor(agent)
-            const result = await performTakeover(tower, { caller: key, reason: parsed.reason })
-            if (result.alreadyOwner) {
-              return { kind: 'success', text: 'This session already owns this repository; no transfer was needed.' }
-            }
-            const previous = result.previousOwner ?? '(none)'
-            return {
-              kind: 'success',
-              text: `Tower ownership transferred from ${previous} to ${result.owner}; ${result.unreadMessages} unread message(s) preserved. Run /tower on to start working in this session.`,
-            }
-          } catch (error) {
-            const code = error?.code ? `[tower:${error.code}] ` : ''
-            return { kind: 'error', text: `${code}${String(error?.message ?? error)}` }
-          }
-        }
-        const { active, message } = parsed
-        // #142: preconditions guard the *transition* into Tower mode, not every
-        // `/tower` instruction. Re-validating on an already-active session meant a
-        // row disabled later in the session (tower-hmr ships off) blocked
-        // `/tower off` and ordinary forwarded text — the two commands a human
-        // needs precisely when something is broken. Spawn/plan/merge keep their own
-        // guards, so the capability checks still run before any real work.
-        const transition = active && !modeOn(key)
-        if (transition) await assertRuntimePreconditions(ctx, config)
-        const outcome = active
-          ? enterMode(ctx, key, agent, 'user', message || null)
-          : await exitMode(key, 'user', message || null)
-        const persisted = outcome.persisted !== false
-        let forwarded = false
-        try {
-          forwarded = forwardInstruction(agent, message, attachments)
-        } catch (error) {
-          return {
-            kind: 'error',
-            text: `Tower mode changed${persisted ? '' : ` in memory only (${outcome.persistError})`}, but the carried message could not be delivered: ${String(error?.message ?? error)}`,
-          }
-        }
-        if (!persisted) {
-          if (outcome.error) {
-            // F33: the rollback changed nothing, so describeChange would claim
-            // "Tower mode OFF" for a session that is still on. Report the real
-            // failure and keep any carried instruction visible.
-            const carried = forwarded ? (message ? ` Carried your instruction: ${message}` : ' Carried your attachments.') : ''
-            return { kind: 'error', text: `${outcome.error.message}${carried}` }
-          }
-          return {
-            kind: 'error',
-            text: `${describeChange(active, outcome, forwarded, message, allowAgentControl)} The mode change was applied in memory but could not be persisted: ${outcome.persistError}; it may be lost on restart.`,
-          }
-        }
-        return {
-          kind: 'success',
-          text: describeChange(active, outcome, forwarded, message, allowAgentControl),
-        }
-      },
-    })
-  })
+  registerTowerCommand(ctx, { config, allowAgentControl })
 }
