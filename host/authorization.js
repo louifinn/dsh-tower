@@ -85,7 +85,14 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   tower_merge: towerOnly('merge missions'),
   tower_rebase: towerOnly('rebase missions'),
   tower_teardown: towerOnly('tear down worktrees'),
-  tower_doctor: Object.freeze({ allow: EVERYONE }),
+  // F41: the doctor is the one row that declares the config-diagnostic contract.
+  // Its handler already knows how to produce a degraded read-only report from an
+  // unresolvable config; the kernel still has to let the call reach that handler
+  // when opening the Tower fails on config resolution. The flag makes the
+  // exception explicit and keeps every other public row failing closed. The row
+  // is read-only, so the registry also skips the workspace-lock hook for it:
+  // that hook resolves the config it just failed on and may acquire a lock.
+  tower_doctor: Object.freeze({ allow: EVERYONE, configDiagnostic: true }),
   tower_recover: towerOnly('recover Tower state'),
   tower_batch: towerOnly('manage evidence batches'),
   tower_resource: towerOnly('manage resource leases'),
@@ -127,6 +134,49 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
 export function allowsAnonymous(tool) {
   const rule = AUTHORIZATION_MATRIX[tool]
   return Array.isArray(rule?.allow) && rule.allow.includes(A.unknown)
+}
+
+/**
+ * True when a matrix row declares the config-diagnostic contract (F41): a
+ * config-resolution failure while opening the repository is a fact the handler
+ * reports, not a failure of the call itself. Only a read-only diagnostic row may
+ * opt in — the call continues as the anonymous actor and only that tool's row
+ * decides whether the anonymous actor is allowed.
+ *
+ * @param {string} tool
+ */
+export function allowsConfigDiagnostic(tool) {
+  return AUTHORIZATION_MATRIX[tool]?.configDiagnostic === true
+}
+
+/**
+ * The config-resolution failure codes an opted-in diagnostic row may report. The
+ * authorization kernel treats them as the one open-path failure that is a fact
+ * for the handler rather than a failure of the call.
+ *
+ * @param {any} error
+ */
+export function isConfigResolutionError(error) {
+  return error?.code === 'config-invalid' || error?.code === 'config-unknown-key'
+}
+
+/**
+ * F41: open the Tower for authorization. Only a config-diagnostic row may treat a
+ * config-resolution failure as a reportable fact: return null so the caller
+ * authorizes the anonymous actor and the handler reports the failure. Every other
+ * row and every other error still fails closed here.
+ *
+ * @param {string} tool
+ * @param {any} repoRoot
+ * @param {(repoRoot: any) => Promise<any>} open
+ */
+export async function openForAuthorization(tool, repoRoot, open) {
+  try {
+    return await open(repoRoot)
+  } catch (error) {
+    if (!allowsConfigDiagnostic(tool) || !isConfigResolutionError(error)) throw error
+    return null
+  }
 }
 
 /**

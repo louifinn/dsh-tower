@@ -21,6 +21,7 @@ test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
 const { AUTHORIZATION_MATRIX } = await import('../host/authorization.js')
+const { configureRuntime } = await import('../host/config.js')
 const { loadModes } = await import('../host/modeStore.js')
 const { __testResetComponentRegistry, presetAvailable } = await import('../host/capability-registry.js')
 const batch = await import('../host/capability-batch.js')
@@ -431,6 +432,58 @@ test('#122: tower_doctor and tower_recover are registered for every configuratio
   // sets them is rejected instead of silently accepting a no-op (#122).
   for (const legacy of [{ tools: {} }, { tools: { exposeDoctor: false } }, { tools: { exposeRecovery: false } }]) {
     assert.throws(() => apply(makeCtx().ctx, legacy), /unknown key/i)
+  }
+})
+
+test('F41: only the public doctor row may degrade on a config-resolution failure', async () => {
+  // (a) The authorization matrix names the exception explicitly: exactly the
+  // read-only doctor row opts into the degraded path. A new row must not be able
+  // to inherit it silently.
+  assert.deepEqual(AUTHORIZATION_MATRIX.tower_doctor.allow, ['tower', 'worker', 'reviewer', 'survey', 'unknown'])
+  assert.equal(AUTHORIZATION_MATRIX.tower_doctor.configDiagnostic, true)
+  const diagnosticRows = Object.entries(AUTHORIZATION_MATRIX)
+    .filter(([, row]) => row.configDiagnostic === true)
+    .map(([name]) => name)
+  assert.deepEqual(diagnosticRows, ['tower_doctor'], 'only tower_doctor may degrade on a config failure')
+
+  // (b) Through the real apply() host: an invalid profile must not make the
+  // doctor unreachable. Before F41 the call was rejected in the tool-registry
+  // open path (and the workspace hook would have resolved the profile first).
+  const { ctx, tools } = makeCtx()
+  apply(ctx, {})
+  const { root, repo } = makeRepo()
+  const agent = makeAgent('agent-f41')
+  const stateFile = path.join(repo, '.git', 'dsh-tower', 'state.json')
+  try {
+    configureRuntime({})
+    await tools.get('tower_init').execute({ repoRoot: repo }, { agent })
+    await tools
+      .get('tower_plan')
+      .execute({ repoRoot: repo, missions: [{ title: 'F41 fixture', scope: ['src/**'] }] }, { agent })
+    const stateBefore = fs.readFileSync(stateFile, 'utf8')
+    // configureRuntime assigns the raw profile before validating it, so this
+    // leaves the live profile unresolvable — the second F41 seam.
+    assert.throws(() => configureRuntime({ allowAgentToggle: true }), /unknown key/i)
+    let doctor
+    try {
+      doctor = await tools.get('tower_doctor').execute({ repoRoot: repo }, { agent })
+    } finally {
+      configureRuntime({})
+    }
+    assertSchema(tools.get('tower_doctor'), doctor)
+    assert.equal(doctor.ok, false)
+    assert.match(doctor.configError, /\[tower:config-unknown-key\]/)
+    const config = doctor.checks.find((entry) => entry.id === 'config')
+    assert.equal(config.status, 'fail')
+    assert.match(config.detail, /unknown key/i)
+    assert.equal(fs.readFileSync(stateFile, 'utf8'), stateBefore, 'the degraded diagnostic is read-only')
+    // Restoring the profile restores the ordinary tools.
+    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent })
+    assertSchema(tools.get('tower_status'), status)
+    assert.equal(status.counts.planned, 1)
+  } finally {
+    configureRuntime({})
+    removeTemp(root)
   }
 })
 
