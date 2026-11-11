@@ -34,20 +34,16 @@ win, profile keys survive when the repo does not set them. `tower_status` report
 }
 ```
 
-`review.mode` is the review policy: `off`, `optional` or `required`. `review.requireReview` is a
-deprecated alias still accepted for 2.5-era configurations (`true` → `required`, `false` →
-`optional`); prefer `review.mode`. When both are set in the same layer, `requireReview:true` next to
-any mode other than `required` is a contradiction and is rejected with `config-invalid` naming both
-keys. `requireReview:false` never contradicts an explicit mode: `off`, `optional` and `required` all
-stay accepted and the mode wins (`required` still enforces the gate; the resolved alias is mirrored
-back as `true` only for that mode). A repository layer is resolved on its own: it may relax review,
-but a profile with `review.mode:off` never registered `tower_review`, so a repository cannot raise its
-own mode.
+`review.mode` is the review policy: `off`, `optional` or `required`. The 2.6-era boolean alias
+`review.requireReview` was physically removed in 2.8.0: a profile or repository config that still sets
+it is rejected with `config-unknown-key`, and the error names `review.mode` plus the mapping (`true` →
+`required`, `false` → `optional`) as the upgrade remedy. There is no second review key to keep
+consistent any more. A repository layer is resolved on its own: it may relax review, but a profile
+with `review.mode:off` never registered `tower_review`, so a repository cannot raise its own mode.
 
-The Plugins-page control shows the policy exactly as the runtime resolves it: `review.mode` decides
-when present, and a profile that still sets only `review.requireReview` displays Required (`true`) or
-Optional (`false`). Saving a choice always writes `review.mode` and sets `review.requireReview` to
-`false` in the same profile patch, so the alias can never contradict the selected mode.
+The Plugins-page control shows the policy exactly as the runtime resolves it: `review.mode` decides,
+and an unset mode displays Optional (the default). Saving a choice writes only `review.mode` in the
+same profile patch, so there is no deprecated alias to normalize.
 
 The same three choices are available on the Plugins page, in the `dsh-tower` configuration
 section: **Off**, **Optional** (the default) and **Required**, each with a one-line description of

@@ -35,19 +35,25 @@ export const DEFAULT_DENY_TOOLS = [
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
 
-// #133/#135/#149: a removed key keeps failing as an unknown key — with an
+// #133/#135/#149/#M66: a removed key keeps failing as an unknown key — with an
 // upgrade note naming what replaced it. `docs.board` and `archive.enabled`
 // were component-shaped switches hiding in the config form, so their note
 // names the component row. `tests.autoChecks` existed only to copy a discovery
 // projection into the completion report; its replacement is the `testRuns`
 // receipt (whose concrete record path belongs to domain/evidence.js), so the
-// note names the receipt and the one reader instead of a row.
-/** @type {Record<string, { component?: string, note?: string }>} */
+// note names the receipt and the one reader instead of a row. `review.requireReview`
+// was the one-release alias for `review.mode`; it is removed now, so its dated
+// note names the surviving key and the mapping.
+/** @type {Record<string, { component?: string, note?: string, date?: string }>} */
 const REMOVED_KEYS = {
   'docs.board': { component: 'tower-board' },
   'archive.enabled': { component: 'tower-archive' },
   'tests.autoChecks': {
     note: 'tests.autoChecks was removed: test evidence is the testRuns receipt read by domain/evidence.js (see docs/adr/0006-mission-shapes.md)',
+  },
+  'review.requireReview': {
+    date: '2026-11-11',
+    note: 'the boolean alias for review.mode was retired; set review.mode to off, optional or required instead (true -> required, false -> optional). The old value is rejected rather than silently changing the review policy.',
   },
 }
 
@@ -63,6 +69,7 @@ function removedKeyNote(group, key) {
   if (entry.component) {
     return ` — ${group}.${key} was removed: the ${entry.component} component row in cordis.patch.yml is the switch (see docs/adr/0005-component-surface.md)`
   }
+  if (entry.date) return ` — ${group}.${key} was removed on ${entry.date}: ${entry.note}`
   return ` — ${entry.note}`
 }
 
@@ -133,30 +140,22 @@ export const Config = Schema.object({
     .description('Tower-mode behavior and persistence.'),
   review: Schema.object({
     // #M39: deliberately *no* schema default here. Cordis resolves the schema
-    // before `apply()` on some paths, and a materialized `mode:'optional'` would
-    // sit next to a legacy `review.requireReview:true` and look like a user
-    // contradiction. The resolver (`resolveTowerConfig`) is the single place
-    // that applies the `optional` default, after alias resolution.
+    // before `apply()` on some paths, and the resolver (`resolveTowerConfig`)
+    // is the single place that applies the documented `optional` default, so
+    // an unset mode stays distinguishable from an explicit one.
     // #M40: `.volatile()` is what makes a field editable from the DSH
     // Plugins-page settings form. The form projection keeps only fields under a
     // volatile ancestor, and Cordis then hands the runtime a live reference
     // that is updated in place on a settings write (see host/config.js).
-    //
-    // Both review keys are volatile on purpose: the page must show the
-    // *resolved* policy, and `resolveReviewPolicy` lets the deprecated alias
-    // decide when `mode` is absent. A non-volatile alias would be dropped by the
-    // projection, so a profile that sets only `review.requireReview:true` would
-    // render as Optional (and a save could persist a contradiction). The group
-    // itself stays non-volatile so the tuning keys remain ordinary config.
+    // #M66: `review.mode` is the only review policy key. The deprecated
+    // `review.requireReview` boolean was removed (2026-11-11) and is rejected
+    // as an unknown key with an upgrade note; the group itself stays
+    // non-volatile so the tuning key remains ordinary config.
     mode: Schema.union(['off', 'optional', 'required'])
       .volatile()
       .description(
       'Review policy. off = review is intentionally unavailable (recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off also does not register tower_review); optional = review is available but never blocks a merge (default); required = a clean review bound to the branch tip is a merge blocker.',
     ),
-    requireReview: Schema.boolean()
-      .default(false)
-      .volatile()
-      .description('Deprecated alias for review.mode (true -> required, false -> optional); prefer review.mode. true next to a non-required mode is rejected; false never overrides an explicit mode (off, optional or required). The Plugins-page control shows the alias when it is the only key and always writes review.mode with review.requireReview:false.'),
     maxRoundsPerReviewer: Schema.natural().min(1).default(5).description('Review-round cap per reviewer per mission branch.'),
   })
     .default({})
@@ -490,15 +489,13 @@ export function resolveTowerConfig(rawConfig) {
   // `resolve(raw)` for every valid config without changing any resolved value.
   if (mode.promptSection === undefined) mode.promptSection = ''
   if (!Array.isArray(mode.denyTools) || mode.denyTools.length === 0) mode.denyTools = [...DEFAULT_DENY_TOOLS]
-  // #M39: resolve the review policy here so every consumer reads one shape.
-  // `review.mode` is canonical; the deprecated `review.requireReview` boolean is
-  // materialized from it (true only for `required`), which keeps older readers
-  // working and makes `resolve(resolve(raw))` a fixed point — the mirrored alias
-  // is compatible with the mode it came from (domain/integration/review.js).
+  // #M39/#M66: resolve the review policy here so every consumer reads one
+  // shape. `review.mode` is the only policy key; the deprecated
+  // `review.requireReview` alias was removed, so the resolved object no longer
+  // mirrors it and `resolve(resolve(raw))` stays a fixed point through `mode`.
   const reviewPolicy = resolveReviewPolicy(raw.review)
   const review = clone(parsed.review ?? {})
   review.mode = reviewPolicy.mode
-  review.requireReview = reviewPolicy.mode === 'required'
   return {
     section: mode.promptSection,
     init: clone(parsed.init ?? {}),

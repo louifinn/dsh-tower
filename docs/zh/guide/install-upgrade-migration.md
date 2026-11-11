@@ -31,6 +31,12 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.7.0 → 2.8.0（#M66）—— 移除 `review.requireReview`**：2.6.0 引入的、保留一个版本的布尔别名已彻底移除。
+  `review.mode`（`off`、`optional` 或 `required`）是唯一的审查策略键；仍在 profile 或仓库配置中写入
+  `review.requireReview` 的配置会以 `config-unknown-key` 被拒绝，错误带日期注记，点名 `review.mode`
+  并给出映射（`true` → `required`，`false` → `optional`）作为升级办法。三种模式的解析与之前完全一致，
+  因此不需要迁移 state 或审查策略；配置键数量从 56 降到 55。从插件页保存只写入 `review.mode`；
+  doctor 现在报告从未固定 `review.mode` 的 profile，而不再归一化别名。
 - **2.5.0 → 2.6.0（#M39/#M40）—— 审查模式取代布尔开关**：审查策略是插件页 `dsh-tower` 配置区里的
   一个三态控件，配置键为 `review.mode`：`off`、`optional`（默认）或 `required`。
   - `off` 是受支持且有文档的模式：不注册 `tower_review`，拒绝 reviewer spawn，合并门禁忽略审查。
@@ -45,8 +51,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   行关闭时，规划与模式进入会以带解释的 `preset-missing` 错误拒绝该组合。
   以 `off` 启动的 profile 从未注册 `tower_review`；切换到 `optional` 或 `required` 会立即改变合并门禁，
   但工具本身要等 DSH 重启（或 profile 重载）后才出现，插件页在保存后会说明这一点。
-  升级方式：把 `review.requireReview: true|false` 替换为 `review.mode: required|optional`；仅当同一份
-  配置还要供旧 2.5 安装使用时保留别名，并在本版本后移除。不需要迁移 state。
+  升级方式：把 `review.requireReview: true|false` 替换为 `review.mode: required|optional`。该别名只保留
+  一个版本，已在 2.8.0 中移除（见 2.7.0 → 2.8.0 条目）；继续保留它的配置会被拒绝，而不是被静默解析。
+  不需要迁移 state。
 
 - **state schema v1 → v2（未发布）**：`state.json` 会自动迁移。升级后的第一次**写入**会保留
   `state.json.v1.bak` 备份、`revision` 只 +1，并向 `activity.jsonl` 追加 `state.migrated {from,to}`；
@@ -77,7 +84,7 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   `npm publish --tag next` 之后，`next` 才会解析到 2.1.0-beta.1；`latest` 在稳定版发布前保持 2.0.4。
 - **2.0.3 → 2.0.4**：不需要迁移 state/config。本版本是安全加固与完整性修复（授权、merge SHA 绑定、
   dirty worktree 完成拒绝、stale lock 恢复、限制 test/git 进程环境、`tower_recover`、UI 0.2.2）。
-  升级后请按威胁模型重新检查审查策略（`review.mode`，或已弃用的 `review.requireReview` 别名）、
+  升级后请按威胁模型重新检查审查策略（`review.mode`；已弃用的 `review.requireReview` 别名已在 2.8.0 中移除）、
   `tests.admission` 与 worker 工具权限。
 - **2.0.1 → 2.0.3**：不需要迁移状态。2.0.3 起独立审查**默认可选**（即今天的
   `review.mode:optional`）；若要保留旧的审查门禁行为，请显式设为 `review.mode:required`。

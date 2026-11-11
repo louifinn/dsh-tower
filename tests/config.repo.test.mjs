@@ -165,8 +165,8 @@ test('repo config: invalid JSON, unknown keys and bad values are rejected with s
     writeRepoConfig(repo, { allowAgentToggle: true })
     await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*unknown key/)
 
-    writeRepoConfig(repo, { review: { requireReview: true, require_review: true } })
-    await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*review\.require_review/)
+    writeRepoConfig(repo, { review: { requireReview: true } })
+    await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*review\.requireReview/)
 
     writeRepoConfig(repo, { spawn: { workerModel: { model: 'x', typo: 1 } } })
     await assert.rejects(() => Tower.open(repo), /\[tower:config-unknown-key\].*spawn\.workerModel.*typo/)
@@ -201,6 +201,22 @@ test('repo config: removed tests.autoChecks fails with a migration note naming t
       error.message.includes('testRuns') &&
       error.message.includes('domain/evidence.js') &&
       error.message.includes('docs/adr/0006-mission-shapes.md'),
+  )
+})
+
+test('repo config: removed review.requireReview fails with a dated note naming review.mode (#M66)', () => {
+  // 2.8.0 physically retired the one-release boolean alias. The unknown-key note
+  // must name the surviving key, the value mapping and the removal date so an
+  // operator can upgrade without guessing; rejection is the point, because a
+  // silently ignored alias would change the review posture.
+  assert.throws(
+    () => resolveTowerConfig({ review: { requireReview: true } }),
+    (error) =>
+      error.code === 'config-unknown-key' &&
+      error.message.includes('review.requireReview') &&
+      error.message.includes('removed on 2026-11-11') &&
+      error.message.includes('review.mode') &&
+      error.message.includes('true -> required'),
   )
 })
 

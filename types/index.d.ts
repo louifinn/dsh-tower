@@ -80,11 +80,12 @@ export type ErrorCode =
 // generated:vocabulary:end
 
 /**
- * Review policy mode (#M39): `off` (review intentionally unavailable),
+ * Review policy mode (#M39/#M66): `off` (review intentionally unavailable),
  * `optional` (available, never required; default) or `required` (a clean review
- * bound to the branch tip is a merge blocker). The deprecated
- * `review.requireReview` boolean normalizes to this: true -> required,
- * false -> optional.
+ * bound to the branch tip is a merge blocker). `review.requireReview` was the
+ * one-release boolean alias (true -> required, false -> optional); it was
+ * removed in 2.8.0 and is rejected as an unknown key, so this is the only
+ * review policy shape.
  */
 export type ReviewMode = 'off' | 'optional' | 'required'
 

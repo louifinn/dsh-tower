@@ -73,7 +73,7 @@ test('config-key syntax fails in both languages (#137)', () => {
   for (const [lang, description, code] of [
     ['en', 'Missions. With gates.requireTests:true planning is refused.', 'gates.requireTests'],
     ['zh', '任务线。若 gates.requireTests:true，规划会被拒绝。', 'gates.requireTests'],
-    ['en', 'The row may not turn off review.requireReview.', 'review.requireReview'],
+    ['en', 'The row may not turn off review.mode.', 'review.mode'],
     ['en', 'A preset names spawn.requireLease here.', 'spawn.requireLease'],
   ]) {
     const findings =
@@ -299,9 +299,8 @@ test('the reviewed off copy and Chinese terms stay corrected (#137 review P2)', 
   assert.match(reviewerSummary, /Usable while review before merging is optional/)
   assert.match(zh.components['preset-tower-reviewer'].summary, /可以使用/)
   // The group description must not present review before merging as the
-  // default: review.requireReview is false by default
-  // (domain/config/schema.js:171-174), so the merge clause has to be scoped to
-  // the configured-required case.
+  // default: review.mode defaults to optional (domain/config/schema.js), so the
+  // merge clause has to be scoped to the configured-required case.
   assert.doesNotMatch(en.meta.description, /merge only after review/)
   assert.match(en.meta.description, /merge after review when review before merging is required/)
   assert.match(zh.meta.description, /在把合并前审查设为必须时，审查通过后再合并/)

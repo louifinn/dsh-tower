@@ -138,11 +138,9 @@ export const cleanMergeEvidenceArb = fc
       },
       config: {
         ...config,
-        // #M39: the gate is asked to require review, so pin the canonical mode
-        // too. The alias alone would still resolve to `required`, but setting
-        // both consistently keeps a generated `mode` from another value from
-        // winning over the intent of this arbitrary.
-        review: { ...(config.review ?? {}), mode: 'required', requireReview: true },
+        // #M39/#M66: the gate is asked to require review, so pin the canonical
+        // mode. The removed alias is not a policy input any more.
+        review: { ...(config.review ?? {}), mode: 'required' },
         gates: { ...(config.gates ?? {}), allowReviewExemption: false },
       },
       activity: {},

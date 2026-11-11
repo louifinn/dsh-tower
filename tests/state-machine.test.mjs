@@ -188,7 +188,7 @@ test('tower_complete and tower_merge enforce their own state preconditions', asy
     fs.mkdirSync(path.join(repo, '.git', 'dsh-tower'), { recursive: true })
     fs.writeFileSync(
       path.join(repo, '.git', 'dsh-tower', 'config.json'),
-      JSON.stringify({ review: { requireReview: true } }),
+      JSON.stringify({ review: { mode: 'required' } }),
     )
     const tower = await Tower.open(repo)
     await tower.init({})

@@ -288,11 +288,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const config = tower.config ?? {}
   const profile = profileConfig()
   const staleDefaults = []
-  // #M39: `review.mode` replaces the deprecated boolean. A profile that names
-  // neither key relies on the default (optional), so say so rather than letting
-  // a reader assume review is enforced.
-  if (profile.review && profile.review.mode === undefined && profile.review.requireReview === undefined) {
-    staleDefaults.push('review.mode defaults to optional; review.requireReview is a deprecated alias')
+  // #M66: `review.mode` is the only review policy key now; the one-release
+  // `review.requireReview` alias is removed and rejected at resolution. A
+  // profile that names no mode relies on the default (optional), so say so
+  // rather than letting a reader assume review is enforced.
+  if (profile.review && profile.review.mode === undefined) {
+    staleDefaults.push('review.mode defaults to optional')
   }
   if (profile.mode && profile.mode.allowAgentControl === undefined) {
     staleDefaults.push('mode.allowAgentControl now defaults to true (2.0.4)')

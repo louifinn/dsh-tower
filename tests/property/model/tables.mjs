@@ -108,12 +108,12 @@ export const MODEL_MERGE_VERDICTS = Object.freeze(['merge', 'fix-then-merge', 'h
 /**
  * The gate configuration every command runs under. Kept in the model (not read
  * from the repo config) so the property is self-contained and deterministic.
- * `requireReview: true` + `allowReviewExemption: true` exercises both the
+ * `review.mode:required` + `allowReviewExemption: true` exercises both the
  * "review required" path and the "mission is exempt" path.
  */
 export const MODEL_CONFIG = Object.freeze({
   mode: Object.freeze({ requireResumeAuthorization: true }),
-  review: Object.freeze({ requireReview: true, maxRoundsPerReviewer: 5 }),
+  review: Object.freeze({ mode: 'required', maxRoundsPerReviewer: 5 }),
   gates: Object.freeze({ requireChecks: false, requireTests: false, allowReviewExemption: true }),
 })
 
