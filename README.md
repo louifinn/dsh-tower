@@ -172,7 +172,9 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
     mode:
       allowAgentControl: true
       autoPauseGoal: true
-      denyTools: [create_goal, todo_write, team_task_create, team_task_update, team_task_reopen, spawn_teammate]
+      # denyTools 默认等于外部编排组件注册的全部工具（Agent Teams、goal、
+      # todo、ralph、subagent、workflow）；显式列表会替换该默认值，
+      # 仓库层配置只能在其上扩展
     review:
       mode: optional             # 一个三态控件：off、optional（默认）或 required
       maxRoundsPerReviewer: 5

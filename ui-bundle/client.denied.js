@@ -53,8 +53,10 @@ window.__ModuleLoader__.load({
           if (name === '' || names.includes(name)) continue
           names.push(name)
         }
-        // update_goal is denied only for action:"resume", but the guard special
-        // case exists regardless of the configured denyTools list.
+        // Legacy outputs from <= 2.8.0 omitted update_goal from the deny list
+        // (the guard special-cased action:"resume" then); since #161 the whole
+        // goal-owner surface is denied by default, so this only patches rows
+        // built from an old tower_mode result.
         if (!names.includes('update_goal')) names.push('update_goal')
         return names
       }

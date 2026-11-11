@@ -24,21 +24,15 @@ window.__ModuleLoader__.load({
       'tower_batch',
     ]
     const TOOL_SET = new Set(TOOL_NAMES)
-    // Mirrors host/config.js DEFAULT_DENY_TOOLS; overridden by the
+    // Mirrors the host's deny-by-owner default (domain/deny-owners.js derives
+    // it from the generated owner inventory); overridden by the
     // `deniedWhileActive` list of the latest `tower_mode` output when present.
     const DEFAULT_DENIED_TOOLS = [
-      'create_goal',
-      'todo_write',
-      'team_task_create',
-      'team_task_update',
-      'team_task_reopen',
-      'team_task_list',
-      'spawn_teammate',
-      'wait_agent',
-      'workflow',
-      'ralph',
-      'subagent',
-      'subagent_fork',
+      'create_goal', 'get_goal', 'update_goal',
+      'interrupt_agent', 'list_agents', 'send_message',
+      'spawn_teammate', 'wait_agent', 'todo_write',
+      'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
+      'subagent', 'subagent_fork', 'workflow', 'ralph',
     ]
 
     function createHelpers(translate) {

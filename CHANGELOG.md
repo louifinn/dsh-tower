@@ -2,6 +2,23 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## Unreleased（未发布）
+
+### 修复
+
+- **Tower 模式按组件属主拒绝外部编排工具（#161）**：`mode.denyTools` 的默认值不再是手写清单，而是
+  `domain/deny-owners.js` 声明的外部编排组件（`tool-agent-team`、goal/todo、ralph、subagent/fork、
+  subagent-control、workflow）在固定版本上游包中实际注册的工具全集（`domain/generated/deny-surface.js`，
+  由 `npm run deny:generate` 生成）。新增的 4 个 Team 工具（`team_task_get`、`list_agents`、`send_message`、
+  `interrupt_agent`）随默认集一并拒绝，失效名 `team_task_reopen` 随之消失；`tests/deny-surface.test.mjs`
+  在测试时重新枚举各属主工具并断言全覆盖，上游新增工具会使 CI 失败而不是静默漏过。
+- **模式入口先处理在场的 Agent Team（#161 D3）**：进入 Tower 模式时，活动团队会被离开——运行中的
+  teammate 被挂起（interrupt 保留待处理收件箱），释放名单写入仓库活动日志并记录在模式条目
+  （`tower_mode` / `tower_status` 的 `releasedTeam`）；`/tower off` 明确说明释放了什么，不会静默恢复。
+- **拒绝范围扩大到工作区（#161 D4）**：guard 现以 `mode.workspaceLock` 同一范围判定——仓库的
+  `tower.lock` 被持有时，同一检出的任何会话（含进入前已存在的 teammate、第二个会话）对编排工具的
+  调用都被拒绝，且拒绝消息指明可执行的下一步（属主会话 `/tower off`，或 `/tower takeover <reason>`）。
+
 ## 2.8.0（2026-11-12）
 
 > 2.7.1 未单独发布；本节与下方 2.7.1 节共同构成 2.8.0 的发布内容。

@@ -21,7 +21,7 @@
 | `mode.planModePolicy` | `"clear"` | On Tower entry: clear an active plan mode, or refuse to enter until the plan is exited. |
 | `mode.workspaceStaleMs` | `300000` | A workspace lock older than this is stale and can be taken over. |
 | `mode.heartbeatMs` | `10000` | Workspace-lock heartbeat interval while Tower mode is on. |
-| `mode.denyTools` | `["create_goal","todo_write","team_task_create","team_task_update","team_task_reopen","team_task_list","spawn_teammate","wait_agent","workflow","ralph","subagent","subagent_fork"]` | Tools refused while Tower mode is active. |
+| `mode.denyTools` | `["create_goal","get_goal","interrupt_agent","list_agents","ralph","send_message","spawn_teammate","subagent","subagent_fork","team_task_create","team_task_get","team_task_list","team_task_update","todo_write","update_goal","wait_agent","workflow"]` | Tools refused while Tower mode is active. The default is every tool the foreign orchestration owners register (see domain/deny-owners.js); an explicit list replaces it and a repository may only widen it. |
 | `mode.storePath` | `` | Directory for modes.json; defaults to $DSH_HOME/tower-mode. |
 | `mode.maxEntries` | `200` | Maximum persisted mode entries. |
 | `mode.lockTimeoutMs` | `5000` | How long a caller waits for a cross-process lock (the repo state lock and the Tower-mode modes.lock) before giving up. |

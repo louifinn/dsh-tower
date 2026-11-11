@@ -17,21 +17,15 @@ import Schema from '@deepseek-ai/schemastery'
 import { TowerToolError } from '../errors.js'
 import { DEFAULT_MAX_REPORT_BYTES } from '../missions/completion.js'
 import { materializeVolatile, resolveReviewPolicy } from '../integration/review.js'
+import { DEFAULT_DENY_TOOLS } from '../deny-owners.js'
 
-export const DEFAULT_DENY_TOOLS = [
-  'create_goal',
-  'todo_write',
-  'team_task_create',
-  'team_task_update',
-  'team_task_reopen',
-  'team_task_list',
-  'spawn_teammate',
-  'wait_agent',
-  'workflow',
-  'ralph',
-  'subagent',
-  'subagent_fork',
-]
+// #161: `mode.denyTools` has no hand-written default here. The default is the
+// union of every tool the foreign-orchestration owners register — see
+// domain/deny-owners.js and the generated inventory it reads — so an upstream
+// tool addition reaches this default through `npm run deny:generate` instead
+// of a second copy drifting in this file. Re-exported for the callers that
+// historically imported it from this module.
+export { DEFAULT_DENY_TOOLS }
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
 
@@ -137,7 +131,7 @@ export const Config = Schema.object({
     heartbeatMs: Schema.natural().min(1000).default(10000).description('Workspace-lock heartbeat interval while Tower mode is on.'),
     denyTools: Schema.array(Schema.string())
       .default(DEFAULT_DENY_TOOLS)
-      .description('Tools refused while Tower mode is active.'),
+      .description('Tools refused while Tower mode is active. The default is every tool the foreign orchestration owners register (see domain/deny-owners.js); an explicit list replaces it and a repository may only widen it.'),
     storePath: Schema.string().description('Directory for modes.json; defaults to $DSH_HOME/tower-mode.'),
     maxEntries: Schema.natural().min(1).max(2000).default(200).description('Maximum persisted mode entries.'),
     lockTimeoutMs: Schema.natural().min(10).max(60000).default(5000).description('How long a caller waits for a cross-process lock (the repo state lock and the Tower-mode modes.lock) before giving up.'),
