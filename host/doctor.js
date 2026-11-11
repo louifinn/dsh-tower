@@ -18,9 +18,7 @@ import { reviewPolicyView, reviewRequired } from '../domain/integration/review.j
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
 import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
 import { profileConfig } from './config.js'
-import { inspectWorkspaceLock } from '../adapters/workspaceLock.js'
-import { loadModes } from './modeStore.js'
-import { ownershipSnapshot } from '../app/ownership.js'
+import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 
 const execFileAsync = promisify(execFile)
@@ -208,31 +206,48 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   )
   const schemaInfo = await inspectStateSchema(tower.paths)
   let state = null
+  /** @type {Awaited<ReturnType<typeof readOwnership>> | null} */
+  let ownershipFacts = null
+  /** @type {any} */
+  let ownershipError = null
   try {
     state = await tower.load()
     checks.push(check('state', 'pass', `${tower.paths.state} revision ${state.revision}`))
+    // One read of the same facts feeds both the tower-owner and workspace-lock
+    // checks: doctor must describe the lock/roster a takeover would actually
+    // see, and must not re-read either with a different rule.
+    try {
+      ownershipFacts = await readOwnership(tower, { caller: null, state })
+    } catch (error) {
+      ownershipError = error
+    }
     if (!state.towerAgentId) {
       checks.push(check('tower-owner', 'warn', 'state has no towerAgentId; write tools will fail closed', 'run tower_init with the restored session to re-claim ownership'))
+    } else if (!ownershipFacts) {
+      checks.push(
+        check(
+          'tower-owner',
+          'warn',
+          `ownership facts could not be read: ${String(ownershipError?.message ?? ownershipError ?? 'unknown error')}`,
+          'inspect the mode store and workspace lock files, then retry tower_doctor',
+        ),
+      )
     } else {
-      const modes = loadModes(tower.config?.mode?.storePath || undefined)
-      const lock = await inspectWorkspaceLock(tower.commonDir, {
-        staleMs: Number(tower.config?.mode?.workspaceStaleMs) || 300000,
-      })
-      let roster = []
-      try {
-        roster = (await tower.rosterView()).roster
-      } catch {
-        roster = []
-      }
-      const ownership = ownershipSnapshot({ state, modes, caller: null, lock, liveRoster: roster })
+      const ownership = ownershipFacts.snapshot
+      const corrupt = ownership.blockers.find((blocker) => blocker.code === 'mode-store-corrupt')
       const live = ownership.blockers.find((blocker) => blocker.code === 'owner-live')
-      if (live) {
+      if (corrupt) {
+        // A corrupt mode store makes every mode save fail and makes takeover
+        // fail closed: report it as a failure, not as an inactive-looking owner.
+        checks.push(check('tower-owner', 'fail', corrupt.detail, 'action' in corrupt ? corrupt.action : undefined))
+      } else if (live) {
         checks.push(check('tower-owner', 'pass', `bound to ${ownership.owner}; Tower mode is active${ownership.ownerLock ? ' with a live workspace lock' : ''}`))
       } else {
         const busy = ownership.blockers.filter((blocker) => blocker.code === 'owner-busy').map((blocker) => blocker.detail)
+        const workspaceLock = ownershipFacts.lock
         const detail = busy.length > 0
           ? `owner ${ownership.owner} appears inactive (Tower mode ${ownership.ownerMode}) but ${busy.join('; ')}`
-          : `owner ${ownership.owner} appears inactive (Tower mode ${ownership.ownerMode}${lock.held ? `, ${lock.stale ? 'stale' : 'live'} workspace lock` : ''})`
+          : `owner ${ownership.owner} appears inactive (Tower mode ${ownership.ownerMode}${workspaceLock?.held ? `, ${workspaceLock.stale ? 'stale' : 'live'} workspace lock` : ''})`
         checks.push(check(
           'tower-owner',
           'warn',
@@ -429,7 +444,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
             ? check(
                 'state-lock',
                 'warn',
-                `state lock pid ${lock.record.pid ?? 'unknown'} is alive but silent (${heartbeatText}); the next mutation reclaims it after byte verification, or tower_recover clear-stale-lock force:true moves it to a backup`,
+                `state lock pid ${lock.record.pid ?? 'unknown'} is alive but silent (${heartbeatText}); a live-but-silent holder is never reclaimed automatically`,
+                'confirm the process is gone (or stop it), then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
               )
             : check(
                 'state-lock',
@@ -438,13 +454,41 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
               ),
     )
     const lockDir = path.join(tower.commonDir, 'dsh-tower', 'tower.lock')
-    try {
-      const lock = await inspectWorkspaceLock(tower.commonDir, {
-        staleMs: Number(config.mode?.workspaceStaleMs) || 300000,
-      })
-      checks.push(lock.held ? check('workspace-lock', lock.stale ? 'warn' : 'pass', `held by ${lock.holder?.sessionId ?? 'unknown'}`) : check('workspace-lock', 'pass', 'free'))
-    } catch {
-      checks.push(check('workspace-lock', 'warn', `lock file ${lockDir} could not be inspected`))
+    // Same ownership facts as the tower-owner check above: no second lock read
+    // with a different rule, and no duplicated roster/mode logic.
+    const workspaceLock = ownershipFacts?.lock ?? null
+    if (!workspaceLock) {
+      checks.push(
+        check(
+          'workspace-lock',
+          'warn',
+          `workspace lock ${lockDir} could not be inspected${ownershipError ? `: ${String(ownershipError?.message ?? ownershipError)}` : ''}`,
+          'inspect the lock path and retry tower_doctor',
+        ),
+      )
+    } else if (workspaceLock.corrupt) {
+      checks.push(
+        check(
+          'workspace-lock',
+          'warn',
+          `workspace lock ${lockDir} is unreadable or corrupt; ownership cannot be proven from it`,
+          'confirm no writer is running, then move the corrupt lock file aside',
+        ),
+      )
+    } else if (!workspaceLock.held) {
+      checks.push(check('workspace-lock', 'pass', 'free'))
+    } else {
+      const holder = workspaceLock.holder?.sessionId ?? workspaceLock.holder?.agentId ?? 'unknown session'
+      checks.push(
+        check(
+          'workspace-lock',
+          workspaceLock.stale ? 'warn' : 'pass',
+          `held by ${holder}${workspaceLock.stale ? ' (stale)' : ''}`,
+          workspaceLock.stale
+            ? 'a live holder is never stolen automatically; confirm the owning session exited, then run /tower takeover <reason> to claim the repository and release the orphan lock'
+            : undefined,
+        ),
+      )
     }
 
     const live = (state.roster ?? []).filter((entry) => !['retired', 'failed', 'interrupted', 'missing', 'stale', 'inactive'].includes(entry.state))
@@ -630,6 +674,9 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   return {
     ok: failed === 0,
     checks,
+    // The exact facts the owner/workspace-lock checks used, exposed so callers
+    // can compare doctor with tower_status instead of re-deriving the rules.
+    ownership: ownershipFacts?.snapshot ?? null,
     stateLock: stateLockReport,
     gitLock,
     stateSchema: schemaReport.stateSchema,
