@@ -137,15 +137,29 @@ runProperty({
   arbitrary: fc.record({
     sizes: fc.array(fc.integer({ min: 1, max: 200 }), { maxLength: 30 }),
     maxBytes: fc.integer({ min: 1, max: 200 }),
-    retention: fc.integer({ min: 1, max: 5 }),
+    // One entry per rotation, then the last entry stays in force. A second
+    // entry lower than the first models an operator lowering activity.retention
+    // (4 -> 2) after segments already exist.
+    retentions: fc.array(fc.integer({ min: 1, max: 5 }), { minLength: 1, maxLength: 6 }),
   }),
-  predicate: ({ sizes, maxBytes, retention }) => {
+  examples: [
+    // Build `.1`..`.3` at retention 4, then lower to 2: the next rotation must
+    // prune the higher segments instead of keeping them past the cap.
+    [{ sizes: Array.from({ length: 12 }, () => 120), maxBytes: 100, retentions: [4, 4, 4, 2] }],
+    // A wide window first, then the minimum retention: every stale index goes.
+    [{ sizes: Array.from({ length: 12 }, () => 120), maxBytes: 100, retentions: [5, 5, 5, 5, 5, 1] }],
+  ],
+  predicate: ({ sizes, maxBytes, retentions }) => {
     const segments = new Map()
     let live = []
+    let rotation = 0
+    let retention = retentions[0]
     for (let index = 0; index < sizes.length; index += 1) {
       const line = { bytes: sizes[index], id: index }
       const liveBytes = live.reduce((total, entry) => total + entry.bytes, 0)
       if (shouldRotateActivity(liveBytes, line.bytes, maxBytes)) {
+        retention = retentions[Math.min(rotation, retentions.length - 1)]
+        rotation += 1
         const plan = activityRotationPlan('activity.jsonl', retention)
         for (const target of plan.remove) segments.delete(planIndex(target))
         for (const move of plan.moves) {
@@ -159,6 +173,14 @@ runProperty({
         }
         segments.set(planIndex(plan.liveTo), live)
         live = []
+        // The plan prunes the whole window above retention, so even a lowered
+        // retention leaves no segment outside the window after the rotation.
+        for (const segmentIndex of segments.keys()) {
+          assert.ok(
+            segmentIndex >= 1 && segmentIndex <= retention,
+            `rotation at retention ${retention} left segment ${segmentIndex} outside the window`,
+          )
+        }
       }
       live.push(line)
     }

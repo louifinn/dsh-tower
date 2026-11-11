@@ -56,19 +56,51 @@ test('shouldRotateActivity only crosses a positive cap on a non-empty live file'
   assert.equal(shouldRotateActivity(5, 1, 100), false)
 })
 
-test('activityRotationPlan removes the oldest segment, shifts up, then rotates the live file', () => {
+test('activityRotationPlan prunes the whole window above retention, shifts up, then rotates the live file', () => {
   const file = path.join(os.tmpdir(), 'activity.jsonl')
-  assert.deepEqual(activityRotationPlan(file, 2), {
-    remove: [`${file}.2`],
-    moves: [{ from: `${file}.1`, to: `${file}.2` }],
-    liveTo: `${file}.1`,
-  })
-  const plan = activityRotationPlan(file, 3)
-  assert.deepEqual(plan.remove, [`${file}.3`])
-  assert.deepEqual(plan.moves, [
+  const plan = activityRotationPlan(file, 2)
+  // Every stale segment must go, not only the oldest index: lowering retention
+  // from 4 to 2 has to remove `.2`, `.3` and `.4` on the next rotation.
+  assert.deepEqual(plan.remove, Array.from({ length: 99 }, (_, offset) => `${file}.${offset + 2}`))
+  assert.deepEqual(plan.moves, [{ from: `${file}.1`, to: `${file}.2` }])
+  assert.equal(plan.liveTo, `${file}.1`)
+
+  assert.deepEqual(activityRotationPlan(file, 1).remove, Array.from({ length: 100 }, (_, offset) => `${file}.${offset + 1}`))
+
+  const plan3 = activityRotationPlan(file, 3)
+  assert.deepEqual(plan3.remove, Array.from({ length: 98 }, (_, offset) => `${file}.${offset + 3}`))
+  assert.deepEqual(plan3.moves, [
     { from: `${file}.2`, to: `${file}.3` },
     { from: `${file}.1`, to: `${file}.2` },
   ])
+
+  // The top of the range is the adapter's own clamp: no removal beyond 100.
+  assert.deepEqual(activityRotationPlan(file, 100).remove, [`${file}.100`])
+  assert.deepEqual(activityRotationPlan(file, 1000).remove, [`${file}.100`])
+})
+
+test('lowering retention prunes every higher segment and keeps the newest data', async (t) => {
+  const { root, file } = tempFile(t)
+  const writeLines = (target, entries) => {
+    fs.writeFileSync(target, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''), 'utf8')
+  }
+  // Four rotated segments (.1 newest … .4 oldest) plus the live file, as left
+  // behind by retention 4. Line id 4 is the newest line.
+  writeLines(file, [{ index: 4 }])
+  for (let index = 1; index <= 4; index += 1) writeLines(activitySegmentPath(file, index), [{ index: 4 - index }])
+
+  await appendJsonl(file, { index: 5 }, { maxBytes: 1, retention: 2 })
+
+  const names = fs.readdirSync(root).filter((name) => /^activity\.jsonl\.\d+$/.test(name)).sort()
+  assert.deepEqual(names, ['activity.jsonl.1', 'activity.jsonl.2'], 'stale segments above the new retention are gone')
+  // The retained history is the newest suffix: 0, 1 and 2 were pruned.
+  assert.deepEqual((await readActivityTail(file, 100)).map((entry) => entry.index), [3, 4, 5])
+  assert.equal(fs.readFileSync(activitySegmentPath(file, 2), 'utf8'), '{"index":3}\n')
+  assert.equal(fs.readFileSync(activitySegmentPath(file, 1), 'utf8'), '{"index":4}\n')
+
+  const inspected = await inspectActivityLog(file, { maxBytes: 1, retention: 2 })
+  assert.equal(inspected.retention, 2)
+  assert.deepEqual(inspected.segments.map((segment) => segment.index), [1, 2])
 })
 
 test('appending past the cap rotates and keeps the newest retention segments plus the live file', async (t) => {

@@ -29,7 +29,9 @@ resolved `activity` policy as data. Two tuning keys are added:
 `appendJsonl(file, value, options)` compares the live file size plus the encoded
 line with `maxBytes`. When the line would cross the cap, the adapter:
 
-1. removes the oldest segment (`activity.jsonl.<retention>`),
+1. removes every segment at or beyond `activity.jsonl.<retention>`, including
+   stale higher-numbered segments left behind by an earlier, larger retention,
+   so lowering the setting is honored on the next rotation,
 2. shifts `.retention-1` … `.1` up by one with the same retrying rename kernel
    used for atomic JSON writes (`renameWithRetry`, with `unlinkOnFailure:false`
    so a failed move never deletes a durable file),

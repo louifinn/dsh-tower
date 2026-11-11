@@ -127,6 +127,12 @@ export function writeJsonAtomicSync(file, value) {
 }
 
 /**
+ * Highest retention the schema accepts. Rotation prunes every segment index at
+ * or above the configured retention, so this is also the pruning bound.
+ */
+const MAX_ACTIVITY_RETENTION = 100
+
+/**
  * Resolve one activity-log rotation policy. Missing/undefined options keep the
  * documented bounded default; an explicit `maxBytes: 0` disables rotation. The
  * values are clamped here as well as in the schema because the adapter can be
@@ -141,7 +147,7 @@ export function activityPolicy(options = {}) {
     : DEFAULT_ACTIVITY_MAX_BYTES
   const rawRetention = Number(options.retention)
   const retention = Number.isFinite(rawRetention)
-    ? Math.min(100, Math.max(1, Math.trunc(rawRetention)))
+    ? Math.min(MAX_ACTIVITY_RETENTION, Math.max(1, Math.trunc(rawRetention)))
     : DEFAULT_ACTIVITY_RETENTION
   return { maxBytes, retention, enabled: maxBytes > 0 }
 }
@@ -179,16 +185,26 @@ export function shouldRotateActivity(liveBytes, lineBytes, maxBytes) {
 
 /**
  * Pure rotation plan, expressed as filesystem operations. Ordered as applied:
- * remove the oldest segment, shift the remaining segments up one, then move the
- * live file to `.1`. Exposed for the simulation property; the adapter performs
- * the same steps through retrying renames.
+ * remove every segment at or beyond the retention window, shift the surviving
+ * `.retention-1` … `.1` up one, then move the live file to `.1`. Removing the
+ * whole window (not only the oldest index) makes a lowered retention prune
+ * segments an earlier, higher retention left behind; `unlinkRotated` treats a
+ * missing segment as success, so the plan stays unconditional. Exposed for the
+ * simulation property; the adapter performs the same steps through retrying
+ * renames.
  * @param {string} file
  * @param {number} retention
  * @returns {{ remove: string[], moves: Array<{ from: string, to: string }>, liveTo: string }}
  */
 export function activityRotationPlan(file, retention) {
-  const keep = Math.min(100, Math.max(1, Number.isFinite(Number(retention)) ? Math.trunc(Number(retention)) : DEFAULT_ACTIVITY_RETENTION))
-  const remove = [activitySegmentPath(file, keep)]
+  const keep = Math.min(
+    MAX_ACTIVITY_RETENTION,
+    Math.max(1, Number.isFinite(Number(retention)) ? Math.trunc(Number(retention)) : DEFAULT_ACTIVITY_RETENTION),
+  )
+  const remove = []
+  for (let index = keep; index <= MAX_ACTIVITY_RETENTION; index += 1) {
+    remove.push(activitySegmentPath(file, index))
+  }
   const moves = []
   for (let index = keep - 1; index >= 1; index -= 1) {
     moves.push({ from: activitySegmentPath(file, index), to: activitySegmentPath(file, index + 1) })

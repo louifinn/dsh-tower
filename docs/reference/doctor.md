@@ -11,11 +11,12 @@ It returns:
     { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 29 (baseline 2026-10-23)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
+    { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 55,
-    "sections": 15,
+    "configKeys": 57,
+    "sections": 16,
     "tools": 29,
     "baselineDate": "2026-10-23",
     "line": "config keys: 57 · sections: 16 · tools: 29"
@@ -187,12 +188,12 @@ never probes — a probe creates a temporary file, and a read-only call must not
 `tower_init` on a writable checkout to record the mode; until then the safe `case-sensitive` default
 applies.
 
-Checks cover: git availability, repository identity, state schema/load, the detected case mode, repo
-config presence, worker/reviewer preset names, subagents and HMR services, state lock age/heartbeat,
-workspace lock holder/staleness, live roster, worktree existence/ownership/dirtiness, test-discovery policy,
-completion-report sizes, archive health, legacy snapshots, batches and leases. Missions intentionally
-cleaned up by `tower_teardown` are skipped (the check notes the removed count) instead of being reported as
-missing.
+Checks cover: git availability, repository identity, state schema/load, bounded activity-log rotation,
+the detected case mode, repo config presence, worker/reviewer preset names, subagents and HMR services,
+state lock age/heartbeat, workspace lock holder/staleness, live roster, worktree
+existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy
+snapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the
+check notes the removed count) instead of being reported as missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,
