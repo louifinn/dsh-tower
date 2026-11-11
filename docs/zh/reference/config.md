@@ -15,7 +15,7 @@
 
 从低到高：
 
-1. 代码默认值（生成的[配置参考](config.generated.md)），
+1. 代码默认值（生成的[配置参考](../../reference/config.generated.md)），
 2. profile 配置（挂载 `dsh-tower` 的 Cordis patch 传给 `apply()` 的配置），
 3. 仓库配置 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`），
 4. 单次工具参数，例如 `worktreeRoot` 与 `timeoutMs`。
@@ -60,7 +60,7 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 ## 全部键与默认值
 
 键列表、每个解析后的默认值与一行含义都从 `domain/config/schema.js` 生成到
-[配置参考（生成）](config.generated.md)。该页面是这些信息的唯一来源：在 schema 中增删键及其
+[配置参考（生成）](../../reference/config.generated.md)。该页面是这些信息的唯一来源：在 schema 中增删键及其
 `.description()`，再运行 `npm run docs:generate:config` 重新生成。若生成页漂移、缺少键或默认值，
 或本页再次出现逐键默认值表，`npm run docs:check:generated:config` 会失败。
 

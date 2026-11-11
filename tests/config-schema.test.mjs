@@ -20,7 +20,7 @@ import {
   configReferenceRows,
   renderConfigReference,
 } from '../scripts/generate-config-reference.mjs'
-import { checkConfigReference } from '../scripts/check-config-reference.mjs'
+import { checkConfigReference, generatedReferenceLinks } from '../scripts/check-config-reference.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const baselineFile = path.join(root, 'scripts', 'surface-baseline.json')
@@ -157,9 +157,15 @@ test('removed keys still carry their upgrade note', () => {
 })
 
 test('hand-written config pages link the generated single source and hold no key table', () => {
+  assert.ok(fs.existsSync(path.join(root, CONFIG_REFERENCE_FILE)), `${CONFIG_REFERENCE_FILE} exists`)
   for (const page of handPages) {
     const text = fs.readFileSync(path.join(root, page), 'utf8')
-    assert.ok(text.includes('config.generated.md'), `${page} links the generated reference`)
+    const links = generatedReferenceLinks(text, page)
+    assert.ok(links.length > 0, `${page} links the generated reference`)
+    for (const { target, resolved } of links) {
+      assert.equal(resolved, CONFIG_REFERENCE_FILE, `${page} link ${target} resolves from the page`)
+      assert.ok(fs.existsSync(path.join(root, resolved)), `${page} link target ${resolved} exists`)
+    }
     assert.doesNotMatch(
       text,
       /^\|\s*`(?:section|allowAgentControl|[a-z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*)`\s*\|/m,
@@ -172,7 +178,7 @@ test('the repository itself passes the gate', () => {
   assert.deepEqual(checkConfigReference({ root }).problems, [])
 })
 
-test('the gate catches drift, duplicates, a stale default, a changed count and a hand table', () => {
+test('the gate catches drift, duplicates, a stale default, a changed count, a hand table and a dead link', () => {
   assert.ok(
     problemsFor((dir) => {
       const file = path.join(dir, CONFIG_REFERENCE_FILE)
@@ -214,8 +220,17 @@ test('the gate catches drift, duplicates, a stale default, a changed count and a
   assert.ok(
     problemsFor((dir) => {
       const file = path.join(dir, 'docs/zh/reference/config.md')
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('../../reference/config.generated.md', 'config.generated.md'))
+    }).some((problem) =>
+      problem.includes('docs/zh/reference/config.md links config.generated.md, which resolves to docs/zh/reference/config.generated.md'),
+    ),
+  )
+
+  assert.ok(
+    problemsFor((dir) => {
+      const file = path.join(dir, 'docs/zh/reference/config.md')
       fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('config.generated.md', 'config.generated'))
-    }).some((problem) => problem.includes('must point at')),
+    }).some((problem) => problem.includes('must link')),
   )
 })
 

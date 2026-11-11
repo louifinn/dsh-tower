@@ -4,11 +4,13 @@
 // list, section count, defaults and descriptions. This check fails when
 //   - the generated page drifts from the schema,
 //   - a row is missing, duplicated, out of order or carries a stale default,
-//   - the generated header counts stop matching the schema/baseline, or
-//   - a hand-written config page grows a per-key table or stops pointing at the
-//     generated page.
+//   - the generated header counts stop matching the schema/baseline,
+//   - a hand-written config page grows a per-key table, or
+//   - a hand-written config page does not link the generated page at a path
+//     that resolves from that page and exists on disk.
 // `npm run docs:check:generated:config` runs this file; the generator's
-// `--check` delegates here so both entry points share one implementation.
+// `--check` byte-compares the same render, so the two entry points cannot
+// disagree on content.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -28,6 +30,33 @@ const HAND_CONFIG_PAGES = ['docs/reference/config.md', 'docs/zh/reference/config
 const HAND_KEY_ROW = /^\|\s*`(?:section|allowAgentControl|[a-z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*)`\s*\|/m
 const TABLE_ROW = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|(.*)\|\s*$/
 const HEADER = /config keys: (\d+) · sections: (\d+) · tools: (\d+) · baseline (\d{4}-\d{2}-\d{2})/
+/** A local markdown link target: `[text](target)`; group 1 is the target. */
+const MARKDOWN_LINK = /\[[^\]]*\]\(([^)\s]+)\)/g
+
+/**
+ * Resolve each link in a hand-written page to the generated config reference
+ * relative to that page. Matching the basename alone cannot see a dead path
+ * such as `docs/zh/reference/config.generated.md`, so callers compare the
+ * resolved path with `CONFIG_REFERENCE_FILE` and check the file exists.
+ *
+ * @param {string} text markdown source of the page
+ * @param {string} page repo-relative page path
+ * @returns {{ target: string, resolved: string }[]}
+ */
+export function generatedReferenceLinks(text, page) {
+  const links = []
+  for (const match of text.matchAll(MARKDOWN_LINK)) {
+    const target = match[1]
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('/') || target.startsWith('#')) continue
+    const [withoutAnchor] = target.split('#')
+    if (withoutAnchor === '') continue
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(page), withoutAnchor))
+    if (path.posix.basename(resolved) === path.posix.basename(CONFIG_REFERENCE_FILE)) {
+      links.push({ target, resolved })
+    }
+  }
+  return links
+}
 
 /**
  * @param {{ root?: string }} [options]
@@ -119,8 +148,17 @@ export function checkConfigReference({ root = repoRoot } = {}) {
     if (HAND_KEY_ROW.test(text)) {
       problems.push(`${page} restates config keys in a hand-maintained table; the schema is the single source (link ${CONFIG_REFERENCE_FILE})`)
     }
-    if (!text.includes(path.basename(CONFIG_REFERENCE_FILE))) {
-      problems.push(`${page} must point at ${CONFIG_REFERENCE_FILE}`)
+    const links = generatedReferenceLinks(text, page)
+    if (links.length === 0) {
+      problems.push(`${page} must link ${CONFIG_REFERENCE_FILE} from the page`)
+      continue
+    }
+    for (const link of links) {
+      if (link.resolved !== CONFIG_REFERENCE_FILE) {
+        problems.push(`${page} links ${link.target}, which resolves to ${link.resolved}; the generated page is ${CONFIG_REFERENCE_FILE}`)
+      } else if (!fs.existsSync(path.join(root, link.resolved))) {
+        problems.push(`${page} links ${link.target}, but ${link.resolved} does not exist`)
+      }
     }
   }
 
