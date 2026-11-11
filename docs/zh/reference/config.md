@@ -15,7 +15,7 @@
 
 从低到高：
 
-1. 代码默认值（下表中的默认值），
+1. 代码默认值（生成的[配置参考](../../reference/config.generated.md)），
 2. profile 配置（挂载 `dsh-tower` 的 Cordis patch 传给 `apply()` 的配置），
 3. 仓库配置 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`），
 4. 单次工具参数，例如 `worktreeRoot` 与 `timeoutMs`。
@@ -34,12 +34,13 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 }
 ```
 
-`review.mode` 就是审查策略：`off`、`optional` 或 `required`。`review.requireReview` 是保留一个版本的
-兼容别名（`true` → `required`，`false` → `optional`），请优先使用 `review.mode`。同一层同时设置两者时，
-`requireReview:true` 与任何非 `required` 的 mode 冲突，会以 `config-invalid` 拒绝并同时点名两个键。
-`requireReview:false` 与任何显式 mode 都不冲突：`off`、`optional`、`required` 都接受，且以 mode 为准
-（`required` 仍然强制门禁；只有该 mode 才会把解析后的别名镜像回 `true`）。仓库层会独立解析：它可以放宽
-审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，仓库层不能自行提高 mode。
+`review.mode` 就是审查策略：`off`、`optional` 或 `required`。`review.requireReview` 仍是为 2.5 时期
+配置保留的兼容别名（已弃用；`true` → `required`，`false` → `optional`），请优先使用 `review.mode`。
+同一层同时设置两者时，`requireReview:true` 与任何非 `required` 的 mode 冲突，会以 `config-invalid`
+拒绝并同时点名两个键。`requireReview:false` 与任何显式 mode 都不冲突：`off`、`optional`、`required`
+都接受，且以 mode 为准（`required` 仍然强制门禁；只有该 mode 才会把解析后的别名镜像回 `true`）。
+仓库层会独立解析：它可以放宽审查，但若 profile 已是 `review.mode:off`，`tower_review` 根本没有注册，
+仓库层不能自行提高 mode。
 
 插件页控件显示的正是运行时解析出的策略：`review.mode` 存在时以它为准；只设置了 `review.requireReview`
 的配置会显示为「必需」（`true`）或「可选」（`false`）。保存任何选择都会在同一份 profile patch 中写入
@@ -56,60 +57,16 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 的值（例如 `merge.timeoutMs` 小于 1000）会以稳定的 `config-invalid` / `config-unknown-key`
 工具错误码失败。
 
-| 键 | 默认值 | 含义 |
-|---|---|---|
-| `section` | `''` | 兼容别名：替换整段 Tower 模式提示文案。空值保留内置提醒。 |
-| `allowAgentControl` | `true`（`mode.allowAgentControl` 的别名） | 兼容别名：注册 `tower_control`，允许模型切换模式。 |
-| `init.autoGitInit` | `false`（随包 patch：`true`） | 当 `repoRoot` 是绝对、已存在但不是仓库的目录时，`tower_init` 可以执行 `git init` 并创建一个空的初始提交。 |
-| `init.snapshotDirty` | `false` | `tower_init` 可以把未提交的**已跟踪**改动快照为游离提交作为 mission 基线（不含未跟踪文件；该提交通过 `refs/tower/snapshot/*` 保持存活）。 |
-| `init.autoExclude` | `true` | 把仓库内产物（`MISSIONS.md`、仓库内 worktree root）追加到 `.git/info/exclude`；绝不修改 `.gitignore`。 |
-| `mode.promptSection` | `''` | 替换用的提示文案（与 `section` 同时设置时优先）。 |
-| `mode.sectionAppend` | `''` | 追加在提醒之后的额外文本（团队约定）。 |
-| `mode.allowAgentControl` | `true` | 注册 `tower_control`；模型可带理由进入/退出。设为 `false` 则仅人类可控制模式。 |
-| `mode.autoPauseGoal` | `true` | 进入模式时暂停活跃 goal；退出时不会自动恢复。 |
-| `mode.requireResumeAuthorization` | `false` | 恢复因 `pauseCause:user` 暂停的 mission 时，必须提供 `authorization` 引用。 |
-| `mode.requireHumanAckOnFirstEntry` | `false` | 要求人类先执行 `/tower ack`，模型才能在当前会话首次进入 Tower 模式。 |
-| `mode.workspaceLock` | `false`（随包 patch：`true`） | 每个仓库只允许一个 Tower 会话（`tower.lock`）；其他会话得到 `workspace-busy`。 |
-| `mode.workspaceLockScope` | `all` | `all` 锁定所有仓库工具；`mutations` 对只读工具跳过 workspace 锁。 |
-| `mode.planModePolicy` | `clear` | 进入 Tower 模式会清除活跃的 plan mode（或 `refuse` 直到退出计划）；前置步骤也会清除稍后激活的计划。 |
-| `mode.workspaceStaleMs` | `300000` | 超过该时长的 workspace 锁可以被接管。 |
-| `mode.heartbeatMs` | `10000` | workspace 锁的心跳间隔。 |
-| `mode.denyTools` | goal/todo/team/workflow/subagent 工具（默认 12 个） | 模式激活期间被拒绝的工具。 |
-| `mode.storePath` | `$DSH_HOME/tower-mode` | `modes.json` 所在目录。 |
-| `mode.maxEntries` | `200` | 最多持久化的模式条目数（1–2000）。 |
-| `review.mode` | `optional` | 审查策略。`off` = 审查被有意关闭（记录审查会被拒绝、`tower_spawn` 拒绝 reviewer 角色、合并门禁忽略审查；profile 级的 `off` 也不会注册 `tower_review`，仓库级的 `off` 则拒绝提交）；`optional` = 审查可用但从不阻塞合并（默认）；`required` = 绑定分支 tip 的 clean 审查是合并门禁（`no-review`/`not-clean`/`review-hold`/`review-not-approved`/`tip-moved`/`review-mission-mismatch`）。 |
-| `review.requireReview` | `false` | `review.mode` 的兼容别名（已弃用）：`true` → `required`，`false` → `optional`。请优先使用 `review.mode`。`true` 与非 `required` 的 `review.mode` 同时设置会以 `config-invalid` 拒绝并点名两个键；`false` 可与任何显式 `review.mode`（`off`/`optional`/`required`）共存，且不会覆盖它。插件页控件在该别名是唯一键时按它显示，并在保存时写入 `review.mode` 且把 `review.requireReview` 归一化为 `false`。 |
-| `review.maxRoundsPerReviewer` | `5` | 每个 reviewer 对每条分支的审查轮数上限。 |
-| `merge.timeoutMs` | `900000`（15 分钟） | `tower_merge` 默认超时，包含钩子；单次调用的 `timeoutMs` 优先。 |
-| `merge.maxBufferBytes` | `67108864`（64 MB） | 合并输出缓冲区。 |
-| `git.timeoutMs` | `15000` | 除 merge 外 Git 命令的默认超时；merge 使用 `merge.timeoutMs`。 |
-| `worktrees.root` | `''` | 默认 worktree 父目录；空值推导为 `<主检出父目录>/.dsh-tower-worktrees/<hash>`。 |
-| `spawn.workerPreset` | `tower-worker` | `role=worker` 使用的 preset。 |
-| `spawn.reviewerPreset` | `tower-reviewer` | `role=reviewer` 使用的 preset。 |
-| `spawn.maxDepth` | `1` | spawn 时请求的子代理深度。 |
-| `spawn.provider` | `''` | 子代理 provider id；空值优先 `spawn`，否则取第一个 provider。 |
-| `spawn.workerModel` | `{}` | worker 可选模型路由 `{provider, model, reasoningEffort, maxTokens}`。 |
-| `spawn.reviewerModel` | `{}` | reviewer 可选模型路由；使用不同模型可获得更强的独立审查。 |
-| `spawn.maxLiveWorkers` | `4` | 每个仓库同时存活的 worker 上限（空闲 `inactive`、failed/interrupted/missing/stale/retired 不计入）；超过返回 `worker-limit`。 |
-| `spawn.staleMs` | `15000` | 超过该时长没有目录活动的 roster 条目会被标记为 `stale` 并阻止合并（`worker-stale`）；0 关闭。 |
-| `spawn.maxWaitMs` | `90000` | `tower_spawn.waitMs` 的上限（与 Kimi 兼容的 90s 默认值）。 |
-| `spawn.requireLease` | `''` | worker spawn 前必须持有的可选租约名。 |
-| `send.maxPerMinute` | `120` | 每个仓库的 `tower_send` 每分钟速率限制（0 关闭）；超出返回 `rate-limited`。 |
-| `send.interruptDefault` | `false`（随包 patch：`true`） | `tower_send.interrupt` 的默认值（投递前先中断运行中的回合）。 |
-| `tests.admission` | `off` | `spawn` 在启动 worker 前运行发现（fail-closed，不启动子代理）；`complete` 在 `tower_complete` 时运行；`off` 只在显式 `tower_test` 时运行（默认；不会自动执行仓库代码）。 |
-| `tests.timeoutMs` | `60000` | 每条发现命令的超时。 |
-| `tests.maxBytes` | `16777216`（16 MiB） | 每条命令捕获的 stdout 上限。 |
-| `tests.allowPackageDiscovery` | `true` | 允许仓库控制的 `tower.testDiscovery` 命令（会执行 worktree 代码；见安全页）。 |
-| `gates.requireChecks` | `false` | 合并前要求至少一条已记录检查（`tower_complete.checks`）或测试回执（`no-check-evidence`）。 |
-| `gates.requireTests` | `false` | 要求针对当前 mission 分支 tip 的通过测试回执（`tests-missing`）；与审查门禁独立。`tower-tests` 组件行关闭时，规划/进入模式会带解释拒绝该组合。 |
-| `gates.allowReviewExemption` | `false` | 在 `review.mode:required` 时，允许用 `reviewPolicy:"none"` + 非空理由跳过审查 blocker；默认故意关闭；`review.mode` 为 `off` 或 `optional` 时无影响（不会产生审查 blocker）。 |
-| `gates.maxReportBytes` | `32768`（32 KiB） | `tower_complete.report` 的 UTF-8 字节硬上限。超出时以 `invalid-argument` 拒绝并给出可执行的 `nextAction`（把全文写进 mission worktree 的文件并引用路径），绝不截断。已存在的超限报告仍可读取。 |
-| `docs.boardLocation` | `common` | `common` = `<git-common-dir>/dsh-tower/MISSIONS.md`；`repo` = `<repoRoot>/MISSIONS.md`。是否写出看板由 `tower-board` 组件行决定（#133）；`docs.board` 已移除，会作为未知键被拒绝。 |
-| `archive.afterDays` | `30` | 年龄触发：终态任务超过这么多天未更新，会在下次变更时归档（`0` 表示立即归档）。归档本身由 `tower-archive` 组件行决定（#135）；`archive.enabled` 已移除，会作为未知键被拒绝。 |
-| `archive.maxMissions` | `100` | 数量触发：热状态中的终态任务超过此数时，从最旧的开始归档直到满足上限（`0` 表示归档所有符合条件的终态任务）。worktree 仍存在的任务永不归档。 |
-| `leases.ttlMs` | `900000` | 默认咨询式租约寿命；过期不会自动释放。 |
-| `dev.reloadDelayMs` | `50` | 计划中的 reload 延迟，先让工具结果送达。属于可选的 `tower-hmr` 组件。 |
-| `dev.reloadRequiredIds` | 三个 Tower loader id | `tower-hmr` 组件作为 required 传给 `reconcileProfile` 的条目 id。可选组件行刻意不在 required 中。 |
+## 全部键与默认值
+
+键列表、每个解析后的默认值与一行含义都从 `domain/config/schema.js` 生成到
+[配置参考（生成）](../../reference/config.generated.md)。该页面是这些信息的唯一来源：在 schema 中增删键及其
+`.description()`，再运行 `npm run docs:generate:config` 重新生成。若生成页漂移、缺少键或默认值，
+或本页再次出现逐键默认值表，`npm run docs:check:generated:config` 会失败。
+
+随包的 `cordis.patch.yml` 覆盖了三个代码默认值：`init.autoGitInit`、`mode.workspaceLock` 与
+`send.interruptDefault` 在随包 patch 中为 `true`。生成页中的其他值都是解析器在合并仓库配置前
+返回的值。
 
 ## 示例
 

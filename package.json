@@ -124,7 +124,7 @@
     "docs:generate:tools": "node scripts/generate-tools-reference.mjs",
     "docs:check:generated:tools": "node scripts/generate-tools-reference.mjs --check",
     "docs:generate:config": "node scripts/generate-config-reference.mjs",
-    "docs:check:generated:config": "node scripts/generate-config-reference.mjs --check",
+    "docs:check:generated:config": "node scripts/check-config-reference.mjs",
     "docs:generate:events": "node scripts/generate-events-reference.mjs",
     "docs:check:generated:events": "node scripts/generate-events-reference.mjs --check",
     "docs:generate:blockers": "node scripts/generate-blockers-reference.mjs",

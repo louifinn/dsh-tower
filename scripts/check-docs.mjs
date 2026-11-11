@@ -56,13 +56,13 @@ if (missingErrors.length > 0) problems.push(`docs/reference/errors.md misses cod
 if (missingEvents.length > 0) problems.push(`docs/reference/events.md misses events: ${missingEvents.join(', ')}`)
 if (missingChangelog) problems.push(`CHANGELOG.md misses version ${packageJson.version}`)
 
-// Counts and high-risk defaults are part of the contract, not just names.
+// Counts are part of the contract, not just names. The config reference and
+// its defaults are owned by scripts/check-config-reference.mjs (#M64): this file
+// must not restate config keys, because the Schemastery tree is the source.
 const toolsDoc = read('docs/reference/tools.md')
 const blockersDoc = read('docs/reference/blockers.md')
 const errorsDoc = read('docs/reference/errors.md')
 const eventsDoc = read('docs/reference/events.md')
-const configDoc = read('docs/reference/config.md')
-const zhConfigDoc = read('docs/zh/reference/config.md')
 if (!toolsDoc.includes(`up to ${toolNames.length} tools`)) {
   problems.push(`docs/reference/tools.md must state "up to ${toolNames.length} tools"`)
 }
@@ -74,17 +74,6 @@ if (!errorsDoc.includes(`${errorCodes.length} tool error codes`)) {
 }
 if (!eventsDoc.includes(`${EVENT_COUNT} process-local events`)) {
   problems.push(`docs/reference/events.md must state ${EVENT_COUNT} process-local events`)
-}
-for (const required of [
-  '| `tests.admission` | `off` |',
-  '| `review.requireReview` | `false` |',
-  '| `mode.allowAgentControl` | `true` |',
-  '| `git.timeoutMs` | `15000` |',
-]) {
-  if (!configDoc.includes(required)) problems.push(`docs/reference/config.md misses required default: ${required}`)
-}
-if (!zhConfigDoc.includes('| `tests.admission` | `off` |')) {
-  problems.push('docs/zh/reference/config.md misses the tests.admission default')
 }
 
 // Chinese parity: when the translation tree exists it must cover the same
