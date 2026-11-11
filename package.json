@@ -117,6 +117,8 @@
     "smoke:fixtures": "node scripts/mount-smoke/fixtures.mjs",
     "release:check": "node scripts/release-check.mjs",
     "release:notes": "node scripts/release-notes.mjs",
+    "release:prepublish": "node scripts/release-check.mjs --mode prepublish && npm run support:check && npm run docs:check:generated && npm run docs:check:generated:tools && npm run docs:check:generated:config && npm run docs:check:generated:events && npm run docs:check:generated:blockers && npm run docs:check:generated:types && npm run docs:check:generated:components && npm run docs:check:generated:locale && npm run docs:check:generated:shapes && npm run pack:check",
+    "prepublishOnly": "npm run release:prepublish",
     "audit:issues": "node scripts/issue-audit.mjs",
     "audit:regressions": "node scripts/regression-audit.mjs",
     "surface:check": "node scripts/surface-baseline.mjs",

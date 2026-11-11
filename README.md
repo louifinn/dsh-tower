@@ -250,14 +250,15 @@ npm test        # node --test tests/*.test.mjs
 | Job | 声明 | 证据 |
 |---|---|---|
 | `test (22)`、`test (24)`（Ubuntu） | 离线套件、文档一致性、生成文档、发布文件清单、架构、类型、支持清单与 domain 纯度全部成立 | `npm test`、`npm run support:check`、`npm run docs:check`、五个 `docs:check:generated*`（含生成的类型词汇表）、`pack:check`、`architecture:check`、`types:coverage`、`types:strict:check`、`types:check`、`domain:check` |
-| `test (22, windows)`（`windows-latest`，非必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
+| `test (22, windows)`（`windows-latest`，必需检查） | 同一套离线套件与离线 gates 在真实 Windows 文件系统上成立；路径大小写、`pwsh` shell、rename/unlink 重试都不是只在 Linux 上被假设 | `npm test` + 与 Ubuntu 相同的离线 gates（不跑 release/coverage） |
 | `test` 的 `Coverage (Node 22)` 步骤 | 覆盖率在 CI 中真实测量（只报告，不设阈值、不加徽章） | `npm run test:coverage` |
-| `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：版本已越过上一个版本 tag、推送的 tag 是 `v<version>`、CHANGELOG 带有发布内容 | `npm run release:check` |
+| `test` 的 `Release check`（Node 22）步骤 | tag 是一种声明：tag 是 annotated tag 对象、其 commit 在 HEAD 历史中、工作树干净、版本已越过上一个版本 tag、CHANGELOG 带有该版本的发布内容、支持清单一致 | `npm run release:check` |
+| `publish` 的 `prepublishOnly` 钩子（本地，`npm publish` 自动运行） | 发布前重跑同一套 release 断言，加上支持清单、生成文档与发布文件清单；只读、离线、不写工作树 | `npm run release:prepublish` |
 | `mount`（Node 24） | 打出的 tarball 经 plugin CLI 装进一次性 profile 后，真实 loader 挂载并注册了 bundle 声称的表面 | `npm run smoke:mount` |
 | `mount-fixtures`（Node 24，非必需检查） | mount smoke 仍会因正确的种子失败而变红（改名一个工具 id、删除 skills 段），三次运行共用一次缓存的 host 安装 | `npm run smoke:fixtures -- --host-dir <缓存的 host>` |
 | `live (<固定 host 版本>)`（nightly/手动，非必需检查） | 浏览器 live suite 在固定 host 版本矩阵上仍能驱动真实 Web 运行时；push/PR 只做无浏览器的环境与解析检查 | nightly 跑 `npm run test:live -- --script nightly`；push 跑 `npm run test:live -- --check` |
 
-`test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与新增的 `test (22, windows)`。前两条是 `main` 的必需检查，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。它目前不是必需 context：让它变绿是本 issue 的验收，把它加入保护设置是 #94 的人工步骤。
+`test` 的三条 leg 在 job 内用 `matrix.name` 固定各自的 context 字符串：`test (22)`、`test (24)` 与 `test (22, windows)`。它们是 `main` 的四个必需 context 中的三个，另一个是 `mount`，名字逐字节不变；把 `os` 直接塞进 matrix 会把它们改名成 `test (22, ubuntu-latest)`，保护规则将永远等不到该 context，所以矩阵用显式 `include` + `name`。Windows leg 只跑 Node 22 和离线套件/离线 gates（无浏览器、无 live suite、无 release/coverage），与现有 job 并行，不延长关键路径。canonical 三条 leg（`test (24.9)`、`test (25)`、`test (24.9, windows)`）与这次 transition 的两步切换见 [docs/operations/ci.md](docs/operations/ci.md)：先加入三个 canonical context，一个完整周期后再移除三个 legacy context。
 
 live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，改为 nightly `schedule`（另支持 `workflow_dispatch`），在固定 host 版本矩阵上运行；它的输出第一行打印解析后的 `DSH_HOME` 与 host 版本。push 上只保留 `--check`（环境 + Playwright 解析，无浏览器）。Playwright 由 `tests/live/package-lock.json` 固定，root 的 `npm ci` 不下载浏览器。
 

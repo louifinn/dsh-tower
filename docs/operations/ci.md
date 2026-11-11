@@ -28,7 +28,16 @@ one `npm run check`, the same command [CONTRIBUTING.md](../../CONTRIBUTING.md#la
 human, so the CI list cannot drift from [`package.json`](../../package.json). A leg does not repeat a
 gate step after `npm run check`; the only extra steps are CI-only reports:
 
-- **release check** (`npm run release:check`) — tag-only behavior, so one Node 24.9 leg is enough;
+- **release check** (`npm run release:check`) — warns on a PR; on a tag push it fails closed unless
+  the tag is an annotated tag object whose commit is in HEAD's history, the tree is clean, the tag
+  matches `v<version>`, the version moved past the previous version tag, the CHANGELOG has a
+  non-empty section for the version, and `scripts/support.json` agrees with its restatements.
+  Tag-only behavior, so one Node 24.9 leg is enough;
+- **prepublish gate** (`npm run release:prepublish`, wired through `prepublishOnly`) — the same
+  release claim in `--mode prepublish` plus `support:check`, the generated-docs checks and
+  `pack:check`. It is read-only and offline and runs on `npm publish` itself, so a local publish
+  fails closed on a dirty tree, a version/tag mismatch, a missing CHANGELOG section or support
+  drift before npm talks to the registry;
 - **coverage** (`npm run test:coverage`) — a table, not a threshold, so one leg is enough;
 - **live-harness environment check** (`npm run test:live -- --check`) — no browser, no host install, and
   it must obey the `TMPDIR`/`DSH_HOME` pairing documented in
@@ -113,9 +122,10 @@ change. Remove the negation and add the path to the manifest in one commit.
 
 `main` is protected, admin enforcement is on, and the protection setting is owned by the repository
 admin. An agent token without admin permission must not attempt this. The current required contexts are
-`test (22)`, `test (24)`, `test (22, windows)` and `mount`; the setting is authoritative (some prose
-predates the Windows context becoming required), and the verification command is in
-[SECURITY.md](../../SECURITY.md#repository-protection-on-main).
+`test (22)`, `test (24)`, `test (22, windows)` and `mount` — all four are required, including the
+Windows leg. The setting is authoritative, the verification command is in
+[SECURITY.md](../../SECURITY.md#repository-protection-on-main), and the transition below is the only
+place that changes the set.
 
 The canonical legs report from the moment the workflow change lands, but a required context that is not
 yet in the protection setting is ignored, and removing an old context before its replacement is
