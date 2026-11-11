@@ -200,6 +200,27 @@ async function authorizeCall(name, args, exec) {
   return actor
 }
 
+/**
+ * Authorize a directly registered session tool through the matrix. Repository
+ * resolution is best-effort (a broken repo falls back to the anonymous actor and
+ * the public session rows decide); `authorize` is outside the fallback so a
+ * denial is never retried.
+ *
+ * @param {string} name @param {any} exec @param {string | null | undefined} repoRoot
+ */
+export async function authorizeSessionCall(name, exec, repoRoot) {
+  /** @type {any} */ let tower = null
+  let actor
+  try {
+    if (typeof repoRoot === 'string' && repoRoot.trim()) tower = await openTower(repoRoot)
+    actor = tower ? await resolveActor(tower, exec) : anonymousActor(exec)
+  } catch {
+    tower = null; actor = anonymousActor(exec)
+  }
+  await authorize(name, actor, { args: {}, tower })
+  return actor
+}
+
 const SEND_RATE = new Map()
 const SPAWN_QUEUES = new Map()
 const SPAWN_BACKOFF = new Map()

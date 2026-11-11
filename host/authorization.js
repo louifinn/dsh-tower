@@ -8,11 +8,15 @@
 //   * a missing agent id, unreadable state, a state without an owner, or an
 //     agent id that is not in the roster resolves to `unknown`;
 //   * `unknown` is denied unless the matrix row is explicitly public (read-only
-//     operator tools) or the row is the bootstrap tool and no owner exists yet;
+//     operator tools and the two session tools) or the row is the bootstrap
+//     tool and no owner exists yet;
 //   * a tool name without a matrix row is denied: default deny is the default.
 //
 // `authorize(tool, actor, context)` runs before a handler executes, so a denied
 // call cannot write state, acquire the workspace lock, or start a subagent.
+// Every shipped tool has a row here, including the two session tools the Host
+// entry registers directly (tower_mode and tower_control); together with the
+// 27 tools the component modules define that is the complete 29-tool surface.
 import { TowerToolError } from '../domain/errors.js'
 import { ROLE, isReviewerRole, isTowerRole, isUnknownRole, isWorkerRole } from '../domain/vocabulary.js'
 import { rosterProjection } from '../domain/collab/spawn.js'
@@ -95,6 +99,18 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
   tower_reload: towerOnly('reload the Tower plugin'),
+  // Session tools: these report or change the calling session's Tower stance,
+  // not repository state, so a repository access class cannot decide them.
+  // tower_mode only reads the current mode entry keyed by the caller's agent
+  // id; it is public so a broken repository or state file stays diagnosable.
+  tower_mode: Object.freeze({ allow: EVERYONE }),
+  // Explicit mode-policy row. The Host entry registers this tool only while
+  // mode.allowAgentControl is true, and the handler still requires a live
+  // calling agent, a non-empty reason, the session's own mode entry, and the
+  // human approval path before any ownership takeover. The row is therefore
+  // public: the mode policy and the handler gates, not the repository access
+  // class, decide whether a session tool call may proceed.
+  tower_control: Object.freeze({ allow: EVERYONE }),
 })
 
 /**

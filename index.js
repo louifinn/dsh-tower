@@ -12,7 +12,7 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
+import { authorizeSessionCall, registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
 import { Tower } from './host/tower.js'
 import { readOwnership, performTakeover } from './host/ownership.js'
@@ -470,6 +470,10 @@ export function apply(ctx, rawConfig) {
     return () => clearInterval(timer)
   })
 
+  // The two session tools below are registered directly instead of through the
+  // define() aggregate, so each handler authorizes first through the same
+  // default-deny kernel (host/authorization.js). The matrix covers all 29
+  // shipped tools, including these two; no tool bypasses the decision point.
   ctx.effect(() =>
     ctx.tools.register({
       name: 'tower_mode',
@@ -497,6 +501,7 @@ export function apply(ctx, rawConfig) {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(_args, exec) {
+        await authorizeSessionCall('tower_mode', exec, agentCwd(exec.agent))
         const key = agentKey(exec.agent)
         const entry = key ? modeState.get(key) : undefined
         return {
@@ -574,6 +579,7 @@ export function apply(ctx, rawConfig) {
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
         },
         async execute(args, exec) {
+          await authorizeSessionCall('tower_control', exec, agentCwd(exec.agent))
           const key = agentKey(exec.agent)
           if (!key) return { ok: false, error: 'tower_control requires a live calling agent' }
           if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
