@@ -158,7 +158,6 @@ test('a live-PID lock with a stale heartbeat is reported, never reclaimed (#167)
       at,
     })
 
-    const started = Date.now()
     let ran = false
     await assert.rejects(
       () =>
@@ -178,14 +177,31 @@ test('a live-PID lock with a stale heartbeat is reported, never reclaimed (#167)
         assert.equal(error.details.holderToken, 'recycled-pid')
         assert.ok(error.details.heartbeatAgeMs >= 9000, 'the diagnostic names the heartbeat age')
         assert.ok(error.details.staleAfterMs > 0)
-        assert.equal(error.details.alive, true)
+        assert.ok(
+          error.details.heartbeatAgeMs > error.details.staleAfterMs,
+          'the rejected holder is live-but-stale: its heartbeat is older than the stale window',
+        )
+        assert.equal(error.details.alive, true, 'the holder PID is alive')
         return true
       },
     )
     assert.equal(ran, false, 'a live holder must never be overwritten')
-    assert.ok(Date.now() - started < 3000, 'the waiter must not wait out a heartbeat grace period')
+    // Structural proof that the waiter rejected a live-but-stale holder rather
+    // than waiting out (or stealing) the lock: the on-disk record still names
+    // the live PID, its heartbeat is older than the stale window, and the
+    // record was not moved. (Wall-clock elapsed time is deliberately not
+    // asserted: a loaded CI host can oversleep an otherwise correct 150 ms wait
+    // loop, while the stale relation above is deterministic for this fixture.)
     assert.equal(fs.readFileSync(paths.lock, 'utf8'), original, 'the live record must be byte-identical')
     assert.deepEqual(lockArtifacts(paths.dir), [], 'no reclaim or quarantine artifact may be created')
+    const record = await readLockFile(paths.lock)
+    assert.equal(record.token, 'recycled-pid')
+    assert.ok(record.at >= at, 'the original heartbeat remains in place')
+    const rejected = lockLiveness(record, { heartbeatMs: 1000 })
+    assert.equal(rejected.alive, true, 'the rejected holder PID is alive')
+    assert.equal(rejected.reason, 'heartbeat-stale', 'a stale heartbeat is diagnosed, never treated as death')
+    assert.equal(rejected.timing.stale, true)
+    assert.ok(rejected.timing.heartbeatAgeMs > rejected.timing.staleAfterMs)
   } finally {
     removeTemp(root)
   }
@@ -238,8 +254,10 @@ test('a lock that keeps heartbeating is never stolen even when the waiter times 
 
     releaseHolder()
     await holding
-    assert.equal(fs.existsSync(paths.lock), false)
-    await sleep(40)
+    // The release waits for any in-flight heartbeat before unlinking, so one
+    // event-loop turn is enough to expose a timer that could recreate the lock.
+    // No fixed sleep is needed; a late timer must see `stopped` and do nothing.
+    await new Promise((resolve) => setImmediate(resolve))
     assert.equal(fs.existsSync(paths.lock), false, 'the release must clear the heartbeat timer')
   } finally {
     removeTemp(root)

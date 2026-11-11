@@ -239,11 +239,18 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
       // (a) A concurrent tower_init (create path, same repo/git mutex) is
       // started before virtual time advances, so its 60 s deadline is already
       // fixed when the merge is made to look 90 s old.
+      const advancedAt = clock.now() + 90000
+      let advancedSeenResolve
+      const advancedSeen = new Promise((resolve) => {
+        advancedSeenResolve = resolve
+      })
       let initClockCalls = 0
       const initClock = {
         now() {
           initClockCalls += 1
-          return clock.now()
+          const value = clock.now()
+          if (value >= advancedAt) advancedSeenResolve()
+          return value
         },
       }
       const initTower = await Tower.open(ctx.repo)
@@ -271,7 +278,14 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
         'the holder must still own the lock before virtual time advances',
       )
       clock.advance(90000)
-      await sleep(150)
+      // Wait for the init's wait loop to observe the advanced clock instead of
+      // betting on a fixed 150 ms sleep. The race keeps a genuinely stuck waiter
+      // from hanging the whole file; the assertion below is unchanged.
+      const advanced = await Promise.race([
+        advancedSeen.then(() => true),
+        sleep(5000).then(() => false),
+      ])
+      assert.equal(advanced, true, 'the init must re-check its budget after virtual time advances')
       assert.equal(initSettled, false, 'the waiter must outlive the old 60 s budget')
 
       releaseMerge()

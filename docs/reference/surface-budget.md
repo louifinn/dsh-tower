@@ -5,8 +5,9 @@ The plugin measures its user-facing surface in four numbers: **config leaf keys*
 committed baseline is [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json);
 the brakes are `npm run surface:check` for the first three and
 `npm run docs:check:components` for the component count; the decision records are
-[ADR 0004](../adr/0004-surface-budget.md) and
-[ADR 0005](../adr/0005-component-surface.md).
+[ADR 0004](../adr/0004-surface-budget.md),
+[ADR 0005](../adr/0005-component-surface.md) and
+[ADR 0007](../adr/0007-bounded-activity-log-rotation.md).
 
 Decision date: 2026-10-23
 
@@ -123,6 +124,19 @@ row and the exemption path are unchanged. The component surface drops the alias
 row with it (55 classified config keys), while the visible component count
 stays 12.
 
+#M76 (W5-B) bounds the append-only activity log and grows the surface by exactly
+two tuning keys and one section, recorded in
+[ADR 0007](../adr/0007-bounded-activity-log-rotation.md): config keys 55 → 57,
+sections 15 → 16, while the visible component count stays 12. The two keys,
+`activity.maxBytes` (default 4 MiB, `0` disables) and `activity.retention`
+(default 5 segments), are adapter policy: rotation is always on by default, the
+live file is renamed to a numbered segment rather than truncated, and the
+activity-tail reads behind `tower_status` (dashboard and mission detail) follow
+the segments; `tower_complete` and `tower_roster` do not read the activity log,
+while `tower_doctor` inspects every segment read-only for its size accounting. No
+capability row or tool appears or disappears, so neither the component nor the
+tool count moves.
+
 ## Config keys
 
 | Key | Class | Note |
@@ -146,7 +160,7 @@ stays 12.
 | `mode.denyTools` | core | The denied-tool list is part of the mode guard. |
 | `mode.storePath` | niche | Custom mode-store location added for one deployment workflow. Removal note: derive the path from `$DSH_HOME` in the next minor; no in-tree caller sets this key. |
 | `mode.maxEntries` | tuning | Bounds the persisted mode store. |
-| `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process mode lock. |
+| `mode.lockTimeoutMs` | tuning | Bounded wait for the cross-process state and mode locks. |
 | `review.mode` | core | The review policy itself (`off`/`optional`/`required`); the only review policy key since 2.8.0. |
 | `review.maxRoundsPerReviewer` | core | Caps review rounds; changes the review lifecycle. |
 | `merge.timeoutMs` | tuning | Default merge timeout; a per-call value wins. |
@@ -165,7 +179,7 @@ stays 12.
 | `spawn.staleMs` | tuning | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | tuning | Upper bound for a blocking spawn wait. |
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
-| `send.maxPerMinute` | tuning | Message rate limit; zero disables it. |
+| `send.maxPerMinute` | tuning | Process-local advisory message rate limit; zero disables it. |
 | `send.interruptDefault` | tuning | Default for the interrupt-before-deliver flag. |
 | `tests.admission` | core | Chooses when repository code is executed. |
 | `tests.timeoutMs` | tuning | Per-command discovery timeout. |
@@ -179,6 +193,8 @@ stays 12.
 | `docs.boardLocation` | tuning | Chooses where the board is written; whether it is written is the tower-board row. |
 | `archive.afterDays` | tuning | Archive age threshold; archival itself is the tower-archive row. |
 | `archive.maxMissions` | tuning | Hot terminal-mission cap. |
+| `activity.maxBytes` | tuning | Rotates `activity.jsonl` at this size; `0` disables rotation. Enforced by the store adapter, not a capability switch. |
+| `activity.retention` | tuning | Number of rotated activity segments kept; the newest history survives. |
 | `leases.ttlMs` | tuning | Default advisory lease lifetime. |
 | `dev.reloadDelayMs` | tuning | Delay so a tool result is delivered before reload. |
 | `dev.reloadRequiredIds` | niche | Loader ids added for one linked-profile development setup. Removal note: derive the required ids from the bundle manifest in the next minor. |

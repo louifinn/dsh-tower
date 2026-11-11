@@ -17,6 +17,8 @@ alternatives, Date and Status.
 | [0004](0004-surface-budget.md) | The concept surface is frozen by a committed baseline | 2026-10-23 |
 | [0005](0005-component-surface.md) | Mandatory host plus individually toggleable optional component rows | 2026-10-23 |
 | [0006](0006-mission-shapes.md) | Build and survey are separate mission shapes | 2026-11-10 |
+| [0007](0007-bounded-activity-log-rotation.md) | The activity log is bounded by adapter-owned segment rotation | 2026-11-12 |
+| [0008](0008-process-local-advisory-budgets.md) | Spawn backoff and send rate limits are process-local advisory budgets | 2026-11-12 |
 
 ## Template
 

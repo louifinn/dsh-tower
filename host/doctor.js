@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fsp } from '../adapters/store-fs.js'
 import { git } from '../adapters/git.js'
-import { readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
+import { inspectActivityLog, readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
 import { lockTiming } from '../adapters/persistence.js'
 import { inspectArchive } from '../adapters/archive.js'
 import { inspectStateVersion } from '../domain/state.js'
@@ -311,6 +311,33 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       'optional: add <git-common-dir>/dsh-tower/config.json',
     ),
   )
+  // #M76: the activity log is bounded by the store adapter. Report both the
+  // policy and the live/rotated bytes so an unexpectedly large log has a
+  // visible cause; a missing path is a fixture limitation, not a repo failure.
+  const activityLog =
+    typeof tower.paths.activity === 'string'
+      ? await inspectActivityLog(tower.paths.activity, config.activity ?? {}).catch((error) => ({
+          error: String(error?.message ?? error),
+        }))
+      : { error: 'activity log path is not available' }
+  if ('error' in activityLog) {
+    checks.push(check('activity-log', 'warn', `activity log could not be inspected: ${activityLog.error}`))
+  } else {
+    const segmentCount = activityLog.segments.length
+    const rotation = activityLog.rotationEnabled
+      ? `cap ${activityLog.maxBytes} B, retention ${activityLog.retention}`
+      : 'rotation disabled (activity.maxBytes is 0)'
+    checks.push(
+      check(
+        'activity-log',
+        activityLog.rotationEnabled ? 'pass' : 'warn',
+        `activity.jsonl ${activityLog.liveBytes} B live + ${segmentCount} rotated segment(s) ${activityLog.rotatedBytes} B (${rotation})`,
+        activityLog.rotationEnabled
+          ? undefined
+          : 'set activity.maxBytes above 0 in the profile or repo config to bound the activity log',
+      ),
+    )
+  }
   // #M39: the resolved review mode is its own diagnostic fact. `off` is a
   // supported, intentional posture (not a degradation), so it is a pass whose
   // detail says exactly what is unavailable.
@@ -684,6 +711,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
 // reports (from #89) and archive (from #73) are both kept
     reports: reportsReport,
     surface: surfaceReport,
+    activityLog,
     review: reviewPolicy,
     components,
     archive: {

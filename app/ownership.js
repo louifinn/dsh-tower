@@ -204,7 +204,7 @@ export async function transferOwnership(tower, { caller, reason, readFacts }) {
       'ownership transfer requires readFacts so modes/lock/roster are read under the state lock',
     )
   }
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const facts = (await readFacts()) ?? {}
     const snapshot = ownershipSnapshot({
@@ -244,7 +244,7 @@ export async function transferOwnership(tower, { caller, reason, readFacts }) {
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'takeover',
       text: takeoverActivityText({ from: previousOwner, to: String(caller), reason }),

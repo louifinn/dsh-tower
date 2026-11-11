@@ -154,7 +154,7 @@ export async function sweepArchive(tower, state, options = {}) {
   const pendingIds = new Set(sandboxPending.map((entry) => entry.missionId))
   const archivable = selected.filter((mission) => !pendingIds.has(mission.id))
   for (const entry of sandboxPending) {
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'archive',
       missionId: entry.missionId,
@@ -209,7 +209,7 @@ export async function sweepArchive(tower, state, options = {}) {
   state.updatedAt = now
 
   for (const mission of archivable) {
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'archive',
       missionId: mission.id,

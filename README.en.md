@@ -203,7 +203,7 @@ The list above is the 22 core tools plus 5 of the component-owned optional tools
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 55 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 Stable blocker/failure codes (including gate guards, `no-check-evidence`, `worker-stale`, test gates, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 
@@ -261,14 +261,18 @@ Every push and PR runs the same set of jobs; each job backs one checkable claim 
 | `live (<pinned host build>)` (nightly/manual, not required) | the browser live suite still drives a real Web runtime on the pinned host-version matrix; push/PR runs only the browserless environment and resolution check | nightly runs `npm run test:live -- --script nightly`; push runs `npm run test:live -- --check` |
 
 The `test` matrix pins each leg's context string through `matrix.name`: `test (22)`, `test (24)` and
-`test (22, windows)`. They are three of `main`'s four required contexts — the fourth is `mount` — and
-keep their exact names; adding an `os` matrix key without an explicit name would rename them to
-`test (22, ubuntu-latest)`, and protected `main` would wait for a context that never reports. The
-Windows leg is Node 22 only and runs the offline suite and offline gates (no browser, no live suite,
-no release/coverage), in parallel with the existing jobs, so it does not extend the critical path.
-The canonical legs (`test (24.9)`, `test (25)`, `test (24.9, windows)`) and the two-step transition
-are documented in [docs/operations/ci.md](docs/operations/ci.md): add the three canonical contexts
-first, then drop the three legacy contexts after one full cycle.
+`test (22, windows)`, and they keep their exact names; adding an `os` matrix key without an explicit
+name would rename them to `test (22, ubuntu-latest)`, and protected `main` would wait for a context
+that never reports. The canonical legs are `test (24.9)`, `test (25)` and
+`test (24.9, windows)`. Under `strict` branch protection, `main` now requires seven contexts:
+`test (22)`, `test (24)`, `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and
+`test (24.9, windows)`. This is step 1 of the two-step transition and it is live: the three legacy
+contexts, the three canonical legs and `mount` are required together, and the frozen legacy job
+keeps reporting; step 2 — dropping the three legacy contexts and the frozen job — is a later PR and
+has not happened. The Windows leg is Node 22 only and runs the offline suite and offline gates (no
+browser, no live suite, no release/coverage), in parallel with the existing jobs, so it does not
+extend the critical path. The full two-step cutover is documented in
+[docs/operations/ci.md](docs/operations/ci.md).
 
 The live suite downloads a browser and boots a real host, so it is out of push/PR: it runs on a nightly `schedule` (also `workflow_dispatch`) on a pinned host-version matrix, and its first output line prints the resolved `DSH_HOME` and host version. Push keeps only `--check` (environment + Playwright resolution, no browser). Playwright is pinned by `tests/live/package-lock.json`; the root `npm ci` downloads no browsers.
 

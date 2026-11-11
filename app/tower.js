@@ -3,6 +3,11 @@
 // #69: the app layer depends on the ports in ports/ and receives their
 // implementations through the deps object assembled by the composition root.
 // It imports no adapter and no infrastructure module.
+//
+// W5-A: this file is the Tower facade. Repository path guards live in
+// `app/tower-paths.js`, the merge delegation helpers in `app/merge-support.js`,
+// and the stale Git-lock quarantine in `app/git-locks.js`; the public class and
+// its re-exports are unchanged.
 import path from 'node:path'
 import { assertPorts } from '../ports/index.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
@@ -27,186 +32,14 @@ import { archiveIndex, archivedMission } from './archive.js'
 import { recordSpawnOutcome, recordInterrupt, reserveRoster, recordSpawn, rosterView } from './spawn.js'
 import { recordTestRun, recordLegacySnapshot, recordLegacyMap } from './recording.js'
 import { resolveLegacySurveyRead } from './sharedCheckout.js'
+import { removeStaleGitLocks } from './git-locks.js'
+import { MERGE_MAX_BUFFER, commitParents, describeGitFailure, mergeTimeoutMs } from './merge-support.js'
+import { assertOutside as assertOutsidePath, ensureExcluded as ensureExcludedPath } from './tower-paths.js'
+
+export { removeStaleGitLocks } from './git-locks.js'
 
 export const ROLES = ['worker', 'reviewer']
 const MAX_REVIEW_ROUNDS = 5
-const MERGE_MAX_BUFFER = 64 * 1024 * 1024
-
-function mergeTimeoutMs(value, config) {
-  if (value === undefined || value === null) {
-    const configured = (config ?? {}).merge?.timeoutMs
-    return Number.isInteger(configured) && configured >= 1000 ? configured : DEFAULT_MERGE_TIMEOUT_MS
-  }
-  const ms = Number(value)
-  if (!Number.isInteger(ms) || ms < 1000) fail('timeoutMs must be an integer of at least 1000 milliseconds')
-  return ms
-}
-
-async function commitParents(tower, cwd, sha) {
-  const line = await tower.deps.vcs.tryGit(cwd, ['rev-list', '--parents', '-n', '1', sha])
-  return line ? line.trim().split(/\s+/).slice(1) : []
-}
-
-function describeGitFailure(error) {
-  const prefix = error?.timedOut ? 'timed out: ' : error?.bufferOverflow ? 'output buffer overflow: ' : ''
-  return `${prefix}${String(error?.message ?? error)}`
-}
-
-const GIT_LOCK_FILES = Object.freeze(['index.lock', 'HEAD.lock', 'MERGE_HEAD.lock', 'ORIG_HEAD.lock'])
-
-/**
- * Identity of one lock file at observation time. Byte content alone cannot
- * distinguish a foreign empty lock from the empty lock we observed, so the
- * stat fingerprint (mtime, and size when the store exposes it) is part of the
- * compare-and-swap.
- * @typedef {{ raw: string, mtimeMs: number, size: number | null }} GitLockSnapshot
- */
-
-/** @param {any} stat @returns {number | null} */
-function statSize(stat) {
-  return typeof stat?.size === 'number' && Number.isFinite(stat.size) ? stat.size : null
-}
-
-/**
- * Read one lock file and re-stat it, so a lock that changed while it was being
- * read is treated as in use and never claimed.
- * @param {any} store
- * @param {string} file
- * @returns {Promise<GitLockSnapshot | null>}
- */
-async function snapshotGitLock(store, file) {
-  let before
-  try {
-    before = await store.stat(file)
-  } catch {
-    return null
-  }
-  let raw
-  try {
-    raw = await store.readText(file)
-  } catch {
-    return null
-  }
-  let after
-  try {
-    after = await store.stat(file)
-  } catch {
-    return null
-  }
-  if (after.mtimeMs !== before.mtimeMs) return null
-  return { raw, mtimeMs: before.mtimeMs, size: statSize(before) }
-}
-
-/**
- * Whether the quarantined file is still the one the snapshot described. A
- * rename preserves mtime on every supported platform; size is compared when
- * both the store and the snapshot expose it.
- * @param {any} store
- * @param {string} file
- * @param {GitLockSnapshot} snapshot
- * @returns {Promise<boolean>}
- */
-async function sameLockSnapshot(store, file, snapshot) {
-  let stat
-  try {
-    stat = await store.stat(file)
-  } catch {
-    return false
-  }
-  if (stat.mtimeMs !== snapshot.mtimeMs) return false
-  const size = statSize(stat)
-  return snapshot.size === null || size === null || size === snapshot.size
-}
-
-/**
- * Restore a mismatched quarantine with an exclusive create: EEXIST means a
- * newer writer owns the path (`exists()` + `rename()` would replace it), and
- * failures keep the quarantined bytes for audit.
- * @param {any} store
- * @param {string} quarantine
- * @param {string} file
- * @returns {Promise<boolean>}
- */
-async function restoreQuarantinedGitLock(store, quarantine, file) {
-  if (typeof store?.copyFileExclusive !== 'function') return false
-  let restored = false
-  try {
-    await store.copyFileExclusive(quarantine, file)
-    restored = true
-    await store.unlink(quarantine)
-  } catch {}
-  return restored
-}
-
-/** Per-call unique quarantine name; pid and clocks separate processes and calls. */
-async function gitLockQuarantinePath(store, file) {
-  const base = `${file}.tower-stale-${process.pid}-${Date.now().toString(36)}-${process.hrtime.bigint().toString(36)}`
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
-    const candidate = attempt === 1 ? base : `${base}-${attempt}`
-    if (!(await store.exists(candidate))) return candidate
-  }
-  return null
-}
-
-/**
- * Remove only Git lock files that are both old and unchanged since the
- * observation. The lock is claimed by an atomic rename to a quarantine name,
- * then its bytes and stat fingerprint are compared with the snapshot; only the
- * quarantined copy that matches is unlinked. A foreign or newer lock is
- * restored (or kept in quarantine when its path was already reclaimed), never
- * deleted.
- * @param {any} tower
- * @param {string} commonDir
- * @param {number} [maxAgeMs]
- * @param {{ now?: number }} [options]
- * @returns {Promise<{ removed: string[], retained: Array<{ name: string, reason: string }> }>}
- */
-export async function removeStaleGitLocks(tower, commonDir, maxAgeMs = 60000, options = {}) {
-  const store = tower.deps.store
-  const now = typeof options.now === 'number' ? options.now : Date.now()
-  /** @type {string[]} */
-  const removed = []
-  /** @type {Array<{ name: string, reason: string }>} */
-  const retained = []
-  for (const name of GIT_LOCK_FILES) {
-    const file = path.join(commonDir, name)
-    const snapshot = await snapshotGitLock(store, file)
-    if (!snapshot) continue
-    // A fresh lock may belong to a concurrent Git process; deleting it would
-    // let two writers into the index.
-    if (now - snapshot.mtimeMs < maxAgeMs) {
-      retained.push({ name, reason: 'fresh' })
-      continue
-    }
-    const quarantine = await gitLockQuarantinePath(store, file)
-    if (quarantine === null) continue
-    try {
-      // The rename is the claim; only the claimed bytes can now be deleted.
-      await store.rename(file, quarantine)
-    } catch {
-      // Absent, or another process claimed it first. Never force.
-      continue
-    }
-    let claimed = null
-    try {
-      claimed = await store.readText(quarantine)
-    } catch {
-      claimed = null
-    }
-    if (claimed === null || claimed !== snapshot.raw || !(await sameLockSnapshot(store, quarantine, snapshot))) {
-      const restored = await restoreQuarantinedGitLock(store, quarantine, file)
-      retained.push({ name, reason: restored ? 'replaced' : 'replaced-quarantined' })
-      continue
-    }
-    try {
-      await store.unlink(quarantine)
-      removed.push(name)
-    } catch {
-      retained.push({ name, reason: 'unlink-failed' })
-    }
-  }
-  return { removed, retained }
-}
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
@@ -287,6 +120,36 @@ export class Tower {
     return new Tower(repo, config, deps)
   }
 
+  /**
+   * Append one entry to the repo-scoped activity log. The store adapter owns
+   * the append and the rotation; the app only supplies this repository's
+   * bounded-log policy from the resolved config. Callers inside a state-lock
+   * critical section are already serialised; the adapter also serialises
+   * rotation within the process.
+   * @param {Record<string, any>} entry
+   */
+  async appendActivity(entry) {
+    return this.deps.store.appendJsonl(this.paths.activity, entry, this.config.activity ?? {})
+  }
+
+  /**
+   * Run one mutation inside the repo-wide state lock. The wait budget defaults
+   * to `mode.lockTimeoutMs`, the same cross-process lock tuning used by the
+   * mode store, so a repository can raise it once for both locks; a caller that
+   * passes `timeoutMs` explicitly wins. Before #M76 the app called
+   * `deps.store.withLock` directly, so that key only governed `modes.lock`.
+   * @template T
+   * @param {(paths: Record<string, any>, held: { token: string }) => Promise<T>} fn
+   * @param {{ timeoutMs?: number, [key: string]: any }} [options]
+   * @returns {Promise<T>}
+   */
+  async withStateLock(fn, options = {}) {
+    return this.deps.store.withLock(this.paths, fn, {
+      ...options,
+      timeoutMs: options.timeoutMs ?? this.config?.mode?.lockTimeoutMs ?? 5000,
+    })
+  }
+
   git(cwd, args, options = {}) {
     return this.deps.vcs.git(cwd, args, { timeoutMs: this.config.git?.timeoutMs, ...options })
   }
@@ -356,6 +219,9 @@ export class Tower {
       paths: this.paths,
       now: this.deps.clock?.now ? this.deps.clock.now() : Date.now(),
       persist: options.persist,
+      // The adapter owns rotation, but this repository's policy comes from the
+      // resolved config. Passed as data: the app layer imports no adapter.
+      activity: this.config.activity,
       // A legacy survey planned but never provisioned recorded no base; the
       // loader resolves it once, from this checkout, before the pure migration.
       resolveLegacySurvey: (rawState) => resolveLegacySurveyRead(this, rawState),
@@ -399,18 +265,7 @@ export class Tower {
   }
 
   assertOutside(target) {
-    const resolved = path.resolve(target)
-    const inside = (parent) => {
-      const rel = path.relative(path.resolve(parent), resolved)
-      return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
-    }
-    if (resolved === path.resolve(this.root) || inside(this.root)) {
-      fail(`worktree path must be outside the main checkout: ${resolved}`)
-    }
-    if (resolved === path.resolve(this.commonDir) || inside(this.commonDir)) {
-      fail(`worktree path must be outside Git metadata: ${resolved}`)
-    }
-    return resolved
+    return assertOutsidePath(this, target)
   }
 
   async assertWorktree(worktree) {
@@ -580,26 +435,7 @@ export class Tower {
   }
 
   async ensureExcluded(target) {
-    if (this.config.init?.autoExclude === false) return { inside: false, excluded: false }
-    const absolute = path.resolve(String(target))
-    const relative = path.relative(this.root, absolute)
-    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-      return { inside: false, excluded: false }
-    }
-    const pattern = relative.split(path.sep).join('/')
-    const file = path.join(this.commonDir, 'info', 'exclude')
-    await this.deps.store.ensureDir(path.dirname(file))
-    let text = ''
-    try {
-      text = await this.deps.store.readText(file)
-    } catch {
-      text = ''
-    }
-    const lines = text.split(/\r?\n/)
-    if (lines.includes(pattern) || lines.includes(`${pattern}/`)) return { inside: true, excluded: true, pattern }
-    const suffix = text === '' || text.endsWith('\n') ? '' : '\n'
-    await this.deps.store.appendText(file, `${suffix}${pattern}\n`)
-    return { inside: true, excluded: true, pattern }
+    return ensureExcludedPath(this, target)
   }
 
   async writeBoard() {

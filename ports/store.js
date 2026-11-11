@@ -13,10 +13,10 @@ import { assertPort, definePort } from './contract.js'
  * @property {(dir: string) => Promise<void>} ensureDir
  * @property {(file: string) => Promise<any>} readJson
  * @property {(file: string, value: unknown) => Promise<void>} writeJsonAtomic
- * @property {(file: string, value: unknown) => Promise<void>} appendJsonl
+ * @property {(file: string, value: unknown, options?: { maxBytes?: number, retention?: number }) => Promise<void>} appendJsonl
  * @property {(paths: object, fn: (paths: object) => Promise<any>, options?: object) => Promise<any>} withLock
  * @property {(paths: object, fn: (paths: object) => Promise<any>, options?: object) => Promise<any>} withGitLock
- * @property {(file: string, limit?: number) => Promise<any[]>} readActivityTail
+ * @property {(file: string, limit?: number) => Promise<any[]>} readActivityTail  // reads rotated segments oldest-first, then the live file
  * @property {(file: string) => Promise<string>} readText
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} writeText
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText

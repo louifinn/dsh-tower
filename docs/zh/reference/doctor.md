@@ -9,7 +9,8 @@
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "state", "status": "pass", "detail": ".../state.json revision 7" }
+    { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
+    { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" }
   ],
   "stateLock": {
     "held": true,

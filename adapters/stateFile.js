@@ -39,6 +39,7 @@ import { isStateLockHeld, stateLockToken } from './store.js'
  *   persist?: boolean,
  *   migrations?: readonly import('../domain/state/migrations.js').StateMigration[],
  *   resolveLegacySurvey?: (rawState: Record<string, any>) => Promise<import('../domain/state/migrations.js').LegacySurveyRead | null>,
+ *   activity?: { maxBytes?: number, retention?: number },
  * }} input
  * @returns {Promise<StateLoadResult>}
  */
@@ -96,14 +97,18 @@ export async function loadStateFile(input) {
     // path). Production loads either hold the lock or stay read-only.
     await store.writeJsonAtomic(paths.state, migrated)
   }
-  await store.appendJsonl(paths.activity, {
-    at: now,
-    type: 'state.migrated',
-    from: prepared.from,
-    to: prepared.to,
-    revision: migrated.revision,
-    text: `schema v${prepared.from} -> v${prepared.to}`,
-  })
+  await store.appendJsonl(
+    paths.activity,
+    {
+      at: now,
+      type: 'state.migrated',
+      from: prepared.from,
+      to: prepared.to,
+      revision: migrated.revision,
+      text: `schema v${prepared.from} -> v${prepared.to}`,
+    },
+    input.activity,
+  )
   return {
     state: migrated,
     version,

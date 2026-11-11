@@ -120,7 +120,7 @@ export async function submitReview(tower, input) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const prepared = await prepareReview(tower, input)
     try {
-      const result = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+      const result = await tower.withStateLock(async (_paths, held) => {
         const state = await tower.load()
         if (state.revision !== prepared.stateRevision) {
           throw new TowerToolError('stale-base', 'tower state changed while the review was being prepared; retry')
@@ -166,7 +166,7 @@ export async function submitReview(tower, input) {
 
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
-        await tower.deps.store.appendJsonl(tower.paths.activity, {
+        await tower.appendActivity({
           at: now,
           type: 'review',
           missionId: mission.id,

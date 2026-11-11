@@ -31,7 +31,9 @@ app/enrichedMissions.js
 app/findings.js
 app/freshness.js
 app/gate.js
+app/git-locks.js
 app/init.js
+app/merge-support.js
 app/merge.js
 app/messages.js
 app/mission.js
@@ -51,6 +53,7 @@ app/spawn-prechecks.js
 app/spawn-support.js
 app/spawn.js
 app/teardown.js
+app/tower-paths.js
 app/tower.js
 client.js
 cordis.patch.yml
@@ -61,6 +64,8 @@ docs/adr/0003-allow-agent-control-default-true.md
 docs/adr/0004-surface-budget.md
 docs/adr/0005-component-surface.md
 docs/adr/0006-mission-shapes.md
+docs/adr/0007-bounded-activity-log-rotation.md
+docs/adr/0008-process-local-advisory-budgets.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -112,7 +117,9 @@ domain/collab/batch.js
 domain/collab/messages.js
 domain/collab/roster.js
 domain/collab/spawn.js
+domain/component-locale.js
 domain/component-rules.js
+domain/component-surface.js
 domain/components.js
 domain/config/schema.js
 domain/contracts/outputs.js
@@ -176,6 +183,8 @@ host/compatibility.js
 host/config.js
 host/doctor.js
 host/hmr.js
+host/mode-command.js
+host/mode-state.js
 host/modeState.js
 host/modeStore.js
 host/ownership.js
@@ -184,7 +193,11 @@ host/preset-survey-sandbox.js
 host/preset-survey.js
 host/preset-worker.js
 host/presets.js
+host/session-tools.js
+host/tool-capabilities.js
+host/tool-observers.js
 host/tool-registry.js
+host/tool-runtime.js
 host/tower.js
 icon.svg
 index.js
