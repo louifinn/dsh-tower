@@ -115,12 +115,15 @@ Invoke it directly with `node`: the `npm` PowerShell shim does not forward `--`-
 reliably (`npm.cmd` and bash do). CI never passes flags — it runs `npm run release:check` and
 derives the mode from `GITHUB_REF_TYPE`/`GITHUB_REF_NAME` — so the same guard runs on the tag push
 too.
-It prints one facts line — `… tag-type=tag|commit|- reachable=yes|no|- worktree=clean|N-dirty` —
+It prints one facts line — `… tag-type=tag|commit|- reachable=yes|no|- worktree=clean|N-dirty|unavailable` —
 followed by any findings, and exits 1 instead of passing when: the tag is not exactly `v<version>`,
 `refs/tags/<tag>` does not exist, the object is a lightweight tag, the tag's commit is not in HEAD's
 history, the tree is dirty, the version did not move past the previous version tag, the CHANGELOG
-has no section for the version, or the support manifest disagrees with its restatements. A tag push
-in CI re-runs the same mode with `GITHUB_REF_TYPE=tag`, so the check is not only local.
+has no section for the version, or the support manifest disagrees with its restatements. A probe
+that cannot answer (`git status --porcelain`, `git tag --list`, `git tag --points-at HEAD`) is an
+error in the release modes — never a skipped check — so a corrupt index or an unreadable tag
+namespace fails the guard instead of passing it. A tag push in CI re-runs the same mode with
+`GITHUB_REF_TYPE=tag`, so the check is not only local.
 
 The pushed tag must be exactly `v<version>`. The guard resolves the previous tag from `<tag>^`; this
 is why tagging a commit whose `package.json` did not move fails.

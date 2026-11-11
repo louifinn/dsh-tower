@@ -19,7 +19,10 @@
 // Every run prints `git describe`, the previous tag, the commit count since that
 // tag, the tag object type, whether it is reachable from HEAD and whether the
 // tree is clean, so a large backlog or a lightweight tag is visible before an
-// audit finds it.
+// audit finds it. A probe that cannot answer (`git status --porcelain`,
+// `git tag --list`, `git tag --points-at HEAD`) is an error in the release modes
+// (`worktree-unavailable`, `version-tags-unavailable`, `head-tags-unavailable`),
+// never a skipped check.
 //
 // Tag-push pitfall: `git describe --tags --abbrev=0` returns the *pushed* tag
 // itself (and otherwise the nearest tag of any shape), so the previous tag is
@@ -111,7 +114,10 @@ export function hasContent(text) {
 // `undefined` means "the caller did not inspect the repository" (the pure
 // comparator in tests); `null` means "inspected, and the fact does not exist"
 // (the CLI). The CLI always supplies the facts, so a release claim cannot pass
-// by omission — only by proving each one.
+// by omission — only by proving each one. For the probes whose failure would
+// otherwise skip a claim (the worktree, the version tags and the tags at HEAD)
+// `null` is an error in the release modes: a probe that cannot answer must not
+// read as "everything is fine".
 export function evaluateRelease(input = {}) {
   const version = String(input.version ?? '').trim()
   if (!version) throw new UsageError('package.json has no version')
@@ -128,8 +134,12 @@ export function evaluateRelease(input = {}) {
   const describe = input.describe ?? null
   const tagKind = input.tagKind === undefined ? undefined : input.tagKind
   const tagReachable = input.tagReachable === undefined ? undefined : input.tagReachable
-  const dirty = Array.isArray(input.dirty) ? input.dirty : undefined
-  const headTags = Array.isArray(input.headTags) ? input.headTags : undefined
+  // Any present non-array value is a failed probe, never "not inspected". The
+  // bare `undefined` stays permissive so the pure comparator can be called
+  // without a repository; the CLI always supplies these facts.
+  const dirty = input.dirty === undefined ? undefined : Array.isArray(input.dirty) ? input.dirty : null
+  const headTags = input.headTags === undefined ? undefined : Array.isArray(input.headTags) ? input.headTags : null
+  const versionTags = input.versionTags === undefined ? undefined : Array.isArray(input.versionTags) ? input.versionTags : null
   const support = input.support === undefined ? undefined : input.support
   const level = strict ? 'error' : 'warning'
   const suffix = strict ? '' : ' (warning only outside a release claim)'
@@ -159,6 +169,18 @@ export function evaluateRelease(input = {}) {
           `${count} commits since that tag; Unreleased is ${unreleased ? 'non-empty' : 'empty'}${suffix}`,
       )
     }
+  }
+
+  // In a release mode the previous tag is compared against the repository's
+  // version tags. If `git tag --list` cannot answer, the comparison is
+  // unprovable; the missing baseline is not "no previous release".
+  if (strict && versionTags === null) {
+    record(
+      'version-tags-unavailable',
+      'error',
+      'cannot enumerate version tags: `git tag --list` failed, so the previous-tag baseline and ' +
+        'version-tag checks cannot be proved; fix the repository before claiming a release',
+    )
   }
 
   // A release claim must file its notes under the version being released. On a
@@ -249,7 +271,14 @@ export function evaluateRelease(input = {}) {
         )
       }
     }
-    if (headTags !== undefined) {
+    if (headTags === null) {
+      record(
+        'head-tags-unavailable',
+        'error',
+        'cannot enumerate the tags pointing at HEAD: `git tag --points-at HEAD` failed, so the guard ' +
+          'cannot prove that no other version tag names this commit',
+      )
+    } else if (headTags !== undefined) {
       const conflicting = headTags.filter((name) => VERSION_TAG.test(name) && name !== expectedTag)
       if (conflicting.length > 0) {
         record(
@@ -262,14 +291,25 @@ export function evaluateRelease(input = {}) {
     }
   }
 
-  if (strict && dirty !== undefined && dirty.length > 0) {
-    const shown = dirty.slice(0, 5).join(', ')
-    record(
-      'dirty-worktree',
-      'error',
-      `working tree is not clean: ${dirty.length} path(s) differ (${shown}${dirty.length > 5 ? ', …' : ''}); ` +
-        'commit or stash them so the release claim names a commit',
-    )
+  // A failed `git status` probe (corrupt index, unreadable path) must not skip
+  // the cleanliness claim: null is "cannot prove", not "clean".
+  if (strict) {
+    if (dirty === null) {
+      record(
+        'worktree-unavailable',
+        'error',
+        'cannot prove the working tree is clean: `git status --porcelain` failed, so the checkout ' +
+          'needs a readable index before a release claim can name a commit',
+      )
+    } else if (dirty !== undefined && dirty.length > 0) {
+      const shown = dirty.slice(0, 5).join(', ')
+      record(
+        'dirty-worktree',
+        'error',
+        `working tree is not clean: ${dirty.length} path(s) differ (${shown}${dirty.length > 5 ? ', …' : ''}); ` +
+          'commit or stash them so the release claim names a commit',
+      )
+    }
   }
 
   if (strict && support !== undefined) {
@@ -313,6 +353,7 @@ export function evaluateRelease(input = {}) {
       versionNotes: versionHasNotes,
       notesKind,
       headTags: headTags === undefined ? null : headTags,
+      versionTags: versionTags === undefined ? null : versionTags,
       dirty: dirty === undefined ? null : dirty,
       support: support === undefined ? null : support,
     },
@@ -336,16 +377,21 @@ function gitExit(root, args) {
   return result.error ? null : result.status
 }
 
+// All version tags, or null when the probe itself failed. An empty list is a
+// real fact (a repository with no version tags yet) and must stay distinct from
+// "cannot read the tag namespace", which the comparator fails closed on.
 function versionTags(root) {
   const output = runGit(root, ['tag', '--list'])
+  if (output === null) return null
   if (!output) return []
   return output.split('\n').map((line) => line.trim()).filter((tag) => VERSION_TAG.test(tag))
 }
 
-function newestAncestorTag(root, revision, exclude) {
-  const tags = versionTags(root).filter((tag) => tag !== exclude && runGit(root, ['merge-base', '--is-ancestor', tag, revision]) !== null)
-  tags.sort((left, right) => (compareVersions(right, left) ?? 0))
-  return tags[0] ?? null
+function newestAncestorTag(root, revision, exclude, knownVersionTags) {
+  const tags = (knownVersionTags === undefined ? versionTags(root) : knownVersionTags) ?? []
+  return tags
+    .filter((tag) => tag !== exclude && runGit(root, ['merge-base', '--is-ancestor', tag, revision]) !== null)
+    .sort((left, right) => (compareVersions(right, left) ?? 0))[0] ?? null
 }
 
 // The latest reachable *version* tag. `git describe` happily reports any tag
@@ -356,7 +402,7 @@ function describeVersionTag(root, revision) {
   return described && VERSION_TAG.test(described) ? described : null
 }
 
-export function resolvePreviousTag(root, tag) {
+export function resolvePreviousTag(root, tag, knownVersionTags = undefined) {
   const tagExists = tag ? runGit(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]) !== null : false
   const revision = tag && tagExists ? tag : 'HEAD'
   // Never compare against the pushed tag itself: it is the release, not its
@@ -367,7 +413,7 @@ export function resolvePreviousTag(root, tag) {
   }
   const described = describeVersionTag(root, revision)
   if (described && described !== tag) return described
-  return newestAncestorTag(root, revision, tag)
+  return newestAncestorTag(root, revision, tag, knownVersionTags)
 }
 
 // `git cat-file -t` names the object a ref resolves to: `tag` for an annotated
@@ -404,8 +450,12 @@ function dirtyPaths(root) {
     })
 }
 
+// Tags pointing at HEAD, or null when `git tag --points-at` failed. Prepublish
+// mode needs the list to prove no foreign version tag names the commit, so the
+// two outcomes must stay distinct.
 function tagsAtHead(root) {
   const output = runGit(root, ['tag', '--points-at', 'HEAD'])
+  if (output === null) return null
   if (!output) return []
   return output.split('\n').map((line) => line.trim()).filter(Boolean)
 }
@@ -415,7 +465,8 @@ export function collectFacts(root, options = {}) {
     throw new UsageError(`${root} is not a Git repository; the release gate compares the version against tags`)
   }
   const tag = options.tag ?? null
-  const previousTag = options.previousTag ?? resolvePreviousTag(root, tag)
+  const knownVersionTags = versionTags(root)
+  const previousTag = options.previousTag ?? resolvePreviousTag(root, tag, knownVersionTags)
   const commitsSince = previousTag ? Number(runGit(root, ['rev-list', '--count', `${previousTag}..HEAD`])) : null
   const describe = runGit(root, ['describe', '--tags', '--always'])
   return {
@@ -424,6 +475,7 @@ export function collectFacts(root, options = {}) {
     describe: describe ?? null,
     tagKind: tagObjectType(root, tag),
     tagReachable: tagInHistory(root, tag),
+    versionTags: knownVersionTags,
     dirty: dirtyPaths(root),
     headTags: tagsAtHead(root),
   }
@@ -453,7 +505,12 @@ async function collectSupport(root) {
 function printFacts(facts) {
   const dash = (value) => (value === null || value === undefined || value === '' ? '-' : value)
   const reachable = facts.tagReachable === null ? '-' : facts.tagReachable ? 'yes' : 'no'
-  const worktree = facts.dirty === null ? '-' : facts.dirty.length === 0 ? 'clean' : `${facts.dirty.length}-dirty`
+  const worktree =
+    facts.dirty === null || facts.dirty === undefined
+      ? 'unavailable'
+      : facts.dirty.length === 0
+        ? 'clean'
+        : `${facts.dirty.length}-dirty`
   console.log(
     `release-check: version=${facts.version} mode=${facts.mode} tag=${dash(facts.tag)} ` +
       `previous-tag=${dash(facts.previousTag)} commits-since=${dash(facts.commitsSince)} ` +

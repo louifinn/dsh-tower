@@ -60,6 +60,7 @@ const repoFacts = (overrides = {}) => ({
   tagReachable: true,
   dirty: [],
   headTags: [],
+  versionTags: [],
   support: { ok: true, problems: [], facts: null },
   ...overrides,
 })
@@ -283,6 +284,79 @@ test('a dirty worktree fails the release modes but not a PR', () => {
   assert.match(capped.findings[0].message, /7 path\(s\) differ \(a, b, c, d, e, …\)/)
 
   const pr = evaluate({ ...repoFacts({ dirty: ['package.json'] }) })
+  assert.equal(pr.ok, true)
+  assert.deepEqual(pr.findings, [])
+})
+
+test('an unreadable worktree probe fails the release modes instead of skipping cleanliness', () => {
+  const base = { mode: 'tag', tag: 'v2.1.0', changelog: releaseChangelog('2.1.0') }
+
+  const unavailable = evaluate({ ...base, ...repoFacts({ dirty: null }) })
+  assert.equal(unavailable.ok, false)
+  assert.deepEqual(codes(unavailable), ['worktree-unavailable'])
+  assert.match(unavailable.findings[0].message, /git status --porcelain/)
+  assert.match(unavailable.findings[0].message, /readable index/)
+
+  // Any non-array value is an unavailable probe, never "clean".
+  const malformed = evaluate({ ...base, ...repoFacts({ dirty: 'clean' }) })
+  assert.deepEqual(codes(malformed), ['worktree-unavailable'])
+
+  const prepublish = evaluate({
+    mode: 'prepublish',
+    tag: 'v2.1.0',
+    changelog: releaseChangelog('2.1.0'),
+    ...repoFacts({ dirty: null }),
+  })
+  assert.equal(prepublish.ok, false)
+  assert.deepEqual(codes(prepublish), ['worktree-unavailable'])
+
+  // PR mode makes no cleanliness claim, so it has none to skip either.
+  const pr = evaluate({ ...repoFacts({ dirty: null }) })
+  assert.equal(pr.ok, true)
+  assert.deepEqual(pr.findings, [])
+})
+
+test('unreadable tag namespaces fail the release modes instead of skipping the checks', () => {
+  const tagBase = { mode: 'tag', tag: 'v2.1.0', changelog: releaseChangelog('2.1.0') }
+
+  const versionProbe = evaluate({ ...tagBase, ...repoFacts({ versionTags: null }) })
+  assert.equal(versionProbe.ok, false)
+  assert.deepEqual(codes(versionProbe), ['version-tags-unavailable'])
+  assert.match(versionProbe.findings[0].message, /git tag --list/)
+  assert.equal(versionProbe.facts.versionTags, null)
+
+  const headProbe = evaluate({
+    mode: 'prepublish',
+    tag: 'v2.1.0',
+    changelog: releaseChangelog('2.1.0'),
+    ...repoFacts({ headTags: null }),
+  })
+  assert.equal(headProbe.ok, false)
+  assert.deepEqual(codes(headProbe), ['head-tags-unavailable'])
+  assert.match(headProbe.findings[0].message, /git tag --points-at HEAD/)
+
+  const prepublishVersionProbe = evaluate({
+    mode: 'prepublish',
+    tag: 'v2.1.0',
+    changelog: releaseChangelog('2.1.0'),
+    ...repoFacts({ versionTags: null }),
+  })
+  assert.equal(prepublishVersionProbe.ok, false)
+  assert.deepEqual(codes(prepublishVersionProbe), ['version-tags-unavailable'])
+
+  // An empty tag list is a real answer (first release / no tags at HEAD); it
+  // must not be confused with a failed probe.
+  const empty = evaluate({
+    mode: 'prepublish',
+    tag: 'v2.1.0',
+    changelog: releaseChangelog('2.1.0'),
+    ...repoFacts({ versionTags: [], headTags: [] }),
+  })
+  assert.equal(empty.ok, true, JSON.stringify(empty.findings))
+
+  // PR mode is warning-only and makes neither claim, so neither probe failure
+  // fabricates one.
+  const pr = evaluate({ ...repoFacts({ versionTags: null, headTags: null }) })
   assert.equal(pr.ok, true)
   assert.deepEqual(pr.findings, [])
 })
@@ -644,6 +718,7 @@ test('the CLI reports machine-readable facts with --json', () => {
     assert.equal(report.facts.tagKind, null)
     assert.equal(report.facts.tagReachable, null)
     assert.deepEqual(report.facts.headTags, [])
+    assert.deepEqual(report.facts.versionTags, ['v2.0.4'])
     assert.deepEqual(report.facts.dirty, [])
     assert.equal(report.facts.support.ok, true)
     assert.equal(report.ok, false)
@@ -754,6 +829,46 @@ test('a dirty worktree fails the tag push guard', () => {
     assert.match(run.output, /\[dirty-worktree\]/)
     assert.match(run.output, /NOTES\.txt/)
     assert.match(run.output, /worktree=1-dirty/)
+  } finally {
+    repo.cleanup()
+  }
+})
+
+test('a corrupt index fails the tag guard with worktree-unavailable, not a silent pass', () => {
+  const repo = makeRepo()
+  try {
+    seedReleased(repo, '2.1.0')
+    repo.tag('v2.1.0')
+    // The review's repro: a corrupt index makes `git status` fail while
+    // cat-file/describe still answer, so only an explicit finding on the failed
+    // probe can stop the guard from passing on `dirty: null`.
+    fs.writeFileSync(path.join(repo.dir, '.git', 'index'), 'not an index\n')
+
+    const run = runCli(repo.dir, [], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v2.1.0' })
+    assert.equal(run.status, 1, run.output)
+    assert.match(run.output, /\[worktree-unavailable\]/)
+    assert.match(run.output, /git status --porcelain/)
+    assert.match(run.output, /worktree=unavailable/)
+  } finally {
+    repo.cleanup()
+  }
+})
+
+test('unreadable tag refs fail the prepublish gate instead of skipping its tag checks', () => {
+  const repo = makeRepo()
+  try {
+    seedReleased(repo, '2.1.0')
+    // Pack the refs and corrupt the pack: `git tag --list` and
+    // `git tag --points-at HEAD` fail, so neither the previous-tag baseline nor
+    // the foreign-tag check has any facts to pass on.
+    repo.run('pack-refs', '--all')
+    fs.writeFileSync(path.join(repo.dir, '.git', 'packed-refs'), 'garbage-line\n')
+
+    const run = runCli(repo.dir, ['--mode', 'prepublish'])
+    assert.equal(run.status, 1, run.output)
+    assert.match(run.output, /\[version-tags-unavailable\]/)
+    assert.match(run.output, /\[head-tags-unavailable\]/)
+    assert.match(run.output, /\[worktree-unavailable\]/)
   } finally {
     repo.cleanup()
   }
