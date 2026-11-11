@@ -195,8 +195,12 @@ test('/tower off reports an error when the mode store cannot be saved', async ()
 
     const off = await run('off')
     assert.equal(off.kind, 'error', '/tower off must not report success')
-    assert.match(off.text, /Tower mode OFF/)
-    assert.match(off.text, /could not be persisted|timed out/i)
+    // F33: the failed save rolls the tombstone back, so the session is still
+    // on and the text must not claim "Tower mode OFF".
+    assert.doesNotMatch(off.text, /Tower mode OFF/)
+    assert.match(off.text, /Tower mode remains ON/)
+    assert.match(off.text, /\[tower:mode-persist-failed\]/)
+    assert.match(off.text, /could not be saved|timed out/i)
     assert.equal(fs.existsSync(path.join(storeDir, 'modes.json')), false, 'no mode document was written')
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(storeDir, 'modes.lock'), 'utf8')).token,

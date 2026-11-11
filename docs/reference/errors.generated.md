@@ -32,6 +32,8 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale |
+| `mode-store-corrupt` | The persisted Tower mode store is unreadable or corrupt, so the owner's mode cannot be determined. | no | repair or move aside the mode store file, then re-enter Tower mode in the owning session and retry |
+| `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change |
 | `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover |
 | `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover |
 | `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available |
