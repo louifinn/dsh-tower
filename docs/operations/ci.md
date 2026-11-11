@@ -10,7 +10,7 @@ a booted host, a browser) and the nightly failure report.
 | Context | Runner | What it proves |
 |---|---|---|
 | `test (24.9)`, `test (25)`, `test (24.9, windows)` | Ubuntu / Ubuntu / Windows, Node 24.9 / 25 / 24.9 | One canonical `npm run check` per leg. The Ubuntu 24.9 leg also runs the tag-only release check, the coverage table and the live-harness environment check. |
-| `test (22)`, `test (24)`, `test (22, windows)` | Ubuntu / Ubuntu / Windows, Node 22 / 24 / 22 | **Legacy transition contexts.** The frozen step-by-step gate list, kept byte-for-byte so the current branch protection still reports while the canonical legs prove themselves. |
+| `test (22)`, `test (24)`, `test (22, windows)` | Ubuntu / Ubuntu / Windows, Node 22 / 24 / 22 | **Legacy transition contexts.** The frozen step-by-step gate list, kept byte-for-byte; they are still required during step 1 of the branch-protection transition and are removed only in step 2. |
 | `mount` | Ubuntu, Node 24.9 | The packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`). Required context, unchanged by this transition. |
 | `mount-fixtures` | Ubuntu, Node 24.9 | Seeded mount-smoke failures against one cached host install. Evidence only, never a merge gate. |
 | `live (0.2.2-rc.1)` | Ubuntu, Node 24.9 | Nightly/manual-only real Web runtime pinned by the matrix; never gates a push or PR. |
@@ -56,8 +56,9 @@ document against the workflow text:
 
 - the canonical job carries the three supported contexts, checks out with `fetch-depth: 0` so the
   release check keeps its tag baseline, and runs `npm run check` exactly once per leg;
-- the frozen legacy job still carries the four required context strings (`test (22)`, `test (24)`,
-  `test (22, windows)`, `mount`) on their pinned OS/Node versions;
+- the frozen legacy job still carries the three legacy context strings (`test (22)`, `test (24)`,
+  `test (22, windows)`) on their pinned OS/Node versions, and the `mount` job still reports the
+  required `mount` context;
 - every `uses:` is a 40-hex commit SHA with a `# vX.Y.Z` version comment;
 - top-level `permissions` is exactly `contents: read`, `concurrency` is per-ref and per-event with
   `cancel-in-progress` limited to pushes/PRs, every job that runs `npm ci` sets `cache: npm` on
@@ -118,30 +119,27 @@ via a `files` negation in `package.json`, because the reviewed
 [`scripts/pack-manifest.txt`](../../scripts/pack-manifest.txt) is updated in a separate packaging
 change. Remove the negation and add the path to the manifest in one commit.
 
-## The two-step cutover
+## The branch-protection transition
 
 `main` is protected, admin enforcement is on, and the protection setting is owned by the repository
-admin. An agent token without admin permission must not attempt this. The current required contexts are
-`test (22)`, `test (24)`, `test (22, windows)` and `mount` — all four are required, including the
-Windows leg. The setting is authoritative, the verification command is in
-[SECURITY.md](../../SECURITY.md#repository-protection-on-main), and the transition below is the only
-place that changes the set.
+admin. An agent token without admin permission must not attempt to change it. The required contexts are
+now seven: `test (22)`, `test (24)`, `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and
+`test (24.9, windows)` — all seven are required, including the Windows leg and both the legacy and the
+canonical sets, under `strict: true`. **Step 1 of the two-step transition is applied and live.** The
+setting is authoritative, the verification command is in
+[SECURITY.md](../../SECURITY.md#repository-protection-on-main), and this section records what was
+applied, what step 2 still changes, and how to roll back.
 
 The canonical legs report from the moment the workflow change lands, but a required context that is not
 yet in the protection setting is ignored, and removing an old context before its replacement is
-required makes every open PR unmergeable. Hence two steps:
+required makes every open PR unmergeable. Hence two steps. Step 1 kept all four legacy entries and added
+the three canonical contexts, so the transition can prove the canonical legs without a window in which
+an open PR has no working gate.
 
-### Step 1 — add the transition contexts (admin, after the canonical legs have reported green once)
+### Step 1 — applied and live: seven required contexts
 
-Record the current setting first:
-
-```bash
-gh api repos/louifinn/dsh-tower/branches/main/protection/required_status_checks \
-  --jq '{strict: .strict, contexts: .contexts}'
-```
-
-Then keep all four legacy contexts and add the three supported ones (keep `strict` exactly as printed
-above; the body below mirrors the current `strict: true`):
+The admin changed the setting from the four legacy strings to seven contexts. This is the applied body
+(and the rollback target until step 2 lands):
 
 ```bash
 gh api --method PATCH \
@@ -162,17 +160,22 @@ gh api --method PATCH \
 JSON
 ```
 
-Verify the seven contexts and let one full PR cycle merge green with both sets reporting:
+Verify the seven contexts; every PR must now merge green with all seven reporting:
 
 ```bash
 gh api repos/louifinn/dsh-tower/branches/main/protection/required_status_checks \
-  --jq '.contexts'
+  --jq '{strict: .strict, contexts: .contexts}'
 ```
 
-### Step 2 — drop the legacy contexts, then the legacy job (admin + one follow-up PR)
+The frozen legacy `test` job and its three contexts stay in place for one full cycle: do not delete the
+job or remove the legacy contexts while step 1 is live. Step 2 below is a later PR and has **not** been
+performed.
 
-After a cycle in which all seven reported green on a merged PR, remove the three legacy `test` contexts
-and keep the supported ones plus `mount` (again mirror the recorded `strict`):
+### Step 2 — not done yet: drop the legacy contexts, then the legacy job (admin + one follow-up PR)
+
+This is the remaining step and it has not been performed. After a cycle in which all seven reported
+green on a merged PR, remove the three legacy `test` contexts and keep the supported ones plus `mount`
+(again mirror the recorded `strict`):
 
 ```bash
 gh api --method PATCH \

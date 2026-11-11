@@ -136,6 +136,12 @@ export async function resolveRepoConfig(repo) {
     if (Array.isArray(repoMode.denyTools)) {
       merged.mode.denyTools = [...new Set([...(base.mode?.denyTools ?? DEFAULT_DENY_TOOLS), ...repoMode.denyTools])]
     }
+    // The cross-process lock wait is tuning, not a mode-guard control, so the
+    // repository layer may set it (for example a loaded CI checkout raises it).
+    // `readRepoConfig` already validated the schema range; allowing it here is
+    // what makes `mode.lockTimeoutMs` reach the state lock (Tower.withStateLock)
+    // and the mode store (modes.lock) from a repository checkout.
+    if (Number.isFinite(repoMode.lockTimeoutMs)) merged.mode.lockTimeoutMs = repoMode.lockTimeoutMs
   }
   if (!Array.isArray(merged.mode?.denyTools) || merged.mode.denyTools.length === 0) {
     merged.mode = { ...(merged.mode ?? {}), denyTools: [...DEFAULT_DENY_TOOLS] }

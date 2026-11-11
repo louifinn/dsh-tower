@@ -52,7 +52,7 @@ function planNeedsRead(input) {
 }
 
 export async function plan(tower, input = {}) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const now = Date.now()
     // A survey records the commit it reads and the tracked-status fingerprint at
@@ -97,7 +97,7 @@ export async function plan(tower, input = {}) {
 
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'plan',
       text: `created ${created.map((mission) => mission.id).join(', ')}`,

@@ -64,6 +64,8 @@ docs/adr/0003-allow-agent-control-default-true.md
 docs/adr/0004-surface-budget.md
 docs/adr/0005-component-surface.md
 docs/adr/0006-mission-shapes.md
+docs/adr/0007-bounded-activity-log-rotation.md
+docs/adr/0008-process-local-advisory-budgets.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md

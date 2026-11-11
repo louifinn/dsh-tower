@@ -99,7 +99,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `mode.denyTools` | `core` | The denied-tool list is part of the mode guard. |
 | `mode.storePath` | `optional-config` | Custom mode-store location; no capability is removed. |
 | `mode.maxEntries` | `optional-config` | Bounds the persisted mode store. |
-| `mode.lockTimeoutMs` | `optional-config` | Bounded wait for the cross-process mode lock. |
+| `mode.lockTimeoutMs` | `optional-config` | Bounded wait for the cross-process state and mode locks. |
 | `review.mode` | `core` | The review policy: off, optional (default) or required, selected by one tri-state control on the plugin-page configuration form. It is configuration, not a component row and not three mutually exclusive rows. off intentionally removes tower_review, refuses reviewer spawn and makes the merge gate ignore review; optional never blocks a merge; required makes a clean tip-bound review a merge blocker. The reviewer preset row stays a capability the mode may leave unused. The deprecated review.requireReview boolean was removed in 2.8.0, so this is the only review policy key. |
 | `review.maxRoundsPerReviewer` | `forbidden-to-disable` | Caps review rounds; part of the review contract. |
 | `merge.timeoutMs` | `optional-config` | Default merge timeout; a per-call value wins. |
@@ -118,7 +118,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.staleMs` | `optional-config` | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | `optional-config` | Upper bound for a blocking spawn wait. |
 | `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. Tuning exemption: Tuning the safety level inside the optional tower-leases row; with leases off the Host refuses requireLease instead of removing the spawn capability. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
-| `send.maxPerMinute` | `optional-config` | Message rate limit; zero disables it. |
+| `send.maxPerMinute` | `optional-config` | Process-local advisory message rate limit; zero disables it. |
 | `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. Tuning exemption: Tuning, not capability: the send component always exists and the switch only picks a delivery default. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.admission` | `optional-config` | Chooses when discovery runs inside the optional tests capability. Tuning exemption: Tuning when the admission check runs inside the optional tower-tests row, which still owns whether test tooling exists. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `tests.timeoutMs` | `optional-config` | Per-command discovery timeout. |
@@ -132,6 +132,8 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `docs.boardLocation` | `optional-config` | Chooses where the board is written; whether it is written is the tower-board component row (#133). |
 | `archive.afterDays` | `optional-config` | Archive age threshold inside the optional tower-archive component (#135). |
 | `archive.maxMissions` | `optional-config` | Hot terminal-mission cap. |
+| `activity.maxBytes` | `optional-config` | Bounded activity-log rotation threshold enforced by the store adapter (#M76); not a capability switch. |
+| `activity.retention` | `optional-config` | Number of rotated activity segments kept by the store adapter (#M76); not a capability switch. |
 | `leases.ttlMs` | `optional-config` | Tuning inside the optional tower-leases component. |
 | `dev.reloadDelayMs` | `optional-config` | Delay so a tool result is delivered before a scheduled reload inside the optional tower-hmr component. |
 | `dev.reloadRequiredIds` | `optional-config` | Loader ids passed to reconcileProfile as required by the tower-hmr component. |

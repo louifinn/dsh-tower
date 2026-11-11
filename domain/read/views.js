@@ -95,6 +95,13 @@ export function statusView({
         reviewerPreset: config.spawn?.reviewerPreset ?? null,
       },
     },
+    // Rotation policy is adapter-enforced; the dashboard still names it so a
+    // reader can explain why activity.jsonl is bounded. The on-disk segment
+    // state (live/rotated bytes) is tower_doctor's report.
+    activityLog: {
+      maxBytes: Number.isInteger(config.activity?.maxBytes) ? config.activity.maxBytes : null,
+      retention: Number.isInteger(config.activity?.retention) ? config.activity.retention : null,
+    },
     recentFindings: (state.findings ?? []).slice(-5).map((finding) => ({
       id: finding.id,
       type: finding.type,

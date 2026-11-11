@@ -10,7 +10,12 @@ import {
   lockTiming,
   readLock,
 } from './lock.js'
-import { writeJsonAtomic } from './persistence.js'
+import {
+  activityPolicy,
+  activitySegmentIndices,
+  activitySegmentPath,
+  writeJsonAtomic,
+} from './persistence.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
@@ -50,12 +55,16 @@ export function shortHash(text) {
   return crypto.createHash('sha256').update(String(text)).digest('hex').slice(0, 12)
 }
 
-export async function readActivityTail(file, limit = 12) {
+/**
+ * Parse a JSONL file tolerant of a truncated final line and corrupt lines.
+ * A bad line never hides the rest of the segment.
+ * @param {string} file
+ * @returns {Promise<unknown[]>}
+ */
+async function readJsonlTolerant(file) {
   const text = await fsp.readFile(file, 'utf8').catch(() => '')
-  const lines = text.split('\n').filter(Boolean)
-  const tail = lines.slice(Math.max(0, lines.length - limit))
   const out = []
-  for (const line of tail) {
+  for (const line of text.split('\n').filter(Boolean)) {
     try {
       out.push(JSON.parse(line))
     } catch {
@@ -63,6 +72,77 @@ export async function readActivityTail(file, limit = 12) {
     }
   }
   return out
+}
+
+/**
+ * Last `limit` activity entries across the live file and its rotated segments.
+ * Segments are numbered newest-first (`.1` newest), so the chronological order
+ * is highest index, ..., `.1`, then `activity.jsonl`. Only as many segments as
+ * needed are read: the live file first, then `.1`, `.2`, ... until enough parsed
+ * lines are available; the collected groups are reversed at the end.
+ * @param {string} file
+ * @param {number} [limit]
+ */
+export async function readActivityTail(file, limit = 12) {
+  const wanted = Number.isInteger(limit) && limit > 0 ? limit : 12
+  /** @type {unknown[][]} */
+  const groups = []
+  let parsed = 0
+  const readGroup = async (target) => {
+    const group = await readJsonlTolerant(target)
+    if (group.length > 0) {
+      groups.push(group)
+      parsed += group.length
+    }
+  }
+  await readGroup(file)
+  if (parsed < wanted) {
+    const names = await fsp.readdir(path.dirname(file)).catch(() => [])
+    const indices = activitySegmentIndices(file, names).sort((a, b) => a - b)
+    for (const index of indices) {
+      if (parsed >= wanted) break
+      await readGroup(activitySegmentPath(file, index))
+    }
+  }
+  return groups.reverse().flat().slice(-wanted)
+}
+
+/**
+ * Read-only rotation facts for tower_doctor/status. Never writes, never
+ * creates the directory, and tolerates a repo with no activity log yet.
+ * @param {string} file
+ * @param {{ maxBytes?: number, retention?: number }} [options]
+ */
+export async function inspectActivityLog(file, options = {}) {
+  const policy = activityPolicy(options)
+  let liveBytes = 0
+  try {
+    liveBytes = (await fsp.stat(file)).size
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  const names = await fsp.readdir(path.dirname(file)).catch(() => [])
+  const segments = []
+  let rotatedBytes = 0
+  for (const index of activitySegmentIndices(file, names)) {
+    let bytes = 0
+    try {
+      bytes = (await fsp.stat(activitySegmentPath(file, index))).size
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+    segments.push({ index, bytes })
+    rotatedBytes += bytes
+  }
+  return {
+    file,
+    rotationEnabled: policy.enabled,
+    maxBytes: policy.maxBytes,
+    retention: policy.retention,
+    liveBytes,
+    rotatedBytes,
+    segments,
+  }
 }
 
 export async function readStateLock(paths, options = {}) {

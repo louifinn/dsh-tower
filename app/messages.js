@@ -13,7 +13,7 @@ function fail(message) {
 }
 
 export async function recordMessage(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       if (!Array.isArray(state.messages)) state.messages = []
       assertMessageRecipient({ roster: state.roster ?? [], to: input.to, from: input.from })
@@ -27,7 +27,7 @@ export async function recordMessage(tower, input) {
 
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'message',
         text: `${input.from} -> ${input.to}: ${input.subject}`,
@@ -37,7 +37,7 @@ export async function recordMessage(tower, input) {
   }
 
   export async function recordDelivery(tower, messageId, results) {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const message = (state.messages ?? []).find((entry) => entry.id === messageId)
       if (!message) fail(`unknown message "${messageId}"`)
@@ -50,7 +50,7 @@ export async function recordMessage(tower, input) {
   }
 
   export async function inbox(tower, input) {
-    return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+    return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const now = Date.now()
       const { payload, changed } = inboxView(state.messages ?? [], input, now)

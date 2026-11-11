@@ -48,6 +48,13 @@ Tower's guarantees are **coordination guarantees**, not a sandbox. Understand wh
 - **Leases are coordination, not quotas.** `tower_resource` prevents accidental co-scheduling via a local
   JSON ledger; it does not cap CPU, memory, or process count. DSH exposes no public Job-object quota API,
   so OS-level isolation remains a deployment concern.
+- **Spawn backoff and send rate limits are process-local advisory budgets.** `SPAWN_BACKOFF` and
+  `SEND_RATE` in `host/tool-runtime.js` are ordinary in-memory counters keyed by repository root. They
+  protect one running session from a retry storm and an accidental message flood; they are **not
+  persisted**, **not shared between concurrent DSH processes**, **not a cross-process or platform quota**,
+  and **not a security or authorization control**. A restart clears them, and two Tower sessions on one
+  repository may each spend the full `send.maxPerMinute`. See
+  [ADR 0008](../adr/0008-process-local-advisory-budgets.md).
 - **Legacy import is read-only.** Imported snapshots live under the canonical state directory and are never
   activated, adopted, or resumed; an operator must explicitly re-plan/migrate work.
 
@@ -60,11 +67,13 @@ code an attacker would most want to change:
 
 - `main` requires a pull request for every change, **enforced for admins**, so a direct push is
   rejected even for the maintainer.
-- Required checks are `test (22)`, `test (24)`, `test (22, windows)` and `mount`. The mount job packs the
-  tarball and boots it in a throwaway profile, so "the tests pass" cannot land a bundle that fails to
-  appear after `dsh plugin add`. The one-cycle transition to the supported Node 24.9/25 contexts, and
-  the workflow hardening that supports it, are owned by [ci.md](./ci.md); this section owns the
-  protection rationale.
+- Seven required checks, with `strict` branch protection: `test (22)`, `test (24)`,
+  `test (22, windows)`, `mount`, `test (24.9)`, `test (25)` and `test (24.9, windows)`. The mount job
+  packs the tarball and boots it in a throwaway profile, so "the tests pass" cannot land a bundle that
+  fails to appear after `dsh plugin add`. Step 1 of the two-step cutover is live: the three legacy
+  contexts and the three canonical legs are required together, and the frozen legacy job remains until
+  step 2 lands as a later PR. The transition mechanics and the workflow hardening that supports it are
+  owned by [ci.md](./ci.md); this section owns the protection rationale.
 - Force-push and branch deletion are blocked, so history cannot be rewritten under a published tag.
 - There are no mandatory approvals: with one maintainer, a self-approval requirement would be a rubber
   stamp. The evidence instead is the four-line PR body (failure mode, change, test, blast radius) for

@@ -154,7 +154,7 @@ async function restoreInitRefs(tower, deleted) {
 
 /** Phase 3a of `Tower.init` (#51): write the initial state under a short lock. */
 async function commitInitCreate(tower, prepared, acted, input) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     // Revision revalidation for the create path: prepare saw "absent", so a
     // state file that appeared meanwhile must never be overwritten.
     if (await tower.deps.store.exists(tower.paths.state)) {
@@ -174,7 +174,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
     })
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.deps.store.appendJsonl(tower.paths.activity, {
+    await tower.appendActivity({
       at: now,
       type: 'init',
       text: initActivityText({
@@ -199,7 +199,7 @@ async function commitInitCreate(tower, prepared, acted, input) {
 
 /** Phase 3b of `Tower.init` (#51): owner claim and reanchor writes under a short lock. */
 async function commitInitExisting(tower, prepared, input) {
-  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.stateRevision) {
       throw new TowerToolError(
@@ -220,7 +220,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'init',
         text: ownerClaimActivityText(claimant),
@@ -236,7 +236,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, {
+      await tower.appendActivity({
         at: now,
         type: 'init',
         text: caseProbeActivityText(prepared.caseInsensitive),
@@ -252,7 +252,7 @@ async function commitInitExisting(tower, prepared, input) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
-      await tower.deps.store.appendJsonl(tower.paths.activity, { at: now, type: 'init', text: reanchorActivityText(prepared.base) })
+      await tower.appendActivity({ at: now, type: 'init', text: reanchorActivityText(prepared.base) })
     }
     return existingInitWriteResult({ state, statePath: tower.paths.state, dirty: prepared.dirty, reanchored })
   })
