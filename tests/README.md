@@ -46,7 +46,9 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `leases.test.mjs` / `legacy.test.mjs` / `worktree-ownership.test.mjs` — advisory leases, Tower Codex/DSH legacy import + audit mapping, and realpath/worktree ownership checks.
 - `integration-2.1.test.mjs` — end-to-end 2.1: references/review exemption, discovery admission/auto checks, failing admission without a child, batch close, leases/requireLease, legacy import/map, doctor, stale watchdog gate, board location, delivery ack, `gates.requireTests`.
 - `plan-mode.test.mjs` — Tower entry clears/refuses plan mode and the pre-step keeps them mutually exclusive.
-- `ui-bundle.test.mjs` — plain-JS UI chunk format/syntax, the 400-line split budget, toolview/dock/overlay registrations, locale parity, theme tokens and defensive rendering.
+- `ui-bundle.test.mjs` — plain-JS UI chunk format/syntax, the 400-line split budget, toolview/dock/overlay registrations, locale parity and glossary terms, localized enum labels, `/tower` command-semantics no-ops, dock storage validation/failure containment, accessibility labels/roles/live regions, theme tokens and defensive rendering.
+- `locale-copy.test.mjs` — the copy gate over the root locale, generated row locales, ui-bundle meta and the `ui-bundle/client.locales.js` client dictionary (en/zh parity, emptiness, glossary, untranslated English); banned config/tool/command/module syntax is applied to page copy and intentionally not to client tooltips that quote `/tower` and `tower_mode`.
+- `plugin-config-client.test.mjs` — the review-policy settings control: registration, three native radio options, save/refuse/restart states, and its labelled-group/described-option/live-status accessibility contract.
 
 All temporary repositories and state are created under the OS temp directory and cleaned up automatically. Teardown goes through `tests/helpers/cleanup.mjs`: it retries transient `EPERM`/`EBUSY`/`EACCES` failures with bounded backoff, moves the tree to a fresh sibling name after the first one, and refuses any target that is not a strict child of `os.tmpdir()`. Do not delete a test-owned tree directly — Windows can still hold a handle after the test that created it has finished, and a bare recursive delete turns a green suite red at random. The retry path is proven by `tests/cleanup.test.mjs`, including a real Windows handle.
 
@@ -233,4 +235,4 @@ After installing/restarting desktop (Host plugins load at process start, so a co
 7. After `/tower off`, `todo_write` works again and the tower guard no longer blocks `update_goal`.
 8. After a restart, `tower_mode` is still on for the same session id (`$DSH_HOME/tower-mode/modes.json`).
 9. With `allowAgentControl: true`, `tower_control` exists; with the default `false` it does not.
-10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising all 25 blocker/failure codes (see the repository `README.md`).
+10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising the blocker/failure codes listed in [docs/reference/blockers.md](../docs/reference/blockers.md) (the repository `README.md` states the live surface).

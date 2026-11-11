@@ -13,7 +13,7 @@ import {
 } from '../domain/vocabulary.js'
 import {
   allowsAnonymous,
-  allowsConfigDiagnostic, openForAuthorization, isConfigResolutionError,
+  openForAuthorization, isConfigResolutionError,
   anonymousActor,
   authorize,
   isRepositoryOptional,
@@ -174,19 +174,19 @@ const actorFor = resolveActor
 
 /** Authorize one call: tower_init bootstraps; a repoRoot-less optional row takes
  * the absent path; public rows continue anonymously; the config-diagnostic doctor
- * row degrades an unresolvable config instead of failing in the open path. */
+ * row degrades an unresolvable config instead of failing, and `degraded` says so. */
 async function authorizeCall(name, args, exec) {
   if (name === 'tower_init') {
     let tower = null
     try { tower = await openTower(args.repoRoot) } catch { tower = null }
     const actor = tower ? await resolveActor(tower, exec) : anonymousActor(exec)
     await authorize(name, actor, { args, tower })
-    return actor
+    return { actor, degraded: false }
   }
   if (isRepositoryOptional(name) && typeof args.repoRoot !== 'string') {
     const actor = anonymousActor(exec)
     await authorize(name, actor, { args, tower: null, repositoryAbsent: true })
-    return actor
+    return { actor, degraded: false }
   }
   const tower = await openForAuthorization(name, args.repoRoot, openTower)
   let actor
@@ -197,7 +197,7 @@ async function authorizeCall(name, args, exec) {
     actor = anonymousActor(exec)
   }
   await authorize(name, actor, { args, tower })
-  return actor
+  return { actor, degraded: tower === null }
 }
 
 /**
@@ -450,8 +450,8 @@ function define(ctx, definition) {
         try {
           // Default-deny authorization runs before any side effect: a denied
           // call must not take the workspace lock, write state, or spawn.
-          const actor = await authorizeCall(rest.name, normalized, exec)
-          if (!allowsConfigDiagnostic(rest.name) && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') {
+          const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
+          if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
             await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
           }
           value = await execute(normalized, exec, actor)

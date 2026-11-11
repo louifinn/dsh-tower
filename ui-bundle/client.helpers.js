@@ -225,10 +225,23 @@ window.__ModuleLoader__.load({
         if (known > 0) return translate(t, 'card.checksCount', { passed, total: known })
         return String(entries.length)
       }
+      // Known enum values get localized labels; unknown values fall back to raw.
+      function enumLabel(t, kind, value) {
+        if (typeof value !== 'string' || value === '') return ''
+        const key = 'enum.' + kind + '.' + value
+        const label = translate(t, key)
+        return label === key ? value : label
+      }
+      // Review statuses are open-ended: p1-7items is valid, p1 stays canonical.
+      function reviewStatusLabel(t, status) {
+        const match = typeof status === 'string' ? /^p([12])-(\d+)items$/.exec(status) : null
+        if (match) return translate(t, 'enum.reviewStatus.p' + match[1], { count: match[2] })
+        return enumLabel(t, 'reviewStatus', status)
+      }
       function missionLine(t, mission) {
         if (!isPlainObject(mission)) return ''
         const id = typeof mission.id === 'string' ? mission.id : translate(t, 'card.missionMissing')
-        const status = typeof mission.status === 'string' ? mission.status : translate(t, 'card.unknown')
+        const status = typeof mission.status === 'string' ? enumLabel(t, 'missionStatus', mission.status) : translate(t, 'card.unknown')
         const parts = [translate(t, 'card.missionLine', { id, status })]
         const tasks = taskCountsOf(mission.tasks)
         if (tasks !== null && tasks.total > 0) {
@@ -262,6 +275,7 @@ window.__ModuleLoader__.load({
         checkEntries,
         checkText,
         checkSummary,
+        enumLabel, reviewStatusLabel,
         missionLine,
       }
     }

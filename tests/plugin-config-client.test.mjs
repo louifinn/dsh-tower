@@ -367,6 +367,51 @@ test('the section renders exactly three options with the optional default', asyn
   assert.equal(findNodes(tree, (node) => node.props && node.props.role === 'radiogroup').length, 1)
 })
 
+test('the review policy control is a labelled group with described options and a live status', () => {
+  const tree = mount(makeForm({})).render()
+  const section = findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-review-policy'))[0]
+  assert.equal(section.props.role, 'group')
+  assert.equal(section.props['aria-labelledby'], 'dsh-tower-review-policy-title')
+
+  const heading = findNodes(tree, (node) => node.props && node.props.id === 'dsh-tower-review-policy-title')
+  assert.equal(heading.length, 1)
+  assert.equal(heading[0].props.role, 'heading')
+  assert.equal(heading[0].props['aria-level'], 2)
+  assert.equal(textOf(heading[0]), 'Review policy')
+
+  const intro = findNodes(tree, (node) => node.props && node.props.id === 'dsh-tower-review-policy-intro')
+  assert.equal(intro.length, 1)
+  assert.match(textOf(intro[0]), /how Tower treats review/i)
+
+  const group = findNodes(tree, (node) => node.props && node.props.role === 'radiogroup')[0]
+  assert.equal(group.props['aria-labelledby'], 'dsh-tower-review-policy-title')
+  assert.equal(group.props['aria-describedby'], 'dsh-tower-review-policy-intro')
+
+  const inputs = radios(tree)
+  assert.equal(inputs.length, 3)
+  for (const [mode, label, description] of [
+    ['off', 'Off', /no review can be recorded/i],
+    ['optional', 'Optional', /never blocks a merge/i],
+    ['required', 'Required', /clean review at the branch tip/i],
+  ]) {
+    const input = inputs.find((entry) => entry.props.value === mode)
+    const labelId = 'dsh-tower-review-policy-' + mode + '-label'
+    const descriptionId = 'dsh-tower-review-policy-' + mode + '-description'
+    assert.equal(input.props['aria-labelledby'], labelId)
+    assert.equal(input.props['aria-describedby'], descriptionId)
+    const labelNode = findNodes(tree, (node) => node.props && node.props.id === labelId)[0]
+    const descriptionNode = findNodes(tree, (node) => node.props && node.props.id === descriptionId)[0]
+    assert.equal(textOf(labelNode), label)
+    assert.match(textOf(descriptionNode), description)
+  }
+
+  const status = findNodes(tree, (node) => node.props && node.props.role === 'status')[0]
+  assert.equal(status.props.id, 'dsh-tower-review-policy-status')
+  assert.equal(status.props['aria-live'], 'polite')
+  assert.equal(status.props['aria-atomic'], 'true')
+  assert.match(textOf(status), /Current choice: Optional/)
+})
+
 test('a resolved required value is reflected as the selected option', async () => {
   const form = makeForm({ review: { mode: 'required' } })
   const mounted = mount(form)
@@ -515,7 +560,15 @@ test('switching away from a profile that started with review off explains the re
   assert.equal(radios(tree).find((input) => input.props.checked).props.value, 'optional')
   assert.match(textOf(tree), /merge gate already uses the new choice/i)
   assert.match(textOf(tree), /restart/i)
-  assert.equal(findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-restart-hint')).length, 1)
+  const restartHint = findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-restart-hint'))
+  assert.equal(restartHint.length, 1)
+  assert.equal(restartHint[0].props.id, 'dsh-tower-review-policy-restart-hint')
+  // R1: the hint is inserted only after a successful save, so it must announce
+  // itself instead of relying on the sibling status region ("Saved.").
+  assert.equal(restartHint[0].props.role, 'note')
+  assert.equal(restartHint[0].props['aria-live'], 'polite')
+  assert.equal(restartHint[0].props['aria-atomic'], 'true')
+  assert.match(textOf(restartHint[0]), /restart/i)
 
   // A profile that did not start off needs no restart: the tool was registered.
   const started = mount(makeForm({ review: { mode: 'optional' } }))

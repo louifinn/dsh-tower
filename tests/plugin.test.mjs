@@ -33,6 +33,7 @@ const tests = await import('../host/capability-tests.js')
 const hmr = await import('../host/capability-hmr.js')
 const skills = await import('../skills.js')
 const { validateJsonSchema } = await import('./schema-validator.mjs')
+const { workspaceLockPath } = await import('../adapters/workspaceLock.js')
 
 const CAPABILITY_MODULES = [
   ['tower-batch', batch],
@@ -78,6 +79,7 @@ function makeCtx(options = {}) {
     get(name) {
       if (name === 'goals') return options.goals
       if (name === 'agentPresets') return options.agentPresets
+      if (name === 'subagents') return options.subagents
       if (name === 'userQuestions') return options.userQuestions
       return undefined
     },
@@ -484,6 +486,61 @@ test('F41: only the public doctor row may degrade on a config-resolution failure
   } finally {
     configureRuntime({})
     removeTemp(root)
+  }
+})
+
+test('F48: a healthy tower_doctor takes the workspace lock; only a degraded config open skips it', async () => {
+  // tower_doctor declares the config-diagnostic contract so it can report a
+  // broken config (F41). That contract used to skip the lazy workspace hook for
+  // every doctor call, so a healthy doctor was the one repository-scoped tool
+  // that never acquired the advisory lock. F48 narrows the skip to the degraded
+  // open, where the hook would only re-resolve the config that just failed.
+  const { ctx, tools, commands } = makeCtx({ subagents: { name: 'f48-subagents' } })
+  const healthy = makeRepo()
+  const degraded = makeRepo()
+  const storePath = path.join(healthy.root, 'modes')
+  const healthyLock = workspaceLockPath(path.join(healthy.repo, '.git'))
+  const degradedLock = workspaceLockPath(path.join(degraded.repo, '.git'))
+  const healthyAgent = makeAgent('agent-f48-healthy')
+  const degradedAgent = makeAgent('agent-f48-degraded')
+  try {
+    apply(ctx, { mode: { workspaceLock: true, workspaceLockScope: 'all', storePath } })
+    await callCommand(commands, healthyAgent, '')
+    await callCommand(commands, degradedAgent, '')
+    await tools.get('tower_init').execute({ repoRoot: healthy.repo }, { agent: healthyAgent })
+    await tools.get('tower_init').execute({ repoRoot: degraded.repo }, { agent: degradedAgent })
+    assert.equal(fs.existsSync(healthyLock), false, 'tower_init must not acquire the workspace lock')
+
+    // workspaceLockScope:"all" means this read-only tool is not exempt.
+    const report = await tools.get('tower_doctor').execute({ repoRoot: healthy.repo }, { agent: healthyAgent })
+    assertSchema(tools.get('tower_doctor'), report)
+    assert.equal(report.ok, true)
+    assert.ok(fs.existsSync(healthyLock), 'a healthy tower_doctor must acquire the workspace lock')
+    const held = JSON.parse(fs.readFileSync(healthyLock, 'utf8'))
+    assert.equal(held.sessionId, 'agent-f48-healthy')
+    assert.equal(held.agentId, 'agent-f48-healthy')
+
+    // Break the live profile the same way F41 does: the open path degrades to the
+    // anonymous actor and the doctor handler reports the config failure.
+    assert.throws(() => configureRuntime({ allowAgentToggle: true }), /unknown key/i)
+    let fallback
+    try {
+      fallback = await tools.get('tower_doctor').execute({ repoRoot: degraded.repo }, { agent: degradedAgent })
+    } finally {
+      configureRuntime({})
+    }
+    assertSchema(tools.get('tower_doctor'), fallback)
+    assert.equal(fallback.ok, false)
+    assert.match(fallback.configError, /\[tower:config-unknown-key\]/)
+    assert.equal(
+      fs.existsSync(degradedLock),
+      false,
+      'the degraded diagnostic must skip the workspace hook and never acquire a lock',
+    )
+  } finally {
+    configureRuntime({})
+    removeTemp(healthy.root)
+    removeTemp(degraded.root)
   }
 })
 

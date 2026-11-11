@@ -23,6 +23,8 @@ window.__ModuleLoader__.load({
         checkSummary,
         checkText,
         shortCommit,
+        enumLabel,
+        reviewStatusLabel,
         TOOL_SET,
       } = helpers
 
@@ -35,7 +37,9 @@ window.__ModuleLoader__.load({
               : row.tone === 'ok'
                 ? Object.assign({}, ST.row, ST.rowOk)
                 : ST.row
-        return h('div', { key, style }, row.text)
+        const tone = ['error', 'warn', 'ok'].includes(row.tone) ? row.tone : null
+        const label = tone === null ? undefined : translate(t, 'card.tone.' + tone) + ': ' + row.text
+        return h('div', { key, style, 'data-tower-tone': tone ?? undefined, role: tone ? 'note' : undefined, 'aria-label': label }, row.text)
       }
 
       // Owner props supplied by the Chat tool-call tree: callId, toolName,
@@ -119,9 +123,9 @@ window.__ModuleLoader__.load({
             rows.push({
               text: translate(t, 'card.agentLine', {
                 name: typeof entry.name === 'string' ? entry.name : '?',
-                role: typeof entry.role === 'string' ? entry.role : '?',
-                mission: typeof entry.missionId === 'string' ? entry.missionId : '?',
-                activity: typeof entry.activity === 'string' ? entry.activity : '?',
+                role: enumLabel(t, 'role', entry.role) || '?',
+                missionId: typeof entry.missionId === 'string' ? entry.missionId : '?',
+                activity: enumLabel(t, 'activity', entry.activity) || '?',
               }),
               tone: entry.stale === true ? 'warn' : entry.activity === 'running' ? 'ok' : undefined,
             })
@@ -129,22 +133,22 @@ window.__ModuleLoader__.load({
           if (isPlainObject(payload.parentStatus)) {
             const unavailable = Object.keys(payload.parentStatus).filter((key) => payload.parentStatus[key] !== 'ok')
             if (unavailable.length > 0) {
-              rows.push({ text: 'parent catalog unavailable: ' + unavailable.length, tone: 'warn' })
+              rows.push({ text: translate(t, 'card.parentCatalogUnavailable', { count: unavailable.length }), tone: 'warn' })
             }
           }
         } else if (toolName === 'tower_spawn') {
           headline = translate(t, 'card.spawnLine', {
-            role: typeof payload.role === 'string' ? payload.role : '?',
+            role: enumLabel(t, 'role', payload.role) || '?',
             name: typeof payload.name === 'string' ? payload.name : '?',
-            mission: typeof payload.missionId === 'string' ? payload.missionId : '?',
+            missionId: typeof payload.missionId === 'string' ? payload.missionId : '?',
           })
           tone = 'ok'
           if (isPlainObject(payload.worktree) && typeof payload.worktree.branch === 'string') {
             rows.push({ text: translate(t, 'card.worktreeLine', { branch: payload.worktree.branch }) })
           }
-          if (payload.created === false) rows.push({ text: 'reused worktree' })
+          if (payload.created === false) rows.push({ text: translate(t, 'card.reusedWorktree') })
           if (typeof payload.agentId === 'string') rows.push({ text: truncate(payload.agentId, 60) })
-          if (payload.timedOut === true) rows.push({ text: 'timed out', tone: 'warn' })
+          if (payload.timedOut === true) rows.push({ text: translate(t, 'card.timedOut'), tone: 'warn' })
         } else if (toolName === 'tower_mission') {
           const mission = isPlainObject(payload.mission) ? payload.mission : null
           headline = mission !== null ? missionLine(t, mission) : translate(t, 'card.done')
@@ -156,7 +160,7 @@ window.__ModuleLoader__.load({
               rows.push({ text: truncate(blocker), tone: 'error' })
             }
             if (typeof mission.reviewPolicy === 'string') {
-              rows.push({ text: translate(t, 'card.reviewPolicy', { policy: mission.reviewPolicy }) })
+              rows.push({ text: translate(t, 'card.reviewPolicy', { policy: enumLabel(t, 'reviewPolicy', mission.reviewPolicy) }) })
             }
             if (isPlainObject(mission.owner) && typeof mission.owner.name === 'string') {
               rows.push({ text: translate(t, 'card.owner', { owner: mission.owner.name }) })
@@ -165,7 +169,7 @@ window.__ModuleLoader__.load({
         } else if (toolName === 'tower_complete') {
           const mission = isPlainObject(payload.mission) ? payload.mission : null
           headline = translate(t, 'card.completeLine', {
-            mission: mission !== null && typeof mission.id === 'string' ? mission.id : '?',
+            missionId: mission !== null && typeof mission.id === 'string' ? mission.id : '?',
             commits: typeof payload.commits === 'number' ? payload.commits : 0,
           })
           tone = 'ok'
@@ -185,8 +189,8 @@ window.__ModuleLoader__.load({
         } else if (toolName === 'tower_review') {
           const review = isPlainObject(payload.review) ? payload.review : {}
           headline = translate(t, 'card.reviewLine', {
-            status: typeof review.status === 'string' ? review.status : '?',
-            merge: typeof review.mergeVerdict === 'string' ? review.mergeVerdict : '?',
+            status: reviewStatusLabel(t, review.status) || '?',
+            merge: enumLabel(t, 'mergeVerdict', review.mergeVerdict) || '?',
             round: typeof payload.round === 'number' ? payload.round : typeof review.round === 'number' ? review.round : '?',
           })
           tone = toneForStatus(review.status)
@@ -200,7 +204,7 @@ window.__ModuleLoader__.load({
           if (typeof review.decision === 'string' && review.decision.trim() !== '') {
             rows.push({ text: firstLine(review.decision) })
           }
-          if (typeof payload.branchTip === 'string') rows.push({ text: 'tip ' + shortCommit(payload.branchTip) })
+          if (typeof payload.branchTip === 'string') rows.push({ text: translate(t, 'card.branchTip', { commit: shortCommit(payload.branchTip) }) })
         } else if (toolName === 'tower_preflight') {
           headline =
             payload.ok === true
@@ -208,13 +212,13 @@ window.__ModuleLoader__.load({
               : translate(t, 'card.mergeBlocked', { count: blockers.length })
           tone = payload.ok === true ? 'ok' : 'error'
           if (Array.isArray(payload.changedFiles)) {
-            rows.push({ text: 'changed files ' + payload.changedFiles.length })
+            rows.push({ text: translate(t, 'card.changedFiles', { count: payload.changedFiles.length }) })
           }
           if (isPlainObject(payload.review)) {
             rows.push({
               text: translate(t, 'card.reviewLine', {
-                status: typeof payload.review.status === 'string' ? payload.review.status : '?',
-                merge: typeof payload.review.mergeVerdict === 'string' ? payload.review.mergeVerdict : '?',
+                status: reviewStatusLabel(t, payload.review.status) || '?',
+                merge: enumLabel(t, 'mergeVerdict', payload.review.mergeVerdict) || '?',
                 round: typeof payload.review.round === 'number' ? payload.review.round : '?',
               }),
               tone: toneForStatus(payload.review.status),
@@ -230,11 +234,11 @@ window.__ModuleLoader__.load({
             headline = translate(t, 'card.mergeBlocked', { count: blockers.length })
             tone = 'error'
           }
-          if (payload.recoveredFromFailure === true) rows.push({ text: 'recorded after a failed merge attempt', tone: 'warn' })
+          if (payload.recoveredFromFailure === true) rows.push({ text: translate(t, 'card.recoveredFromFailure'), tone: 'warn' })
           if (Array.isArray(payload.warnings)) {
             for (const warning of payload.warnings.slice(0, 2)) rows.push({ text: truncate(warning), tone: 'warn' })
           }
-          if (typeof payload.baseTip === 'string') rows.push({ text: 'base ' + shortCommit(payload.baseTip) })
+          if (typeof payload.baseTip === 'string') rows.push({ text: translate(t, 'card.baseTip', { commit: shortCommit(payload.baseTip) }) })
         } else if (toolName === 'tower_teardown') {
           const removed = Array.isArray(payload.removed) ? payload.removed.length : 0
           const decisions = Array.isArray(payload.decisions) ? payload.decisions : []
@@ -246,7 +250,7 @@ window.__ModuleLoader__.load({
             if (!isPlainObject(decision)) continue
             const reason = typeof decision.reason === 'string' ? ' · ' + truncate(decision.reason, 60) : ''
             rows.push({
-              text: (typeof decision.action === 'string' ? decision.action : '?') + ' ' + (typeof decision.missionId === 'string' ? decision.missionId : '?') + reason,
+              text: (enumLabel(t, 'teardownAction', decision.action) || '?') + ' ' + (typeof decision.missionId === 'string' ? decision.missionId : '?') + reason,
               tone: decision.action === 'keep' ? 'warn' : 'ok',
             })
           }
@@ -257,7 +261,7 @@ window.__ModuleLoader__.load({
               ? translate(t, 'card.interruptYes', { name: isPlainObject(payload.entry) && typeof payload.entry.name === 'string' ? payload.entry.name : '?' })
               : translate(t, 'card.interruptNo', { name: isPlainObject(payload.entry) && typeof payload.entry.name === 'string' ? payload.entry.name : '?' })
           if (typeof payload.previousActivity === 'string') {
-            rows.push({ text: translate(t, 'card.previousActivity', { activity: payload.previousActivity }) })
+            rows.push({ text: translate(t, 'card.previousActivity', { activity: enumLabel(t, 'activity', payload.previousActivity) }) })
           }
           if (typeof payload.reason === 'string' && payload.reason !== '') rows.push({ text: truncate(payload.reason) })
         } else if (toolName === 'tower_doctor') {
@@ -265,7 +269,7 @@ window.__ModuleLoader__.load({
           const passed = checks.filter((entry) => entry.ok === true).length
           const warned = checks.filter((entry) => entry.ok === null).length
           const failed = checks.filter((entry) => entry.ok === false).length
-          headline = translate(t, 'card.doctorLine', { status: payload.ok === true ? 'ok' : 'issues' })
+          headline = translate(t, 'card.doctorLine', { status: enumLabel(t, 'doctor', payload.ok === true ? 'ok' : 'issues') })
           tone = payload.ok === true ? 'ok' : failed > 0 ? 'error' : 'warn'
           if (checks.length > 0) {
             rows.push({
@@ -284,10 +288,8 @@ window.__ModuleLoader__.load({
               : null
           const status =
             summary !== null && typeof summary.status === 'string'
-              ? summary.status
-              : payload.ok === true
-                ? 'ok'
-                : 'issues'
+              ? enumLabel(t, 'batchStatus', summary.status)
+              : enumLabel(t, 'doctor', payload.ok === true ? 'ok' : 'issues')
           headline = translate(t, 'card.batchLine', { status })
           tone = payload.ok === true ? 'ok' : 'warn'
           if (summary !== null) {
@@ -295,7 +297,7 @@ window.__ModuleLoader__.load({
               rows.push({
                 text: translate(t, 'card.batchMembers', {
                   count: summary.members.length,
-                  status: typeof summary.status === 'string' ? summary.status : '?',
+                  status: typeof summary.status === 'string' ? enumLabel(t, 'batchStatus', summary.status) : '?',
                 }),
               })
             }
@@ -316,7 +318,7 @@ window.__ModuleLoader__.load({
               })
             }
           } else if (Array.isArray(payload.batches)) {
-            rows.push({ text: 'batches ' + payload.batches.length })
+            rows.push({ text: translate(t, 'card.batches', { count: payload.batches.length }) })
           }
         } else {
           tone = toneForPayload(payload)

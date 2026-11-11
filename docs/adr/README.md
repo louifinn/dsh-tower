@@ -5,7 +5,7 @@ proposal: the status says whether the decision is accepted, and the rejected
 alternatives exist so a future reader can see what was actually weighed.
 
 The engineering principles that these records serve are in
-[../PRINCIPLES.md](../PRINCIPLES.md). `npm run docs:check:philosophy` requires at
+[PRINCIPLES.md](../../PRINCIPLES.md). `npm run docs:check:philosophy` requires at
 least three numbered ADRs, each with Context, Decision, Consequences, Rejected
 alternatives, Date and Status.
 
@@ -16,6 +16,7 @@ alternatives, Date and Status.
 | [0003](0003-allow-agent-control-default-true.md) | `allowAgentControl` defaults to `true` | 2026-10-23 |
 | [0004](0004-surface-budget.md) | The concept surface is frozen by a committed baseline | 2026-10-23 |
 | [0005](0005-component-surface.md) | Mandatory host plus individually toggleable optional component rows | 2026-10-23 |
+| [0006](0006-mission-shapes.md) | Build and survey are separate mission shapes | 2026-11-10 |
 
 ## Template
 

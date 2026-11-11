@@ -427,6 +427,35 @@ test('locale dictionaries registered for tower-ui are complete in en/zh', async 
   }
 })
 
+test('client locale copy uses the glossary terms and localizes known enums', async () => {
+  const { localeRegistrations } = await registerAll()
+  const { en, zh } = localeRegistrations[0].dictionaries
+  const canonical = {
+    'tool.mission': ['Mission', '任务线'],
+    'tool.review': ['Review', '审查'],
+    'tool.batch': ['Batch', '批次'],
+    'tool.doctor': ['Doctor', '体检'],
+    'card.batchLine': ['batch {status}', '批次 {status}'],
+    'dock.batch': ['batch {status}', '批次 {status}'],
+    'card.reviewLine': ['review {status} · merge {merge} · round {round}', '审查 {status} · 合并建议 {merge} · 第 {round} 轮'],
+    'card.reviewPolicy': ['review policy: {policy}', '审查策略：{policy}'],
+    'card.missionLine': ['mission {id} {status}', '任务线 {id} {status}'],
+    'enum.mergeVerdict.fix-then-merge': ['fix then merge', '先修复再合并'],
+    'enum.reviewStatus.p1': ['{count} P1 finding(s)', '{count} 个 P1 问题'],
+    'enum.reviewPolicy.required-clean': ['clean review expected', '需要干净审查'],
+    'enum.role.worker': ['worker', '执行代理'],
+    'enum.role.reviewer': ['reviewer', '审查代理'],
+  }
+  for (const [key, [english, chinese]] of Object.entries(canonical)) {
+    assert.equal(en[key], english, `en ${key}`)
+    assert.equal(zh[key], chinese, `zh ${key}`)
+  }
+  for (const [key, value] of Object.entries(en)) {
+    if (key.startsWith('enum.reviewStatus.')) assert.doesNotMatch(value, /^p[12]-\d+items$/)
+    if (key.startsWith('enum.mergeVerdict.')) assert.doesNotMatch(value, /^[a-z]+-[a-z-]+$/)
+  }
+})
+
 test('diagnostics record every registration and no guarded failure', async () => {
   const { window } = await registerAll()
   const diagnostics = window.__TOWER_UI_DIAG__
@@ -489,6 +518,9 @@ test('toolview renders a compact card and publishes start/result notices', async
   })
   assert.equal(startElement.props['data-tower-toolview'], 'tower_status')
   assert.equal(startElement.props['data-tower-phase'], 'start')
+  assert.equal(startElement.props.role, 'group')
+  assert.equal(startElement.props['aria-label'], startElement.props.title)
+  assert.equal(startElement.props['aria-busy'], 'true')
   assert.match(textOf(startElement), /card\.running/)
   assert.equal(noticeSource.getSnapshot().tool, 'tower_status')
   assert.equal(noticeSource.getSnapshot().running, true)
@@ -551,9 +583,62 @@ test('toolview cards render review, preflight, merge, roster, complete and block
       t,
     })
     assert.equal(element.props['data-tower-toolview'], tool)
+    assert.equal(element.props.role, 'group')
+    assert.equal(element.props['aria-label'], element.props.title)
     assert.ok(textOf(element).length > 0)
     if (expectedKey) assert.match(textOf(element), expectedKey)
   }
+})
+
+test('tool cards and the dock expose labelled, localized status instead of raw enums', async () => {
+  const { react, toolviews, dock, localeRegistrations } = await components()
+  const { en, zh } = localeRegistrations[0].dictionaries
+  const dictionaryT = (dictionary) => (key, params) =>
+    String(dictionary[key] ?? key).replace(/\{(\w+)\}/g, (match, name) =>
+      params && params[name] !== undefined ? String(params[name]) : match,
+    )
+  const zhT = dictionaryT(zh)
+  const reviewPayload = {
+    review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: 'two problems' },
+    round: 2,
+    branchTip: 'abcdef1234567',
+  }
+  const card = render(react, toolviews.get('tower_review'), {
+    toolName: 'tower_review',
+    phase: 'result',
+    callId: 'call-review',
+    block: {
+      kind: 'tool/result',
+      callId: 'call-review',
+      call: { name: 'tower_review' },
+      content: [{ type: 'text', text: JSON.stringify(reviewPayload) }],
+    },
+    t: zhT,
+  })
+  const text = textOf(card)
+  assert.match(text, /2 个 P1 问题/)
+  assert.match(text, /先修复再合并/)
+  assert.match(text, /审查/)
+  assert.doesNotMatch(text, /p1-2items|fix-then-merge/)
+  const toned = findNode(card, (node) => node.props && node.props['data-tower-tone'] === 'warn')
+  assert.ok(toned, 'a review finding row must carry its tone as data, not only colour')
+  assert.equal(toned.props.role, 'note')
+  assert.match(toned.props['aria-label'], /警告/)
+  assert.equal(en['enum.reviewStatus.p1'], '{count} P1 finding(s)')
+  assert.equal(en['card.reviewLine'], 'review {status} · merge {merge} · round {round}')
+
+  // An explicit off command lets the dock summary (rather than the chip) show.
+  let rawSelector = null
+  const useChatSummary = (selector) => {
+    rawSelector = selector(chatSnapshot([commandNode('off'), toolResultNode('tower_review', reviewPayload)]))
+    return rawSelector
+  }
+  const summary = render(react, dock, { t: zhT, useChat: useChatSummary })
+  assert.equal(summary.props['data-tower-ui'], 'dock', String(rawSelector))
+  assert.equal(summary.props.role, 'status')
+  assert.equal(summary.props['aria-label'], summary.props.title)
+  assert.match(summary.props['aria-label'], /审查/)
+  assert.match(summary.props['aria-label'], /2 个 P1 问题/)
 })
 
 test('toolview stays defensive for errors, plain text, and partial/absent blocks', async () => {
@@ -644,6 +729,103 @@ test('dock persists last-known mode per session when the history window loses it
   }
 })
 
+test('dock discards corrupt, foreign and oversized stored snapshots without throwing', async () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, value),
+    removeItem: (key) => store.delete(key),
+  }
+  const key = 'dsh-tower-ui:mode:session-corrupt'
+  const base = { on: true, denied: null, repo: null, lock: null, lastBy: 'user', lastReason: null, at: Date.now() }
+  const cases = [
+    ['invalid json', '{not-json'],
+    ['scalar json', '42'],
+    ['null json', 'null'],
+    ['array json', JSON.stringify([base])],
+    ['on is not boolean', JSON.stringify({ ...base, on: 'true' })],
+    ['at is not a number', JSON.stringify({ ...base, at: 'now' })],
+    ['at is negative', JSON.stringify({ ...base, at: -1 })],
+    ['at is too far in the future', JSON.stringify({ ...base, at: Date.now() + 60 * 60 * 1000 })],
+    ['expired', JSON.stringify({ ...base, at: Date.now() - 8 * 24 * 60 * 60 * 1000 })],
+    ['foreign key', JSON.stringify({ ...base, unexpected: true })],
+    ['missing key', JSON.stringify({ on: true, at: Date.now() })],
+    ['denied is not an array', JSON.stringify({ ...base, denied: 'todo_write' })],
+    ['denied holds a non-string', JSON.stringify({ ...base, denied: ['todo_write', 7] })],
+    ['denied is too long', JSON.stringify({ ...base, denied: Array.from({ length: 65 }, (_, index) => 'tool-' + index) })],
+    ['lock has the wrong shape', JSON.stringify({ ...base, lock: { enabled: true, held: 'yes' } })],
+    ['repo is empty', JSON.stringify({ ...base, repo: '' })],
+    ['oversized raw value', 'x'.repeat(4097)],
+  ]
+  try {
+    for (const [name, raw] of cases) {
+      store.set(key, raw)
+      const bundle = await components()
+      const element = render(bundle.react, bundle.dock, {
+        t,
+        sessionId: 'session-corrupt',
+        useChat: chatUse(chatSnapshot([])),
+      })
+      assert.equal(element.props['data-tower-ui'], 'dock-hint', name)
+    }
+
+    // A fully valid snapshot with the exact expected fields still restores.
+    store.set(key, JSON.stringify({ ...base, denied: ['todo_write'], repo: 'demo', lock: { enabled: true, held: true }, lastReason: 'release' }))
+    const bundle = await components()
+    const restored = render(bundle.react, bundle.dock, {
+      t,
+      sessionId: 'session-corrupt',
+      useChat: chatUse(chatSnapshot([])),
+    })
+    assert.equal(restored.props['data-tower-mode'], 'on')
+    assert.match(restored.props.title, /dock\.mode\.repo:repo=demo/)
+    assert.match(restored.props.title, /dock\.mode\.lockHeld/)
+
+    // Oversized snapshots are not written in the first place.
+    store.clear()
+    const huge = render(bundle.react, bundle.dock, {
+      t,
+      sessionId: 'session-corrupt',
+      useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'on', lastChange: { by: 'user', reason: 'x'.repeat(5000) } })])),
+    })
+    assert.equal(huge.props['data-tower-mode'], 'on')
+    assert.equal(store.size, 0)
+  } finally {
+    delete globalThis.localStorage
+  }
+})
+
+test('dock rendering survives localStorage failures', async () => {
+  globalThis.localStorage = {
+    getItem() {
+      throw new Error('storage blocked')
+    },
+    setItem() {
+      throw new Error('storage blocked')
+    },
+    removeItem() {
+      throw new Error('storage blocked')
+    },
+  }
+  try {
+    const bundle = await components()
+    const on = render(bundle.react, bundle.dock, {
+      t,
+      sessionId: 'session-throws',
+      useChat: chatUse(chatSnapshot([commandNode('on')])),
+    })
+    assert.equal(on.props['data-tower-mode'], 'on')
+    const hint = render(bundle.react, bundle.dock, {
+      t,
+      sessionId: 'session-throws',
+      useChat: chatUse(chatSnapshot([])),
+    })
+    assert.equal(hint.props['data-tower-ui'], 'dock-hint')
+  } finally {
+    delete globalThis.localStorage
+  }
+})
+
 test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss is owned by ctx.effect', async () => {
   const { react, overlay, noticeSource, effects, toolviews } = await components()
   const useTowerNotice = (selector) => selector(noticeSource.getSnapshot())
@@ -659,6 +841,8 @@ test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss
   const strip = render(react, overlay, { t, useTowerNotice })
   assert.equal(strip.props['data-tower-ui'], 'status-strip')
   assert.equal(strip.props.role, 'status')
+  assert.equal(strip.props['aria-atomic'], 'true')
+  assert.equal(strip.props['aria-label'], textOf(strip).trim())
   assert.equal(strip.props.style.pointerEvents, 'none')
   assert.match(textOf(strip), /strip\.started/)
 
@@ -716,6 +900,9 @@ test('dock shows a persistent Tower-mode chip derived from durable command histo
   assert.equal(chip.props['data-tower-mode'], 'on')
   assert.equal(chip.props.role, 'status')
   assert.equal(chip.props['aria-live'], 'polite')
+  assert.equal(chip.props['aria-atomic'], 'true')
+  assert.equal(chip.props['aria-label'], chip.props.title)
+  assert.match(chip.props['aria-label'], /dock\.mode\.tooltip/)
   assert.equal(chip.tag, 'div')
   assert.equal(chip.props.onClick, undefined)
   assert.match(textOf(chip), /dock\.mode\.onLabel/)
@@ -736,6 +923,8 @@ test('dock surfaces mode unknown when history has Tower activity but no mode eve
   })
   assert.equal(dock.props['data-tower-ui'], 'dock-mode')
   assert.equal(dock.props['data-tower-mode'], 'unknown')
+  assert.equal(dock.props.role, 'status')
+  assert.equal(dock.props['aria-label'], dock.props.title)
   assert.match(textOf(dock), /dock\.mode\.unknownLabel/)
   assert.match(dock.props.title, /dock\.mode\.unknownTooltip/)
 })
@@ -748,6 +937,11 @@ test('dock mode inference follows /tower commands, tower_mode, and tower_control
     ['off after on', [commandNode('on'), commandNode('off')], 'dock-hint'],
     ['reload leaves stance', [commandNode('on'), commandNode('reload')], 'dock-mode'],
     ['base leaves stance', [commandNode('on'), commandNode('base main')], 'dock-mode'],
+    ['ack leaves stance', [commandNode('on'), commandNode('ack')], 'dock-mode'],
+    ['ack without a prior mode does not enter it', [commandNode('ack')], 'dock-hint'],
+    ['takeover leaves stance', [commandNode('on'), commandNode('takeover worker is stuck')], 'dock-mode'],
+    ['takeover without a reason leaves stance', [commandNode('on'), commandNode('takeover')], 'dock-mode'],
+    ['base without a token is a message', [commandNode('base')], 'dock-mode'],
     ['failed mode command is ignored', [commandNode('on'), commandNode('off', 'error')], 'dock-mode'],
     ['tower_mode off', [toolResultNode('tower_mode', { mode: 'off' })], 'dock-hint'],
     ['tower_mode unknown is not on', [toolResultNode('tower_mode', { mode: 'unknown' })], 'dock-hint'],
@@ -764,6 +958,32 @@ test('dock mode inference follows /tower commands, tower_mode, and tower_control
     const bundle = await components()
     const element = render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot(nodes)) })
     assert.equal(element.props['data-tower-ui'], expected, name)
+  }
+})
+
+test('towerCommandAction treats acknowledgement and takeover as non-transitions', async () => {
+  const { materialized } = await registerAll()
+  const { towerCommandAction } = materialized.get('client.mode.js')
+  const cases = [
+    ['on', 'on'],
+    ['off', 'off'],
+    ['on ship it', 'on'],
+    ['off after this', 'off'],
+    [' ON ', 'on'],
+    ['', 'on'],
+    ['ship the release', 'on'],
+    ['ack', null],
+    ['ack please', 'on'],
+    ['takeover', null],
+    ['takeover worker is stuck', null],
+    ['reload', null],
+    ['reload now', 'on'],
+    ['base main', null],
+    ['base', 'on'],
+    ['base main extra', 'on'],
+  ]
+  for (const [args, expected] of cases) {
+    assert.equal(towerCommandAction(args), expected, JSON.stringify(args))
   }
 })
 

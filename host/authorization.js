@@ -90,8 +90,9 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   // unresolvable config; the kernel still has to let the call reach that handler
   // when opening the Tower fails on config resolution. The flag makes the
   // exception explicit and keeps every other public row failing closed. The row
-  // is read-only, so the registry also skips the workspace-lock hook for it:
-  // that hook resolves the config it just failed on and may acquire a lock.
+  // is read-only: a healthy tower_doctor takes the workspace-lock hook like every
+  // other repository-scoped tool, and the registry skips the hook only when this
+  // degraded open path is taken (the hook would re-resolve the config that failed).
   tower_doctor: Object.freeze({ allow: EVERYONE, configDiagnostic: true }),
   tower_recover: towerOnly('recover Tower state'),
   tower_batch: towerOnly('manage evidence batches'),

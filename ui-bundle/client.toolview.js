@@ -56,6 +56,8 @@ window.__ModuleLoader__.load({
           {
             'data-tower-toolview': toolName === '' ? 'tower_unknown' : toolName,
             'data-tower-phase': phase,
+            role: 'group', 'aria-label': title,
+            'aria-busy': running ? 'true' : undefined,
             style: ST.card,
             title,
           },
