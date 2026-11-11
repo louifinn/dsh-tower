@@ -1149,6 +1149,23 @@ test('the CI doc documents the hardened guard, the completed cutover and the pre
   assert.match(ci, /deletes the frozen `test` job/)
   assert.match(ci, /reintroduced legacy `test` job is rejected/)
   assert.doesNotMatch(ci, /Step 2 — not done yet/)
+  // W5-D: the cutover is green at this tip, so the page must not resurrect the
+  // "offline-suite follow-up is pending" story (R99). The three retargeted
+  // suites are named as part of the change and the four contexts are the
+  // contract the canonical legs report on.
+  assert.doesNotMatch(ci, /need a follow-up update/)
+  assert.doesNotMatch(ci, /outside this cutover change/)
+  assert.doesNotMatch(ci, /canonical legs cannot\s+report green/)
+  assert.doesNotMatch(ci, /before `npm run check` is green again/)
+  for (const suite of [
+    'tests/live-harness.test.mjs',
+    'tests/mount-smoke.test.mjs',
+    'tests/support-manifest.test.mjs',
+  ]) {
+    assert.ok(ci.includes(suite), `ci.md must name the retargeted suite: ${suite}`)
+  }
+  assert.match(ci, /pin the final four-context contract/)
+  assert.match(ci, /canonical legs report green on the cutover itself/)
   // The two-step cutover is still documented in one place.
   assert.match(ci, /two steps/i)
 })

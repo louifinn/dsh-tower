@@ -182,15 +182,12 @@ JSON
 The same change deletes the frozen `test` job from the workflow and updates the gates that named it:
 the required-context contract and legacy-job rejection in
 [`scripts/check-workflow.mjs`](../../scripts/check-workflow.mjs), the tamper cases in
-`tests/workflow-contract.test.mjs`, and the required-context tables in
-[CONTRIBUTING.md](../../CONTRIBUTING.md#landing-changes). No other job changes: `mount`,
-`mount-fixtures`, `live`, `property-long` and `nightly-failure` are already named for the supported
-runtime.
-
-Two offline-suite assertions that still pin the deleted job's shape — in
-`tests/live-harness.test.mjs` and `tests/mount-smoke.test.mjs` — are outside this cutover change and
-need a follow-up update before `npm run check` is green again. Until then the canonical legs cannot
-report green even though the workflow contract itself is green.
+`tests/workflow-contract.test.mjs`, the required-context tables in
+[CONTRIBUTING.md](../../CONTRIBUTING.md#landing-changes), and the offline-suite assertions that pinned
+the deleted job's shape in `tests/live-harness.test.mjs`, `tests/mount-smoke.test.mjs` and
+`tests/support-manifest.test.mjs`. Those three suites now pin the final four-context contract, so the
+canonical legs report green on the cutover itself. No other job changes: `mount`, `mount-fixtures`,
+`live`, `property-long` and `nightly-failure` are already named for the supported runtime.
 
 Verify the four contexts; every PR must merge green with all four reporting:
 
