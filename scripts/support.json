@@ -1,0 +1,5 @@
+{
+  "$comment": "Published support floor. This file is the single manifest: scripts/check-support.mjs requires package.json engines, the package-lock root engines, the mount-smoke host pin, the live CI matrix and the newest COMPATIBILITY.md row to agree with it. Change this file first, then run `npm run support:check`.",
+  "node": ">=24.9",
+  "dsh": "0.2.2-rc.1"
+}

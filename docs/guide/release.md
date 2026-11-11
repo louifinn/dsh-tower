@@ -55,13 +55,15 @@ section whose heading names the version. Write the version section as user-facin
 Put the **host build in cell 0** and the **tag in cell 1**:
 
 ```markdown
-| 0.2.1-rc.2 | v2.1.0-beta.1 | 2026-10-22 | `npm test`, `npm run docs:check`, mount smoke |
+| 0.2.2-rc.1 | v2.8.0 | 2026-11-11 | `npm test`, `npm run support:check`, `npm run docs:check`, mount smoke |
 ```
 
 `host/compatibility.js#parseCompatibility` reads cells 0–3 only: never insert a column before
 the tag and never add one before "what was run", or `tower_doctor` stops seeing the row. The
 host pin in `scripts/mount-smoke/host.json` must equal cell 0 of the newest row (a unit test
-enforces it).
+enforces it). Bump `scripts/support.json` first when the floor moves: `npm run support:check`
+fails unless the package engines, the mount host pin, the live CI matrix and this row all state
+the same Node/DSH pair.
 
 Commit steps 1–3 as the release PR against protected `main`, merge it, then continue from a
 **clean clone/worktree at the merge commit** — not the integration worktree.

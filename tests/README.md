@@ -139,7 +139,7 @@ $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live-$(Get-Random)").
 # The tokenized URL printed by the isolated server in step 3:
 $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
 # Optional: the host build under test, named on the first output line:
-$env:DSH_HOST_VERSION='0.2.1-rc.2'
+$env:DSH_HOST_VERSION='0.2.2-rc.1'
 # Optional: the writable documents directory used to seed the first-use
 # Workspace (absolute). Defaults to <DSH_HOME>/documents.
 $env:DSH_LIVE_DOCUMENTS_DIR="$env:DSH_HOME\documents"
@@ -150,11 +150,11 @@ npm run test:live -- --script command   # the /tower command acceptance
 npm run test:live -- --list             # the selectable scripts
 ```
 
-`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.1-rc.2`.
+`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.2-rc.1`.
 
 Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a specific executable. The individual scripts still run with `node tests/live/<name>.cjs` once the same environment is exported.
 
-The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.1-rc.2)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
+The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.2-rc.1)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
 `nightly` also seeds a default Workspace for a first-use CI runner (#47). An Ubuntu runner has no xdg Documents directory, so `@deepseek-ai/dsh-api-workspace-controller` cannot resolve its first-use workspace: the Web shell parks on the Preview Notice / "Choose workspace" state and the composer never renders (a Windows machine resolves Documents, which is why this was CI-only). The orchestrator creates a writable documents directory — `DSH_LIVE_DOCUMENTS_DIR` when set (must be absolute), otherwise `<DSH_HOME>/documents` — and writes a loader overlay at `<DSH_HOME>/workspace-override.patch.yml`:
 
