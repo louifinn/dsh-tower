@@ -16,6 +16,8 @@ import {
   parseWorktreeChanges,
   worktreeChanges,
 } from '../adapters/git.js'
+import { createVcsPort } from '../adapters/vcs-git.js'
+import { assertVcsPort, VCS_OPTIONAL_METHODS } from '../ports/vcs.js'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -171,6 +173,48 @@ test('diffChanges: refuses an empty revision range', async () => {
   try {
     await assert.rejects(() => diffChanges(repo, ''), /diff range/)
     await assert.rejects(() => diffChanges(repo, '   '), /diff range/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// The declaration in ports/vcs.js only protects production if the shipped
+// adapter actually implements both readers with the documented entry shape.
+test('the shipped git vcs port implements the optional structured readers', async () => {
+  const { root, repo } = seedRepo('dsh-tower-git-vcs-port-')
+  try {
+    const vcs = createVcsPort()
+    assert.doesNotThrow(() => assertVcsPort(vcs))
+    for (const method of VCS_OPTIONAL_METHODS) {
+      assert.equal(typeof vcs[method], 'function', `createVcsPort().${method} must be a function`)
+    }
+
+    const base = git(repo, ['rev-parse', 'HEAD'])
+    git(repo, ['mv', 'README.md', 'README renamed.md'])
+    fs.writeFileSync(path.join(repo, 'src', 'new file.txt'), 'new\n')
+
+    const worktree = await vcs.worktreeChanges(repo)
+    const renamed = worktree.find((change) => change.path === 'README renamed.md')
+    assert.ok(renamed, JSON.stringify(worktree))
+    assert.equal(renamed.origPath, 'README.md')
+    assert.match(renamed.status, /^R/)
+    const added = worktree.find((change) => change.path === 'src/new file.txt')
+    assert.ok(added, JSON.stringify(worktree))
+    assert.equal(added.origPath, null)
+    assert.equal(added.status, '??')
+    for (const change of worktree) {
+      assert.deepEqual(Object.keys(change).sort(), ['origPath', 'path', 'status'])
+      assert.equal(typeof change.path, 'string')
+      assert.ok(change.origPath === null || typeof change.origPath === 'string')
+    }
+
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'rename through the vcs port'])
+    const diff = await vcs.diffChanges(repo, `${base}..HEAD`)
+    const moved = diff.find((change) => change.path === 'README renamed.md')
+    assert.ok(moved, JSON.stringify(diff))
+    assert.equal(moved.origPath, 'README.md')
+    assert.match(moved.status, /^R/)
   } finally {
     removeTemp(root)
   }

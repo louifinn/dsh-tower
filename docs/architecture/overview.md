@@ -183,7 +183,7 @@ through the `deps` object:
 | deps member | contract | default implementation |
 |---|---|---|
 | `store` | StorePort: `pathsFor/exists/ensureDir/readJson/writeJsonAtomic/appendJsonl/withLock/withGitLock/readActivityTail` plus the raw-file and lock primitives `readText/writeText/appendText/rename/renameWithRetry/stat/unlink/readGitLock/gitLockView` | `adapters/store-fs.js` `createStorePort()` |
-| `vcs` | VcsPort: `git/tryGit/revParse/isClean/isAncestor/resolveRepo/currentBranch/countCommits/listWorktrees` | `adapters/vcs-git.js` `createVcsPort()` |
+| `vcs` | VcsPort: `git/tryGit/revParse/isClean/isAncestor/resolveRepo/currentBranch/countCommits/listWorktrees`, plus optional structured readers `worktreeChanges/diffChanges` returning `{status, path, origPath}` entries | `adapters/vcs-git.js` `createVcsPort()` |
 | `clock`, `ids` | ClockPort / IdsPort | `adapters/default.js` |
 | `config` | ConfigPort: `runtimeConfig/resolveRepoConfig` | `host/config.js` |
 | `state` | StatePort: `loadStateFile` | `adapters/stateFile.js` |
@@ -202,9 +202,13 @@ the store share (the git-mutex budget, #93) is pure and lives in `domain/lockBud
 `store.rename` and `store.renameWithRetry` are both declared because they are not interchangeable: the
 retrying helper has temp-file semantics and removes its source when the rename finally fails, which is
 right for a disposable temp file but would destroy the lock bytes `tower_recover` must keep auditable.
-The audit rename therefore uses the plain `rename`. The contract test scans `app/**` **and** `tools/**`
-for every `deps.<port>.<method>` call and fails if the named port does not declare it, so a tool that
-reaches a new port method cannot slip past `assertPorts`.
+The audit rename therefore uses the plain `rename`. `worktreeChanges` and `diffChanges` are optional
+VcsPort capabilities, declared in `VCS_OPTIONAL_METHODS` rather than required: a scripted or in-memory
+vcs need not observe a checkout, and the gate feature-detects them before falling back to name-only Git
+output. The contract test scans `app/**` **and** `tools/**` for every `deps.<port>.<method>` and
+`deps?.<port>?.<method>` read and fails if the named port does not declare it, so an undeclared
+capability cannot slip past `assertPorts` — and an optional-only method must be read through optional
+chaining, because a hard read would throw for every adapter that omits it.
 
 `lib/` no longer exists (#70): every module was `git mv`-ed into the layer that owns it. The I/O
 implementations now sit in `adapters/` (`store`, `persistence`, `git`, `archive`, `stateFile`,
@@ -266,7 +270,7 @@ After the command, regardless of exit status, it inspects `HEAD`:
 | `<git-common-dir>/dsh-tower/archive/index.json` | compact terminal-mission index (ids, status, branch, timestamps, survey `readCommit` and bounded `result`) |
 | `<git-common-dir>/dsh-tower/archive/<year>.json` | full archived missions plus their linked reviews/findings |
 | `<git-common-dir>/dsh-tower/activity.jsonl` | append-only activity |
-| `<git-common-dir>/dsh-tower/state.lock` | single-writer state lock (heartbeat reclaim; a recycled PID cannot pin it) |
+| `<git-common-dir>/dsh-tower/state.lock` | single-writer state lock (only a record whose PID is provably dead is reclaimed; a stale heartbeat is diagnostic) |
 | `<git-common-dir>/dsh-tower/git.lock` | repo-scoped serialization for git mutations outside the state lock |
 | `<git-common-dir>/dsh-tower/lock-holds.jsonl` | state/git lock-hold telemetry |
 | `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | mission worktree |
@@ -274,10 +278,12 @@ After the command, regardless of exit status, it inspects `HEAD`:
 | `$DSH_HOME/tower-mode/modes.lock` | mode-store single-writer lock |
 
 `state.json` and `modes.json` both use an atomic write (temp + rename), token-checked lock release,
-heartbeat-based reclamation (a live PID with a silent heartbeat is reclaimed after byte verification;
-a live holder that keeps heartbeating is never stolen), and bounded lock waits. `state.json` is the
-mission persistence contract; `modes.json` is the per-agent mode contract; neither is written without
-its own lock.
+dead-PID reclamation (a stale heartbeat is diagnostic only: a live PID, silent or not, is never
+reclaimed automatically; only a record whose PID is provably dead — ESRCH — is reclaimed by the next
+mutation), and bounded lock waits. Recovering a live-but-silent holder is explicit: `tower_recover
+clear-stale-lock` with `confirm:"CLEAR_STALE_LOCK"` and `force:true` renames the record to a
+`.recovered-<ts>` backup instead of deleting it. `state.json` is the mission persistence contract;
+`modes.json` is the per-agent mode contract; neither is written without its own lock.
 
 ## Layering rules
 
