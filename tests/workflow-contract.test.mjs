@@ -161,6 +161,71 @@ test('tamper: the canonical checkout must not drop fetch-depth: 0', () => {
   assert.ok(problems.some((problem) => problem.includes('fetch-depth: 0')), JSON.stringify(problems))
 })
 
+// #M79: the exact step a tag-push checkout needs before the release check.
+// actions/checkout fetches the tag commit into refs/tags/<name>, so the
+// annotated tag object must be fetched back by ref.
+const TAG_RESTORE_STEP =
+  '      - name: Restore the annotated tag object\n' +
+  "        if: matrix.release && github.ref_type == 'tag'\n" +
+  '        run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"\n'
+
+const RELEASE_CHECK_STEP = '      - name: Release check\n        if: matrix.release\n        run: npm run release:check\n'
+
+test('tamper: dropping the annotated tag restore step is rejected', () => {
+  const text = tamper(TAG_RESTORE_STEP, '')
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some(
+      (problem) => problem.startsWith('tag preservation:') && problem.includes('must re-fetch the pushed tag ref'),
+    ),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: running the tag restore step after the release check is rejected', () => {
+  const text = tamper(TAG_RESTORE_STEP + RELEASE_CHECK_STEP, RELEASE_CHECK_STEP + TAG_RESTORE_STEP)
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some((problem) => problem.includes('must run before "npm run release:check"')),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: running the tag restore fetch on branch pushes or every leg is rejected', () => {
+  const text = tamper(
+    "        if: matrix.release && github.ref_type == 'tag'\n        run: git fetch --force origin",
+    '        if: matrix.release\n        run: git fetch --force origin',
+  )
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some((problem) => problem.includes("must be gated by matrix.release and github.ref_type == 'tag'")),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: fetching the tag commit instead of the tag ref is rejected', () => {
+  const text = tamper(
+    'run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"',
+    'run: git fetch --force origin "+${GITHUB_SHA}:refs/tags/${GITHUB_REF_NAME}"',
+  )
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some((problem) => problem.includes('must fetch') && problem.includes('by ref')),
+    JSON.stringify(problems),
+  )
+})
+
+test('tamper: a tag restore fetch without --force is rejected', () => {
+  const text = tamper('run: git fetch --force origin', 'run: git fetch origin')
+  const problems = problemsFor(text)
+  assert.ok(
+    problems.some(
+      (problem) => problem.startsWith('tag preservation:') && problem.includes('must re-fetch the pushed tag ref'),
+    ),
+    JSON.stringify(problems),
+  )
+})
+
 test('tamper: widening the top-level permissions is rejected', () => {
   const text = tamper('permissions:\n  contents: read\n', 'permissions:\n  contents: write\n')
   const problems = problemsFor(text)
