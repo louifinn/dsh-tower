@@ -73,7 +73,7 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
 
-Eleven files carry **115 property cases** (the PR tier therefore generates 115 × 3 seeds × 100 runs = **34,500 inputs** per run; the long tier 115 × 2000 = 230,000):
+Eleven files carry **117 property cases** (the PR tier therefore generates 117 × 3 seeds × 100 runs = **35,100 inputs** per run; the long tier 117 × 2000 = 234,000):
 
 - `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
 - `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
@@ -130,6 +130,52 @@ pinned to a 40-hex commit with a `# vX.Y.Z` comment; `tests/mount-smoke.test.mjs
 npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
+
+### W5 integration evidence (#M77, v2.8.0 debt close-out)
+
+This is the final W5 integration record for the branch that carries the M75 structure split and the M76
+bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean worktree of
+`feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
+and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
+are included.
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, 110 of the 113 files (excludes `git-mutex-budget.test.mjs`, `lock-heartbeat.test.mjs`, `concurrency.test.mjs`) | eight sequential chunks of 12–14 files, `node --test --test-reporter=tap <files>` | **1019** | 1018 pass, 1 skip, 0 fail |
+| `git-mutex-budget.test.mjs` isolated | `node --test tests/git-mutex-budget.test.mjs` | 3 | 3 pass |
+| `lock-heartbeat.test.mjs` isolated | `node --test tests/lock-heartbeat.test.mjs` | 8 | 8 pass |
+| `concurrency.test.mjs` isolated | `node --test tests/concurrency.test.mjs` | 11 | 11 pass |
+| **Offline suite, all 113 files** | bounded chunks + the three isolated runs | **1041** | **1040 pass, 1 skip, 0 fail** |
+| Property PR tier (11 files) | `npm run test:property` | **117** | 117 pass, 0 fail (117 × 3 seeds × 100 runs = 35,100 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 28/28 tower tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.1` |
+
+The single skip is the POSIX-only `TMPDIR` guard case in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32); it is counted,
+not dropped. The bounded suite is chunked deliberately: the three excluded files are the documented
+Windows isolation cases (the known parallel-run hang and the two load-sensitive lock/parallel-writer
+suites), and serialising groups of files keeps a full parallel pass from accumulating rename/unlink
+pressure across all 113 files at once. The three isolated runs are executed one at a time.
+
+Every static gate in `npm run check` (the whole chain except its two test commands) plus the CI-only
+release check exited 0 in that same checkout:
+
+| Group | Commands | Exit |
+|---|---|---|
+| Generated references | `docs:check:generated`, `:tools`, `:config`, `:events`, `:blockers`, `:types`, `:components`, `:locale`, `:shapes` | 0 |
+| Docs, components, blockers, shapes | `docs:check`, `docs:check:philosophy`, `docs:check:components`, `blockers:check`, `shape:audit` | 0 |
+| Surface, pack, workflow, support | `surface:check` (57 keys / 16 sections / 29 tools, 12 visible), `pack:check` (337 files), `workflow:check` (3 canonical legs, 4 legacy contexts, 15 SHA pins), `support:check` (Node >=24.9, DSH 0.2.2-rc.1) | 0 |
+| Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (both tsconfigs), `domain:check` (42.3% pure) | 0 |
+| Release claim | `release:check` | 0 (one expected `version-not-bumped` warning; this branch does not bump the version) |
+
+Environment caveats and residual known failures: the only non-pass declaration is the Windows
+`# SKIP` above; the bounded, isolated and property runs have no failing or cancelled declarations.
+`git-mutex-budget.test.mjs` (3/3) and `lock-heartbeat.test.mjs` (8/8) are green when run alone but are
+not part of the bounded parallel chunk run, per the residual Windows constraint documented in
+[Windows fallback](#windows-fallback). `release:check` intentionally warns because the version stays
+`2.7.1` on this debt branch. The `COMPATIBILITY.md` `0.2.2-rc.1` row predates W5 and still records the
+pre-W5 counts (976 offline tests / 111 property cases); it is outside this evidence update and must be
+refreshed when the release is cut. The evidence run left the worktree clean: nothing was pushed,
+merged or released.
 
 ## 2. Real Web runtime (isolated profile)
 
