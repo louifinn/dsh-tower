@@ -12,11 +12,20 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { __testResetToolSurface, definedToolNames, recordToolRegistration, registerTowerTools } from '../host/tool-registry.js'
+import {
+  __testResetToolSurface,
+  authorizeSessionCall,
+  definedToolNames,
+  recordToolRegistration,
+  registerTowerTools,
+} from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
 import { ACTOR_ACCESS, AUTHORIZATION_MATRIX, anonymousActor, authorize, resolveActor } from '../host/authorization.js'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -105,6 +114,44 @@ function assertCode(error, code, pattern) {
   assert.equal(error.code, code, `expected ${code}, got ${error.code}: ${error.message}`)
   if (pattern) assert.match(error.message, pattern)
   return true
+}
+
+/**
+ * The first executable statement inside a tool's `execute` handler in the Host
+ * entry source. Blank lines and comments are skipped, so a comment can never
+ * stand in for the kernel call.
+ *
+ * @param {string} source @param {string} tool @returns {string}
+ */
+function firstHandlerStatement(source, tool) {
+  const registered = source.indexOf(`name: '${tool}'`)
+  assert.notEqual(registered, -1, `index.js must register ${tool}`)
+  const execute = source.indexOf('async execute(', registered)
+  assert.notEqual(execute, -1, `${tool} must have an execute handler`)
+  const bodyStart = source.indexOf('\n', execute) + 1
+  for (const line of source.slice(bodyStart).split('\n')) {
+    const statement = line.trim()
+    if (statement === '' || statement.startsWith('//') || statement.startsWith('/*') || statement.startsWith('*')) continue
+    return statement
+  }
+  assert.fail(`${tool} execute handler has no statements`)
+}
+
+/**
+ * Pin the F31 wiring: a session tool's handler must await the shared kernel call
+ * as its first statement, with the same tool name and the calling exec. The scan
+ * is deliberately textual: both session rows are public for every access class,
+ * so no behavioural probe can observe the kernel invocation.
+ *
+ * @param {string} source @param {string} tool
+ */
+function assertSessionHandlerPinned(source, tool) {
+  const first = firstHandlerStatement(source, tool)
+  assert.match(
+    first,
+    new RegExp(`^await authorizeSessionCall\\('${tool}', exec[,)]`),
+    `${tool} must await authorizeSessionCall('${tool}', exec, ...) before handler logic; first statement is: ${first}`,
+  )
 }
 
 /**
@@ -309,6 +356,66 @@ test('authorization: the expected map pins every shipped tool and the matrix mat
     () => authorize('tower_unknown_tool', actorFor(ACTOR_ACCESS.tower)),
     (error) => assertCode(error, 'not-authorized', /denied by default/),
   )
+})
+
+test('authorization: authorizeSessionCall fails closed when the repository cannot be opened', async () => {
+  // Deliberately nonexistent: actor resolution throws, the helper falls back to
+  // the anonymous actor, and the matrix still decides. authorize() sits outside
+  // that fallback, so a denial is never swallowed into a successful call.
+  const missingRepo = path.join(os.tmpdir(), `dsh-tower-auth-missing-${process.pid}-${Date.now()}`)
+  assert.equal(fs.existsSync(missingRepo), false, 'the fixture repository must not exist')
+  const exec = execFor('agent-mystery')
+
+  await assert.rejects(
+    () => authorizeSessionCall('tower_merge', exec, missingRepo),
+    (error) => assertCode(error, 'not-authorized', /requires a registered roster agent or the tower/),
+    'a gated row is denied, not downgraded to the fallback actor',
+  )
+  await assert.rejects(
+    () => authorizeSessionCall('tower_unknown_tool', exec, missingRepo),
+    (error) => assertCode(error, 'not-authorized', /denied by default/),
+    'an unlisted name is denied through the session helper too',
+  )
+
+  // Positive control: the best-effort fallback itself is live, so the denials
+  // above are not merely "everything throws". The public session row still
+  // reaches the handler's own mode-policy gates.
+  const actor = await authorizeSessionCall('tower_mode', exec, missingRepo)
+  assert.equal(actor.access, ACTOR_ACCESS.unknown)
+  assert.equal(actor.ownerMissing, true)
+})
+
+test('authorization: both Host session handlers call the kernel before any handler logic', () => {
+  const source = fs.readFileSync(path.join(root, 'index.js'), 'utf8')
+  assertSessionHandlerPinned(source, 'tower_mode')
+  assertSessionHandlerPinned(source, 'tower_control')
+
+  // Exactly one kernel call per directly registered session tool: deleting one
+  // call site drops its name here even though the public row and every handler
+  // behaviour test would still pass, because both rows allow every access class.
+  const callSites = [...source.matchAll(/await authorizeSessionCall\('(tower_[a-z_]+)'/g)].map((match) => match[1])
+  assert.deepEqual(callSites.sort(), ['tower_control', 'tower_mode'], 'both and only both session handlers authorize')
+  assert.match(
+    source,
+    /import \{[^}]*authorizeSessionCall[^}]*\} from '\.\/host\/tool-registry\.js'/,
+    'index.js imports the shared kernel call rather than a local copy',
+  )
+
+  // Negative controls: handler logic before the kernel call is caught, and a
+  // missing call is caught, so a comment or a later statement cannot satisfy
+  // the scan.
+  const reordered = [
+    "name: 'tower_mode',",
+    'async execute(_args, exec) {',
+    '  // authorize later, maybe',
+    '  const key = agentKey(exec.agent)',
+    "  await authorizeSessionCall('tower_mode', exec, agentCwd(exec.agent))",
+    "  return { mode: key ? 'on' : 'off' }",
+    '}',
+  ].join('\n')
+  assert.throws(() => assertSessionHandlerPinned(reordered, 'tower_mode'), /must await authorizeSessionCall/)
+  const missing = ["name: 'tower_control',", 'async execute(args, exec) {', '  const key = agentKey(exec.agent)', '}'].join('\n')
+  assert.throws(() => assertSessionHandlerPinned(missing, 'tower_control'), /must await authorizeSessionCall/)
 })
 
 test('authorization: every actor x tool cell resolves exactly as the expected map says', async () => {
