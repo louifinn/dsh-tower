@@ -114,8 +114,10 @@ the tamper cases live in `tests/workflow-contract.test.mjs`.
 
 The legacy `test` matrix (`test (22)`, `test (24)`, `test (22, windows)`) is frozen for one transition
 cycle so the four required contexts on `main` keep reporting while the canonical legs prove themselves.
-[docs/operations/ci.md](../docs/operations/ci.md) documents the two-step branch-protection cutover, the
-SHA pins and the two documented tag-pin exceptions. Run the gates locally with:
+[docs/operations/ci.md](../docs/operations/ci.md) documents the two-step branch-protection cutover and
+the SHA pins (every action — including the mount-fixtures cache and the live diagnostics upload — is
+pinned to a 40-hex commit with a `# vX.Y.Z` comment; `tests/mount-smoke.test.mjs` and
+`tests/live-harness.test.mjs` require those pinned forms). Run the gates locally with:
 
 ```powershell
 npm run workflow:check

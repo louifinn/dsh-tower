@@ -36,19 +36,21 @@ gate step after `npm run check`; the only extra steps are CI-only reports:
 
 All three are gated by `matrix.release`, which is `true` only on the Ubuntu Node 24.9 leg. The Windows
 leg runs `npm run check` exactly once as well: a platform branch is only measured if the *whole* gate
-runs there.
+runs there. The canonical checkout uses `fetch-depth: 0` because the release check resolves the
+previous tag with `git describe --tags`; a depth-1 clone would hide the tags and downgrade a tag
+violation to a `[no-baseline]` warning.
 
 ### `npm run workflow:check`
 
 `npm run check` runs `node scripts/check-workflow.mjs`, which machine-checks the contract in this
 document against the workflow text:
 
-- the canonical job carries the three supported contexts and runs `npm run check` exactly once per leg;
+- the canonical job carries the three supported contexts, checks out with `fetch-depth: 0` so the
+  release check keeps its tag baseline, and runs `npm run check` exactly once per leg;
 - the frozen legacy job still carries the four required context strings (`test (22)`, `test (24)`,
   `test (22, windows)`, `mount`) on their pinned OS/Node versions;
-- every `uses:` is a 40-hex commit SHA with a `# vX.Y.Z` version comment, except the two documented
-  tag-pin exceptions below;
-- top-level `permissions` is exactly `contents: read`, `concurrency` is per-ref with
+- every `uses:` is a 40-hex commit SHA with a `# vX.Y.Z` version comment;
+- top-level `permissions` is exactly `contents: read`, `concurrency` is per-ref and per-event with
   `cancel-in-progress` limited to pushes/PRs, every job that runs `npm ci` sets `cache: npm` on
   `setup-node`;
 - every artifact upload sets `retention-days` in 1–14;
@@ -57,8 +59,9 @@ document against the workflow text:
 
 `tests/workflow-contract.test.mjs` proves each rule is load-bearing by tampering with the real workflow
 text (unpinning an action, widening permissions, removing a required context, dropping the canonical
-step, adding a second `npm run check`, moving the Node-24-only extras onto the Windows leg, unbounding
-artifact retention, breaking the issue dedupe). Run both gates locally with:
+step, adding a second `npm run check`, dropping the canonical checkout's full history, sharing the
+concurrency group with the nightly schedule, moving the Node-24-only extras onto the Windows leg,
+unbounding artifact retention, breaking the issue dedupe). Run both gates locally with:
 
 ```bash
 npm run workflow:check
@@ -71,17 +74,21 @@ node --test tests/workflow-contract.test.mjs
   job declares its own permissions except `nightly-failure`, which opts into
   `actions: read` (to name the failing jobs) and `issues: write` (to open/update the issue). Push/PR
   steps therefore cannot write to the repository or its issues.
-- **Concurrency.** `group: ${{ github.workflow }}-${{ github.ref }}` with
-  `cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}`. A
-  superseded push/PR run is cancelled; scheduled and manual runs always finish, so nightly evidence and
-  its report are never interrupted.
+- **Concurrency.** `group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}` with
+  `cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}`. The
+  event name is part of the group because a push and the nightly schedule both use `refs/heads/main`;
+  without it a push would cancel an in-flight scheduled run (the incoming run's `cancel-in-progress`
+  decides). A superseded push/PR run is cancelled within its own event class; scheduled and manual
+  runs have their own groups and always finish, so nightly evidence and its report are never
+  interrupted.
 - **Pinned actions.** Every `uses:` is a commit SHA with a version comment. The pins are
 
   | Action | Version | Commit |
   |---|---|---|
   | `actions/checkout` | v4.2.2 | `11bd71901bbe5b1630ceea73d27597364c9af683` |
   | `actions/setup-node` | v4.0.4 | `0a44ba7841725637a19e28fa30b79a866c81b0a6` |
-  | `actions/upload-artifact` (property artifacts only) | v4.6.2 | `ea165f8d65b6e75b540449e92b4886f43607fa02` |
+  | `actions/cache` (mount-fixtures host install) | v4.2.3 | `5a3ec84eff668545956fd18022155c47e93e2684` |
+  | `actions/upload-artifact` (property and live diagnostics) | v4.6.2 | `ea165f8d65b6e75b540449e92b4886f43607fa02` |
 
 - **npm cache.** Every job that runs `npm ci` passes `cache: npm` to `actions/setup-node`.
 - **Bounded artifacts.** Both uploads set `retention-days: 7`; the live diagnostics keep exactly the
@@ -96,17 +103,6 @@ node --test tests/workflow-contract.test.mjs
 
   If it exists, the job comments with the run URL and failing names; otherwise it creates the issue.
   That is one issue per repository, not one per failure, and it is the only write in the workflow.
-
-### Known transitional tag pins
-
-Two actions stay on a moving major tag for one cycle. Their literal form is asserted by contract tests
-that this change could not edit; the exception is recorded here, checked by `workflow:check`, and must
-be removed when those tests accept the pinned form:
-
-| Action | Ref kept | Recorded version | Why | Follow-up |
-|---|---|---|---|---|
-| `actions/cache` (mount-fixtures) | `@v4` | v4.2.3 | `tests/mount-smoke.test.mjs` asserts the tag form | pin `5a3ec84eff668545956fd18022155c47e93e2684` by SHA; delete the exception here and in `scripts/check-workflow.mjs` |
-| `actions/upload-artifact` (live diagnostics) | `@v4` | v4.6.2 | `tests/live-harness.test.mjs` asserts exactly one literal tag form in the `live` job | pin the SHA; same cleanup |
 
 `docs/operations/ci.md` itself is repository-only this cycle: it is excluded from the published tarball
 via a `files` negation in `package.json`, because the reviewed

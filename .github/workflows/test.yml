@@ -15,11 +15,12 @@ on:
 permissions:
   contents: read
 
-# #M72: one run per ref. A superseded push/PR run is cancelled because its
-# result can no longer be reported; scheduled and manual runs are never
-# cancelled, so the nightly evidence and its issue report always finish.
+# #M72: one run per ref *and event class*. A push and the nightly schedule both
+# use refs/heads/main, so an event-qualified group keeps a push from cancelling
+# an in-flight scheduled run (and vice versa); only pushes/PRs cancel their own
+# superseded run, so the nightly evidence and its issue report always finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
@@ -187,6 +188,12 @@ jobs:
             label: test (24.9, windows)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # #M72/R90: the Node 24.9 leg also runs `npm run release:check`, which
+          # resolves the previous release with `git describe --tags`; a shallow
+          # clone hides the tags and degrades a tag violation to a no-baseline
+          # warning. Full history here, like the frozen legacy checkout above.
+          fetch-depth: 0
       - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: ${{ matrix.node }}
@@ -249,10 +256,9 @@ jobs:
       - name: Install pnpm (the plugin CLI's package manager)
         run: npm install --global pnpm@$(node -p "require('./scripts/mount-smoke/host.json').pnpm")
       - name: Cache the pinned host install
-        # #M72: kept on the v4 tag for one transition cycle because
-        # tests/mount-smoke.test.mjs asserts this form; pin the SHA as soon as
-        # that contract test accepts the pinned form (docs/operations/ci.md).
-        uses: actions/cache@v4 # tag pin: v4.2.3
+        # #M72/R90: SHA-pinned like every other action; tests/mount-smoke.test.mjs
+        # requires this exact form.
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.cache/dsh-tower/mount-host
           key: dsh-tower-mount-host-${{ runner.os }}-${{ hashFiles('scripts/mount-smoke/host.json') }}
@@ -319,11 +325,9 @@ jobs:
       # failure evidence, not a durable product.
       - name: Upload live boot diagnostics
         if: always()
-        # #M72: kept on the v4 tag for one transition cycle because
-        # tests/live-harness.test.mjs asserts this job's single artifact upload
-        # in its tag form; pin the SHA as soon as that contract test accepts the
-        # pinned form (docs/operations/ci.md).
-        uses: actions/upload-artifact@v4 # tag pin: v4.6.2
+        # #M72/R90: SHA-pinned like every other action; tests/live-harness.test.mjs
+        # requires this job's single artifact upload in this pinned form.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: live-boot-diagnostics
           path: |

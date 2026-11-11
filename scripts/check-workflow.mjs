@@ -8,11 +8,12 @@
 // deliberately string/structure based: no runtime dependency, and a tampered
 // workflow text is testable in memory (tests/workflow-contract.test.mjs).
 //
-// The two tag-pin exceptions are documented, not accidental: their pin forms
-// are asserted by contract tests outside this file's mission scope
-// (tests/mount-smoke.test.mjs and tests/live-harness.test.mjs). Pinning them by
-// SHA is the follow-up named in docs/operations/ci.md; this gate fails until
-// the exception list and those tests agree, so the reminder cannot be lost.
+// Every action is pinned to a 40-hex commit SHA with a `# vX.Y.Z` comment, and
+// the concurrency group is event-qualified so the nightly schedule has its own
+// group. Both rules have contract tests outside this file
+// (tests/workflow-contract.test.mjs, tests/mount-smoke.test.mjs,
+// tests/live-harness.test.mjs), so the pin/cancellation guarantees cannot be
+// weakened by editing only one side.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,12 +38,6 @@ export const SUPPORTED_OS = {
   'test (24.9)': 'ubuntu-latest',
   'test (25)': 'ubuntu-latest',
   'test (24.9, windows)': 'windows-latest',
-}
-
-// action ref (as written in `uses:`) -> the tag it stays on for this cycle.
-export const LEGACY_TAG_PINS = {
-  'actions/cache@v4': 'v4.2.3',
-  'actions/upload-artifact@v4': 'v4.6.2',
 }
 
 const SHA = /^[0-9a-f]{40}$/
@@ -359,6 +354,11 @@ function evaluateConcurrency(text, problems) {
   if (typeof concurrency.group !== 'string' || !concurrency.group.includes('github.ref')) {
     problems.push('concurrency: group must be per-ref (include github.ref)')
   }
+  if (typeof concurrency.group !== 'string' || !concurrency.group.includes('github.event_name')) {
+    problems.push(
+      'concurrency: group must distinguish the schedule from pushes/PRs (include github.event_name) so a push cannot cancel an in-flight nightly run',
+    )
+  }
   const cancel = String(concurrency['cancel-in-progress'] ?? '')
   for (const token of ['github.event_name', "'push'", "'pull_request'"]) {
     if (!cancel.includes(token)) {
@@ -369,8 +369,7 @@ function evaluateConcurrency(text, problems) {
 
 function evaluateActionPins(text, problems) {
   let pinned = 0
-  const uses = actionUses(text)
-  for (const entry of uses) {
+  for (const entry of actionUses(text)) {
     const at = entry.uses.lastIndexOf('@')
     if (at < 0) {
       problems.push(`action pin: ${entry.uses} (line ${entry.line}) has no ref`)
@@ -378,31 +377,16 @@ function evaluateActionPins(text, problems) {
     }
     const action = entry.uses.slice(0, at)
     const ref = entry.uses.slice(at + 1)
-    const legacy = LEGACY_TAG_PINS[`${action}@${ref}`]
-    if (SHA.test(ref)) {
-      pinned += 1
-      if (!VERSION_COMMENT.test(entry.comment)) {
-        problems.push(`action pin: ${entry.uses} (line ${entry.line}) is SHA-pinned but needs a "# vX.Y.Z" version comment`)
-      }
-      continue
-    }
-    if (legacy !== undefined) {
-      if (!/tag pin/i.test(entry.comment)) {
-        problems.push(`action pin: exception ${action}@${ref} must say "tag pin" in its comment`)
-      } else if (!entry.comment.includes(legacy)) {
-        problems.push(`action pin: exception ${action}@${ref} must record ${legacy} in its comment`)
-      }
-      continue
-    }
-    problems.push(`action pin: ${entry.uses} (line ${entry.line}) is not pinned to a 40-hex commit SHA`)
-  }
-  for (const [ref, version] of Object.entries(LEGACY_TAG_PINS)) {
-    const found = uses.filter((entry) => entry.uses === ref).length
-    if (found !== 1) {
+    if (!SHA.test(ref)) {
       problems.push(
-        `action pin: the documented tag-pin exception ${ref} (${version}) must appear exactly once, found ${found}; ` +
-          'pin it by SHA and drop the exception when its contract test accepts the pinned form',
+        `action pin: ${entry.uses} (line ${entry.line}) is not pinned to a 40-hex commit SHA; ` +
+          `pin ${action} by commit and record its version in a "# vX.Y.Z" comment`,
       )
+      continue
+    }
+    pinned += 1
+    if (!VERSION_COMMENT.test(entry.comment)) {
+      problems.push(`action pin: ${entry.uses} (line ${entry.line}) is SHA-pinned but needs a "# vX.Y.Z" version comment`)
     }
   }
   return pinned
@@ -504,6 +488,14 @@ function evaluateCanonicalGate(jobs, problems) {
     }
   }
   const steps = parseSteps(canonical)
+  const checkout = steps.find((step) => step.uses && step.uses.startsWith('actions/checkout@'))
+  if (!checkout) {
+    problems.push('canonical gate: the canonical job must check out the repository')
+  } else if (Number(checkout.with['fetch-depth']) !== 0) {
+    problems.push(
+      'canonical gate: the canonical checkout must set fetch-depth: 0 so "npm run release:check" sees tags and keeps its previous-tag baseline',
+    )
+  }
   const runSteps = steps.filter((step) => typeof step.run === 'string')
   const exact = (command) => runSteps.filter((step) => step.run.trim() === command)
   const check = exact('npm run check')
@@ -589,7 +581,6 @@ export function evaluateWorkflow(text) {
       canonicalLegs: SUPPORTED_CONTEXTS,
       requiredContexts: [...REQUIRED_CONTEXTS, REQUIRED_MOUNT_CONTEXT],
       pinnedActions: pinned,
-      legacyTagPins: Object.keys(LEGACY_TAG_PINS),
       nightlyFailureJob: Boolean(nightly),
       canonicalJob: canonical,
     },
@@ -656,8 +647,7 @@ function main() {
     console.log(
       `workflow check: ${facts.canonicalLegs.length} canonical legs run "npm run check" once; ` +
         `${facts.requiredContexts.length} required legacy contexts preserved; ` +
-        `${facts.pinnedActions} actions SHA-pinned; ` +
-        `${facts.legacyTagPins.length} documented tag-pin exceptions; nightly failure issue job present`,
+        `${facts.pinnedActions} actions SHA-pinned; nightly failure issue job present`,
     )
   }
 }

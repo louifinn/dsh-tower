@@ -41,8 +41,7 @@ test('the checked-in workflow satisfies the CI contract', () => {
   assert.equal(result.ok, true)
   assert.deepEqual(result.facts.canonicalLegs, SUPPORTED_CONTEXTS)
   assert.deepEqual(result.facts.requiredContexts, ['test (22)', 'test (24)', 'test (22, windows)', 'mount'])
-  assert.ok(result.facts.pinnedActions >= 6, 'most actions must be SHA-pinned')
-  assert.deepEqual(result.facts.legacyTagPins, ['actions/cache@v4', 'actions/upload-artifact@v4'])
+  assert.equal(result.facts.pinnedActions, 15, 'all 15 action uses must be SHA-pinned')
   assert.equal(result.facts.nightlyFailureJob, true)
   assert.deepEqual(evaluatePackageWire(pkg).problems, [])
 })
@@ -95,10 +94,38 @@ test('tamper: a SHA pin without a version comment is rejected', () => {
   assert.ok(problems.some((problem) => problem.includes('needs a "# vX.Y.Z" version comment')), JSON.stringify(problems))
 })
 
-test('tamper: dropping the tag-pin exception comment is rejected', () => {
-  const text = tamper('uses: actions/cache@v4 # tag pin: v4.2.3', 'uses: actions/cache@v4')
+test('tamper: a moving major tag on a formerly excepted action is rejected', () => {
+  const cache = tamper(
+    'uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3',
+    'uses: actions/cache@v4',
+  )
+  assert.ok(
+    problemsFor(cache).some((problem) => problem.includes('actions/cache@v4') && problem.includes('is not pinned to a 40-hex commit SHA')),
+    JSON.stringify(problemsFor(cache)),
+  )
+
+  const upload = tamper(
+    'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2',
+    'uses: actions/upload-artifact@v4',
+  )
+  assert.ok(
+    problemsFor(upload).some((problem) => problem.includes('actions/upload-artifact@v4') && problem.includes('is not pinned to a 40-hex commit SHA')),
+    JSON.stringify(problemsFor(upload)),
+  )
+})
+
+test('tamper: the canonical checkout must not drop fetch-depth: 0', () => {
+  const text = tamper(
+    '        with:\n' +
+      '          # #M72/R90: the Node 24.9 leg also runs `npm run release:check`, which\n' +
+      '          # resolves the previous release with `git describe --tags`; a shallow\n' +
+      '          # clone hides the tags and degrades a tag violation to a no-baseline\n' +
+      '          # warning. Full history here, like the frozen legacy checkout above.\n' +
+      '          fetch-depth: 0\n',
+    '',
+  )
   const problems = problemsFor(text)
-  assert.ok(problems.some((problem) => problem.includes('must say "tag pin"')), JSON.stringify(problems))
+  assert.ok(problems.some((problem) => problem.includes('fetch-depth: 0')), JSON.stringify(problems))
 })
 
 test('tamper: widening the top-level permissions is rejected', () => {
@@ -123,6 +150,15 @@ test('tamper: cancelling scheduled runs is rejected', () => {
   )
   const problems = problemsFor(text)
   assert.ok(problems.some((problem) => problem.includes('cancel-in-progress must be limited to pushes/PRs')), JSON.stringify(problems))
+})
+
+test('tamper: a concurrency group shared with the nightly schedule is rejected', () => {
+  const text = tamper(
+    'group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}',
+    'group: ${{ github.workflow }}-${{ github.ref }}',
+  )
+  const problems = problemsFor(text)
+  assert.ok(problems.some((problem) => problem.includes('must distinguish the schedule from pushes/PRs')), JSON.stringify(problems))
 })
 
 test('tamper: an unsupported canonical Node version is rejected', () => {
@@ -189,7 +225,7 @@ test('the CLI is green on the checkout and fails on a tampered copy', (t) => {
   assert.equal(ok.status, 0, ok.stderr)
   assert.match(
     ok.stdout,
-    /^workflow check: 3 canonical legs run "npm run check" once; 4 required legacy contexts preserved; \d+ actions SHA-pinned; 2 documented tag-pin exceptions; nightly failure issue job present$/m,
+    /^workflow check: 3 canonical legs run "npm run check" once; 4 required legacy contexts preserved; 15 actions SHA-pinned; nightly failure issue job present$/m,
   )
 
   const json = spawnSync(process.execPath, [script, '--json'], { cwd: repoRoot, encoding: 'utf8' })
