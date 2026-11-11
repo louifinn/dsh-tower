@@ -118,7 +118,7 @@ export async function complete(tower, input) {
   // Two-phase pilot (#51): expensive git/state checks run before the lock;
   // the lock only revalidates the state revision and commits the transition.
   const prepared = await tower.checkCompletion(input)
-  const result = await tower.deps.store.withLock(tower.paths, async () => {
+  const result = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.state.revision) {
       throw new TowerToolError('stale-base', 'tower state changed while completion was being prepared; retry')
@@ -141,7 +141,7 @@ export async function complete(tower, input) {
     state.updatedAt = now
 
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'complete',

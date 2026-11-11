@@ -62,7 +62,15 @@ function makeCtx() {
 
 const exec = { agent: { id: 'tower-faults' } }
 
-test('corrupt state files are reported as [tower:state-corrupt] and leave the file untouched', async () => {
+/** Pre-migration backups a load would create (`state.json.v<N>.bak`). */
+function backupsFor(tower) {
+  return fs
+    .readdirSync(tower.paths.dir)
+    .filter((name) => /^state\.json\.v\d+\.bak$/.test(name))
+    .sort()
+}
+
+test('unreadable state degrades tower_status to a read-only diagnostic and leaves the file untouched', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx()
   try {
@@ -74,32 +82,48 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
     const baseline = fs.readFileSync(tower.paths.state, 'utf8')
     const parsed = JSON.parse(baseline)
 
+    // `stateSchema` can only report what the version header says: invalid JSON
+    // is genuinely `invalid`, while the semantic variants below still parse as
+    // the current version and fail validity, so their status legitimately stays
+    // `current` and `stateError` carries the fault (F40).
     const corruptVariants = [
-      ['invalid JSON', 'this is not json at all'],
-      ['missing missions array', JSON.stringify({ ...parsed, missions: 'nope' }, null, 2)],
-      [
-        'unknown mission status',
-        JSON.stringify(
-          { ...parsed, missions: [{ ...parsed.missions[0], status: 'launched' }] },
-          null,
-          2,
-        ),
-      ],
-      [
-        'duplicate mission ids',
-        JSON.stringify({ ...parsed, missions: [parsed.missions[0], { ...parsed.missions[0] }] }, null, 2),
-      ],
+      { label: 'invalid JSON', text: 'this is not json at all', schemaStatus: 'invalid' },
+      { label: 'missing missions array', text: JSON.stringify({ ...parsed, missions: 'nope' }, null, 2) },
+      {
+        label: 'unknown mission status',
+        text: JSON.stringify({ ...parsed, missions: [{ ...parsed.missions[0], status: 'launched' }] }, null, 2),
+      },
+      {
+        label: 'duplicate mission ids',
+        text: JSON.stringify({ ...parsed, missions: [parsed.missions[0], { ...parsed.missions[0] }] }, null, 2),
+      },
     ]
 
-    for (const [label, text] of corruptVariants) {
+    for (const { label, text, schemaStatus } of corruptVariants) {
       fs.writeFileSync(tower.paths.state, text)
-      await assert.rejects(
-        () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
-        /\[tower:state-corrupt\]/,
-        `${label} must classify as state-corrupt`,
-      )
+      // F40: status is a public read-only diagnostic row. It reports the
+      // unreadable state from disk instead of throwing inside the handler, and
+      // it never migrates, backs up, or rewrites the file.
+      const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+      assert.equal(status.ok, false, `${label} must degrade status, not reject`)
+      assert.match(status.stateError, /\[tower:state-corrupt\]/, `${label} must classify as state-corrupt`)
+      assert.deepEqual(status.counts, {}, `${label} must not invent counts`)
+      assert.deepEqual(status.missions, [], `${label} must not invent missions`)
+      assert.deepEqual(status.activity, [], `${label} must not invent activity`)
+      assert.deepEqual(status.stateSchema.migrations, [])
+      if (schemaStatus === 'invalid') {
+        // Nothing was parsed, so the on-disk schema report is genuinely invalid.
+        assert.equal(status.stateSchema.status, 'invalid', `${label} must report an invalid schema`)
+        assert.equal(status.stateSchema.currentVersion, null)
+        assert.match(status.stateSchema.message, /could not be inspected/)
+      } else {
+        // Semantic corruption still parses as the current schemaVersion: the
+        // version is readable even though the contents are not.
+        assert.equal(status.stateSchema.currentVersion, parsed.schemaVersion)
+      }
       // The reader never rewrites a corrupt file; operators can inspect it.
       assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text, `${label} must be left untouched`)
+      assert.deepEqual(backupsFor(tower), [], `${label} must not be backed up or migrated`)
       await assert.rejects(
         () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['x/**'] }] }, exec),
         /\[tower:state-corrupt\]/,
@@ -108,15 +132,28 @@ test('corrupt state files are reported as [tower:state-corrupt] and leave the fi
       fs.writeFileSync(tower.paths.state, baseline)
     }
 
-    // A newer schema is not corruption: it is refused without a rewrite so an
-    // older plugin can never silently downgrade state written by a newer one.
+    // A newer schema is not corruption: status degrades the same way, and the
+    // document is refused without a rewrite so an older plugin can never
+    // silently downgrade state written by a newer one.
     const newerText = JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)
     fs.writeFileSync(tower.paths.state, newerText)
-    await assert.rejects(
-      () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
-      /\[tower:state-version-unsupported\]/,
-    )
+    const newer = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+    assert.equal(newer.ok, false)
+    assert.match(newer.stateError, /\[tower:state-version-unsupported\]/)
+    assert.equal(newer.stateSchema.status, 'newer')
+    assert.equal(newer.stateSchema.currentVersion, 99)
+    assert.equal(newer.stateSchema.supportedVersion, parsed.schemaVersion)
+    assert.deepEqual(newer.stateSchema.migrations, [])
+    assert.deepEqual(newer.counts, {})
+    assert.deepEqual(newer.missions, [])
+    assert.deepEqual(newer.activity, [])
     assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), newerText, 'a newer state must be left untouched')
+    assert.deepEqual(backupsFor(tower), [], 'a newer state must never be backed up or downgraded')
+    await assert.rejects(
+      () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['x/**'] }] }, exec),
+      /\[tower:state-version-unsupported\]/,
+      'a newer state must still block writers',
+    )
     fs.writeFileSync(tower.paths.state, baseline)
 
     // The untouched baseline still works afterwards.

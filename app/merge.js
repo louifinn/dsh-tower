@@ -44,6 +44,8 @@ import {
   pendingMergeIntentResult,
   staleBaseResult,
 } from '../domain/integration/merge.js'
+import { overwrittenPaths } from '../domain/integration/gate.js'
+import { changedPaths, dirtyPaths } from './gate.js'
 
 // A revision CAS that loses a race is retried this many times before the merge
 // reports the same retryable stale-base the previous revision policy produced.
@@ -100,7 +102,7 @@ async function observeMergeIntent(tower, state, mission) {
  * the new state instead of overwriting it.
  */
 async function applyMergeIntentReconcile(tower, stateRevision, missionId, evidence) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
@@ -110,7 +112,7 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
     delete state.mergeIntent
     state.revision += 1
     state.updatedAt = now
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
@@ -175,7 +177,7 @@ async function observeLandedMerge(tower, state, mission) {
 
 /** Locked write half of `reconcileLandedMerge`, guarded by the revision CAS. */
 async function applyLandedMergeReconcile(tower, stateRevision, missionId, observed) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== stateRevision) return { retry: true }
     const mission = state.missions.find((entry) => entry.id === missionId)
@@ -191,7 +193,7 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     state.revision += 1
     state.updatedAt = now
     validateState(state, tower.paths.state)
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
@@ -203,9 +205,24 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
   })
 }
 
-async function dirtyPaths(tower) {
-  const text = await tower.git(tower.root, ['status', '--porcelain'])
-  return text.split('\n').filter(Boolean).map((line) => line.slice(3).trim())
+/**
+ * Refuse a merge that would overwrite uncommitted checkout changes. The gate
+ * already checks for this, but the checkout can become dirty between the gate
+ * and the git mutex. Git would refuse the merge too; refusing before any
+ * intent is recorded keeps the operation cleanly retryable and preserves the
+ * local work instead of resetting over it.
+ * @param {string} missionId
+ * @param {string[]} paths
+ * @param {string} root
+ * @returns {object}
+ */
+function dirtyCheckoutResult(missionId, paths, root) {
+  const shown = paths.slice(0, 8).join(', ')
+  return mergeBlockedResult({
+    missionId,
+    code: 'worktree-dirty',
+    detail: `main checkout has uncommitted changes this merge would overwrite: ${shown}; commit them (git add -A && git commit -m "..." ) or stash them (git stash push -- <paths>) in ${root}, then retry tower_merge`,
+  })
 }
 
 /**
@@ -305,7 +322,7 @@ async function prepareFromState(tower, input, deps) {
  * next tower_merge/preflight instead of leaving an unexplained base tip.
  */
 async function recordMergeIntent(tower, plan) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     // State revision policy: the plan was built from `plan.stateRevision`; a
     // writer that slipped in before any Git mutation makes the plan stale and
@@ -339,7 +356,7 @@ async function recordMergeIntent(tower, plan) {
     })
     state.revision += 1
     state.updatedAt = now
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     return { intent: state.mergeIntent, intentRevision: state.revision }
   })
 }
@@ -350,6 +367,10 @@ async function recordMergeIntent(tower, plan) {
  */
 async function runMergeGit(tower, plan, intent, deps) {
   const { describeGitFailure, commitParents, removeStaleGitLocks } = deps
+  // Snapshot local work before Git runs. Anything dirty now is the operator's
+  // and must survive; only paths that were clean and then changed by a failed
+  // merge may be restored below.
+  const preMergeDirty = new Set(await dirtyPaths(tower))
   let failure = null
   try {
     // Merge the exact reviewed commit, never a mutable branch name. A branch
@@ -372,22 +393,21 @@ async function runMergeGit(tower, plan, intent, deps) {
     warnings.push(
       `merge command reported a failure (${describeGitFailure(failure)}) but merge commit ${newTip.slice(0, 7)} exists; treated as merged`,
     )
+    // Never reset a checkout here: the dirty paths may be the operator's own
+    // uncommitted work. Preserve them and make the manual follow-up visible.
     const dirty = await dirtyPaths(tower)
     if (dirty.length > 0) {
-      const changed = new Set(plan.changedFiles)
-      if (dirty.every((file) => changed.has(file))) {
-        await tower.git(tower.root, ['reset', '--hard', 'HEAD'])
-        warnings.push('restored index/worktree to the merge commit (only merge-related paths were dirty)')
-      } else {
-        warnings.push('working tree still has unrelated changes; left untouched — inspect it before the next Git operation')
-      }
+      warnings.push(
+        `working tree still has uncommitted changes (${dirty.slice(0, 5).join(', ')}); left in place — inspect them before the next Git operation`,
+      )
     }
   } else if (failure) {
     const unmerged = (await tower.tryGit(tower.root, ['ls-files', '-u'])) ?? ''
     const conflict = unmerged.trim().length > 0
     let cleanup = 'none'
     const mergeHeadPath = path.join(tower.commonDir, 'MERGE_HEAD')
-    if (await tower.deps.store.exists(mergeHeadPath)) {
+    const mergeHeadPresent = await tower.deps.store.exists(mergeHeadPath)
+    if (mergeHeadPresent) {
       try {
         await tower.git(tower.root, ['merge', '--abort'])
         cleanup = 'aborted'
@@ -397,8 +417,12 @@ async function runMergeGit(tower, plan, intent, deps) {
           await tower.git(tower.root, ['merge', '--abort'])
           cleanup = 'aborted-after-lock-cleanup'
         } catch {
-          await tower.git(tower.root, ['reset', '--hard', intent.baseTip]).catch(() => {})
-          cleanup = 'reset'
+          // Do not reset: the checkout may contain uncommitted work and the
+          // stale-lock cleanup above only removes provably unchanged locks.
+          cleanup = 'manual-required'
+          warnings.push(
+            'git merge --abort failed; index/worktree changes were left in place — inspect the main checkout and recover manually before retrying',
+          )
         }
       }
     } else if (newTip !== intent.baseTip) {
@@ -409,16 +433,57 @@ async function runMergeGit(tower, plan, intent, deps) {
       warnings.push('HEAD moved unexpectedly during a failed merge; left in place for manual recovery')
     }
     // A killed git process can leave the index staged even without MERGE_HEAD.
-    // Restore only when every dirty path belongs to this merge.
+    // Never reset the checkout: restore only the exact merge-owned paths that
+    // were clean before the merge started, and leave everything else for the
+    // operator. Untracked or pre-existing local work is never touched.
     const dirtyAfter = await dirtyPaths(tower)
     if (dirtyAfter.length > 0) {
-      const changed = new Set(plan.changedFiles)
-      if (newTip === intent.baseTip && dirtyAfter.every((file) => changed.has(file))) {
-        await removeStaleGitLocks(tower, tower.commonDir)
-        await tower.git(tower.root, ['reset', '--hard', intent.baseTip]).catch(() => {})
-        cleanup = cleanup === 'none' ? 'reset' : `${cleanup}+reset`
-      } else {
+      const trackedDirty = new Set(await changedPaths(tower, tower.root, 'HEAD'))
+      const planPaths = new Set(plan.changedFiles ?? [])
+      const restorable = [...trackedDirty].filter(
+        (file) => planPaths.has(file) && !preMergeDirty.has(file),
+      )
+      const untrackedLeft = dirtyAfter.filter((file) => !trackedDirty.has(file))
+      const mergeOwned =
+        newTip === intent.baseTip &&
+        !mergeHeadPresent &&
+        untrackedLeft.length === 0 &&
+        restorable.length === trackedDirty.size &&
+        restorable.length > 0
+      let restored = false
+      if (mergeOwned) {
+        // Only restore when index and worktree still match the reviewed branch
+        // tip for these paths. A concurrent operator edit makes them differ;
+        // then nothing is touched and the leftovers stay for manual review.
+        const [worktreeDiff, indexDiff] = await Promise.all([
+          tower.git(tower.root, ['diff', '--name-only', intent.branchTip, '--', ...restorable]),
+          tower.git(tower.root, ['diff', '--cached', '--name-only', intent.branchTip, '--', ...restorable]),
+        ])
+        if (worktreeDiff === '' && indexDiff === '') {
+          try {
+            await tower.git(tower.root, [
+              'restore',
+              '--source=HEAD',
+              '--staged',
+              '--worktree',
+              '--',
+              ...restorable,
+            ])
+            cleanup = 'restored-merge-changes'
+            restored = true
+            warnings.push(
+              `restored merge-side changes (${restorable.slice(0, 5).join(', ')}); no reset was used`,
+            )
+          } catch {
+            warnings.push(
+              'merge-side changes could not be restored; left in place — inspect the main checkout before retrying',
+            )
+          }
+        }
+      }
+      if (!restored) {
         warnings.push(`cleanup left changes for manual review: ${dirtyAfter.slice(0, 5).join(', ')}`)
+        if (cleanup === 'none') cleanup = 'manual-required'
       }
     }
     return {
@@ -438,7 +503,7 @@ async function runMergeGit(tower, plan, intent, deps) {
 
 /** Phase 3: apply the observed outcome under a short state lock. */
 async function commitMerge(tower, plan, recorded, outcome) {
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === plan.missionId)
     if (!mission) return missionMissingResult(plan.missionId)
@@ -476,7 +541,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'merge',
@@ -503,7 +568,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
         state.mergeIntent.problem = { code: 'merge-shape', newTip: outcome.newTip, parents: outcome.parents, at: Date.now() }
         state.revision += 1
         state.updatedAt = Date.now()
-        await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+        await tower.writeState(state, held)
         await tower.deps.store.appendJsonl(tower.paths.activity, {
           at: state.updatedAt,
           type: 'merge',
@@ -533,7 +598,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
     mission.updatedAt = now
     state.revision += 1
     state.updatedAt = now
-    await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+    await tower.writeState(state, held)
     await tower.deps.store.appendJsonl(tower.paths.activity, {
       at: now,
       type: 'merge',
@@ -568,6 +633,12 @@ export async function merge(tower, input, deps) {
             `base moved after gate (${plan.baseTip.slice(0, 7)} -> ${head.slice(0, 7)}); re-run preflight`,
           ),
         }
+      }
+      // Gate-to-merge race: re-check the checkout here, immediately before the
+      // intent is recorded and git runs. A merge never destroys local work.
+      const overwritten = overwrittenPaths(plan.changedFiles, await dirtyPaths(tower))
+      if (overwritten.length > 0) {
+        return { result: dirtyCheckoutResult(plan.missionId, overwritten, tower.root) }
       }
       const recorded = await recordMergeIntent(tower, plan)
       if (recorded.result) return recorded

@@ -18,6 +18,63 @@ import {
 } from '../domain/integration/gate.js'
 import { surveyStaleWarnings } from './freshness.js'
 
+/**
+ * @typedef {{ status: string, path: string, origPath: string | null }} GitPathChange
+ */
+
+/**
+ * All paths a change touched, both sides of a rename/copy included. Dropping
+ * the source would let a branch move an out-of-scope file into scope and pass
+ * the fence while still having changed the source tree.
+ * @param {GitPathChange[]} changes
+ * @returns {string[]}
+ */
+export function changePaths(changes) {
+  /** @type {string[]} */
+  const paths = []
+  const seen = new Set()
+  for (const change of changes) {
+    for (const value of [change.path, change.origPath]) {
+      if (typeof value !== 'string' || value.length === 0 || seen.has(value)) continue
+      seen.add(value)
+      paths.push(value)
+    }
+  }
+  return paths
+}
+
+/**
+ * Changed paths for a revision range. The structured reader is preferred
+ * because it retains rename sources; the legacy name-only output is kept for
+ * vcs ports that do not implement it (scripted/in-memory test doubles).
+ * @param {import('./tower.js').Tower} tower
+ * @param {string} cwd
+ * @param {string} range
+ * @returns {Promise<string[]>}
+ */
+export async function changedPaths(tower, cwd, range) {
+  const reader = tower.deps?.vcs?.diffChanges
+  if (typeof reader === 'function') {
+    return changePaths(await reader.call(tower.deps.vcs, cwd, range))
+  }
+  const text = await tower.git(cwd, ['diff', '--name-only', range])
+  return text.split('\n').filter(Boolean)
+}
+
+/**
+ * Paths with uncommitted worktree changes, including both sides of a rename.
+ * @param {import('./tower.js').Tower} tower
+ * @returns {Promise<string[]>}
+ */
+export async function dirtyPaths(tower) {
+  const reader = tower.deps?.vcs?.worktreeChanges
+  if (typeof reader === 'function') {
+    return changePaths(await reader.call(tower.deps.vcs, tower.root))
+  }
+  const text = await tower.git(tower.root, ['status', '--porcelain'])
+  return text.split('\n').filter(Boolean).map((line) => line.slice(3).trim())
+}
+
 export async function evaluateGate(tower, input) {
     const state = await tower.load()
     let mission = state.missions.find((entry) => entry.id === input.missionId)
@@ -63,19 +120,14 @@ export async function evaluateGate(tower, input) {
         branchTip = await tower.branchTip(mission)
         baseTip = await tower.revParse(tower.root, state.base)
         const mergeBase = (await tower.git(worktree.path, ['merge-base', baseTip, branchTip])).trim()
-        changedFiles = (await tower.git(worktree.path, ['diff', '--name-only', `${mergeBase}..${branchTip}`]))
-          .split('\n')
-          .filter(Boolean)
+        changedFiles = await changedPaths(tower, worktree.path, `${mergeBase}..${branchTip}`)
         if (!(await tower.isAncestor(tower.root, baseTip, branchTip))) {
           const blocker = staleBaseBlocker({ branch: worktree.branch, base: state.base, baseTip })
           push(blocker.code, blocker.detail)
         }
         const scopeBlocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
         if (scopeBlocker) push(scopeBlocker.code, scopeBlocker.detail)
-        const dirty = (await tower.git(tower.root, ['status', '--porcelain']))
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => line.slice(3).trim())
+        const dirty = await dirtyPaths(tower)
         const dirtyBlocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
         if (dirtyBlocker) push(dirtyBlocker.code, dirtyBlocker.detail)
       } catch (error) {

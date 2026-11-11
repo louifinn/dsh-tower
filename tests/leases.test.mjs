@@ -195,7 +195,7 @@ test('leases: concurrent acquires of one name serialize to exactly one winner', 
   }
 })
 
-test('leases: corrupt ledger and stale writer lock fail closed but a stale lock is recovered', async () => {
+test('leases: corrupt ledger fails closed, a live stale writer lock is reported, a dead one is reclaimed', async () => {
   const { root, commonDir } = tempCommonDir()
   try {
     fs.mkdirSync(path.dirname(leasesPath(commonDir)), { recursive: true })
@@ -214,9 +214,24 @@ test('leases: corrupt ledger and stale writer lock fail closed but a stale lock 
     )
     await assert.rejects(() => inspectLeases(commonDir), expectCode('state-corrupt', /corrupt lease entry "broken"/))
 
-    // Replace with a valid ledger and a stale lock: the lock is removed, not stolen while fresh.
+    // A valid ledger with a live writer whose `at` is old: the waiter reports it
+    // and never unlinks the record on a timer.
     fs.writeFileSync(leasesPath(commonDir), JSON.stringify({ schemaVersion: 1, updatedAt: 1, leases: {} }))
-    fs.writeFileSync(leasesLockPath(commonDir), JSON.stringify({ token: 'old', pid: 999, at: Date.now() - 60_000 }))
+    const liveLock = JSON.stringify({ token: 'old', pid: process.pid, at: Date.now() - 60_000 })
+    fs.writeFileSync(leasesLockPath(commonDir), liveLock)
+    await assert.rejects(
+      () => acquireLease(commonDir, { name: 'plugin-load', holder: 'a', token: 'token-a', pid: 1, ttlMs: 1000 }),
+      (error) => {
+        assert.equal(error.code, 'lease-busy', error.message)
+        assert.match(error.message, /last heartbeat/)
+        assert.match(error.message, /not reclaimed/)
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(leasesLockPath(commonDir), 'utf8'), liveLock, 'a live lock must stay byte-identical')
+
+    // A provably dead writer is reclaimed by the shared kernel.
+    fs.writeFileSync(leasesLockPath(commonDir), JSON.stringify({ token: 'old', pid: 999999, at: Date.now() - 60_000 }))
     const lease = await acquireLease(commonDir, { name: 'plugin-load', holder: 'a', token: 'token-a', pid: 1, ttlMs: 1000 })
     assert.equal(lease.name, 'plugin-load')
     assert.equal(fs.existsSync(leasesLockPath(commonDir)), false)

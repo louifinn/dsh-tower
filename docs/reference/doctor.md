@@ -37,6 +37,22 @@ It returns:
     "phase": "merge",
     "heldMs": 92000
   },
+  "ownership": {
+    "owner": "session-abc",
+    "caller": null,
+    "sameOwner": false,
+    "ownerMode": "off",
+    "modeStoreStatus": "ok",
+    "modeStoreFile": "D:/home/tower-mode/modes.json",
+    "modeStoreError": null,
+    "ownerLock": false,
+    "foreignLock": false,
+    "liveRoster": [],
+    "unreadMessages": 0,
+    "orphanLock": false,
+    "blockers": [],
+    "takeoverAvailable": true
+  },
   "stateSchema": {
     "currentVersion": 5,
     "supportedVersion": 5,
@@ -90,9 +106,22 @@ than thrown so doctor remains useful on a broken repository.
 `stateLock` (and the `state-lock` check) reports the held lock's age (`ageMs`, from the record's
 `since`) and heartbeat freshness (`heartbeatAgeMs`, from its last `at`) against the stale window
 (`staleAfterMs = 3 × 1000 ms`). A live PID is not proof of a live writer: a holder that stopped
-heartbeating is reported as `stale: true` and is reclaimable by the next mutation (or by
-`tower_recover clear-stale-lock force:true`), while a fresh heartbeat is reported as held and is never
-stolen. This is what makes a recycled PID diagnosable without reading `state.lock` by hand.
+heartbeating is reported as `stale: true`, but a live-but-silent holder is **never reclaimed
+automatically**. Only a lock whose PID is provably dead is reclaimed, atomically, by the next
+mutation. Recovering a live-but-silent lock requires the operator to confirm the process is gone and
+run `tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; that moves the
+lock record to a backup instead of deleting it. This makes a recycled PID diagnosable without
+reading `state.lock` by hand.
+
+`ownership` (and the `tower-owner`/`workspace-lock` checks) is the same read-only ownership snapshot
+`tower_status` returns, or `null` when the state or ownership facts could not be read. It contains
+`owner`, `caller`, `sameOwner`, `ownerMode`, `modeStoreStatus`, `modeStoreFile`, `modeStoreError`,
+`ownerLock`, `foreignLock`, `liveRoster`, `unreadMessages`, `orphanLock`, `blockers` and
+`takeoverAvailable`. `modeStoreStatus` is `missing`, `ok`, or `corrupt`. When it is `corrupt`,
+`ownerMode` is `unknown` (never `off`), the first `blockers` entry is `mode-store-corrupt` with the
+repair action, and `takeoverAvailable` is `false`: a takeover fails closed instead of transcribing
+an unreadable mode store as an inactive owner. The `ownership` field is how doctor and status stay
+consistent with each other.
 
 `gitLock` (and the `git-lock` check) reports the repo-scoped git mutex: `{held, pid, phase, heldMs}`
 while a merge/rebase/init/teardown/provision holds it, and `{held: false}` when free. A merge may hold

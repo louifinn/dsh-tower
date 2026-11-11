@@ -13,6 +13,7 @@ adapters/default.js
 adapters/git.js
 adapters/leases.js
 adapters/legacy.js
+adapters/lock.js
 adapters/persistence.js
 adapters/stateFile.js
 adapters/store-fs.js
@@ -160,6 +161,7 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/authorization.js
 host/capability-archive.js
 host/capability-batch.js
 host/capability-board.js

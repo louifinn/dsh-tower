@@ -1,8 +1,8 @@
-// #92: a recycled PID must not make a crashed state lock permanently
-// unrecoverable. Liveness is decided by the heartbeat the holder rewrites, not
-// by the PID alone: `processAlive` is a fast path (ESRCH) plus a fall-through to
-// the heartbeat test, so a live-looking PID with a silent heartbeat is
-// reclaimable while a live writer that keeps heartbeating is never stolen.
+// #92/#167: liveness is proven only when the OS reports the PID as gone
+// (ESRCH). A live PID whose heartbeat looks stale is diagnostic: a paused
+// process must not be mistaken for a crash, because stealing its lock lets two
+// writers race. Such a waiter fails `state-locked` and names the owner, PID,
+// heartbeat age, and recovery command; only a dead PID is reclaimed automatically.
 //
 // Every case runs in a temp repo and injects the heartbeat interval / stale
 // window, so no fixture sleeps for the shipped 3 s grace period.
@@ -24,7 +24,7 @@ import {
   lockStaleAfterMs,
   reclaimDeadLock,
   touchLock,
-} from '../adapters/persistence.js'
+} from '../adapters/lock.js'
 import { pathsFor, withLock } from '../adapters/store.js'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
@@ -66,8 +66,8 @@ async function readLockFile(file) {
   }
 }
 
-function reclaimedBackups(dir) {
-  return fs.readdirSync(dir).filter((name) => name.startsWith('state.lock.reclaimed-'))
+function lockArtifacts(dir) {
+  return fs.readdirSync(dir).filter((name) => name.startsWith('state.lock.reclaimed-') || name.startsWith('state.lock.stale-') || name.startsWith('state.lock.release-'))
 }
 
 async function waitFor(predicate, timeoutMs = 2000) {
@@ -83,7 +83,7 @@ async function waitFor(predicate, timeoutMs = 2000) {
 // Primitive classification
 // ---------------------------------------------------------------------------
 
-test('lock liveness: ESRCH is immediate, a live PID falls through to the heartbeat (#92)', () => {
+test('lock liveness: ESRCH is definitive, a stale heartbeat is diagnostic only (#92, #167)', () => {
   assert.equal(DEFAULT_LOCK_HEARTBEAT_MS * LOCK_HEARTBEAT_STALE_FACTOR, lockStaleAfterMs())
   assert.equal(lockHeartbeatMs({ heartbeatMs: 40 }), 40)
   assert.equal(lockStaleAfterMs({ heartbeatMs: 40 }), 120)
@@ -98,11 +98,13 @@ test('lock liveness: ESRCH is immediate, a live PID falls through to the heartbe
   assert.equal(fresh.dead, false)
   assert.equal(fresh.reason, 'held')
 
-  // A live-looking PID whose holder stopped heartbeating is reclaimable: this
-  // is the recycled-PID case the issue is about.
+  // A live process that paused past the heartbeat window is reported, never
+  // treated as dead: its writer may still be inside the critical section.
   const stale = lockLiveness({ pid: process.pid, at: now - 10000 }, { now })
-  assert.equal(stale.dead, true)
+  assert.equal(stale.alive, true)
+  assert.equal(stale.dead, false, 'a stale heartbeat is not a death certificate')
   assert.equal(stale.reason, 'heartbeat-stale')
+  assert.equal(stale.timing.stale, true)
   assert.ok(stale.timing.heartbeatAgeMs >= 10000)
 
   const invalid = lockLiveness({ pid: 0, at: now }, { now })
@@ -143,7 +145,7 @@ test('touchLock only refreshes a record this token still owns', async () => {
 // Acceptance fixtures
 // ---------------------------------------------------------------------------
 
-test('a live-PID lock with a stale heartbeat is reclaimed and kept as an audit backup (#92)', async () => {
+test('a live-PID lock with a stale heartbeat is reported, never reclaimed (#167)', async () => {
   const root = tempDir('dsh-tower-lock-stale-')
   try {
     const paths = lockPaths(root)
@@ -157,14 +159,33 @@ test('a live-PID lock with a stale heartbeat is reclaimed and kept as an audit b
     })
 
     const started = Date.now()
-    const value = await withLock(paths, async () => 'reclaimed', { heartbeatMs: 1000 })
-    assert.equal(value, 'reclaimed')
-    assert.ok(Date.now() - started < 3000, 'the stale heartbeat, not the PID, must decide the reclaim')
-
-    assert.equal(fs.existsSync(paths.lock), false)
-    const backups = reclaimedBackups(paths.dir)
-    assert.equal(backups.length, 1, 'the reclaimed bytes must stay auditable')
-    assert.equal(fs.readFileSync(path.join(paths.dir, backups[0]), 'utf8'), original)
+    let ran = false
+    await assert.rejects(
+      () =>
+        withLock(
+          paths,
+          async () => {
+            ran = true
+          },
+          { timeoutMs: 150, pollMs: 10, heartbeatMs: 1000 },
+        ),
+      (error) => {
+        assert.equal(error?.code, 'state-locked')
+        assert.match(error.message, new RegExp(`owner pid ${process.pid}`))
+        assert.match(error.message, /heartbeat/)
+        assert.match(error.message, /tower_recover clear-stale-lock/)
+        assert.equal(error.details.holderPid, process.pid)
+        assert.equal(error.details.holderToken, 'recycled-pid')
+        assert.ok(error.details.heartbeatAgeMs >= 9000, 'the diagnostic names the heartbeat age')
+        assert.ok(error.details.staleAfterMs > 0)
+        assert.equal(error.details.alive, true)
+        return true
+      },
+    )
+    assert.equal(ran, false, 'a live holder must never be overwritten')
+    assert.ok(Date.now() - started < 3000, 'the waiter must not wait out a heartbeat grace period')
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), original, 'the live record must be byte-identical')
+    assert.deepEqual(lockArtifacts(paths.dir), [], 'no reclaim or quarantine artifact may be created')
   } finally {
     removeTemp(root)
   }
@@ -237,7 +258,7 @@ test('ESRCH still reclaims immediately, without waiting for the heartbeat grace 
     assert.equal(await withLock(paths, async () => 'fast', { heartbeatMs: 60000 }), 'fast')
     assert.ok(Date.now() - started < 2000, 'ESRCH must not wait for the heartbeat grace period')
     assert.equal(fs.existsSync(paths.lock), false)
-    assert.deepEqual(reclaimedBackups(paths.dir), [], 'a provably dead PID leaves no reclaim backup')
+    assert.deepEqual(lockArtifacts(paths.dir), [], 'a provably dead PID leaves no reclaim artifact')
   } finally {
     removeTemp(root)
   }
@@ -263,10 +284,7 @@ test('a record swapped mid-reclaim is restored and the reclaim loses the race sa
     assert.equal(await reclaimDeadLock(paths.lock, { rename }), false)
     assert.equal(swapped, true, 'the fixture must actually exercise the swap')
     assert.equal(fs.readFileSync(paths.lock, 'utf8'), replacement, 'the newer record must be restored, not deleted')
-    assert.deepEqual(
-      fs.readdirSync(paths.dir).filter((name) => name.includes('.stale-') || name.includes('.reclaimed-')),
-      [],
-    )
+    assert.deepEqual(lockArtifacts(paths.dir), [], 'the quarantine must not survive a restored record')
   } finally {
     removeTemp(root)
   }

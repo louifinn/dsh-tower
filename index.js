@@ -12,12 +12,12 @@
 // plugin from disk when the HMR service is present (dev/linked installs).
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
+import { authorizeSessionCall, registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
 import { Tower } from './host/tower.js'
 import { readOwnership, performTakeover } from './host/ownership.js'
 import { takeoverQuestionDetail } from './app/ownership.js'
-import { loadModes, saveModes, storePath } from './host/modeStore.js'
+import { loadModesDetailed, saveModesDetailed, storePath } from './host/modeStore.js'
 import { ModeState } from './host/modeState.js'
 import { Config as ConfigSchema, DEFAULT_DENY_TOOLS, configureRuntime, runtimeConfig } from './host/config.js'
 import { TowerToolError } from './domain/errors.js'
@@ -37,6 +37,8 @@ export const inject = ['tools', 'systemPrompt']
 export const Config = ConfigSchema
 
 const modeState = new ModeState()
+/** @type {{ status: 'missing'|'ok'|'corrupt', file: string|null, error: string|null }} */
+let modeStoreLoad = { status: 'missing', file: null, error: null }
 let denyTools = new Set(DEFAULT_DENY_TOOLS)
 
 function modeOn(key) {
@@ -103,7 +105,7 @@ function configSection(config, allowAgentControl) {
 
 function persistModes() {
   const config = runtimeConfig()
-  saveModes(modeState, config.mode.storePath || undefined, config.mode.maxEntries, {
+  return saveModesDetailed(modeState, config.mode.storePath || undefined, config.mode.maxEntries, {
     timeoutMs: config.mode.lockTimeoutMs,
   })
 }
@@ -209,22 +211,93 @@ function enterMode(ctx, key, agent, by, reason) {
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
-  persistModes()
-  return { wasOn, pausedGoal, goalNote, planModeCleared: plan.cleared, planModeResult: plan.result ?? null }
+  const saved = persistModes()
+  return {
+    wasOn,
+    pausedGoal,
+    goalNote,
+    planModeCleared: plan.cleared,
+    planModeResult: plan.result ?? null,
+    changed: !wasOn,
+    mode: 'on',
+    persisted: saved.ok === true,
+    persistError: saved.ok === true ? null : saved.error ?? 'the mode store could not be saved',
+  }
 }
 
 async function exitMode(key, by, reason) {
   const previous = modeState.get(key)
-  if (!previous) return { wasOn: false, pausedGoal: null, goalNote: null }
+  if (!previous) {
+    return {
+      wasOn: false,
+      pausedGoal: null,
+      goalNote: null,
+      by,
+      reason: reason ?? null,
+      changed: false,
+      mode: 'off',
+      persisted: true,
+      persistError: null,
+      error: null,
+    }
+  }
   const wasOn = previous.on === true
   // Keep a timestamped off tombstone so a concurrent save from another
   // session cannot resurrect this mode entry.
   modeState.set(key, { on: false, at: Date.now(), humanAckAt: previous.humanAckAt ?? null, lastDisclosure: previous.lastDisclosure ?? 'exit' })
-  persistModes()
+  const saved = persistModes()
+  if (!saved.ok) {
+    // F33: a failed off is not an off. Restore the previous entry so memory
+    // matches the last persisted state, keep the workspace lock (its token was
+    // only observed in memory), and report an actionable failure. The disk
+    // copy was never written, so releasing the lock here would strand it.
+    modeState.set(key, previous)
+    const saveError = saved.error ?? 'the mode store could not be saved'
+    // The nested save error can carry its own `— next:` action (for example
+    // state-corrupt); drop it so renderErrorMessage appends the mode code's
+    // recovery action instead of hiding it.
+    const detail = String(saveError).split(' — next:')[0]
+    const lockNote = previous.lock ? '; the previous workspace lock was kept' : ''
+    const error = new TowerToolError(
+      'mode-persist-failed',
+      `Tower mode remains ${wasOn ? 'ON' : 'OFF'} because the mode store could not be saved: ${detail}${lockNote}`,
+      { details: { operation: 'off', saveError: String(saveError) } },
+    )
+    return {
+      wasOn,
+      pausedGoal: previous.pausedGoal ?? null,
+      goalNote: null,
+      by,
+      reason: reason ?? null,
+      changed: false,
+      mode: wasOn ? 'on' : 'off',
+      persisted: false,
+      persistError: saveError,
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+        nextAction: error.nextAction,
+      },
+    }
+  }
+  // Only a persisted off may release the workspace lock: the token came from
+  // the entry that was just written to disk.
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
   }
-  return { wasOn, pausedGoal: previous.pausedGoal ?? null, goalNote: null, by, reason: reason ?? null }
+  return {
+    wasOn,
+    pausedGoal: previous.pausedGoal ?? null,
+    goalNote: null,
+    by,
+    reason: reason ?? null,
+    changed: wasOn,
+    mode: 'off',
+    persisted: true,
+    persistError: null,
+    error: null,
+  }
 }
 
 function forwardInstruction(agent, message, attachments) {
@@ -269,7 +342,18 @@ export function apply(ctx, rawConfig) {
   const config = configureRuntime(rawConfig)
   const allowAgentControl = config.mode.allowAgentControl === true
   const reminder = configSection(config, allowAgentControl)
-  modeState.replace(loadModes(config.mode.storePath || undefined))
+  const loadedModes = loadModesDetailed(config.mode.storePath || undefined)
+  modeState.replace(loadedModes.modes)
+  modeStoreLoad = {
+    status: loadedModes.status,
+    file: loadedModes.file,
+    error: loadedModes.error ?? null,
+  }
+  if (loadedModes.status === 'corrupt') {
+    console.warn(
+      `[dsh-tower] the mode store is corrupt and was not loaded (${loadedModes.file}): ${loadedModes.error}; sessions start with Tower mode off until the file is repaired`,
+    )
+  }
   if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
   denyTools = new Set(config.mode.denyTools)
 
@@ -310,7 +394,12 @@ export function apply(ctx, rawConfig) {
         )
       }
       entry.lock = { token: result.record.token, commonDir: repo.commonDir }
-      persistModes()
+      const saved = persistModes()
+      if (!saved.ok) {
+        throw new Error(
+          `workspace lock for ${repo.root} was acquired, but the mode store could not be saved: ${saved.error ?? 'unknown error'}`,
+        )
+      }
     },
     async status(entry, key) {
       if (!entry?.lock) return { enabled: runtimeConfig().mode.workspaceLock === true, held: false }
@@ -436,6 +525,10 @@ export function apply(ctx, rawConfig) {
     return () => clearInterval(timer)
   })
 
+  // The two session tools below are registered directly instead of through the
+  // define() aggregate, so each handler authorizes first through the same
+  // default-deny kernel (host/authorization.js). The matrix covers all 29
+  // shipped tools, including these two; no tool bypasses the decision point.
   ctx.effect(() =>
     ctx.tools.register({
       name: 'tower_mode',
@@ -463,6 +556,7 @@ export function apply(ctx, rawConfig) {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(_args, exec) {
+        await authorizeSessionCall('tower_mode', exec, agentCwd(exec.agent))
         const key = agentKey(exec.agent)
         const entry = key ? modeState.get(key) : undefined
         return {
@@ -474,6 +568,7 @@ export function apply(ctx, rawConfig) {
           pausedGoal: entry?.pausedGoal ?? null,
           deniedWhileActive: [...denyTools],
           persistedAt: storePath(config.mode.storePath || undefined),
+          modeStore: modeStoreLoad,
           pluginVersion: readPluginVersion(),
           hotReload: (() => {
             // #121/#122: the tower-hmr component row owns the bridge. When the
@@ -539,6 +634,7 @@ export function apply(ctx, rawConfig) {
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
         },
         async execute(args, exec) {
+          await authorizeSessionCall('tower_control', exec, agentCwd(exec.agent))
           const key = agentKey(exec.agent)
           if (!key) return { ok: false, error: 'tower_control requires a live calling agent' }
           if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
@@ -630,15 +726,23 @@ export function apply(ctx, rawConfig) {
                   return enterMode(ctx, key, exec.agent, 'agent', reason)
                 })()
               : await exitMode(key, 'agent', reason)
+          const persisted = outcome.persisted !== false
           return {
-            ok: true,
+            ok: persisted,
             action: args.action,
             mode: modeOn(key) ? 'on' : 'off',
-            changed: args.action === 'enter' ? !outcome.wasOn : outcome.wasOn,
+            changed: outcome.changed ?? (args.action === 'enter' ? !outcome.wasOn : outcome.wasOn),
             changedBy: 'agent',
             reason,
             pausedGoal: outcome.pausedGoal ?? null,
             goalNote: outcome.goalNote ?? null,
+            persisted,
+            ...(persisted
+              ? {}
+              : {
+                  error: outcome.error?.message ?? outcome.persistError ?? 'the mode store could not be saved',
+                  ...(outcome.error?.code ? { errorCode: outcome.error.code } : {}),
+                }),
           }
         },
       }),
@@ -657,7 +761,13 @@ export function apply(ctx, rawConfig) {
         if (/^ack$/i.test(raw)) {
           const previous = modeState.get(key) ?? { on: false }
           modeState.set(key, { ...previous, on: previous.on === true, humanAckAt: Date.now(), at: Date.now() })
-          persistModes()
+          const saved = persistModes()
+          if (!saved.ok) {
+            return {
+              kind: 'error',
+              text: `Human acknowledgement recorded in memory, but the mode store could not be saved: ${saved.error ?? 'unknown error'}. It may be lost on restart.`,
+            }
+          }
           return { kind: 'success', text: 'Human acknowledgement recorded; the model may now make the first Tower-mode entry in this session.' }
         }
         const baseMatch = raw.match(/^base\s+(\S+)\s*$/i)
@@ -665,7 +775,13 @@ export function apply(ctx, rawConfig) {
           const entry = modeState.get(key)
           if (!entry || entry.on !== true) return { kind: 'error', text: 'Run /tower on first, then /tower base <branch>.' }
           entry.baseBranch = baseMatch[1]
-          persistModes()
+          const saved = persistModes()
+          if (!saved.ok) {
+            return {
+              kind: 'error',
+              text: `Tower base preference set to "${entry.baseBranch}" in memory, but the mode store could not be saved: ${saved.error ?? 'unknown error'}. It may be lost on restart.`,
+            }
+          }
           return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }
         }
         const parsed = parseTowerInput(rawInput)
@@ -715,14 +831,27 @@ export function apply(ctx, rawConfig) {
         const outcome = active
           ? enterMode(ctx, key, agent, 'user', message || null)
           : await exitMode(key, 'user', message || null)
-
+        const persisted = outcome.persisted !== false
         let forwarded = false
         try {
           forwarded = forwardInstruction(agent, message, attachments)
         } catch (error) {
           return {
             kind: 'error',
-            text: `Tower mode changed, but the carried message could not be delivered: ${String(error?.message ?? error)}`,
+            text: `Tower mode changed${persisted ? '' : ` in memory only (${outcome.persistError})`}, but the carried message could not be delivered: ${String(error?.message ?? error)}`,
+          }
+        }
+        if (!persisted) {
+          if (outcome.error) {
+            // F33: the rollback changed nothing, so describeChange would claim
+            // "Tower mode OFF" for a session that is still on. Report the real
+            // failure and keep any carried instruction visible.
+            const carried = forwarded ? (message ? ` Carried your instruction: ${message}` : ' Carried your attachments.') : ''
+            return { kind: 'error', text: `${outcome.error.message}${carried}` }
+          }
+          return {
+            kind: 'error',
+            text: `${describeChange(active, outcome, forwarded, message, allowAgentControl)} The mode change was applied in memory but could not be persisted: ${outcome.persistError}; it may be lost on restart.`,
           }
         }
         return {

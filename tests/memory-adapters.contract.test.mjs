@@ -19,6 +19,7 @@ import * as realGit from '../adapters/git.js'
 import { Tower } from '../host/tower.js'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { PORTS } from '../ports/index.js'
+import { VCS_OPTIONAL_METHODS, VCS_PORT } from '../ports/vcs.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
@@ -28,6 +29,9 @@ const COMMON_DIR = '/virtual/repo/.git'
 const STORE_SURFACE = ['pathsFor', 'readJson', 'writeJsonAtomic', 'appendJsonl', 'withLock']
 const STORE_EXTRA_SURFACE = ['exists', 'ensureDir']
 const VCS_SURFACE = ['git', 'tryGit', 'revParse', 'isClean', 'isAncestor']
+// Optional capabilities, by deps member: declared for the guard, absent from the
+// required contract so an adapter without a filesystem still passes assertPort.
+const OPTIONAL_PORT_METHODS = new Map([['vcs', VCS_OPTIONAL_METHODS]])
 
 function freshStore(options) {
   const store = createMemoryStore(options)
@@ -338,9 +342,10 @@ function makeRegistrationCtx() {
 }
 
 /**
- * Every `deps.<port>.<method>` call under `root`, recursively.
- * Returns `{ calls, files }`, where `calls` maps `member.method` to the source
- * files that call it and `files` counts the modules scanned.
+ * Every `deps.<port>.<method>` / `deps?.<port>?.<method>` call under `root`,
+ * recursively. Returns `{ calls, files }`, where `calls` maps `member.method`
+ * to the call sites that read it (`{ file, optional }`; `optional` is true only
+ * when both hops use optional chaining) and `files` counts the modules scanned.
  */
 function collectPortCalls(root) {
   const calls = new Map()
@@ -353,16 +358,64 @@ function collectPortCalls(root) {
         files += 1
         const file = new URL(entry.name, dir)
         const source = fs.readFileSync(file, 'utf8')
-        for (const match of source.matchAll(/deps\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
-          const key = `${match[1]}.${match[2]}`
-          if (!calls.has(key)) calls.set(key, new Set())
-          calls.get(key).add(file.pathname)
+        // `deps?.vcs?.diffChanges` is a deliberate feature probe, not a plain
+        // call: the guard must see the name so an undeclared capability fails,
+        // and the optional flag lets it require that optional-only methods are
+        // never read through a hard, unguarded access.
+        for (const match of source.matchAll(
+          /deps(\?)?\.([A-Za-z_][A-Za-z0-9_]*)(\?)?\.([A-Za-z_][A-Za-z0-9_]*)/g,
+        )) {
+          const key = `${match[2]}.${match[4]}`
+          if (!calls.has(key)) calls.set(key, [])
+          const call = { file: file.pathname, optional: match[1] === '?' && match[3] === '?' }
+          if (!calls.get(key).some((entry) => entry.file === call.file && entry.optional === call.optional)) {
+            calls.get(key).push(call)
+          }
         }
       }
     }
   }
   walk(root)
   return { calls, files }
+}
+
+/** Unique files among the collected call sites, for failure messages. */
+function callFiles(entries) {
+  return [...new Set(entries.map((entry) => entry.file))].join(', ')
+}
+
+/**
+ * Compare collected call sites with the runtime port declarations. Required
+ * calls may be hard or optional; an optional-only capability must be declared
+ * in OPTIONAL_PORT_METHODS and read through optional chaining, because a hard
+ * read would throw for every adapter that omits it.
+ */
+function portCallProblems(calls) {
+  const problems = []
+  for (const key of [...calls.keys()].sort()) {
+    const [member, method] = key.split('.')
+    const port = PORTS[member]
+    const entries = calls.get(key)
+    if (!port) {
+      problems.push(`${key} (no such port member: ${member})`)
+      continue
+    }
+    const required = port.contract.methods.includes(method)
+    const declaredOptional = OPTIONAL_PORT_METHODS.get(member)?.includes(method) === true
+    if (!required && !declaredOptional) {
+      problems.push(`${key} <- ${callFiles(entries)}`)
+      continue
+    }
+    if (!required) {
+      const unsafe = entries.filter((entry) => !entry.optional)
+      if (unsafe.length > 0) {
+        problems.push(
+          `${key} is optional on ${port.contract.name} and must be read through optional chaining <- ${callFiles(unsafe)}`,
+        )
+      }
+    }
+  }
+  return problems
 }
 
 test('every deps port call in app/** and tools/** is declared by its port', () => {
@@ -380,21 +433,64 @@ test('every deps port call in app/** and tools/** is declared by its port', () =
   for (const [name, root] of Object.entries(roots)) {
     const found = collectPortCalls(root)
     scanned[name] = found.files
-    for (const [key, files] of found.calls) {
-      if (!calls.has(key)) calls.set(key, new Set())
-      for (const file of files) calls.get(key).add(file)
+    for (const [key, entries] of found.calls) {
+      if (!calls.has(key)) calls.set(key, [])
+      for (const entry of entries) {
+        if (!calls.get(key).some((seen) => seen.file === entry.file && seen.optional === entry.optional)) {
+          calls.get(key).push(entry)
+        }
+      }
     }
   }
   assert.ok(scanned.app > 0 && scanned.tools > 0, `both layers must be scanned, saw ${JSON.stringify(scanned)}`)
   assert.ok(calls.size > 0, 'the app and tools layers must reach their dependencies through deps')
-  const missing = []
-  for (const key of [...calls.keys()].sort()) {
-    const [member, method] = key.split('.')
-    const port = PORTS[member]
-    if (!port) missing.push(`${key} (no such port member: ${member})`)
-    else if (!port.contract.methods.includes(method)) missing.push(`${key} <- ${[...calls.get(key)].join(', ')}`)
-  }
+  const missing = portCallProblems(calls)
   assert.deepEqual(missing, [], `ports must declare every deps call in app/** and tools/**: ${missing.join('; ')}`)
+})
+
+test('the port-call guard sees optional-chained deps reads', () => {
+  // #M57/#M60: app/gate.js probes `deps?.vcs?.diffChanges` and
+  // `deps?.vcs?.worktreeChanges`. Before the regex covered optional chaining
+  // these reads were invisible, so an undeclared optional capability could
+  // silently fall through to the weaker name-only Git path.
+  const { calls, files } = collectPortCalls(new URL('../app/', import.meta.url))
+  assert.ok(files > 0, 'app/** must be scanned')
+  for (const method of VCS_OPTIONAL_METHODS) {
+    const entries = calls.get(`vcs.${method}`)
+    assert.ok(entries && entries.length > 0, `the guard must see deps?.vcs?.${method}`)
+    assert.ok(
+      entries.every((entry) => entry.optional),
+      `deps?.vcs?.${method} must be recorded as an optional-chained read`,
+    )
+  }
+})
+
+test('optional VcsPort readers are declared separately from the required contract', () => {
+  // Declared means the guard knows the names; optional means an alternate vcs
+  // without a checkout still satisfies assertVcsPort and callers feature-detect.
+  assert.deepEqual([...VCS_OPTIONAL_METHODS].sort(), ['diffChanges', 'worktreeChanges'])
+  for (const method of VCS_OPTIONAL_METHODS) {
+    assert.equal(VCS_PORT.methods.includes(method), false, `${method} must stay out of the required VCS_PORT`)
+  }
+  const minimal = Object.fromEntries(VCS_PORT.methods.map((method) => [method, () => {}]))
+  assert.doesNotThrow(() => PORTS.vcs.assert(minimal), 'a vcs with only the required surface must pass assertVcsPort')
+  assert.doesNotThrow(() => PORTS.vcs.assert(createScriptedVcs()), 'the in-memory double must stay a valid VcsPort')
+})
+
+test('the guard rejects undeclared reads and hard reads of optional-only methods', () => {
+  // The two failure modes the optional-chaining guard exists to catch: a call
+  // to a capability no port declares, and an unguarded read of one that is
+  // declared optional (which would throw for adapters without it).
+  const undeclared = portCallProblems(new Map([['vcs.mystery', [{ file: 'app/x.js', optional: true }]]]))
+  assert.equal(undeclared.length, 1)
+  assert.match(undeclared[0], /vcs\.mystery/)
+
+  const hardRead = portCallProblems(new Map([['vcs.diffChanges', [{ file: 'app/x.js', optional: false }]]]))
+  assert.equal(hardRead.length, 1)
+  assert.match(hardRead[0], /optional on VcsPort.*optional chaining/)
+
+  const guarded = portCallProblems(new Map([['vcs.diffChanges', [{ file: 'app/x.js', optional: true }]]]))
+  assert.deepEqual(guarded, [])
 })
 
 test('the composition root supplies the ports the registry injects', async () => {

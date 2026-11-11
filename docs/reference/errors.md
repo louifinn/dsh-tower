@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 39 tool error codes.
+release defines 41 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -46,6 +46,8 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry | `tower_spawn` with `role:"reviewer"`, or a review submission, while `review.mode` is `off` |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to | a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale | `mode.workspaceLock:true` and a second session calls a repo-scoped tool |
+| `mode-store-corrupt` | The persisted Tower mode store is unreadable or corrupt, so the owner's mode cannot be determined. | no | repair or move aside the mode store file, then re-enter Tower mode in the owning session and retry | a takeover or mode read while `modes.json` is truncated, invalid JSON, or not a `{version,modes}` document |
+| `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change | `/tower on\|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock) |
 | `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover | takeover while the previous owner still has Tower mode on and a live workspace lock |
 | `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover | takeover while live roster agents exist or another session holds the workspace lock |
 | `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available | `tower_control({action:"takeover"})` in a profile without the userQuestions service |

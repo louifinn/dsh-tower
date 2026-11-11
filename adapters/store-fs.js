@@ -29,5 +29,11 @@ export function createStorePort() {
     writeText: (file, text) => fsp.writeFile(file, text, 'utf8'),
     appendText: (file, text) => fsp.appendFile(file, text, 'utf8'),
     rename: (from, to) => fsp.rename(from, to),
+    // O_EXCL-style copy. This is the compare-and-swap a quarantine restore
+    // needs: POSIX `rename` and Windows MoveFileExW(REPLACE_EXISTING) replace a
+    // destination created after an `exists()` check, while COPYFILE_EXCL
+    // reports EEXIST and leaves both records intact. The caller keeps the
+    // quarantined bytes on EEXIST instead of overwriting the newer lock.
+    copyFileExclusive: (from, to) => fsp.copyFile(from, to, fs.constants.COPYFILE_EXCL),
   })
 }

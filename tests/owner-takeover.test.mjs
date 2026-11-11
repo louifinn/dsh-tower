@@ -113,23 +113,43 @@ test('ownershipSnapshot: live roster and a foreign workspace lock both block', (
   assert.match(foreign.blockers[0].detail, /session-c/)
 })
 
+test('ownershipSnapshot: a corrupt mode store fails closed before every owner rule', () => {
+  const snapshot = ownershipSnapshot({
+    state: stateWith('owner-a'),
+    modes: new Map(),
+    modeStore: { status: 'corrupt', file: '/repo/modes.json', error: 'unexpected token' },
+    caller: 'owner-b',
+    lock: { held: false, self: false, stale: false },
+    liveRoster: [{ name: 'worker-m1', state: 'running' }],
+  })
+  assert.equal(snapshot.modeStoreStatus, 'corrupt')
+  assert.equal(snapshot.modeStoreFile, '/repo/modes.json')
+  assert.equal(snapshot.ownerMode, 'unknown', 'a corrupt store must never claim the owner is off')
+  assert.equal(snapshot.takeoverAvailable, false)
+  assert.equal(snapshot.blockers[0].code, 'mode-store-corrupt')
+  assert.match(snapshot.blockers[0].detail, /modes\.json/)
+  assert.match(snapshot.blockers[0].detail, /unexpected token/)
+  assert.match(snapshot.blockers[0].action, /retry the takeover/)
+})
+
 test('transferOwnership: audited transfer, same-owner no-op, and live-owner refusal', async () => {
   const { root, repo } = makeRepo()
   try {
     const tower = await Tower.open(repo)
     const initial = await tower.init({ towerAgentId: 'owner-a' })
     const off = new Map([['owner-a', { on: false }]])
+    const free = { held: false, self: false, stale: false }
 
     const transferred = await transferOwnership(tower, {
       caller: 'owner-b',
       reason: 'previous session is gone',
-      modes: off,
-      lock: { held: false, self: false, stale: false },
+      readFacts: async () => ({ modes: off, lock: free, liveRoster: [] }),
     })
     assert.equal(transferred.transferred, true)
     assert.equal(transferred.previousOwner, 'owner-a')
     assert.equal(transferred.owner, 'owner-b')
     assert.equal(transferred.revision, initial.revision + 1)
+    assert.equal(transferred.ownerMode, 'off')
 
     const snapshot = await tower.load()
     assert.equal(snapshot.towerAgentId, 'owner-b')
@@ -141,8 +161,7 @@ test('transferOwnership: audited transfer, same-owner no-op, and live-owner refu
     const noop = await transferOwnership(tower, {
       caller: 'owner-b',
       reason: 'again',
-      modes: new Map([['owner-b', { on: true }]]),
-      lock: { held: false, self: false, stale: false },
+      readFacts: async () => ({ modes: new Map([['owner-b', { on: true }]]), lock: free, liveRoster: [] }),
     })
     assert.equal(noop.alreadyOwner, true)
     assert.equal(noop.transferred, false)
@@ -153,13 +172,20 @@ test('transferOwnership: audited transfer, same-owner no-op, and live-owner refu
         transferOwnership(tower, {
           caller: 'owner-c',
           reason: 'should not win',
-          modes: new Map([['owner-b', { on: true }]]),
-          lock: { held: true, self: false, stale: false, holder: holder('owner-b') },
+          readFacts: async () => ({
+            modes: new Map([['owner-b', { on: true }]]),
+            lock: { held: true, self: false, stale: false, holder: holder('owner-b') },
+            liveRoster: [],
+          }),
         }),
       (error) => error.code === 'owner-live',
     )
     const after = await tower.load()
     assert.equal(after.towerAgentId, 'owner-b')
+    await assert.rejects(
+      () => transferOwnership(tower, { caller: 'owner-c', reason: 'no facts', readFacts: /** @type {any} */ (null) }),
+      (error) => error.code === 'invalid-argument',
+    )
   } finally {
     removeTemp(root)
   }

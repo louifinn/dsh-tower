@@ -67,12 +67,21 @@ const SCHEMAS = {
   mission: S.obj({ revision: S.int, mission: S.obj() }, ['revision', 'mission']),
   status: S.obj(
     {
+      ok: S.bool,
       repoRoot: S.str,
       commonDir: S.str,
       statePath: S.str,
       base: S.str,
       revision: S.int,
       counts: S.obj(),
+      stateError: S.str,
+      stateSchema: S.obj({
+        currentVersion: S.any,
+        supportedVersion: S.int,
+        migrations: S.arr(S.obj({ from: S.int, to: S.int })),
+        status: S.str,
+        message: S.str,
+      }),
       openTasks: S.int,
       roster: S.int,
       messages: S.int,

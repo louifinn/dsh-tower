@@ -22,6 +22,7 @@ import { assertPort, definePort } from './contract.js'
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText
  * @property {(from: string, to: string) => Promise<void>} rename
  * @property {(from: string, to: string) => Promise<void>} renameWithRetry
+ * @property {(from: string, to: string) => Promise<void>} copyFileExclusive
  * @property {(file: string) => Promise<{ mtimeMs: number }>} stat
  * @property {(file: string) => Promise<void>} unlink
  * @property {(paths: object, options?: object) => Promise<{ record: any, raw: string | null }>} readGitLock
@@ -33,6 +34,15 @@ import { assertPort, definePort } from './contract.js'
 // failure it unlinks its source, which is right for a disposable temp file but
 // would delete the bytes `tower_recover` must keep auditable. The audit rename
 // therefore uses the plain `rename` primitive (see tools/recover.js).
+//
+// `copyFileExclusive` is an optional filesystem capability rather than a
+// required method: an in-memory implementation has no filesystem and need not
+// provide it. It is declared here because the only caller,
+// `removeStaleGitLocks` in app/tower.js, must never fall back to the
+// overwriting `rename` when the capability is absent — it keeps the quarantined
+// lock as evidence instead. The filesystem implementation in
+// adapters/store-fs.js always provides it; its EEXIST outcome is the CAS that
+// prevents a third Git writer's freshly created lock from being replaced.
 export const STORE_PORT = definePort('StorePort', [
   'pathsFor',
   'exists',

@@ -23,6 +23,7 @@ import { inspectStateVersion, prepareState, validateState } from '../domain/stat
 import { STATE_MIGRATIONS } from '../domain/state/migrations.js'
 import { V3_FIXTURE } from './property/fixtures/state-versions.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
+import { validateJsonSchema } from './schema-validator.mjs'
 import * as store from '../adapters/store.js'
 import { loadStateFile } from '../adapters/stateFile.js'
 
@@ -43,7 +44,7 @@ function makeRepo() {
   return { root, repo }
 }
 
-function makeCtx() {
+function makeCtx(options = {}) {
   const tools = new Map()
   const subagents = {
     list: () => ['spawn'],
@@ -71,7 +72,7 @@ function makeCtx() {
     systemPrompt: { section() {} },
     inject(_deps, callback) { callback(ctx) },
   }
-  registerTowerTools(ctx)
+  registerTowerTools(ctx, options)
   return { ctx, tools }
 }
 
@@ -394,7 +395,7 @@ test('the real load path anchors a planned-but-never-provisioned legacy survey (
   }
 })
 
-test('a state written by a newer plugin is refused and left byte-identical', async () => {
+test('a state written by a newer plugin degrades status but is never rewritten', async () => {
   const { root, repo } = makeRepo()
   try {
     const { tools } = makeCtx()
@@ -405,12 +406,47 @@ test('a state written by a newer plugin is refused and left byte-identical', asy
     fs.writeFileSync(tower.paths.state, future)
     const before = sha256(tower.paths.state)
 
-    await assert.rejects(
-      () => tools.get('tower_status').execute({ repoRoot: repo }, towerExec),
-      (error) => error.code === 'state-version-unsupported' && /newer/.test(error.message) && error.nextAction !== null,
-    )
+    // F40: status is a public read-only diagnostic row. It reports the
+    // unreadable state from disk (including the raw schema version) instead of
+    // failing inside the handler, and it never rewrites or migrates the file.
+    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    assert.equal(status.ok, false)
+    assert.match(status.stateError, /state-version-unsupported/)
+    assert.equal(status.stateSchema.status, 'newer')
+    assert.equal(status.stateSchema.currentVersion, SCHEMA_VERSION + 1)
+    assert.equal(status.stateSchema.supportedVersion, SCHEMA_VERSION)
+    assert.deepEqual(status.stateSchema.migrations, [])
+    assert.deepEqual(status.counts, {})
+    assert.deepEqual(status.missions, [])
+    assert.deepEqual(status.activity, [])
+    assert.equal(status.repoRoot, tower.root)
+    assert.equal(status.commonDir, tower.commonDir)
+    assert.equal(status.statePath, tower.paths.state)
+    assert.equal(status.base, parsed.base, 'the base branch is read from the on-disk document')
+    assert.equal(status.revision, parsed.revision)
+    assert.equal(status.boardPath, tower.boardFile())
+    assert.equal(status.mode, null)
+    assert.equal(typeof status.review, 'object')
+    assert.ok(status.components)
+    // The declared output contract covers the degraded payload, not only the
+    // normal one.
+    assert.deepEqual(validateJsonSchema(tools.get('tower_status').output.schema, status), [])
+
+    // A mission detail request degrades the same way rather than throwing.
+    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    assert.equal(detail.ok, false)
+    assert.equal(detail.missionId, 'M1')
+    assert.equal(detail.detail, null)
+    assert.match(detail.stateError, /state-version-unsupported/)
+
     await assert.rejects(
       () => call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'Nope', scope: ['x/**'] }] }),
+      (error) => error.code === 'state-version-unsupported',
+    )
+    // A known-only row must propagate the unreadable state too: the public-row
+    // fallback is a diagnostic surface, not a blanket downgrade to anonymous.
+    await assert.rejects(
+      () => call(tools, 'tower_inbox', { repoRoot: repo }),
       (error) => error.code === 'state-version-unsupported',
     )
     assert.equal(sha256(tower.paths.state), before, 'a refused newer state must not be rewritten')
@@ -420,23 +456,82 @@ test('a state written by a newer plugin is refused and left byte-identical', asy
   }
 })
 
-test('a corrupt state file stays state-corrupt and byte-identical', async () => {
+test('a corrupt state file degrades tower_status and stays byte-identical', async () => {
   const { root, repo } = makeRepo()
   try {
     const { tools } = makeCtx()
     await call(tools, 'tower_init', { repoRoot: repo })
     const tower = await Tower.open(repo)
-    for (const text of [
-      'this is not json at all',
-      JSON.stringify({ ...readState(tower.paths.state), schemaVersion: 'v2' }, null, 2),
+    const parsed = readState(tower.paths.state)
+    for (const { text, raw } of [
+      { text: 'this is not json at all', raw: null },
+      { text: JSON.stringify({ ...parsed, schemaVersion: 'v2' }, null, 2), raw: { ...parsed, schemaVersion: 'v2' } },
     ]) {
       fs.writeFileSync(tower.paths.state, text)
+      const status = await call(tools, 'tower_status', { repoRoot: repo })
+      assert.equal(status.ok, false)
+      assert.match(status.stateError, /\[tower:state-corrupt\]/)
+      assert.equal(status.stateSchema.status, 'invalid')
+      assert.equal(status.stateSchema.currentVersion, null)
+      assert.equal(status.stateSchema.supportedVersion, SCHEMA_VERSION)
+      assert.deepEqual(status.stateSchema.migrations, [])
+      assert.match(status.stateSchema.message, /could not be inspected|no usable schemaVersion/)
+      assert.deepEqual(status.counts, {})
+      assert.deepEqual(status.missions, [])
+      assert.deepEqual(status.activity, [])
+      assert.equal(status.statePath, tower.paths.state)
+      assert.equal(status.base, raw?.base ?? tower.branch ?? '')
+      assert.equal(status.revision, raw?.revision ?? 0)
+      assert.deepEqual(validateJsonSchema(tools.get('tower_status').output.schema, status), [])
       await assert.rejects(
-        () => tools.get('tower_status').execute({ repoRoot: repo }, towerExec),
+        () => call(tools, 'tower_inbox', { repoRoot: repo }),
         /\[tower:state-corrupt\]/,
+        'a known-only row still sees the corrupt state instead of anonymous behavior',
       )
       assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text)
+      assert.deepEqual(backupsFor(tower), [], 'a degraded status must not back up or migrate a corrupt state')
     }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_preflight keeps failing with the state error instead of inventing a gate', async () => {
+  const { root, repo } = makeRepo()
+  try {
+    const seen = []
+    // The workspace hook runs only after authorization, so a recorded call
+    // proves the public-row fallback let an unreadable state reach the handler.
+    const { tools } = makeCtx({
+      workspace: {
+        ensure: async (_repoRoot, _exec, toolName) => {
+          seen.push(toolName)
+        },
+      },
+    })
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const parsed = readState(tower.paths.state)
+
+    fs.writeFileSync(tower.paths.state, JSON.stringify({ ...parsed, schemaVersion: SCHEMA_VERSION + 1 }, null, 2))
+    const newerBefore = sha256(tower.paths.state)
+    await assert.rejects(
+      () => call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' }),
+      (error) => error.code === 'state-version-unsupported',
+      'a merge gate cannot be computed from a newer state',
+    )
+    assert.deepEqual(seen, ['tower_preflight'], 'authorization fallback reached the handler, which rethrew the state error')
+    assert.equal(sha256(tower.paths.state), newerBefore, 'a failed preflight must not rewrite state')
+
+    fs.writeFileSync(tower.paths.state, 'this is not json at all')
+    const corruptBefore = sha256(tower.paths.state)
+    await assert.rejects(
+      () => call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' }),
+      (error) => error.code === 'state-corrupt',
+      'a merge gate cannot be computed from a corrupt state',
+    )
+    assert.deepEqual(seen, ['tower_preflight', 'tower_preflight'])
+    assert.equal(sha256(tower.paths.state), corruptBefore, 'a failed preflight must not rewrite state')
   } finally {
     removeTemp(root)
   }
@@ -514,11 +609,32 @@ test('tower_doctor reports the state schema version and the pending migration wi
       tower.paths.state,
       JSON.stringify({ ...readState(tower.paths.state), schemaVersion: SCHEMA_VERSION + 1 }, null, 2),
     )
+    const newerBefore = sha256(tower.paths.state)
     const newer = await call(tools, 'tower_doctor', { repoRoot: repo })
     assert.equal(newer.stateSchema.currentVersion, SCHEMA_VERSION + 1)
     assert.equal(newer.stateSchema.status, 'newer')
     assert.equal(newer.checks.find((check) => check.id === 'state-schema').status, 'fail')
     assert.equal(newer.ok, false)
+    assert.equal(sha256(tower.paths.state), newerBefore, 'doctor must not rewrite a newer state')
+    assert.deepEqual(backupsFor(tower), [], 'doctor must not back up or migrate a newer state')
+
+    // F40: a corrupt state must reach the handler as well. Authorization falls
+    // back to the anonymous actor for this public row, and the report names the
+    // unreadable schema instead of failing with a generic authorization error.
+    const corruptText = 'this is not json at all'
+    fs.writeFileSync(tower.paths.state, corruptText)
+    const corruptBefore = sha256(tower.paths.state)
+    const corrupt = await call(tools, 'tower_doctor', { repoRoot: repo })
+    assert.equal(corrupt.stateSchema.currentVersion, null)
+    assert.equal(corrupt.stateSchema.supportedVersion, SCHEMA_VERSION)
+    assert.deepEqual(corrupt.stateSchema.migrations, [])
+    assert.equal(corrupt.stateSchema.status, 'invalid')
+    const schemaCheck = corrupt.checks.find((check) => check.id === 'state-schema')
+    assert.equal(schemaCheck.status, 'fail')
+    assert.match(schemaCheck.detail, /could not be inspected/)
+    assert.equal(corrupt.ok, false)
+    assert.equal(sha256(tower.paths.state), corruptBefore, 'doctor must not rewrite a corrupt state')
+    assert.deepEqual(backupsFor(tower), [], 'doctor must not back up or migrate a corrupt state')
   } finally {
     removeTemp(root)
   }

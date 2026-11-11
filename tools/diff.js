@@ -14,11 +14,13 @@
 // See docs/reference/tools.generated.md for the public shape.
 // tower_diff: read-only mission branch view.
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
+import { TowerToolError } from '../domain/errors.js'
 import { DiffInput } from '../domain/contracts/tool-inputs/index.js'
+import { isUnknownRole } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any }} deps
  */
 export function registerDiffTool(ctx, deps) {
   // openTower is injected by the composition root (#69).
@@ -31,10 +33,15 @@ export function registerDiffTool(ctx, deps) {
     aliases: {"missionId":["id"]},
     requiresMissionId: true,
     output: output(SCHEMAS.diff),
-    async execute(args, exec) {
+    async execute(args, _exec, actor) {
+      // Defence in depth: the kernel already resolved and authorized this call
+      // (including mission participation). Never re-resolve a different actor
+      // here, because the reviewer binding must match the authorized actor.
+      if (!actor || isUnknownRole(actor.role)) {
+        throw new TowerToolError('not-authorized', 'tower_diff requires a registered roster agent or the tower')
+      }
       const tower = await deps.openTower(args.repoRoot)
       // A reviewer's diff is bound to its recorded review commit (#149 W3).
-      const actor = await deps.actorFor(tower, exec)
       return tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes, actor })
     },
   })

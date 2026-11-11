@@ -177,7 +177,7 @@ async function prepareTeardown(tower, input) {
 /** Short state lock: reject a stale decision before any git mutation. */
 async function claimRemoval(tower, candidate, expectedRevision, input) {
   const activity = input.activity ?? {}
-  return tower.deps.store.withLock(tower.paths, async () => {
+  return tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== expectedRevision) {
       throw new TowerToolError('stale-base', `${STALE}. No worktree was removed.`)
@@ -269,7 +269,7 @@ export async function teardown(tower, input) {
     // the removal on the freshly loaded state instead of rejecting it (which
     // would leave state claiming a worktree that no longer exists). Only this
     // mission's fields change, so no concurrent update is lost.
-    const commit = await tower.deps.store.withLock(tower.paths, async () => {
+    const commit = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
       const state = await tower.load()
       const mission = state.missions.find((entry) => entry.id === candidate.missionId)
       if (!mission) return { revision: state.revision }
@@ -281,7 +281,7 @@ export async function teardown(tower, input) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
       await tower.deps.store.appendJsonl(tower.paths.activity, {
         at: now,
         type: 'teardown',
@@ -298,12 +298,12 @@ export async function teardown(tower, input) {
   // Archival runs under one final short lock. It is policy-driven (age or the
   // hot-terminal cap), so a mission torn down a moment ago stays hot until it
   // is old enough; `archive.afterDays: 0` archives it on this call.
-  const archive = await tower.deps.store.withLock(tower.paths, async () => {
+  const archive = await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
     const state = await tower.load()
     const swept = await sweepArchive(tower, state, { now: Date.now(), activity: input.activity ?? {} })
     if (swept.written) {
       validateState(state, tower.paths.state)
-      await tower.deps.store.writeJsonAtomic(tower.paths.state, state)
+      await tower.writeState(state, held)
     }
     return swept
   })

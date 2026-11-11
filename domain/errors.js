@@ -199,6 +199,18 @@ export const ERROR_CODES = {
     retryable: true,
     nextAction: 'run /tower off in the other session or wait for its lock to become stale',
   },
+  'mode-store-corrupt': {
+    description: 'The persisted Tower mode store is unreadable or corrupt, so the owner\'s mode cannot be determined.',
+    trigger: 'a takeover or mode read while `modes.json` is truncated, invalid JSON, or not a `{version,modes}` document',
+    retryable: false,
+    nextAction: 'repair or move aside the mode store file, then re-enter Tower mode in the owning session and retry',
+  },
+  'mode-persist-failed': {
+    description: 'A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records.',
+    trigger: '`/tower on|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock)',
+    retryable: true,
+    nextAction: 'fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change',
+  },
   'owner-live': {
     description: 'The current Tower owner is still active, so ownership cannot be transferred.',
     trigger: 'takeover while the previous owner still has Tower mode on and a live workspace lock',
