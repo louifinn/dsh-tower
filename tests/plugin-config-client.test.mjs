@@ -563,7 +563,12 @@ test('switching away from a profile that started with review off explains the re
   const restartHint = findNodes(tree, (node) => node.props && Object.hasOwn(node.props, 'data-dsh-tower-restart-hint'))
   assert.equal(restartHint.length, 1)
   assert.equal(restartHint[0].props.id, 'dsh-tower-review-policy-restart-hint')
+  // R1: the hint is inserted only after a successful save, so it must announce
+  // itself instead of relying on the sibling status region ("Saved.").
   assert.equal(restartHint[0].props.role, 'note')
+  assert.equal(restartHint[0].props['aria-live'], 'polite')
+  assert.equal(restartHint[0].props['aria-atomic'], 'true')
+  assert.match(textOf(restartHint[0]), /restart/i)
 
   // A profile that did not start off needs no restart: the tool was registered.
   const started = mount(makeForm({ review: { mode: 'optional' } }))

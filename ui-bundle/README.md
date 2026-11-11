@@ -99,9 +99,13 @@ minimum contract is deliberately small and test-enforced in
 - **Review-policy settings control** (root `client.js`, native radios): the
   section is a labelled group with a heading, the radiogroup is named by the
   heading and described by the intro, each input is labelled and described by
-  its option spans, and the current/saved state plus the restart note are live
-  regions. Keyboard and focus behaviour is the browser's native radio group;
-  nothing is implemented with a div that only looks interactive.
+  its option spans, and the current/saved state is `role="status"` with
+  `aria-live="polite"`/`aria-atomic="true"`. The restart note, inserted only
+  after a save away from a profile that started with review off, is
+  `role="note"` with `aria-live="polite"` and `aria-atomic="true"` so the
+  dynamic insertion is announced instead of silently appearing beside the
+  "Saved." status. Keyboard and focus behaviour is the browser's native radio
+  group; nothing is implemented with a div that only looks interactive.
 
 The dock stores a last-known mode per browser session. It validates the whole
 snapshot before display (plain object, exact keys, boolean `on`, bounded text,

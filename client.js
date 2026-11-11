@@ -285,6 +285,8 @@ window.__ModuleLoader__.load({
                 'data-dsh-tower-restart-hint': '',
                 id: sectionId + '-restart-hint',
                 role: 'note',
+                'aria-live': 'polite',
+                'aria-atomic': 'true',
                 style: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' },
               },
               t('config.restartHint'),
