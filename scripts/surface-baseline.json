@@ -178,8 +178,15 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 17008,
-        "decisions": []
+        "value": 13287,
+        "decisions": [
+          {
+            "from": 17008,
+            "to": 13287,
+            "date": "2026-11-12",
+            "note": "#163 Phase 1+2: the 26 repeated repoRoot fields leave the advertised schemas (the runtime resolves the repository) and 21 advertised alias fields become server-side only. A contraction, not a ratchet: any later per-profile increase still needs its own dated decision."
+          }
+        ]
       }
     },
     "worker": {
@@ -190,8 +197,15 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 8159,
-        "decisions": []
+        "value": 6465,
+        "decisions": [
+          {
+            "from": 8159,
+            "to": 6465,
+            "date": "2026-11-12",
+            "note": "#163 Phase 1+2: the worker's mounted schemas lose the repeated repoRoot and advertised aliases."
+          }
+        ]
       }
     },
     "reviewer": {
@@ -202,8 +216,15 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 5871,
-        "decisions": []
+        "value": 4661,
+        "decisions": [
+          {
+            "from": 5871,
+            "to": 4661,
+            "date": "2026-11-12",
+            "note": "#163 Phase 1+2: the reviewer's mounted schemas lose the repeated repoRoot and advertised aliases."
+          }
+        ]
       }
     }
   }

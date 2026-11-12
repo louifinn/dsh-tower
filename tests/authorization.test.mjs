@@ -24,6 +24,7 @@ import {
 } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
 import { ACTOR_ACCESS, AUTHORIZATION_MATRIX, allowsAnonymous, anonymousActor, authorize, isRepositoryOptional, resolveActor } from '../host/authorization.js'
+import { isRepositoryOptionalTool } from '../host/tool-profiles.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -202,7 +203,7 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_import_legacy: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_legacy_map: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_test: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
-  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower], repoOptional: true }),
+  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   // Session tools, not repository-authorized tools: they key off the calling
   // agent's session, so every access class reaches the handler's own gates.
   tower_mode: Object.freeze({
@@ -254,8 +255,8 @@ function matrixProblems(matrix) {
     if ((typeof row.check === 'function') !== (expected.check === true)) {
       problems.push(`row "${key}" check is ${typeof row.check === 'function'}; expected ${expected.check === true}`)
     }
-    if ((row.repoOptional === true) !== (expected.repoOptional === true)) {
-      problems.push(`row "${key}" repoOptional is ${row.repoOptional === true}; expected ${expected.repoOptional === true}`)
+    if (Object.hasOwn(row, 'repoOptional')) {
+      problems.push(`row "${key}" carries repoOptional; the repository-optional contract lives in host/tool-profiles.js (#163)`)
     }
   }
   return problems
@@ -458,8 +459,8 @@ test('authorization: every actor x tool cell resolves exactly as the expected ma
 test('authorization: tower_reload is repository-optional only through the anonymous absent-repository path', async () => {
   assert.equal(isRepositoryOptional('tower_reload'), true)
   assert.equal(isRepositoryOptional('tower_merge'), false)
-  const optional = Object.keys(EXPECTED_MATRIX).filter((tool) => EXPECTED_MATRIX[tool].repoOptional === true)
-  assert.deepEqual(optional, ['tower_reload'], 'exactly one row declares the repository-optional contract')
+  assert.equal(isRepositoryOptionalTool('tower_reload'), true, 'the profile registry is the single source (#163)')
+  assert.equal('repoOptional' in AUTHORIZATION_MATRIX.tower_reload, false, 'the matrix row no longer duplicates the marker')
   assert.equal(allowsAnonymous('tower_status'), true)
   assert.equal(allowsAnonymous('tower_reload'), false, 'the absent path is not a public row')
 
@@ -541,7 +542,8 @@ test('authorization: the expected-map checker rejects a mutated matrix', () => {
   assert.match(matrixProblems(narrowedMode)[0], /tower_mode/)
 
   // The repository-optional contract is pinned in both directions: dropping it
-  // from tower_reload or lending it to another row is a deviation.
+  // from tower_reload or lending it to another row is a deviation, and so is
+  // re-introducing the duplicate matrix flag the profile registry replaced.
   const noRepoOptional = withRow(clone(), 'tower_reload', { repoOptional: false })
   assert.match(matrixProblems(noRepoOptional)[0], /tower_reload.*repoOptional/)
   const borrowedRepoOptional = withRow(clone(), 'tower_merge', { repoOptional: true })

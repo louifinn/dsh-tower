@@ -198,7 +198,9 @@ host/presets.js
 host/session-tools.js
 host/tool-capabilities.js
 host/tool-observers.js
+host/tool-profiles.js
 host/tool-registry.js
+host/tool-repo.js
 host/tool-runtime.js
 host/tower.js
 icon.svg

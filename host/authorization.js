@@ -21,6 +21,7 @@ import { TowerToolError } from '../domain/errors.js'
 import { ROLE, isReviewerRole, isTowerRole, isUnknownRole, isWorkerRole } from '../domain/vocabulary.js'
 import { rosterProjection } from '../domain/collab/spawn.js'
 import { shapeFor } from '../domain/shapes/index.js'
+import { isRepositoryOptionalTool } from './tool-profiles.js'
 
 /**
  * Access classes the kernel understands. `survey` is not a roster role: it is
@@ -106,12 +107,12 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? 'reviewers may not run test discovery'
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
-  // tower_reload is repository-optional (ReloadInput): without a repoRoot it is a
-  // profile operation, not a repository-authorized one, so the kernel must not
-  // open a repository to authorize it. `repoOptional` is the explicit opt-in for
-  // that absent-repository path; a call that names a repository is still
-  // tower-only and the handler repeats the guard.
-  tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin'), repoOptional: true }),
+  // tower_reload is repository-optional (#163): the tool may run without a
+  // repository so a broken profile can still be reloaded. That contract is tool
+  // identity registered in `host/tool-profiles.js`, not a guess about whether a
+  // caller happened to pass repoRoot; supplying one still follows this
+  // tower-only row.
+  tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin') }),
   // Session tools: these report or change the calling session's Tower stance,
   // not repository state, so a repository access class cannot decide them.
   // tower_mode only reads the current mode entry keyed by the caller's agent
@@ -181,14 +182,14 @@ export async function openForAuthorization(tool, repoRoot, open) {
 }
 
 /**
- * True when a matrix row declares the repository-optional contract: the tool may
- * be called without a repository, and that path is authorized without resolving
- * a repository actor. A call that names a repository still follows the row.
+ * True when a tool is registered as repository-optional in the profile registry
+ * (#163). The registry is the single source: the matrix row no longer carries a
+ * duplicate `repoOptional` flag.
  *
  * @param {string} tool
  */
 export function isRepositoryOptional(tool) {
-  return AUTHORIZATION_MATRIX[tool]?.repoOptional === true
+  return isRepositoryOptionalTool(tool)
 }
 
 /**
@@ -297,10 +298,10 @@ export async function authorize(tool, actor, context = {}) {
   }
   // An explicit repository-optional call without a repository has no repository
   // ownership to check. Only the anonymous actor can take this path: no
-  // repository identity can be proven without one. The tool is part of a
-  // capability row (tower-hmr), and supplying a repository opts back into the
-  // matrix row (tower-only for tower_reload).
-  if (context.repositoryAbsent === true && rule.repoOptional === true && access === A.unknown) {
+  // repository identity can be proven without one. The tool identity is
+  // registered in `host/tool-profiles.js`, and supplying a repository opts back
+  // into the matrix row (tower-only for tower_reload).
+  if (context.repositoryAbsent === true && isRepositoryOptional(tool) && access === A.unknown) {
     return { tool, access, bootstrap: false, repositoryAbsent: true }
   }
   if (access === A.unknown) {

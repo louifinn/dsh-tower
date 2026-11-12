@@ -55,7 +55,7 @@ overall `ok`. `state.missions[].testRuns` keeps the most recent 50 receipts. The
 `ok:false` with diagnostics on failure; `tower_complete` throws `[tower:tests-failed]` when automatic
 discovery fails.
 
-- `tower_test({repoRoot,missionId})` runs discovery on demand and records a receipt.
+- `tower_test({missionId})` runs discovery on demand and records a receipt.
 - The receipt in `testRuns` is the only evidence shape. `tower_complete` does not copy a `tests`
   check into the completion report; completion checks, batch close and `gates.requireChecks` read the
   same receipt.

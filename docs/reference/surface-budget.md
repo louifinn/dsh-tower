@@ -64,8 +64,15 @@ record (`date: "YYYY-MM-DD"`) in the same file. Unlike `configKeys` and
 `components`, a profile decision needs no ADR or deletion evidence — the dated
 phase commit that records the consolidation is the evidence. The worker and
 reviewer counts come from the same allow-lists their presets install
-(`worker.js` / `reviewer.js`), so a rename cannot leave the budget measuring a
-stale list.
+(`host/tool-profiles.js`, imported by `worker.js` / `reviewer.js`), so a rename
+cannot leave the budget measuring a stale list.
+
+#163 Phase 1+2 shrank the advertised schemas without changing the tool count:
+removing the repeated `repoRoot` field and the 21 alias fields took the tower
+profile from 17,008 to 13,287 input bytes, the worker from 8,159 to 6,465, and
+the reviewer from 5,871 to 4,661. Every such contraction is a dated decision in
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); a later
+growth past the committed value fails `npm run surface:check` the same way.
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and

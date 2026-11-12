@@ -17,16 +17,17 @@
 
 ```
 tower_init repoRoot=D:\work\repo
-tower_plan repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
+tower_plan missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
 ```
 
+`tower_init` 是唯一接受 `repoRoot` 的工具；后续调用都从会话解析仓库（workspace 绑定 → 工作目录）。
 `tower_plan` 返回 mission id（`M1`）。每个 mission 在 spawn 时获得独立分支和 worktree。
 Tower 工具同时接受 `missionId` 与 `id` 两种写法（见[输入别名](../reference/tools.md#输入别名)）。
 
 ## 3. 运行 worker
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
+tower_spawn missionId=M1 role=worker
 ```
 
 调用立即返回子代理 id。worker 在 mission worktree 内工作、提交、把任务标记完成，并调用
@@ -39,7 +40,7 @@ tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
 流程时设为 `required`，然后：
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
+tower_spawn missionId=M1 role=reviewer
 ```
 
 reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交 `tower_review`。设为
@@ -54,9 +55,9 @@ reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交
 ## 5. 门禁、合并与清理
 
 ```
-tower_preflight repoRoot=D:\work\repo missionId=M1
-tower_merge     repoRoot=D:\work\repo missionId=M1
-tower_teardown  repoRoot=D:\work\repo
+tower_preflight missionId=M1
+tower_merge     missionId=M1
+tower_teardown
 ```
 
 策略为 `review.mode:required` 时，审查前运行 `tower_preflight` 会报告 `no-review`；干净审查之后应为
@@ -98,8 +99,8 @@ tower_teardown  repoRoot=D:\work\repo
 scope 之外的观察用 `tower_finding` 记录。之后可以列出或关闭它们，而不必改代码：
 
 ```
-tower_findings repoRoot=D:\work\repo
-tower_findings repoRoot=D:\work\repo id=F1 status=fixed note="fixed in M2"
+tower_findings
+tower_findings id=F1 status=fixed note="fixed in M2"
 ```
 
 状态为 `open → triaged → fixed` / `wontfix`，且 `fixed`/`wontfix` 可重新打开为 `open`。只有控制塔

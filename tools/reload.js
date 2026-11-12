@@ -12,7 +12,7 @@ import { ReloadInput } from '../domain/contracts/tool-inputs/index.js'
  * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, sharedHmrBridge: any, runtimeConfig: any, createHmrBridge: any }} deps
  */
 export function registerReloadTool(ctx, deps) {
-  const { define, actorFor, requireTowerActor, sharedHmrBridge, runtimeConfig, createHmrBridge } = deps
+  const { define, sharedHmrBridge, runtimeConfig, createHmrBridge } = deps
   const dev = runtimeConfig().dev ?? {}
   const bridge =
     sharedHmrBridge ??
@@ -27,12 +27,7 @@ export function registerReloadTool(ctx, deps) {
       'Dev-only: ask DSH HMR to reconcile this profile and reload the Tower Host plugin from disk. Registered only while the tower-hmr component is on (the row is shipped off). The reload is scheduled a few milliseconds after this call returns (so the result reaches the model first). Use after editing the plugin source in a linked profile; plugin_manager install/update already triggers reconciliation by itself. Fails with reload-unavailable when the HMR service is absent.',
     parameters: ReloadInput,
     output: output(SCHEMAS.reload),
-    async execute(args, exec) {
-      if (typeof args.repoRoot === 'string') {
-        const tower = await deps.openTower(args.repoRoot)
-        const actor = await actorFor(tower, exec)
-        requireTowerActor(actor, 'reload the Tower plugin')
-      }
+    async execute() {
       if (!bridge.available) {
         throw new TowerToolError('reload-unavailable', 'this DSH profile has no HMR service; restart DSH instead')
       }

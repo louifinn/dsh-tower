@@ -38,7 +38,7 @@ API，Tower 无法强制每进程资源限制；这类限制请使用 live-worke
 
 ## 旧版导入与映射
 
-`tower_import_legacy({repoRoot,sourcePath})` 接受 Tower Codex `schemaVersion:1` state 文件或 DSH
+`tower_import_legacy({sourcePath})` 接受 Tower Codex `schemaVersion:1` state 文件或 DSH
 旧版 state。它会：
 
 - 要求绝对源路径，且位于 `<git-common-dir>/dsh-tower` 之外；

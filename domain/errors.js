@@ -62,10 +62,10 @@ export const ERROR_CODES = {
     nextAction: null,
   },
   'repo-invalid': {
-    description: 'repoRoot is missing, relative, or not inside a Git repository.',
-    trigger: 'passing a path in a directory that is not a repo',
+    description: 'The target repository could not be resolved, or the resolved path is not inside a Git repository.',
+    trigger: 'a repository-scoped tool called with no workspace binding, outside a Git repository, and without an explicit `repoRoot`',
     retryable: false,
-    nextAction: 'pass an absolute path to a directory inside a Git repository',
+    nextAction: 'bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot`',
   },
   'not-initialized': {
     description: 'Tower is not initialized for this repository; run tower_init.',

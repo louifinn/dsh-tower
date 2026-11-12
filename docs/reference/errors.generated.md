@@ -9,7 +9,7 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | Code | Meaning | Retryable | Next action |
 |---|---|---|---|
 | `invalid-argument` | A tool argument is missing, malformed, or not allowed. | no | — |
-| `repo-invalid` | repoRoot is missing, relative, or not inside a Git repository. | no | pass an absolute path to a directory inside a Git repository |
+| `repo-invalid` | The target repository could not be resolved, or the resolved path is not inside a Git repository. | no | bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot` |
 | `not-initialized` | Tower is not initialized for this repository; run tower_init. | no | run tower_init for this repository |
 | `mission-not-found` | No mission with that id exists. | no | list missions with tower_status |
 | `finding-not-found` | No finding with that id exists. | no | list findings with tower_findings |

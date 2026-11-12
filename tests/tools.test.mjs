@@ -82,9 +82,9 @@ test('tool surface: every tool declares a structured object output schema', () =
   assert.ok(tools.has('tower_findings'), 'the finding lifecycle tool is registered')
   assert.ok(tools.get('tower_findings').description.includes('open'), 'statuses are documented')
 
-  // Accepted input aliases are part of the parameter contract, not only of the
-  // runtime normalizer.
-  const aliasProperties = {
+  // #163 Phase 2: aliases are accepted by the runtime but are no longer
+  // advertised as parameter properties, so they cost no schema bytes.
+  const hiddenAliases = {
     tower_mission: ['missionId', 'taskDone', 'taskDrop', 'taskDropReason', 'clearBlockers'],
     tower_spawn: ['id', 'wait_ms'],
     tower_diff: ['id'],
@@ -94,10 +94,17 @@ test('tool surface: every tool declares a structured object output schema', () =
     tower_finding: ['mission_id'],
     tower_findings: ['mission_id'],
   }
-  for (const [name, keys] of Object.entries(aliasProperties)) {
+  for (const [name, keys] of Object.entries(hiddenAliases)) {
     for (const key of keys) {
-      assert.ok(key in tools.get(name).parameters.properties, `${name} parameter schema declares alias ${key}`)
+      assert.ok(!(key in tools.get(name).parameters.properties), `${name} parameter schema no longer advertises alias ${key}`)
     }
+  }
+
+  // #163 Phase 1: the repository is resolved by the runtime; only tower_init is
+  // the bootstrap tool that still advertises `repoRoot`.
+  for (const definition of tools.values()) {
+    const advertised = 'repoRoot' in definition.parameters.properties
+    assert.equal(advertised, definition.name === 'tower_init', `${definition.name} advertises repoRoot only on tower_init`)
   }
 })
 

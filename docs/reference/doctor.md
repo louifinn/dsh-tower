@@ -1,6 +1,6 @@
 # Doctor
 
-`tower_doctor({repoRoot})` is read-only. It never takes the state lock, writes state, or changes Git.
+`tower_doctor()` is read-only. It never takes the state lock, writes state, or changes Git.
 It returns:
 
 ```json

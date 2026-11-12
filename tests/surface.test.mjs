@@ -144,24 +144,23 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 23, inputBytes: 17008 },
-    worker: { tools: 8, inputBytes: 8159 },
-    reviewer: { tools: 7, inputBytes: 5871 },
+    tower: { tools: 23, inputBytes: 13287 },
+    worker: { tools: 8, inputBytes: 6465 },
+    reviewer: { tools: 7, inputBytes: 4661 },
   })
-  assert.deepEqual(baseline.profiles, {
-    tower: {
-      tools: { seed: 23, value: 23, decisions: [] },
-      inputBytes: { seed: 17008, value: 17008, decisions: [] },
-    },
-    worker: {
-      tools: { seed: 8, value: 8, decisions: [] },
-      inputBytes: { seed: 8159, value: 8159, decisions: [] },
-    },
-    reviewer: {
-      tools: { seed: 7, value: 7, decisions: [] },
-      inputBytes: { seed: 5871, value: 5871, decisions: [] },
-    },
-  })
+  // #163 Phase 1+2 shrank the advertised schemas: the same tool counts with
+  // fewer input bytes. Each contraction is a dated decision, so the committed
+  // value is the chain's tail, not the seed.
+  assert.equal(baseline.profiles.tower.tools.value, 23)
+  assert.equal(baseline.profiles.worker.tools.value, 8)
+  assert.equal(baseline.profiles.reviewer.tools.value, 7)
+  for (const [profile, bytes] of [['tower', 13287], ['worker', 6465], ['reviewer', 4661]]) {
+    const entry = baseline.profiles[profile].inputBytes
+    assert.equal(entry.value, bytes, `${profile} inputBytes value`)
+    assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)
+    assert.equal(entry.decisions.at(-1).to, bytes, `${profile} decision chain ends at the value`)
+    assert.match(entry.decisions.at(-1).date, /^\d{4}-\d{2}-\d{2}$/)
+  }
   assert.equal(current.profiles.tower.tools, baseline.profiles.tower.tools.value)
   assert.equal(current.profiles.tower.inputBytes, baseline.profiles.tower.inputBytes.value)
   assert.equal(current.profiles.worker.tools, baseline.profiles.worker.tools.value)

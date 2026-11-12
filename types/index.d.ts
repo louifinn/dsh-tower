@@ -457,7 +457,10 @@ export type DefineTool = <S extends TSchema>(
     name: string
     description: string
     parameters: S
-    execute(args: Static<S>, exec: any): Promise<unknown>
+    // #163: the runtime resolves the repository once (session binding -> working
+    // directory -> explicit field) and injects `repoRoot` before the handler, so
+    // no input schema advertises it but every handler can still read it.
+    execute(args: Static<S> & { repoRoot?: string }, exec: any): Promise<unknown>
     aliases?: any
     requiresMissionId?: any
     board?: any

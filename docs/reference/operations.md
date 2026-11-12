@@ -41,7 +41,7 @@ cap and your OS/CI scheduler for those.
 
 ## Legacy import and mapping
 
-`tower_import_legacy({repoRoot,sourcePath})` accepts a Tower Codex `schemaVersion:1` state file or a
+`tower_import_legacy({sourcePath})` accepts a Tower Codex `schemaVersion:1` state file or a
 DSH legacy state. It:
 
 - requires an absolute source path outside `<git-common-dir>/dsh-tower`;

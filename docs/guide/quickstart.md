@@ -16,15 +16,17 @@ reserved for normal mode.
 
 ```
 tower_init repoRoot=D:\work\repo
-tower_plan repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
+tower_plan missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
 ```
 
-`tower_plan` returns mission ids (`M1`). Each mission gets a branch and a worktree when spawned.
+`tower_init` is the only tool that takes `repoRoot`; every later call resolves the repository from
+the session (workspace binding, then working directory). `tower_plan` returns mission ids (`M1`).
+Each mission gets a branch and a worktree when spawned.
 
 ## 3. Run the worker
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
+tower_spawn missionId=M1 role=worker
 ```
 
 The call returns immediately with the child agent id. The worker works inside the mission worktree,
@@ -39,7 +41,7 @@ config. It is one control, not a component row and not three rows. Set it to `re
 workflow, then:
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
+tower_spawn missionId=M1 role=reviewer
 ```
 
 Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_diff` and submit
@@ -56,9 +58,9 @@ migration.
 ## 5. Gate, merge, clean up
 
 ```
-tower_preflight repoRoot=D:\work\repo missionId=M1
-tower_merge     repoRoot=D:\work\repo missionId=M1
-tower_teardown  repoRoot=D:\work\repo
+tower_preflight missionId=M1
+tower_merge     missionId=M1
+tower_teardown
 ```
 
 With `review.mode:required`, `tower_preflight` before review reports `no-review`, and after a clean
@@ -102,8 +104,8 @@ The repository layer overrides the profile config; per-call tool arguments overr
 Out-of-scope observations go to `tower_finding`. Later, list or close them without editing code:
 
 ```
-tower_findings repoRoot=D:\work\repo
-tower_findings repoRoot=D:\work\repo id=F1 status=fixed note="fixed in M2"
+tower_findings
+tower_findings id=F1 status=fixed note="fixed in M2"
 ```
 
 Statuses are `open → triaged → fixed` / `wontfix`, and `fixed`/`wontfix` can reopen to `open`. Only the

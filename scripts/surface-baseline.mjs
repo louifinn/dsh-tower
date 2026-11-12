@@ -36,8 +36,7 @@ import {
   SURFACE_PROFILES,
   surfaceLine,
 } from '../domain/surface.js'
-import { ALLOW as WORKER_ALLOW } from '../worker.js'
-import { ALLOW as REVIEWER_ALLOW } from '../reviewer.js'
+import { REVIEWER_ALLOW, WORKER_ALLOW } from '../host/tool-profiles.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'

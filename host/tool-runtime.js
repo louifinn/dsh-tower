@@ -12,9 +12,10 @@ import {
   openForAuthorization,
   anonymousActor,
   authorize,
-  isRepositoryOptional,
   resolveActor,
 } from './authorization.js'
+import { resolveToolRepoRoot } from './tool-repo.js'
+import { isRepositoryOptionalTool } from './tool-profiles.js'
 import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import path from 'node:path'
@@ -124,9 +125,11 @@ export function normalizeToolArgs(args, aliases = {}) {
 // tool registrars already receive; it resolves through the kernel.
 export const actorFor = resolveActor
 
-/** Authorize one call: tower_init bootstraps; a repoRoot-less optional row takes
- * the absent path; public rows continue anonymously; the config-diagnostic doctor
- * row degrades an unresolvable config instead of failing, and `degraded` says so. */
+/** Authorize one call: tower_init bootstraps; a repository-optional tool without
+ * a repository takes the absent path (the tool identity, not whether the caller
+ * happened to pass one, is the contract); public rows continue anonymously; the
+ * config-diagnostic doctor row degrades an unresolvable config instead of
+ * failing, and `degraded` says so. */
 export async function authorizeCall(name, args, exec) {
   if (name === 'tower_init') {
     let tower = null
@@ -135,7 +138,7 @@ export async function authorizeCall(name, args, exec) {
     await authorize(name, actor, { args, tower })
     return { actor, degraded: false }
   }
-  if (isRepositoryOptional(name) && typeof args.repoRoot !== 'string') {
+  if (isRepositoryOptionalTool(name) && typeof args.repoRoot !== 'string') {
     const actor = anonymousActor(exec)
     await authorize(name, actor, { args, tower: null, repositoryAbsent: true })
     return { actor, degraded: false }
@@ -270,7 +273,9 @@ export function plainSchema(value) {
 
 /**
  * Register one tool. The TypeBox schema is the single source of truth for the
- * runtime JSON Schema and the handler's argument type.
+ * runtime JSON Schema and the handler's argument type. The runtime injects the
+ * resolved `repoRoot` after normalization (#163), so the handler type carries it
+ * even though no schema advertises it.
  *
  * @template {import('@sinclair/typebox').TSchema} S
  * @param {any} ctx
@@ -278,7 +283,7 @@ export function plainSchema(value) {
  *   name: string,
  *   description: string,
  *   parameters: S,
- *   execute: (args: import('@sinclair/typebox').Static<S>, exec: any, actor?: any) => Promise<unknown>,
+ *   execute: (args: import('@sinclair/typebox').Static<S> & { repoRoot?: string }, exec: any, actor?: any) => Promise<unknown>,
  *   aliases?: any,
  *   requiresMissionId?: any,
  *   board?: any,
@@ -306,6 +311,12 @@ export function define(ctx, definition) {
         }
         let value
         try {
+          // #163: resolve the repository here, once, before authorization, so the
+          // kernel, the workspace lock, the handler and the board all share one
+          // value and no tool schema has to advertise `repoRoot` again.
+          const repoRoot = await resolveToolRepoRoot(rest.name, normalized, exec)
+          if (typeof repoRoot === 'string') normalized.repoRoot = repoRoot
+          else delete normalized.repoRoot
           // Default-deny authorization runs before any side effect: a denied
           // call must not take the workspace lock, write state, or spawn.
           const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)

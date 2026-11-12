@@ -2,7 +2,7 @@
 
 [English](../../reference/doctor.md) | **简体中文**
 
-`tower_doctor({repoRoot})` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
+`tower_doctor()` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
 
 ```json
 {

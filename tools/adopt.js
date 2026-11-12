@@ -52,7 +52,7 @@ export function registerAdoptTool(ctx, deps) {
       }
       const observations = await tower.recordRosterObservations({ present: presentIds, absent: absentIds, confirmations: 2 })
       retiredCandidates.push(...observations.candidates)
-      const retireMissing = args.retireMissing !== false
+      const retireMissing = args.retire_missing !== false
       const { retired } = retireMissing ? await tower.markRetired(retiredCandidates) : { retired: [] }
       const { missing } = retireMissing ? { missing: [] } : await tower.markMissing(retiredCandidates)
       const after = await tower.rosterView()

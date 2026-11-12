@@ -25,13 +25,13 @@ export function registerInitTool(ctx, deps) {
         repo = await resolveRepo(args.repoRoot)
       } catch (error) {
         const autoGitInit =
-          args.autoGitInit === true || (args.autoGitInit === undefined && profileInit.autoGitInit === true)
+          args.auto_git_init === true || (args.auto_git_init === undefined && profileInit.autoGitInit === true)
         repo = await ensureRepository(args.repoRoot, autoGitInit)
       }
       const tower = await deps.openTower(repo.root)
       const initConfig = tower.config.init ?? {}
       const snapshotDirty =
-        args.snapshotDirty === true || (args.snapshotDirty === undefined && initConfig.snapshotDirty === true)
+        args.snapshot_dirty === true || (args.snapshot_dirty === undefined && initConfig.snapshotDirty === true)
       const agentId = exec?.agent?.id !== undefined ? String(exec.agent.id) : null
       if (!agentId) {
         throw new TowerToolError('not-authorized', 'tower_init requires a caller agent id; refusing to treat an unidentified caller as the tower')

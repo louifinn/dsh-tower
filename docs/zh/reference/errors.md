@@ -15,7 +15,7 @@
 | Code | 含义 | 典型触发 |
 |---|---|---|
 | `invalid-argument` | 工具参数缺失、格式错误或不被允许。 | 缺少 `missionId`/`id`；未知状态；空 report；非法 scope glob；`timeoutMs < 1000`；更新时传入 `status: "all"`。 |
-| `repo-invalid` | `repoRoot` 缺失、是相对路径，或不在 Git 仓库内。 | 传入的路径所在目录不是仓库 |
+| `repo-invalid` | 无法解析目标仓库，或解析出的路径不在 Git 仓库内。 | 调用仓库级工具时既无 workspace 绑定、又不在 Git 仓库内，且未显式传 `repoRoot` |
 | `not-initialized` | 该仓库尚未初始化 Tower。 | 在 `tower_init` 之前调用读取类工具 |
 | `mission-not-found` | 不存在该 id 的 mission。 | 过期或拼错的 `M9` |
 | `finding-not-found` | 不存在该 id 的 finding。 | `tower_findings({id:"F99"})` |

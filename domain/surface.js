@@ -94,13 +94,14 @@ export function parseBaseline(source) {
     for (const profile of SURFACE_PROFILES) {
       const entry = value.profiles[profile]
       if (!isPlainObject(entry)) throw surfaceError(`surface baseline misses the "profiles.${profile}" entry`)
-      profiles[profile] = {}
+      const measured = {}
       for (const metric of PROFILE_METRICS) {
-        profiles[profile][metric] = normalizeCountedEntry(
+        measured[metric] = normalizeCountedEntry(
           entry[metric],
           `profiles.${profile}.${metric}`,
         )
       }
+      profiles[profile] = measured
     }
   }
   return { schema: SURFACE_SCHEMA_VERSION, date: value.date, surfaces, profiles }
@@ -108,7 +109,7 @@ export function parseBaseline(source) {
 
 /**
  * Parse one `{ seed, value, decisions }` count entry and validate its shape.
- * @param {unknown} entry
+ * @param {any} entry
  * @param {string} where dotted path used in error messages
  * @returns {{ seed: number, value: number, decisions: any[] }}
  */
@@ -376,7 +377,7 @@ export function validateSurfaceEntry(key, entry, live, liveNames, options = {}) 
 function validateProfileEntry(where, entry, live) {
   const findings = []
   const record = (code, message) => findings.push({ code, level: 'error', message })
-  if (!Number.isInteger(live)) {
+  if (typeof live !== 'number' || !Number.isInteger(live)) {
     record('surface-missing', `live ${where} count is unavailable`)
     return findings
   }
@@ -419,6 +420,19 @@ function validateProfileEntry(where, entry, live) {
 }
 
 /**
+ * Build one surface-budget finding. These are `npm run surface:check` findings,
+ * not preflight gate blockers, so they stay out of the blocker registry; the
+ * shared shape keeps the two call sites in `validateProfiles` short.
+ *
+ * @param {string} code
+ * @param {string} message
+ * @returns {{ code: string, level: string, message: string }}
+ */
+function budgetFinding(code, message) {
+  return { code, level: 'error', message }
+}
+
+/**
  * Validate every per-profile count against the live measurement (#163).
  *
  * @param {ReturnType<typeof parseBaseline>} baseline
@@ -428,21 +442,18 @@ function validateProfileEntry(where, entry, live) {
 export function validateProfiles(baseline, current = {}) {
   const findings = []
   if (!baseline.profiles) {
-    findings.push({
-      code: 'profiles-missing',
-      level: 'error',
-      message: `surface baseline needs a "profiles" object with ${SURFACE_PROFILES.join('/')} tool counts and advertised input-schema bytes (#163)`,
-    })
+    findings.push(
+      budgetFinding(
+        'profiles-missing',
+        `surface baseline needs a "profiles" object with ${SURFACE_PROFILES.join('/')} tool counts and advertised input-schema bytes (#163)`,
+      ),
+    )
     return findings
   }
   for (const profile of SURFACE_PROFILES) {
     const entry = baseline.profiles[profile]
     if (!entry) {
-      findings.push({
-        code: 'profiles-missing',
-        level: 'error',
-        message: `surface baseline misses the "profiles.${profile}" entry`,
-      })
+      findings.push(budgetFinding('profiles-missing', `surface baseline misses the "profiles.${profile}" entry`))
       continue
     }
     for (const metric of PROFILE_METRICS) {
