@@ -18,7 +18,8 @@ export const PlanInput = Type.Object({
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
       deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
-      kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'survey = read-only investigation that reserves no scope.' })),
+      kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'build = writes code behind a review gate; survey = read-only investigation that reserves no scope; artifact = writes deliverables (declared via artifacts) that a human accepts at the committed tip instead of a review.' })),
+      artifacts: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Artifact only: the concrete deliverable paths (no globs) the mission must land. Each path must be inside the mission scope and committed at the branch tip before tower_complete admits completion; the merge gate additionally needs a human acceptance of the whole tip.' })),
       context: Type.Optional(Type.String({ description: "The user's own key sentences, verbatim (max 4096 chars)." })),
       references: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Read-only pointers/files the worker should read (max 20); copied into the briefing.' })),
       reviewPolicy: Type.Optional(enumOf(REVIEW_POLICIES, { description: 'required-clean (mission default) means a clean review is required when review.mode is required; none needs reviewExemptionReason, and with the review gate on it also needs gates.allowReviewExemption.' })),
@@ -46,6 +47,8 @@ export const MissionInput = Type.Object({
   scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs; bumps scopeGeneration.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
+  accept: Type.Optional(Type.Boolean({ description: 'Artifact only: record the human acceptance of the mission\u2019s whole committed tip. The tool asks the human through the DSH approval channel and stamps the record with the current branch tip; a profile without the channel is refused (an acceptance is never auto-recorded) and no argument can make the acceptance agent-made.' })),
+  accept_note: Type.Optional(Type.String({ description: 'Optional note stored on the acceptance record (max 4000 chars).' })),
 }, { additionalProperties: false })
 
 export const StatusInput = Type.Object({

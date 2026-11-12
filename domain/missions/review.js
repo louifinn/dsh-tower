@@ -9,6 +9,7 @@ import { reviewedEvent } from '../events.js'
 import { latestReview, reviewsForBranch } from '../integration/review.js'
 import { MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 import { isReviewerRole } from '../roles.js'
+import { shapeFor } from '../shapes/index.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
@@ -27,11 +28,20 @@ function fail(message, code = 'invalid-argument') {
 
 /**
  * A mission with a worktree is the only reviewable subject; the caller checks
- * that its status is `completed`.
+ * that its status is `completed`. An acceptance-gated shape is never
+ * reviewable: its verdict channel is the human acceptance record, so a review
+ * submitted for one is refused rather than recorded and ignored (#159 D4).
  * @param {Mission} mission
  * @returns {void}
  */
 export function assertReviewableMission(mission) {
+  const shape = shapeFor(mission.kind)
+  if (shape.fields.acceptance) {
+    fail(
+      `mission ${mission.id} is a ${shape.kind}: its gate is a human acceptance of the committed tip, not a review; record the acceptance instead of a verdict`,
+      'invalid-transition',
+    )
+  }
   if (!mission.worktree) fail(`mission ${mission.id} has no worktree to review`)
 }
 

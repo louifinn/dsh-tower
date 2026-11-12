@@ -106,7 +106,7 @@ export const RULE_EXEMPT_PATHS = {
   'role-shape-conflation': ['domain/roles.js'],
 }
 
-const KIND_PATTERN = /(?:\bkind\b\s*[!=]==?\s*['"](?:build|survey)['"])|(?:['"](?:build|survey)['"]\s*[!=]==?\s*\bkind\b)/
+const KIND_PATTERN = /(?:\bkind\b\s*[!=]==?\s*['"](?:build|survey|artifact)['"])|(?:['"](?:build|survey|artifact)['"]\s*[!=]==?\s*\bkind\b)/
 const ROLE_PATTERN = /(?:\brole\b\s*[!=]==?\s*['"](?:worker|reviewer|tower)['"])|(?:['"](?:worker|reviewer|tower)['"]\s*[!=]==?\s*\brole\b)/
 const GLOBAL_VOCAB_PATTERN = /\b(?:TERMINAL_STATUSES|TRANSITIONS)\b/
 const CALL_PATTERN = /(?<!\.)\b(isTerminal|canTransition)\s*\(([^()]*)\)/g

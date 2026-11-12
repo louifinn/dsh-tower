@@ -9,6 +9,7 @@ import { abandonedEvent, completedEvent } from '../events.js'
 import { pauseCauseError } from '../mission.js'
 import { normalizeScope, scopesOverlap } from '../scope.js'
 import { shapeFor } from '../shapes/index.js'
+import { acceptanceRecord } from '../shapes/artifact.js'
 import { isReviewerRole, isWorkerRole } from '../vocabulary.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
@@ -58,6 +59,14 @@ export function assertMissionActor(mission, actor, input) {
     if (input.pause_cause !== undefined || input.authorization !== undefined) {
       fail('only the tower can record pause/authorization metadata', 'not-authorized')
     }
+    if (input.accept !== undefined) {
+      // #159 D3: acceptance is a human decision recorded through the approval
+      // channel the tower asks; a worker is never that channel.
+      fail(
+        'an artifact acceptance is a human decision recorded through the approval channel; a worker cannot accept',
+        'acceptance-human-only',
+      )
+    }
   }
 }
 
@@ -101,6 +110,47 @@ export function resolveBlockers(mission, matches, now = Date.now()) {
   if (kept.length === 0 && mission.status === 'blocked') mission.status = 'active'
   mission.updatedAt = now
   return true
+}
+
+/**
+ * Admission shared by the recording path and the tool layer's pre-question
+ * probe: only a shape whose gate is an acceptance may carry one, and only a
+ * non-terminal mission with a branch has a tip to accept (#159 D3).
+ * @param {Mission} mission
+ * @param {ReturnType<typeof shapeFor>} shape
+ * @returns {void}
+ */
+export function assertAcceptableMission(mission, shape) {
+  if (!shape.fields.acceptance) {
+    fail(`mission ${mission.id} is a ${shape.kind}: a human acceptance replaces the review only for an artifact mission`)
+  }
+  if (shape.isTerminal(mission.status)) {
+    fail(`mission ${mission.id} is ${mission.status}; a terminal mission accepts no new tip`, 'invalid-transition')
+  }
+  if (!mission.worktree) {
+    fail(`mission ${mission.id} has no branch yet; there is no committed tip to accept`, 'invalid-transition')
+  }
+}
+
+/**
+ * Record the human acceptance of an artifact mission's committed tip (#159 D3).
+ *
+ * The record is built by the artifact shape (`by` is always `human`; there is
+ * no tool argument that could set it to anything else). This helper owns the
+ * *when*: only a shape whose gate is an acceptance may carry one, only a
+ * non-terminal mission with a branch has a tip to accept, and the caller (the
+ * tower tool layer) is responsible for having asked the human through the
+ * approval channel before the input reaches here.
+ * @param {{ mission: Mission, shape: ReturnType<typeof shapeFor>, accept: unknown, now: number }} params
+ * @returns {{ at: number, by: 'human', tip: string, artifacts: string[], note?: string }}
+ */
+export function recordAcceptance({ mission, shape, accept, now }) {
+  assertAcceptableMission(mission, shape)
+  if (accept === null || typeof accept !== 'object' || Array.isArray(accept)) {
+    fail('accept must be the decision resolved from the human approval channel: {tip, note?}')
+  }
+  const decision = /** @type {{ tip?: string, note?: string }} */ (accept)
+  return acceptanceRecord({ mission, tip: decision.tip, note: decision.note, now })
 }
 
 /**
@@ -256,6 +306,14 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     const notes = /** @type {string[]} */ (mission.notes)
     notes.push(input.note.trim())
     changes.push('note added')
+  }
+
+  if (input.accept !== undefined) {
+    const record = recordAcceptance({ mission, shape, accept: input.accept, now: Date.now() })
+    mission.acceptance = record
+    changes.push(
+      `human acceptance recorded at ${record.tip.slice(0, 7)} (${record.artifacts.length} declared artifact(s))`,
+    )
   }
 
   if (input.scope !== undefined) {

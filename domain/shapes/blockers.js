@@ -176,6 +176,22 @@ const DEFINITIONS = [
     },
   },
   {
+    code: 'acceptance-missing',
+    kinds: ['gate'],
+    summary: {
+      en: 'An artifact mission merges only after a human accepted the whole committed tip. Record the acceptance (tower_mission accept); no agent may self-accept and no run auto-accepts.',
+      zh: 'artifact mission 只有在人类接受整个已提交 tip 后才能合并。记录接受（tower_mission accept）；任何 agent 不能自批，也不会自动接受。',
+    },
+  },
+  {
+    code: 'acceptance-stale',
+    kinds: ['gate'],
+    summary: {
+      en: 'The human acceptance binds an older tip: new commits or a rebase moved the branch. The human must accept the new tip; the gate names the accepted sha and the current one.',
+      zh: '人类接受绑定的是旧 tip：新提交或 rebase 移动了分支。需要人类重新接受新 tip；门禁会给出已接受的 sha 和当前 sha。',
+    },
+  },
+  {
     code: 'worker-busy',
     kinds: ['gate', 'rebase'],
     summary: {

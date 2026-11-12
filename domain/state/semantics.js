@@ -5,6 +5,7 @@ import { FINDING_STATUSES, MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.j
 import { BATCH_STATUSES } from '../batch.js'
 import { TowerToolError } from '../errors.js'
 import { isShapeKind, shapeFor } from '../shapes/index.js'
+import { isAcceptanceRecord } from '../shapes/artifact.js'
 
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
@@ -56,12 +57,29 @@ function assertMissionShapeFields(mission, where) {
     if (typeof mission.readCommit !== 'string' || mission.readCommit.length === 0) {
       fail(`mission ${mission.id} is a ${shape.kind} and needs a readCommit${where}`)
     }
-    if (mission.readDirty === undefined) return
-    if (!Array.isArray(mission.readDirty) || mission.readDirty.some((entry) => typeof entry !== 'string')) {
+    if (mission.readDirty !== undefined && (!Array.isArray(mission.readDirty) || mission.readDirty.some((entry) => typeof entry !== 'string'))) {
       fail(`mission ${mission.id} has an invalid readDirty fingerprint${where}`)
     }
   } else if (mission.readCommit !== undefined || mission.readDirty !== undefined) {
     fail(`mission ${mission.id} is a ${shape.kind} and may not have readCommit/readDirty${where}`)
+  }
+  // #159: the deliverables and the acceptance record are dimensions the shape
+  // owns. An artifact needs its declared artifacts and may carry one
+  // acceptance record; a build and a survey may carry neither.
+  if (shape.fields.artifacts) {
+    if (!Array.isArray(mission.artifacts) || mission.artifacts.length === 0 || mission.artifacts.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+      fail(`mission ${mission.id} is a ${shape.kind} and needs a non-empty artifacts array${where}`)
+    }
+  } else if (mission.artifacts !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not declare artifacts${where}`)
+  }
+  if (shape.fields.acceptance) {
+    if (mission.acceptance === undefined || mission.acceptance === null) return
+    if (!isAcceptanceRecord(mission.acceptance)) {
+      fail(`mission ${mission.id} has an invalid acceptance record${where}`)
+    }
+  } else if (mission.acceptance !== undefined) {
+    fail(`mission ${mission.id} is a ${shape.kind} and may not carry an acceptance record${where}`)
   }
 }
 

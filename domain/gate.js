@@ -52,27 +52,46 @@ export function mergeGateBlockers({
     blockers.push(blockerRecord(code, detail))
   }
   const inactive = new Set(inactiveStates)
+  const shape = shapeFor(mission.kind)
   // #M39: only `review.mode:required` produces review blockers. `optional`
   // records reviews without gating, and `off` disables review entirely (no
   // tower_review, no reviewer spawn), so both skip this whole block.
   const requireReview = reviewRequired(config)
   const exempt = isReviewExempt(mission, config)
-  if (reviewExemptionInvalid(mission, config)) {
-    push('review-exemption-invalid', `mission ${mission.id} requests no review but gates.allowReviewExemption is disabled`)
-  }
-  if (requireReview && !exempt && !review) {
-    push('no-review', `branch ${branch ?? '(none)'} has no review; assign a reviewer first (or set review.mode:optional)`)
-  } else if (requireReview && !exempt) {
-    const latest = /** @type {Review} */ (review)
-    if (latest.missionId !== mission.id) push('review-mission-mismatch', `latest review belongs to mission ${latest.missionId}`)
-    if (latest.status !== 'clean') push('not-clean', `latest review round ${latest.round} is "${latest.status}"`)
-    if (latest.mergeVerdict === 'hold') {
-      push('review-hold', 'latest review recommends hold — a later clean review must supersede it')
-    } else if (latest.status === 'clean' && latest.mergeVerdict !== 'merge') {
-      push('review-not-approved', `latest clean review recommends "${latest.mergeVerdict}" — only "merge" approves`)
+  // #159 D4: the review contract does not apply to a shape whose gate is a
+  // human acceptance. The exemption is structural — the shape owns the
+  // acceptance dimension — so `review.mode:required` cannot force an artifact
+  // mission through a reviewer that cannot judge its deliverables. No review
+  // blocker is produced for it; the tip-bound acceptance record takes the
+  // review's place and any new commit makes it stale.
+  if (shape.fields.acceptance) {
+    const acceptance = /** @type {{ acceptance?: { tip?: string } | null }} */ (/** @type {any} */ (mission)).acceptance
+    if (!acceptance) {
+      push('acceptance-missing', `mission ${mission.id} has no human acceptance; only a human can accept the whole committed tip (tower_mission accept)`)
+    } else if (branchTip && acceptance.tip !== branchTip) {
+      push(
+        'acceptance-stale',
+        `accepted ${String(acceptance.tip ?? '').slice(0, 7)} but tip is ${branchTip.slice(0, 7)}; the acceptance binds one tip — new commits or a rebase need a fresh human acceptance`,
+      )
     }
-    if (branchTip && latest.reviewedCommit !== branchTip && !rebaseWaived) {
-      push('tip-moved', `reviewed ${latest.reviewedCommit.slice(0, 7)} but tip is ${branchTip.slice(0, 7)}; re-review required`)
+  } else {
+    if (reviewExemptionInvalid(mission, config)) {
+      push('review-exemption-invalid', `mission ${mission.id} requests no review but gates.allowReviewExemption is disabled`)
+    }
+    if (requireReview && !exempt && !review) {
+      push('no-review', `branch ${branch ?? '(none)'} has no review; assign a reviewer first (or set review.mode:optional)`)
+    } else if (requireReview && !exempt) {
+      const latest = /** @type {Review} */ (review)
+      if (latest.missionId !== mission.id) push('review-mission-mismatch', `latest review belongs to mission ${latest.missionId}`)
+      if (latest.status !== 'clean') push('not-clean', `latest review round ${latest.round} is "${latest.status}"`)
+      if (latest.mergeVerdict === 'hold') {
+        push('review-hold', 'latest review recommends hold — a later clean review must supersede it')
+      } else if (latest.status === 'clean' && latest.mergeVerdict !== 'merge') {
+        push('review-not-approved', `latest clean review recommends "${latest.mergeVerdict}" — only "merge" approves`)
+      }
+      if (branchTip && latest.reviewedCommit !== branchTip && !rebaseWaived) {
+        push('tip-moved', `reviewed ${latest.reviewedCommit.slice(0, 7)} but tip is ${branchTip.slice(0, 7)}; re-review required`)
+      }
     }
   }
   for (const entry of (roster ?? []).filter((row) => row.missionId === mission.id && !inactive.has(row.state))) {

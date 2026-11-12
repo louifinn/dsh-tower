@@ -224,10 +224,16 @@ export const ERROR_CODES = {
     nextAction: 'stop live workers, release the foreign workspace lock, then retry the takeover',
   },
   'approval-unavailable': {
-    description: 'The human approval channel is unavailable for an ownership transfer.',
-    trigger: '`tower_control({action:"takeover"})` in a profile without the userQuestions service',
+    description: 'The human approval channel is unavailable for an ownership transfer or an artifact acceptance.',
+    trigger: '`tower_control({action:"takeover"})` or `tower_mission({accept:true})` in a profile without the userQuestions service',
     retryable: false,
-    nextAction: 'use the human /tower takeover <reason> command, or restart this session with the user-questions service available',
+    nextAction: 'use the human /tower takeover <reason> command (or accept in a session with the user-questions service available); an artifact acceptance is never auto-recorded',
+  },
+  'acceptance-human-only': {
+    description: 'An artifact mission merges on a human acceptance of the committed tip; an agent cannot accept.',
+    trigger: 'a worker calls tower_mission accept for an artifact mission',
+    retryable: false,
+    nextAction: 'only the tower may ask the human through the approval channel; the recorded acceptance always says by:"human"',
   },
   'worker-limit': {
     description: 'The repository reached spawn.maxLiveWorkers live workers.',
