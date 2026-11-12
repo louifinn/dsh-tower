@@ -21,16 +21,20 @@ export { normalizeChecks }
  * Read the primitives the shape's completion invariants need. Which reads happen
  * is declared by the shape, so this layer never asks "is this a survey?"; a
  * detached sandbox declares `requiresSandbox` and its HEAD/commit count is read
- * from the recorded sandbox path instead of the shared checkout (#148 W2).
+ * from the recorded sandbox path instead of the shared checkout (#148 W2). An
+ * artifact additionally declares `requiresArtifacts`, so the branch tip is
+ * resolved from the branch ref and each declared deliverable is checked for
+ * existence at that tip — an uncommitted artifact fails completion (#159 D2).
  * @param {any} tower
  * @param {import('../types/index.js').Mission} mission
  * @param {any} invariants
- * @returns {Promise<{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[], readCommit?: string, sandbox?: string | null }>}
+ * @param {boolean} [caseInsensitive]
+ * @returns {Promise<{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[], readCommit?: string, sandbox?: string | null, artifactTip?: string, artifactsMissingAtTip?: string[], caseInsensitive?: boolean }>}
  */
-async function completionFacts(tower, mission, invariants) {
+async function completionFacts(tower, mission, invariants, caseInsensitive = false) {
   const worktree = /** @type {any} */ (mission.worktree)
   const sandbox = invariants.requiresSandbox ? String(/** @type {any} */ (mission).sandbox ?? '') : ''
-  /** @type {{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[], readCommit?: string, sandbox?: string | null }} */
+  /** @type {{ commits: number, clean: boolean, dirtyPaths: string[], head: string, trackedChanged: string[], readCommit?: string, sandbox?: string | null, artifactTip?: string, artifactsMissingAtTip?: string[], caseInsensitive?: boolean }} */
   const facts = { commits: 0, clean: true, dirtyPaths: [], head: '', trackedChanged: [], sandbox: sandbox || null }
   if (invariants.requiresSandbox) {
     if (!sandbox) {
@@ -78,6 +82,23 @@ async function completionFacts(tower, mission, invariants) {
       ].sort()
     }
   }
+  if (invariants.requiresArtifacts) {
+    // The deliverables are judged at the branch ref, never at the live
+    // checkout: a file that exists only in the worktree is uncommitted and
+    // must fail completion. `cat-file -e` through tryGit keeps this a probe,
+    // not a throw.
+    const artifactTip = await tower.branchTip(mission)
+    const artifacts = Array.isArray(/** @type {any} */ (mission).artifacts) ? /** @type {any} */ (mission).artifacts : []
+    /** @type {string[]} */
+    const artifactsMissingAtTip = []
+    for (const artifact of artifacts) {
+      const present = await tower.tryGit(worktree?.path ?? tower.root, ['cat-file', '-e', `${artifactTip}:${artifact}`])
+      if (present === null) artifactsMissingAtTip.push(artifact)
+    }
+    facts.artifactTip = artifactTip
+    facts.artifactsMissingAtTip = artifactsMissingAtTip
+    facts.caseInsensitive = caseInsensitive
+  }
   return facts
 }
 
@@ -101,7 +122,7 @@ export async function checkCompletion(tower, input) {
   if (invariants.requiresSandbox && !/** @type {any} */ (mission).sandbox) {
     throw new TowerToolError('invalid-argument', `mission ${mission.id} has no detached sandbox; re-provision it or abandon the survey`)
   }
-  const facts = await completionFacts(tower, mission, invariants)
+  const facts = await completionFacts(tower, mission, invariants, state.caseInsensitive === true)
   const { commits } = invariants.check({ mission, ...facts })
   const unread = tower.unreadFor(state, worker.name)
   assertCompletionInbox({ mission, worker, unread })

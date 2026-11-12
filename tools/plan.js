@@ -25,7 +25,7 @@ export function registerPlanTool(ctx, deps) {
   define(ctx, {
     name: 'tower_plan',
     description:
-      'Plan one or more missions in an initialized repository. Each mission has a printable-Unicode title (NFC-normalized, at most 120 characters), relative scope globs, optional task checklist, optional mission-id dependencies, and kind build|survey. Assigns M1.. ids and auto-adds a dependency when build scopes overlap (serializes merges); rejects dependency cycles. Returns survey-stale warnings for a build that depends on a survey whose recorded readCommit is not an ancestor of the base; those warnings are advisory and gates.requireFreshSurvey promotes them to merge blockers.',
+      'Plan one or more missions in an initialized repository. Each mission has a printable-Unicode title (NFC-normalized, at most 120 characters), relative scope globs, optional task checklist, optional mission-id dependencies, and kind build|survey|artifact. An artifact mission additionally declares artifacts (concrete deliverable paths inside the scope, at most 20, no globs) that must be committed at the branch tip; its merge gate is a human acceptance of the whole tip instead of a review, and planning one is refused while the tower-artifact component is off. Assigns M1.. ids and auto-adds a dependency when path-owning scopes overlap (serializes merges); rejects dependency cycles. Returns survey-stale warnings for a build that depends on a survey whose recorded readCommit is not an ancestor of the base; those warnings are advisory and gates.requireFreshSurvey promotes them to merge blockers.',
     parameters: PlanInput,
     board: true,
     output: output(SCHEMAS.plan),
