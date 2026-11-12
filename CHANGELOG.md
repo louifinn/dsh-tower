@@ -24,6 +24,33 @@
   “无隐式全量”表检查）；`surface:check` 新增 `profileBytes` 逐 profile 字节基线（模式关闭/空闲/活跃与四个
   角色 preset，任何漂移需带日期的 decision，增长还需 ADR），设计记录见 ADR 0009，参考文档同步更新
   [表面预算](docs/reference/surface-budget.md)。
+- **Tower 与 Ralph 循环按仓库互斥（#162）**：Ralph 姿态从工具名清单升级为可检查的三层契约（ADR 0010）。新增只读
+  姿态传感器 `host/ralph-stance.js`，从 workflow `meta.name:"ralph-loop"` 与 `subagent/catalog` 的 `ralph #…` /
+  `Ralph round N` 标签识别活跃循环（5 分钟存活窗口、上限 200 条，进程内状态）；命令属主表
+  `domain/config/command-owners.js` 覆盖命令面：Tower 模式激活期间 `/ralph` 被可操作的拒绝遮蔽（以 scoped
+  `commands` 注入），`/tower off` 恢复，重启后由 pre-step 重新挂载。新增 `mode.ralphPolicy`（`stop` 默认 /
+  `refuse`；配置键 57→58，无 state 迁移）：`stop` 照常进入并把活跃循环记为 `ralphReleased`（其 round 从此被拒绝），
+  同时写入一条 `mode` 活动记录；`refuse` 以 `invalid-transition` 拒绝进入，并说明循环结束后再次 `/tower on` 的
+  时机。仓库处于 Tower 模式期间，该仓库的 Ralph round agent 在 `agent/pre-step` 被拒绝（隔离 worktree 中的 Tower
+  worker 不受影响），因此改名入口也无法重启循环；`tower_mode` 报告 `ralph {policy, runs, rounds, liveRounds,
+  detail}`。`tower_inspect` 的 `doctor` 视图新增 `ralph-stance` 检查与 `environmentContract.ralphLoop`，把活跃轮次
+  作为环境事实报告；工具拒绝仍完全由 #161 的属主派生 `mode.denyTools` 默认值负责。新增
+  `tests/ralph-stance.test.mjs`（10 例）。
+- **第三种 mission 形状 `artifact`：交付物由人类接受（#159）**：新增 `domain/shapes/artifact.js` 并在形状注册表登记
+  `kind:"artifact"`；它像 build 一样拥有分支/worktree、状态图与合并/rebase 能力，但把“审查”换成“人类接受”。规划时
+  `artifacts[]` 必须声明具体交付物路径（非 glob、不含 `..`、必须位于 scope 内、≤20 条）；`tower_complete` 要求每个
+  交付物都已提交在 mission 分支末端（`git cat-file -e <tip>:<path>`），未提交、缺失或 worktree 不干净都会被拒绝。
+  合并门禁对 artifact mission 报告 `acceptance-missing` / `acceptance-stale`（后者同时列出已接受与当前末端的短
+  sha），即使 `review.mode:required`，审查阻塞码在结构上也不适用。接受记录 `{at, by:"human", tip, artifacts,
+  note?}` 只能由人类经 `tower_mission({accept:true, accept_note?})` 在 DSH 审批通道（`userQuestions`）产生并绑定
+  整个已提交 tip；通道缺失时以 `approval-unavailable` 拒绝，取消或拒绝不写记录，worker 调用报
+  `acceptance-human-only`，reviewer spawn 与 `tower_review`（含 break-glass）被拒绝，`tower_doctor` 的
+  `artifact-acceptance` 检查对未接受只告警。`tower-artifact` 是新的可见可选组件行（组件 12→13，行本身不拥有工具或
+  preset）：关闭时 `tower_plan({kind:"artifact"})` 以可操作的 `invalid-argument` 拒绝，build/survey 不受影响。并入
+  #163 之后的表面时，验收阻塞码由 `tower_inspect` 的 `preflight` 视图呈现，不再新增独立预检工具（PR 分支自带的
+  `tools/preflight.js` 被删除），工具总数保持 21；state schema 仍为 v5，错误目录增至 42（新增
+  `acceptance-human-only`，`approval-unavailable` 拓宽到接受），阻塞码增至 35。新增
+  `tests/artifact-lifecycle.test.mjs` 与 `tests/property/artifact-acceptance.prop.mjs`，ADR 0006 增补该形状。
 
 ### 修复
 
