@@ -4,6 +4,16 @@
 
 ## Unreleased（未发布）
 
+### 新增
+
+- **只读 `/tasks` 实时 roster 面板（#160）**：新增 `/tasks` 命令与 `/tower tasks` 子命令，供人类零模型回合查看
+  存活 roster agent（mission、角色、名称、短分支、状态、自最近记录事件起的静默时长、该事件），最静默者在前，
+  上限 20 行，页脚给出存活/过期计数与 `tower_interrupt` 处置提示。读取完全只读（不写 `state.json`、activity
+  日志或 modes store）；过期判定抽取为 `rosterEntryStale`，由 `tower_inspect` 的 `roster` 视图、看门狗扫掠与
+  合并门禁共享同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时才注册 `/tasks`；
+  `/tower tasks` 始终可用，命令描述注明当前 profile 采用哪个面（#160）。新增 `tests/tasks-view.test.mjs` 与
+  `tests/tasks-command.test.mjs`，锁定排序/静默标签/行数上限、只读零写入、宿主命令名冲突回退与别名一致性。
+
 ### 修复
 
 - **Tower 模式按组件属主拒绝外部编排工具（#161）**：`mode.denyTools` 的默认值不再是手写清单，而是
