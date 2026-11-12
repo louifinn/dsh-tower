@@ -132,6 +132,7 @@ export async function resolveRepoConfig(repo) {
     if (repoMode.autoPauseGoal === true) merged.mode.autoPauseGoal = true
     if (repoMode.workspaceLockScope === 'all') merged.mode.workspaceLockScope = 'all'
     if (repoMode.planModePolicy === 'refuse') merged.mode.planModePolicy = 'refuse'
+    if (repoMode.ralphPolicy === 'refuse') merged.mode.ralphPolicy = 'refuse'
     if (repoMode.allowAgentControl === false) merged.mode.allowAgentControl = false
     if (Array.isArray(repoMode.denyTools)) {
       merged.mode.denyTools = [...new Set([...(base.mode?.denyTools ?? DEFAULT_DENY_TOOLS), ...repoMode.denyTools])]

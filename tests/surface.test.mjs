@@ -221,7 +221,8 @@ test('the tower_inspect doctor view prints the surface counts plus the baseline 
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
     // #118: the doctor line, the generated reference and docs:check agree.
-    assert.equal(report.surface.line, surfaceLine({ configKeys: 57, sections: 16, tools: 21 }))
+    // #162: the Ralph-stance policy adds the 58th config key.
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 58, sections: 16, tools: 21 }))
     assert.equal(current.tools, 21)
     assert.equal(current.tools, documentedToolNames().length)
     const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')

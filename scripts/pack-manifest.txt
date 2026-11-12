@@ -67,6 +67,7 @@ docs/adr/0006-mission-shapes.md
 docs/adr/0007-bounded-activity-log-rotation.md
 docs/adr/0008-process-local-advisory-budgets.md
 docs/adr/0009-role-phase-exposure.md
+docs/adr/0010-tower-ralph-mutual-exclusion.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -122,6 +123,7 @@ domain/component-locale.js
 domain/component-rules.js
 domain/component-surface.js
 domain/components.js
+domain/config/command-owners.js
 domain/config/schema.js
 domain/contracts/outputs.js
 domain/contracts/tool-inputs/collaboration.js
@@ -200,6 +202,8 @@ host/preset-survey-sandbox.js
 host/preset-survey.js
 host/preset-worker.js
 host/presets.js
+host/ralph-release.js
+host/ralph-stance.js
 host/session-tools.js
 host/tasks-command.js
 host/tool-capabilities.js

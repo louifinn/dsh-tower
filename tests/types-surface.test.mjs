@@ -102,8 +102,10 @@ test('types coverage: every root entry point and host module is in the shipped r
   // W5-A: the tool-registry split added host/tool-runtime.js, host/tool-capabilities.js
   // and host/tool-observers.js; the Host-entry split added host/mode-state.js,
   // host/mode-command.js and host/session-tools.js. #160 added
-  // host/tasks-command.js and #164 added host/exposure.js.
-  assert.equal(hostModules.length, 33)
+  // host/tasks-command.js, #164 added host/exposure.js, and #162 added
+  // host/ralph-stance.js (the loop sensor) and host/ralph-release.js (the
+  // activity-log record).
+  assert.equal(hostModules.length, 35)
   for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
 })
 
