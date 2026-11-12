@@ -66,6 +66,7 @@ docs/adr/0005-component-surface.md
 docs/adr/0006-mission-shapes.md
 docs/adr/0007-bounded-activity-log-rotation.md
 docs/adr/0008-process-local-advisory-budgets.md
+docs/adr/0009-tower-ralph-mutual-exclusion.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -122,6 +123,7 @@ domain/component-rules.js
 domain/component-surface.js
 domain/components.js
 domain/config/schema.js
+domain/config/stance-owners.js
 domain/contracts/outputs.js
 domain/contracts/tool-inputs/collaboration.js
 domain/contracts/tool-inputs/findings.js
@@ -195,6 +197,8 @@ host/preset-survey-sandbox.js
 host/preset-survey.js
 host/preset-worker.js
 host/presets.js
+host/ralph-release.js
+host/ralph-stance.js
 host/session-tools.js
 host/tool-capabilities.js
 host/tool-observers.js
