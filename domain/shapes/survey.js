@@ -397,8 +397,9 @@ export const surveyShape = Object.freeze({
   canRebase: false,
   provisioning: /** @type {const} */ ('shared'),
   reach: REACH,
-  // Document dimensions this shape owns; the state validator reads these.
-  fields: Object.freeze({ worktree: false, readCommit: true, merge: false, sandbox: true }),
+  // Document dimensions this shape owns; the state validator reads these. A
+  // survey owns neither the artifact deliverables nor the acceptance record.
+  fields: Object.freeze({ worktree: false, readCommit: true, merge: false, sandbox: true, artifacts: false, acceptance: false }),
   // A survey needs its optional component row; a build does not.
   requiredComponent: 'tower-survey',
   // Only a survey records `result` evidence on completion.

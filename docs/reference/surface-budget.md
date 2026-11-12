@@ -122,13 +122,13 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **14,977 B /
+- `active` — mode on, state exists: the default host-admitted set, **16,017 B /
   14 tools** (the 16 mounted tools minus the #163 role-owned
   `tower_complete`/`tower_review`, which a non-role session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**22,061 B / 21 tools**, and that figure is a build-surface statement, never a
+**23,109 B / 21 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -139,8 +139,8 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **8,127 B / 6 tools**, `preset:reviewer` **6,000 B / 5**,
-`preset:survey` and `preset:survey-sandbox` **7,067 B / 5** each (the
+`preset:worker` **8,646 B / 6 tools**, `preset:reviewer` **6,000 B / 5**,
+`preset:survey` and `preset:survey-sandbox` **7,586 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
@@ -159,7 +159,7 @@ that names an existing ADR under `docs/adr/` (`profile-bytes-growth`).
 `tests/exposure.test.mjs` also enforces that every registered tool has a phase
 row ("no implicit all"), that every legal mission transition's driving tool is
 exposed to the profile that owns it, and that the host ladder stays on the
-default host-admitted surface (14 tools / 14,977 B) rather than the 21-tool
+default host-admitted surface (14 tools / 16,017 B) rather than the 21-tool
 build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys

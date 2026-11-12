@@ -265,7 +265,7 @@ test('survey off refuses planning with an actionable code and leaves builds alon
       () => tower.plan({ missions: [{ title: 'Survey with the row off', kind: 'survey' }] }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message) &&
+        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message) &&
         typeof error.nextAction === 'string',
     )
     const build = await tower.plan({ missions: [{ title: 'Build with the row off', scope: ['src/**'] }] })
@@ -321,7 +321,7 @@ test('survey planning uses the async availability probe, not the sync switch (#1
       () => offTower.plan({ missions: [{ title: 'Survey through the probe', kind: 'survey' }] }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message),
+        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message),
     )
     assert.deepEqual(probed, ['tower-survey'], 'the async probe is what gates the shape')
 

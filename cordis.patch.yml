@@ -169,3 +169,10 @@
                   sampleOverCapGlobResults: false
               - id: tower-survey-sandbox-pwsh
                 name: '@deepseek-ai/dsh-tool-pwsh'
+    # #159: the artifact mission shape is a capability, not a flag on build.
+    # The row owns no tool and no preset (an artifact worker uses the mandatory
+    # worker preset in a branch worktree like a build): it gates the shape.
+    # Off means tower_plan refuses kind:"artifact" with an actionable code;
+    # build and survey missions and every other capability are unaffected.
+    - id: tower-artifact
+      name: 'dsh-tower/artifact'

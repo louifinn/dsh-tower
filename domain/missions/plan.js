@@ -53,6 +53,12 @@ export function normalizeMissionInput(input, index, read = {}) {
     fail(`missions[${index}] is a ${shape.kind}: it reads a commit and does not own a write scope`)
   }
   const scope = shape.reach.ownsPaths ? normalizeScope(scopeInput) : []
+  // #159 D2: the declared deliverables are a dimension the shape owns. A build
+  // or a survey does not declare artifacts, so the entry is refused rather
+  // than silently dropped.
+  if (input.artifacts !== undefined && !shape.fields.artifacts) {
+    fail(`missions[${index}] is a ${shape.kind}: it may not declare artifacts`)
+  }
   /** @type {Array<{ text: string, status: string }>} */
   const tasks = []
   if (input.tasks !== undefined) {
@@ -100,6 +106,7 @@ export function normalizeMissionInput(input, index, read = {}) {
     scope,
     readCommit: read.commit,
     readDirty: read.dirty,
+    artifacts: input.artifacts,
   })
   return { title, kind, ...fields, tasks, deps, context, references, reviewPolicy, reviewExemptionReason }
 }
@@ -171,6 +178,7 @@ export function newMission(id, input, now) {
     updatedAt: now,
     ...(input.readCommit === undefined ? {} : { readCommit: input.readCommit }),
     ...(input.readDirty === undefined ? {} : { readDirty: input.readDirty }),
+    ...(input.artifacts === undefined ? {} : { artifacts: input.artifacts }),
   }))
 }
 

@@ -390,7 +390,7 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   // build surface (R103).
   assert.deepEqual(first['host:mode-off'], { tools: 1, bytes: 846 })
   assert.deepEqual(first['host:idle'], { tools: 2, bytes: 2185 })
-  assert.deepEqual(first['host:active'], { tools: 14, bytes: 14977 })
+  assert.deepEqual(first['host:active'], { tools: 14, bytes: 16017 })
   const hostNames = hostAdmittedNames(surface)
   assert.equal(hostNames.length, 14)
   assert.equal(hostNames.includes('tower_complete'), false, 'role tools never enter the host ladder')

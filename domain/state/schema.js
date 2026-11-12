@@ -4,7 +4,8 @@
 // `<git-common-dir>/dsh-tower/state.json`. Schema v4 splits a mission into a
 // per-shape union: a build mission owns a branch/worktree/merge projection, a
 // survey owns `readCommit`/`readDirty` and may *not* carry the branch-shaped
-// fields. Object schemas allow additional properties on purpose: state files
+// fields, and an artifact owns the branch projection plus the declared
+// `artifacts` and the human `acceptance` record (#159). Object schemas allow additional properties on purpose: state files
 // are forward/backward compatible and legacy rows carry extra fields, while the
 // union's forbidden keys are declared `Type.Never()` so a survey carrying a
 // worktree record fails the shape check. Semantic policy (uniqueness,
@@ -35,10 +36,13 @@ const BuildMissionSchema = Type.Object(
     testRuns: Type.Optional(Type.Array(Type.Unknown())),
     worktree: Type.Optional(Type.Union([WorktreeSchema, Type.Null()])),
     // A build mission reads a base and writes a branch; it never carries the
-    // survey fingerprint or a detached survey sandbox.
+    // survey fingerprint, a detached survey sandbox, the artifact deliverables
+    // or a human acceptance record.
     readCommit: Type.Optional(Type.Never()),
     readDirty: Type.Optional(Type.Never()),
     sandbox: Type.Optional(Type.Never()),
+    artifacts: Type.Optional(Type.Never()),
+    acceptance: Type.Optional(Type.Never()),
   },
   optional,
 )
@@ -63,11 +67,40 @@ const SurveyMissionSchema = Type.Object(
     baseCommit: Type.Optional(Type.Never()),
     mergedCommit: Type.Optional(Type.Never()),
     mergedAt: Type.Optional(Type.Never()),
+    // A survey owns neither the artifact deliverables nor an acceptance record.
+    artifacts: Type.Optional(Type.Never()),
+    acceptance: Type.Optional(Type.Never()),
   },
   optional,
 )
 
-const MissionSchema = Type.Union([BuildMissionSchema, SurveyMissionSchema])
+const ArtifactMissionSchema = Type.Object(
+  {
+    id: Type.String(),
+    kind: Type.Literal('artifact'),
+    status: Type.Optional(Type.String()),
+    tasks: Type.Array(Type.Unknown()),
+    deps: Type.Array(Type.Unknown()),
+    references: Type.Optional(Type.Array(Type.Unknown())),
+    reviewPolicy: Type.Optional(Type.String()),
+    testRuns: Type.Optional(Type.Array(Type.Unknown())),
+    worktree: Type.Optional(Type.Union([WorktreeSchema, Type.Null()])),
+    // #159 D2: the declared deliverables. Every path is concrete, inside the
+    // scope, and must be committed at the branch tip before completion.
+    artifacts: Type.Array(Type.String()),
+    // #159 D3: the human acceptance record that replaces the review. Absent
+    // until a human accepts the whole committed tip.
+    acceptance: Type.Optional(Type.Object({}, optional)),
+    // An artifact writes a branch like a build; it never carries the survey
+    // fingerprint or a detached sandbox.
+    readCommit: Type.Optional(Type.Never()),
+    readDirty: Type.Optional(Type.Never()),
+    sandbox: Type.Optional(Type.Never()),
+  },
+  optional,
+)
+
+const MissionSchema = Type.Union([BuildMissionSchema, SurveyMissionSchema, ArtifactMissionSchema])
 
 const RosterEntrySchema = Type.Object(
   {
@@ -199,9 +232,19 @@ function firstShapeMessage(state, where) {
           return `mission ${id} is a survey and may not have a worktree record${where}`
         }
       } else if (mission.readCommit !== undefined || mission.readDirty !== undefined) {
-        return `mission ${id} is a build and may not have readCommit/readDirty${where}`
+        return `mission ${id} is a ${String(mission.kind)} and may not have readCommit/readDirty${where}`
       } else if (mission.sandbox !== undefined) {
-        return `mission ${id} is a build and may not have a sandbox${where}`
+        return `mission ${id} is a ${String(mission.kind)} and may not have a sandbox${where}`
+      }
+      if (shape.fields.artifacts) {
+        if (!Array.isArray(mission.artifacts) || mission.artifacts.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+          return `mission ${id} is an artifact and needs an artifacts array of non-empty deliverable paths${where}`
+        }
+      } else if (mission.artifacts !== undefined) {
+        return `mission ${id} is a ${String(mission.kind)} and may not declare artifacts${where}`
+      }
+      if (!shape.fields.acceptance && mission.acceptance !== undefined) {
+        return `mission ${id} is a ${String(mission.kind)} and may not carry an acceptance record${where}`
       }
     }
     if (mission.worktree !== undefined && mission.worktree !== null && !isPlainObject(mission.worktree)) {
