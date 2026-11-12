@@ -54,6 +54,16 @@ reviewer 5 / 4,371 B；基线记录在 `docs/reference/surface-budget.md`。
 别名仍被服务端接受，但不再出现在工具 schema 中（#163 Phase 2），因此不会在每次请求中占用字节。
 输出始终使用规范的 camelCase 字段名。
 
+## 每个仓库只有一个姿态
+
+Tower 模式与 Ralph 循环（`@deepseek-ai/dsh-tool-ralph`、社区版 `dsh-ralph`，或同一姿态的任何其他实现）
+在每个仓库上互斥：Tower 模式激活期间 `/ralph` 命令会被遮蔽（命令不是工具，由命令属主表覆盖）、
+其工具名由 #161 的属主派生 `mode.denyTools` 默认值拒绝、带活跃循环进入 Tower 模式会停止并记录该循环或拒绝进入
+（`mode.ralphPolicy`，默认 `stop`），且仓库处于 Tower 模式期间 round agent 会被拒绝——因此改名的入口
+无法在活跃控制塔下重启循环。`tower_inspect` 的 `doctor` 视图把活跃循环报告为环境事实。Tower worker **内部**的
+Ralph 循环不是冲突：worker 在自己的隔离 worktree 里拥有一个 mission，并通过 `tower_complete` 汇报。
+见 [ADR 0010](../../adr/0010-tower-ralph-mutual-exclusion.md)。
+
 ## 角色
 
 roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tower_interrupt`、
@@ -74,7 +84,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_init` | `op?`（`init` 默认 / `adopt`）、`repoRoot`、`base?`、`auto_git_init?`、`snapshot_dirty?`、`reanchor?`、`retire_missing?` | `op:"init"` 创建 `<git-common-dir>/dsh-tower/state.json`。唯一声明 `repoRoot` 的工具（引导）；它优先于会话目录，以便显式初始化指定目标。`auto_git_init` 执行 `git init` 并创建空的初始提交；`snapshot_dirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。`op:"adopt"` 把 roster 与持久目录对账：可证明已消失的 agent 会被标记为 retired（默认），或标记为 `missing`（`retire_missing:false`）。两个 op 都仅限控制塔。 |
 | `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。 |
-| `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings）、`doctor`（环境与 state/git 锁健康）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
+| `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings）、`doctor`（环境与 state/git 锁健康，含 Ralph 姿态）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息；对运行中的 agent 会即时投递。`interrupt:true` 先中断运行中的回合（Kimi 风格）再投递；`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
@@ -85,7 +95,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_merge` | `missionId`（别名 `id`）、`timeoutMs?`（别名 `timeout_ms`） | 门禁全绿后合并。若合并提交已落地则记录（`reconciled`）；若命令失败但提交已存在则恢复（`recoveredFromFailure`）；区分 `merge-hook-failed` 与 `merge-conflict`。 |
 | `tower_rebase` | `missionId`（别名 `id`） | 在 worktree 内把分支 rebase 到基线。worker 运行中或 worktree 脏时拒绝。分支已包含在基线中时返回 `alreadyMerged` 且保持分支不动。 |
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
-| `tower_mode` | `active?`（`true`/`false`/`"takeover"`）、`reason?`、`authorization?` | 不传 `active`：报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。传 `active`：`true` 进入、`false` 退出、`"takeover"` 在获得用户明确批准后从已停用的属主转移仓库所有权。写操作需要非空 `reason` 且 `mode.allowAgentControl:true`；`takeover` 还必须提供 `authorization`（记录在活动条目上的审计引用）。 |
+| `tower_mode` | `active?`（`true`/`false`/`"takeover"`）、`reason?`、`authorization?` | 不传 `active`：报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者，以及进入策略所依据的 Ralph 姿态（`ralph: {policy, runs, rounds, liveRounds, detail}`）。传 `active`：`true` 进入、`false` 退出、`"takeover"` 在获得用户明确批准后从已停用的属主转移仓库所有权。写操作需要非空 `reason` 且 `mode.allowAgentControl:true`；`takeover` 还必须提供 `authorization`（记录在活动条目上的审计引用）。进入时如有活跃 Ralph 循环：默认 `mode.ralphPolicy:"stop"` 会释放循环并在结果中报告 `ralphReleased`，设为 `"refuse"` 时以 `[tower:invalid-transition]` 拒绝进入。 |
 | `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
 | `/tasks`、`/tower tasks` | — | 人类可用的只读实时 roster 面板：每个存活 roster agent 一行（mission、角色、名称、短分支名、状态、距其最近一条记录事件的静默时长、该事件本身），最静默者在前，最多 20 行，页脚给出 `N live, M stale` 计数与 `tower_interrupt` 处置提示。不消耗模型回合，也不做任何写入（不触碰 `state.json`、activity 日志或 modes store）。过期判定与 `tower_inspect` 的 `roster` 视图及合并门禁使用同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时插件才注册 `/tasks`；`/tower tasks` 是始终可用的别名，当前 profile 实际采用哪个会在命令描述中说明（#160）。 |
 | `tower_reload` | — | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。它在 `host/tool-profiles.js` 中登记为唯一的仓库可选工具，因此可以在没有仓库时修复损坏的 profile；决定这一路径的是工具身份，而不是调用者是否传了 `repoRoot`。 |

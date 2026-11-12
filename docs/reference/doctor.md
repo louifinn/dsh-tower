@@ -8,18 +8,19 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 58 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
+    { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 57,
+    "configKeys": 58,
     "sections": 16,
     "tools": 21,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 57 · sections: 16 · tools: 21"
+    "line": "config keys: 58 · sections: 16 · tools: 21"
   },
   "stateLock": {
     "held": true,
@@ -77,7 +78,13 @@ It returns:
     "commonDir": "D:/repo/.git",
     "stateDir": "D:/repo/.git/dsh-tower",
     "caseInsensitive": true,
-    "comparisonMode": "case-insensitive"
+    "comparisonMode": "case-insensitive",
+    "ralphLoop": {
+      "scopedRounds": 0,
+      "liveScopedRounds": 0,
+      "processRuns": 0,
+      "detail": null
+    }
   }
 }
 ```
@@ -197,11 +204,18 @@ never probes — a probe creates a temporary file, and a read-only call must not
 `tower_init` on a writable checkout to record the mode; until then the safe `case-sensitive` default
 applies.
 
+`environmentContract.ralphLoop` (and the `ralph-stance` check) reports a live Ralph loop as an
+environment fact: this repository has a loop in progress and Tower cannot co-own it (see
+[ADR 0010](../adr/0010-tower-ralph-mutual-exclusion.md)). Rounds are matched to the checkout by their
+parent session's cwd (`scopedRounds`, `liveScopedRounds`); first-party workflow runs carry no cwd, so
+`processRuns` counts them process-wide and the check warns on them only while no round has matched.
+The `warn` action names both `mode.ralphPolicy` outcomes; the loop itself is not doctor's to stop.
+
 Checks cover: git availability, repository identity, state schema/load, bounded activity-log rotation,
 the detected case mode, repo config presence, worker/reviewer preset names, subagents and HMR services,
 state lock age/heartbeat, workspace lock holder/staleness, live roster, worktree
 existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy
-snapshots, batches and leases. Missions intentionally cleaned up by `tower_teardown` are skipped (the
+snapshots, batches, leases and the Ralph stance. Missions intentionally cleaned up by `tower_teardown` are skipped (the
 check notes the removed count) instead of being reported as missing.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 

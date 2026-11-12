@@ -29,6 +29,7 @@
               workspaceLock: true
               workspaceLockScope: all
               planModePolicy: clear
+              ralphPolicy: stop
             init:
               autoGitInit: true
             send:

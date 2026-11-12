@@ -19,7 +19,9 @@ import {
   openTowerFor,
   parseTowerInput,
   persistModes,
+  resolveEntryWorkspace,
 } from './mode-state.js'
+import { recordRalphRelease } from './ralph-release.js'
 
 export function registerTowerCommand(ctx, { config, allowAgentControl }) {
   ctx.inject(['commands'], (commandCtx) => {
@@ -108,9 +110,16 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
         // guards, so the capability checks still run before any real work.
         const transition = active && !modeOn(key)
         if (transition) await assertRuntimePreconditions(ctx, config)
+        // #162: the workspace identity (repo root when resolvable) is resolved
+        // once per transition so entry reconciliation can scope Ralph rounds
+        // to this repository; a failed resolution degrades to the cwd.
+        const entryWorkspace = transition ? await resolveEntryWorkspace(agent) : undefined
         const outcome = active
-          ? await enterMode(ctx, key, agent, 'user', message || null)
+          ? await enterMode(ctx, key, agent, 'user', message || null, { workspace: entryWorkspace })
           : await exitMode(key, 'user', message || null)
+        // D2: what Tower released is recorded in the repository's activity
+        // log; the record is best-effort and never fails the mode change.
+        if (active && outcome.ralphReleased) await recordRalphRelease(agent, outcome.ralphReleased)
         const persisted = outcome.persisted !== false
         let forwarded = false
         try {
