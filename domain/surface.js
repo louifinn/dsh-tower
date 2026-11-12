@@ -34,6 +34,9 @@ export const SURFACE_SCHEMA_VERSION = 1
 // like growth, so a phase cannot silently move the numbers it is judged by.
 export const SURFACE_PROFILES = ['tower', 'worker', 'reviewer']
 export const PROFILE_METRICS = ['tools', 'inputBytes']
+// #163: every advertised description is a fixed cost on every request. Long
+// form belongs in docs/reference/tools.md and the tower skills.
+export const TOOL_DESCRIPTION_BUDGET = 300
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -459,6 +462,28 @@ export function validateProfiles(baseline, current = {}) {
     for (const metric of PROFILE_METRICS) {
       const where = `profiles.${profile}.${metric}`
       findings.push(...validateProfileEntry(where, entry[metric], current?.profiles?.[profile]?.[metric]))
+    }
+  }
+  return findings
+}
+
+/**
+ * Enforce the 300-character advertised-description budget (#163).
+ *
+ * @param {Array<{ name: string, length: number }>} [descriptions]
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function validateDescriptionBudget(descriptions = []) {
+  const findings = []
+  for (const entry of descriptions) {
+    const length = Number.isInteger(entry?.length) ? entry.length : 0
+    if (length > TOOL_DESCRIPTION_BUDGET) {
+      findings.push(
+        budgetFinding(
+          'description-budget',
+          `${entry.name} advertises a ${length}-char description; the budget is ${TOOL_DESCRIPTION_BUDGET} (long form goes in docs/reference/tools.md)`,
+        ),
+      )
     }
   }
   return findings

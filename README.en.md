@@ -191,21 +191,21 @@ enforced by `npm run docs:check:components`.
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected (top-level and inside a group) so typos cannot silently disable security-relevant settings. The three review modes, where the plugin-page control lives, and the one-release alias migration are in [install, upgrade and migration](docs/guide/install-upgrade-migration.md). Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
-## Tools (29: 22 core + 7 optional)
+## Tools (25: 18 core + 7 optional)
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map` · `tower_control` · `tower_reload`
 
-The list above is the 22 core tools plus 5 of the component-owned optional tools. `tower_control` is the sixth optional tool, registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is the seventh, registered only while the `tower-hmr` component row is on (shipped off) and returning `reload-unavailable` without an HMR service (so up to 29 tools: 22 core + 7 optional). `tower_doctor` and `tower_recover` are core: they are registered for every configuration (#122). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+The list above is the 18 core tools plus 5 of the component-owned optional tools. `tower_control` is the sixth optional tool, registered by default (`allowAgentControl:true`); set it to `false` to disable it. `tower_reload` is the seventh, registered only while the `tower-hmr` component row is on (shipped off) and returning `reload-unavailable` without an HMR service (so up to 25 tools: 18 core + 7 optional). `tower_recover` is core (registered for every configuration, #122); the doctor is the read-only `tower_inspect` `view: "doctor"` view. Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
-- **No merge without a green gate.** `tower_preflight` is read-only and reports stable blocker codes; `tower_merge` refuses when any blocker remains.
+- **No merge without a green gate.** The read-only `tower_inspect` `view: "preflight"` reports stable blocker codes; `tower_merge` refuses when any blocker remains.
 - **Review is bound to a commit when required.** With `review.mode:required`, a moved tip reports `tip-moved` and requires a fresh review; reviewers use a read-only preset, and a branch change during review is rejected. `off` is a documented mode that removes `tower_review`; `optional` records reviews but never blocks a merge.
 - **Scope enforcement.** A mission may only change files matched by its declared scope globs; `out-of-scope` blocks the merge.
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 25 tools, 41 tool error codes, 30 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 Stable blocker/failure codes (including gate guards, `no-check-evidence`, `worker-stale`, test gates, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 

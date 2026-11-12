@@ -106,7 +106,7 @@
     },
     "tools": {
       "seed": 27,
-      "value": 29,
+      "value": 25,
       "decisions": [
         {
           "from": 27,
@@ -117,6 +117,12 @@
             "date": "2026-10-23",
             "ref": "docs/adr/0004-surface-budget.md"
           }
+        },
+        {
+          "from": 29,
+          "to": 25,
+          "date": "2026-11-12",
+          "note": "#163 Phase 3: the five read-only views (status/roster/diff/preflight/doctor) fold into tower_inspect, so 29 - 5 + 1 = 25 tools."
         }
       ]
     },
@@ -173,18 +179,31 @@
     "tower": {
       "tools": {
         "seed": 23,
-        "value": 23,
-        "decisions": []
+        "value": 19,
+        "decisions": [
+          {
+            "from": 23,
+            "to": 19,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          }
+        ]
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 13287,
+        "value": 12895,
         "decisions": [
           {
             "from": 17008,
             "to": 13287,
             "date": "2026-11-12",
             "note": "#163 Phase 1+2: the 26 repeated repoRoot fields leave the advertised schemas (the runtime resolves the repository) and 21 advertised alias fields become server-side only. A contraction, not a ratchet: any later per-profile increase still needs its own dated decision."
+          },
+          {
+            "from": 13287,
+            "to": 12895,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
           }
         ]
       }
@@ -192,18 +211,43 @@
     "worker": {
       "tools": {
         "seed": 8,
-        "value": 8,
-        "decisions": []
+        "value": 7,
+        "decisions": [
+          {
+            "from": 8,
+            "to": 6,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 6,
+            "to": 7,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: the worker allow-list names tower_inspect instead of tower_status and tower_diff; the profile keeps one schema where it had two."
+          }
+        ]
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6465,
+        "value": 6348,
         "decisions": [
           {
             "from": 8159,
             "to": 6465,
             "date": "2026-11-12",
             "note": "#163 Phase 1+2: the worker's mounted schemas lose the repeated repoRoot and advertised aliases."
+          },
+          {
+            "from": 6465,
+            "to": 5404,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 5404,
+            "to": 6348,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: the worker allow-list names tower_inspect instead of tower_status and tower_diff."
           }
         ]
       }
@@ -211,18 +255,43 @@
     "reviewer": {
       "tools": {
         "seed": 7,
-        "value": 7,
-        "decisions": []
+        "value": 6,
+        "decisions": [
+          {
+            "from": 7,
+            "to": 5,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 5,
+            "to": 6,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: the reviewer allow-list names tower_inspect (diff and status views) instead of two separate view tools."
+          }
+        ]
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4661,
+        "value": 4544,
         "decisions": [
           {
             "from": 5871,
             "to": 4661,
             "date": "2026-11-12",
             "note": "#163 Phase 1+2: the reviewer's mounted schemas lose the repeated repoRoot and advertised aliases."
+          },
+          {
+            "from": 4661,
+            "to": 3600,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 3600,
+            "to": 4544,
+            "date": "2026-11-12",
+            "note": "#163 Phase 3: the reviewer allow-list names tower_inspect instead of tower_diff and tower_status."
           }
         ]
       }

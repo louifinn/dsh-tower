@@ -213,7 +213,7 @@ export function apply(ctx, rawConfig) {
       ctx.tools.register({
         name: 'tower_control',
         description:
-          'Enter, leave, or take over Tower mode for the calling agent. `takeover` transfers repository ownership from an inactive owner to this session after explicit user approval. Allowed only when the deployment enables allowAgentControl; use it when the user intent or task state clearly calls for Tower orchestration or a return to normal collaboration, and always state a concrete reason.',
+          'Enter, leave, or take over Tower mode for the calling agent; takeover transfers ownership from an inactive owner after user approval. Requires allowAgentControl and a concrete reason. Use only when orchestration is clearly warranted.',
         parameters: {
           type: 'object',
           properties: {

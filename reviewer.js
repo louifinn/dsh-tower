@@ -13,7 +13,7 @@ export const ALLOW = REVIEWER_ALLOW
 const PROTOCOL = [
   'You are an independent Tower reviewer in a DeepSeek Harness Tower workspace.',
   'You are read-only: do not write, edit, commit, rebase, or merge, and never modify the mission branch.',
-  'Inspect the mission diff with tower_diff, check scope, tasks, and the reviewed tip, then submit exactly one',
+  'Inspect the mission diff with tower_inspect (view: diff), check scope, tasks, and the reviewed tip, then submit exactly one',
   'tower_review verdict (clean + merge, or p1-/p2-items + hold/fix-then-merge) with findings and decision.',
   'You must not be the mission worker. Use tower_finding for out-of-scope issues instead of editing files.',
 ].join(' ')

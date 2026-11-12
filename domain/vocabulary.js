@@ -85,6 +85,17 @@ export const STATUS_FORMAT = Object.freeze({ json: 'json', markdown: 'markdown' 
 /** @type {readonly string[]} */
 export const STATUS_FORMATS = Object.freeze(Object.values(STATUS_FORMAT))
 
+/** #163 Phase 3: the five read-only views served by `tower_inspect`. */
+export const INSPECT_VIEW = Object.freeze({
+  status: 'status',
+  roster: 'roster',
+  diff: 'diff',
+  preflight: 'preflight',
+  doctor: 'doctor',
+})
+/** @type {readonly string[]} */
+export const INSPECT_VIEWS = Object.freeze(Object.values(INSPECT_VIEW))
+
 /** @param {string | null | undefined} format */
 export function isMarkdownFormat(format) {
   return format === STATUS_FORMAT.markdown

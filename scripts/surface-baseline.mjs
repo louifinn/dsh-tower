@@ -34,6 +34,7 @@ import {
   SURFACE_BASELINE_FILE,
   SURFACE_CLASSIFICATION_FILE,
   SURFACE_PROFILES,
+  TOOL_DESCRIPTION_BUDGET,
   surfaceLine,
 } from '../domain/surface.js'
 import { REVIEWER_ALLOW, WORKER_ALLOW } from '../host/tool-profiles.js'
@@ -52,8 +53,9 @@ Growth is refused by default. To grow a count, update ${SURFACE_BASELINE_FILE}
 with a decision that names an existing docs/adr/ ADR, deletions that are no
 longer in the live surface, or a measurement-correction record with a reason and
 date. The per-profile tool counts and advertised input-schema bytes (tower,
-worker, reviewer) are two-way and need a dated decision for any change. The
-classification table in
+worker, reviewer) are two-way and need a dated decision for any change. Every
+advertised tool description must stay within ${TOOL_DESCRIPTION_BUDGET} characters.
+The classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
 the component count comes from the visible rows in every shipped
 cordis.patch.yml.`
@@ -101,9 +103,16 @@ export function liveSurface(root = PACKAGE_ROOT) {
   const surface = loadShippedToolSurface()
   let tools
   let profiles
+  let descriptions
   try {
     tools = surface.names
     profiles = profileCounts(surface.defaultDefinitions)
+    // #163: the 300-char advertised-description budget is checked for every
+    // shipped tool, including the optional capability rows.
+    descriptions = [...surface.definitions.values()].map((definition) => ({
+      name: definition.name,
+      length: String(definition.description ?? '').length,
+    }))
   } finally {
     surface.dispose()
   }
@@ -122,6 +131,7 @@ export function liveSurface(root = PACKAGE_ROOT) {
     tools: tools.length,
     components: patch.visible.length,
     profiles,
+    descriptions,
     liveNames: {
       configKeys: config.keys,
       sections: config.sections,
@@ -158,6 +168,10 @@ function main(argv) {
     (profile) => `${profile} ${current.profiles[profile].tools} tools / ${current.profiles[profile].inputBytes} B input schema`,
   ).join(' · ')
   console.log(`surface: profiles: ${profileLine}`)
+  const longest = [...current.descriptions].sort((left, right) => right.length - left.length)[0]
+  console.log(
+    `surface: descriptions: ${current.descriptions.length} tools, longest ${longest ? `${longest.length} chars (${longest.name})` : '0 chars'} · budget ${TOOL_DESCRIPTION_BUDGET}`,
+  )
   if (result.baseline) console.log(`surface: baseline ${result.baseline.date} (${SURFACE_BASELINE_FILE})`)
   if (result.classification) {
     const configRows = result.classification.entries.filter((entry) => entry.kind === 'config').length

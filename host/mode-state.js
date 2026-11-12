@@ -46,17 +46,13 @@ export function isDeniedTool(name) {
 }
 
 const READ_ONLY_TOOL_NAMES = new Set([
-  'tower_status',
-  'tower_roster',
-  'tower_diff',
-  'tower_preflight',
-  'tower_doctor',
+  'tower_inspect',
 ])
 
 const BASE_REMINDER = [
   'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
-  'Mission tracking lives in tower_plan / tower_mission / tower_status, not todo_write or the Team task board.',
-  'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_preflight.',
+  'Mission tracking lives in tower_plan / tower_mission / tower_inspect with view: status, not todo_write or the Team task board.',
+  'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_inspect with view: preflight.',
   'Tower mode changes are explicit and recorded; the user can always use /tower on|off.',
 ].join(' ')
 

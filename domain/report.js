@@ -29,7 +29,7 @@ export function boardMarkdown(state, archive = null) {
     lines.push(
       archive.unreadable === true
         ? `Archived: unreadable (${archive.message ?? 'archive index could not be read'})`
-        : `Archived: ${archive.count ?? 0} terminal mission(s) in archive/ (not listed; use tower_status includeArchived)`,
+        : `Archived: ${archive.count ?? 0} terminal mission(s) in archive/ (not listed; use tower_inspect with view: status and includeArchived)`,
     )
   }
   const openFindings = (state.findings ?? []).filter((finding) => !['fixed', 'wontfix'].includes(finding.status ?? 'open'))

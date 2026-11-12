@@ -12,8 +12,9 @@
 // individually switchable optional top-level rows (#121). Tools owned by a row
 // that ships off (today only `tower-hmr` -> `tower_reload`) are trimmed from the
 // expected surface using the same ownership table the runtime reports, so the
-// shipped default profile (28 tools) and the all-rows-on build surface (29)
-// cannot be confused again.
+// shipped default profile (24 tools) and the all-rows-on build surface (25)
+// cannot be confused again. The five `tower_inspect` view modules live under
+// tools/views/ and are internal code, not top-level tool modules (#163 Phase 3).
 
 import { COMPONENT_TOOLS } from '../../host/capability-registry.js'
 
@@ -90,6 +91,8 @@ const OWNED_ROW_IDS = new Set([BUNDLE_ID, ...BUNDLE_CHILD_IDS, ...OPTIONAL_ROW_I
 /**
  * Map one tools/ file name to the tool id its module must register.
  * `import-legacy.js` registers `tower_import_legacy`; `index.js` registers none.
+ * The `tower_inspect` view implementations live under tools/views/ and are not
+ * part of the top-level module list this oracle reads (#163 Phase 3).
  * @param {string} fileName - a file name under tools/.
  * @returns {string | null} the expected tool id, or null for non-tool files.
  */

@@ -24,7 +24,7 @@ export function registerReloadTool(ctx, deps) {
   define(ctx, {
     name: 'tower_reload',
     description:
-      'Dev-only: ask DSH HMR to reconcile this profile and reload the Tower Host plugin from disk. Registered only while the tower-hmr component is on (the row is shipped off). The reload is scheduled a few milliseconds after this call returns (so the result reaches the model first). Use after editing the plugin source in a linked profile; plugin_manager install/update already triggers reconciliation by itself. Fails with reload-unavailable when the HMR service is absent.',
+      'Dev-only: ask DSH HMR to reload the Tower Host plugin from disk. Registered only while tower-hmr is on (shipped off). Fails with reload-unavailable without HMR. Details: docs/reference/tools.md.',
     parameters: ReloadInput,
     output: output(SCHEMAS.reload),
     async execute() {

@@ -20,7 +20,7 @@ export function registerSpawnTool(ctx, deps) {
   define(ctx, {
     name: 'tower_spawn',
     description:
-      'Spawn a worker or reviewer for a mission. Workers use the mission shape\'s preset (tower-worker for a build, tower-survey for a read-only shared survey, tower-survey-sandbox for a detached survey with survey.sandbox=detached); reviewers require a completed build mission and use the read-only tower-reviewer preset, and the reviewer role is refused when review.mode is off. A build provisions (or reuses) the mission git worktree and branch; a shared survey runs in the shared checkout because it reads one commit; a detached survey provisions (or reuses) a disposable detached worktree at its readCommit with no branch. Generates a self-contained briefing (including dependency survey result evidence) and starts a background subagent. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns get a disposable detached checkout at the recorded branch tip, and the verdict is stamped with that commit (never a live worktree HEAD). Returns immediately unless wait=true.', parameters: SpawnInput,
+      'Spawn a worker, survey, or reviewer for a mission. A build provisions (or reuses) the mission worktree; surveys read one recorded commit; a reviewer needs a completed mission and the read-only preset. Returns when the agent is recorded, unless wait=true. Details: docs/reference/tools.md.', parameters: SpawnInput,
     aliases: {"missionId":["id"],"waitMs":["wait_ms"]},
     requiresMissionId: true, board: true, output: output(SCHEMAS.spawn),
     async execute(args, exec) {

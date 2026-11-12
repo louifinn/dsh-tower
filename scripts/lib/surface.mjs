@@ -11,6 +11,7 @@ import {
   parseBaseline,
   validateBaseline,
   validateClassification,
+  validateDescriptionBudget,
 } from '../../domain/surface.js'
 
 /**
@@ -56,6 +57,7 @@ export function checkSurfaceBudget({ root, current }) {
   const findings = validateBaseline(baseline, current, {
     exists: (relative) => fs.existsSync(path.join(root, relative)),
   })
+  findings.push(...validateDescriptionBudget(current?.descriptions ?? []))
   let classificationText
   try {
     classificationText = readClassification(root)

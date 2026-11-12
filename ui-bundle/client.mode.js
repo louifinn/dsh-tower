@@ -105,9 +105,9 @@ window.__ModuleLoader__.load({
           if (typeof payload.reason === 'string' && payload.reason.trim() !== '') model.lastReason = payload.reason.trim()
           continue
         }
-        if (toolName === 'tower_status') {
+        if (toolName === 'tower_inspect') {
           const payload = parsePayload(node)
-          if (isPlainObject(payload)) {
+          if (isPlainObject(payload) && payload.view === 'status') {
             const name = repoNameOf(payload.repoRoot)
             if (name !== null) model.repo = name
           }

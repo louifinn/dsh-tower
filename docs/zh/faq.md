@@ -11,13 +11,13 @@
 同一会话中不能并发：Tower 模式会拒绝这些工具并清除 plan mode。请按阶段组合——先用 Workflow/Team
 分析与决策，再启动 Tower 执行（可选审查）仓库变更。详见[完整指南](guide/scenarios-and-philosophy.md#4-tower-与其他-dsh-工作流模式的区别)。
 
-**为什么 worker 刚完成，`tower_preflight` 就因 `no-review` 失败？**
+**为什么 worker 刚完成，`tower_inspect` 的 `view: "preflight"` 视图 就因 `no-review` 失败？**
 只有在审查策略为 `required`（`review.mode:required`）时才会如此：已完成的 mission 在等待独立审查。
 spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:optional` 时审查可选，不会产生
 `no-review` blocker。
 
 **需要轮询 worker 吗？**
-不需要。worker 的最终报告会送回本会话；`tower_roster` 显示实时活动。轮询只会浪费回合。
+不需要。worker 的最终报告会送回本会话；`tower_inspect` 的 `view: "roster"` 视图 显示实时活动。轮询只会浪费回合。
 
 **`/tower` 显示模式已开启，但没有 `tower_control`。**
 `mode.allowAgentControl` 被关闭了。它默认为 `true`；如果被显式设为 `false`，在 profile patch 中改回

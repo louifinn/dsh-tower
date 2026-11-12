@@ -22,7 +22,7 @@ export function registerRebaseTool(ctx, deps) {
   define(ctx, {
     name: 'tower_rebase',
     description:
-      'Rebase a mission branch onto the current base tip inside its own worktree. Refuses while its worker is running or the worktree is dirty. A clean conflict-free rebase waives re-review for the old review; a conflict is aborted and the mission is marked blocked. If the branch is already contained in the base, it returns alreadyMerged and leaves the branch untouched so tower_merge can record the landed merge.',
+      'Rebase a mission branch onto the current base tip in its own worktree. Refuses while a worker runs or the worktree is dirty. A clean rebase waives re-review; a conflict aborts and blocks the mission; a branch already in the base returns alreadyMerged.',
     parameters: RebaseInput,
     aliases: {"missionId":["id"]},
     requiresMissionId: true,

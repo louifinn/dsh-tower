@@ -8,12 +8,13 @@
 checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission worktree。
 `tower_mode`、`tower_control` 与 `tower_reload` 不需要仓库；`tower_reload` 是仓库可选的逃生
 通道（可在没有仓库时重载损坏的 profile）。
-本构建最多 29 个工具：下列 19 个核心仓库工具（含 `tower_interrupt`）、`tower_mode`、默认注册的
-`tower_control`（设 `mode.allowAgentControl:false` 可禁用）、始终注册的 `tower_doctor` 与
-`tower_recover`（#122），以及由组件行拥有的 `tower_reload`（`tower-hmr`）、`tower_test`
-（`tower-tests`）、`tower_batch`（`tower-batch`）、`tower_resource`（`tower-leases`）、
-`tower_import_legacy` / `tower_legacy_map`（`tower-import`）。关闭某个组件行只会移除它的工具；
-`tower_status` 与 `tower_doctor` 会以 “disabled by component <id>” 报告。
+本构建最多 25 个工具：下列 18 个核心工具（含 `tower_interrupt` 与 `tower_inspect`）、
+`tower_mode`、默认注册的 `tower_control`（设 `mode.allowAgentControl:false` 可禁用）、
+始终注册的 `tower_recover`（#122），以及由组件行拥有的 `tower_reload`（`tower-hmr`）、
+`tower_test`（`tower-tests`）、`tower_batch`（`tower-batch`）、`tower_resource`（`tower-leases`）、
+`tower_import_legacy` / `tower_legacy_map`（`tower-import`）。`tower_inspect` 把 status、roster、
+diff、preflight、doctor 五个只读视图收进一个工具，用 `view` 选择，共享参数不再重复。
+关闭某个组件行只会移除它的工具。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、
@@ -45,11 +46,9 @@ create/close/abandon、`tower_resource`
 | `tower_init` | `repoRoot`、`base?`、`auto_git_init?`、`snapshot_dirty?`、`reanchor?` | 创建 `<git-common-dir>/dsh-tower/state.json`。唯一声明 `repoRoot` 的工具（引导）；它优先于会话目录，以便显式初始化指定目标。`auto_git_init` 执行 `git init` 并创建空的初始提交；`snapshot_dirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。返回 `dirty`、`snapshotCommit`、`reanchored`。 |
 | `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。 |
-| `tower_status` | `missionId?`、`offset?`、`limit?`、`includeGate?`、`format?` | 默认返回面板。分页 mission 只带 `reportBytes`；`missionId` 返回完整详情（任务/备注/审查/finding/完成报告正文）。`offset`/`limit` 对 mission 分页（默认 20，最大 100），`includeGate` 附带门禁摘要，`format:"markdown"` 返回看板。host 提供 mode hook 时还会包含 `mode.lastChange` 与最近 `history`。还返回仓库级 git 互斥锁 `gitLock`（`{held, pid, phase, heldMs}`，空闲时 `{held:false}`）。当 `state.json` 无法加载（较新或损坏的 schema）时，status 降级为只读的磁盘诊断：`ok:false`，`counts`/`missions`/`activity` 为空，带分类后的 `stateError` 与磁盘上的 `stateSchema`（`newer`/`invalid`），且不写状态、不迁移、不生成备份。 |
+| `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings）、`doctor`（环境与 state/git 锁健康）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`waitMs?`、`takeover?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`takeover:true` 替换已不再运行的 worker 条目（ownerGeneration 递增）。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。 |
-| `tower_roster` | — | roster 及来自子代理目录的实时活动（`running`/`inactive`/`missing`/`unknown`）与 `stale` 标记。只读。 |
 | `tower_adopt` | `retireMissing?` | 把 roster 条目与持久子代理目录对账。可证明已消失的 agent 会被标记为 retired（默认），或标记为 `missing`（`retireMissing:false`）以便检查/接管。 |
-| `tower_diff` | `missionId`（别名 `id`）、`maxBytes?` | 只读 merge-base diff：文件、提交、有上限的 patch。供 reviewer 安全使用。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息；对运行中的 agent 会即时投递。`interrupt:true` 先中断运行中的回合（Kimi 风格）再投递；`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
 | `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，可进入 preflight 与可选审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息。`report` 受 `gates.maxReportBytes`（默认 32768 UTF-8 字节）硬上限约束：超限会以 `invalid-argument` 拒绝并给出 `nextAction`（把全文写进 mission worktree 的文件），绝不截断；存储时会记录 `reportBytes`。`checks` 记录 `{name, command?, exitCode?, evidence?}` 证据；`gates.requireChecks` 可以强制要求。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。 |
@@ -57,7 +56,6 @@ create/close/abandon、`tower_resource`
 | `tower_finding` | `type`、`title`、`summary`、`details`、`suggested_fix`、`severity?`、`missionId?`、`location?` | 记录 scope 之外的问题；reviewer 用它代替直接改文件。新 finding 初始为 `open`。 |
 | `tower_findings` | `id?`、`status?`、`note?`、过滤（`type?`、`severity?`、`missionId?`、`open?`、`limit?`） | 生命周期工具：列出/读取/流转。状态为 `open → triaged → fixed`/`wontfix`，允许重新打开。只有控制塔或 worker 能修改；reviewer 只能列出/读取。 |
 | `tower_review` | `missionId`（别名 `id`）、`status`（`clean`/`p1-Nitems`/`p2-Nitems`）、`merge`（`merge`/`fix-then-merge`/`hold`）、`findings`、`decision`、`checks?`、`breakGlassReason?` | 绑定当前 tip 的 reviewer 结论。reviewer 必须是获派的 reviewer（或由控制塔使用 break-glass）。`review.mode:off` 时不注册；仓库层为 `off` 时提交会以 `[tower:review-disabled]` 被拒绝。非 clean 结论使 mission 回到 active 后，其他 route 仍可为同一 reviewed tip 提交结论：追加到同一轮（`appended:true`），不再改变状态；tip 已移动时会被明确拒绝。同一轮内以记录顺序（`seq` 最大）最新的结论为准，merge gate、已落地合并检测、status 与 briefing 使用同一规则：同一轮中较晚的 clean 结论会取代较早的非 clean 结论。 |
-| `tower_preflight` | `missionId`（别名 `id`） | 只读门禁：返回 `{ok, blockers[], branchTip, baseTip, changedFiles, review}`。审查 blocker 只在 `review.mode:required` 时出现；`off`/`optional` 会跳过。合并门禁无法从不可读状态计算，因此 preflight 在授权后有意重新抛出状态错误（`state-version-unsupported`/`state-corrupt`），而不是伪造门禁；磁盘诊断请用 `tower_status`/`tower_doctor`。 |
 | `tower_merge` | `missionId`（别名 `id`）、`timeoutMs?`（别名 `timeout_ms`） | 门禁全绿后合并。若合并提交已落地则记录（`reconciled`）；若命令失败但提交已存在则恢复（`recoveredFromFailure`）；区分 `merge-hook-failed` 与 `merge-conflict`。 |
 | `tower_rebase` | `missionId`（别名 `id`） | 在 worktree 内把分支 rebase 到基线。worker 运行中或 worktree 脏时拒绝。分支已包含在基线中时返回 `alreadyMerged` 且保持分支不动。 |
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
@@ -65,7 +63,6 @@ create/close/abandon、`tower_resource`
 | `tower_control` | `action`（`enter`/`exit`/`takeover`）、`reason` | 模型主动切换模式；`takeover` 在获得用户明确批准后，从已停用的属主转移仓库所有权；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
 | `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
 | `tower_reload` | — | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。它在 `host/tool-profiles.js` 中登记为唯一的仓库可选工具，因此可以在没有仓库时修复损坏的 profile；决定这一路径的是工具身份，而不是调用者是否传了 `repoRoot`。 |
-| `tower_doctor` | — | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。当 `state.json` 更新或损坏而无法加载时，仍会从磁盘版本报告 `stateSchema.status`（`newer`/`invalid`）；从不写状态。`tower_status` 与 doctor 都会降级为该磁盘诊断；`tower_preflight` 则不同，会以状态错误失败，因为无法从不可读状态计算门禁。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |

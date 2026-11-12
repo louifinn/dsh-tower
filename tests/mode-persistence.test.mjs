@@ -89,7 +89,7 @@ async function setup(id) {
 
   assert.match((await run('')).text, /Tower mode ON/)
   await call('tower_init', { repoRoot: repo })
-  await call('tower_status', { repoRoot: repo })
+  await call('tower_inspect', { view: 'status', repoRoot: repo })
 
   const lockFile = workspaceLockPath(path.join(repo, '.git'))
   const storeFile = path.join(storeDir, 'modes.json')

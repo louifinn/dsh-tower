@@ -19,7 +19,7 @@ tower_init repoRoot=D:\work\demo
 {"missionId":"M1","role":"worker"}
 ```
 
-Wait for the worker's final report (delivered to this session) or check `tower_roster`. The worker
+Wait for the worker's final report (delivered to this session) or check `tower_inspect` with `view: "roster"`. The worker
 creates `src/greet.txt`, commits on `tower/m1-add-greeting`, marks both tasks done, and calls
 `tower_complete`.
 
@@ -31,7 +31,7 @@ review step; the default is `optional`. Spawn the reviewer:
 {"missionId":"M1","role":"reviewer"}
 ```
 
-The read-only reviewer inspects `tower_diff`, then calls `tower_review` with:
+The read-only reviewer inspects `tower_inspect` with `view: "diff"`, then calls `tower_review` with:
 
 ```json
 {"missionId":"M1","status":"clean","merge":"merge","findings":"none","decision":"single in-scope file; content correct"}
@@ -43,7 +43,7 @@ Gate and merge:
 {"missionId":"M1"}
 ```
 
-Call `tower_preflight` with the same arguments; expect `ok: true`. Then `tower_merge`, and finally
+Call `tower_inspect` with `view: "preflight"` with the same arguments; expect `ok: true`. Then `tower_merge`, and finally
 `tower_teardown` with `{}`.
 
 ```

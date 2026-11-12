@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 25 tools, 41 tool error codes, 30 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -106,8 +106,8 @@ Host plugin (index.js — Cordis apply/effect glue)
  ├─ host/tool-registry.js -> stable registry facade (re-exports the modules below)
  ├─ host/tool-runtime.js -> runtime state, define(), openTower(), shared guards
  ├─ host/tool-capabilities.js -> registration aggregators
- │                    (+ 27 define()-registered tools)
- │                    (+ tower_mode/tower_control registered by the Host entry, 29 total
+ │                    (+ 23 define()-registered tools)
+ │                    (+ tower_mode/tower_control registered by the Host entry, 25 total
  │                       once every optional capability row is on)
  │                    (tower_doctor/tower_recover are host tools, never switches)
  ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
@@ -256,7 +256,7 @@ blocker, `clear_blockers` resumes it to `active`, and `tower_mission` refuses to
 `paused` is a deliberate stop (`pause_cause`); a blocker supersedes a pause. `merged` is only set by
 `tower_merge`/reconciliation.
 
-## Gate pipeline (`tower_preflight`)
+## Gate pipeline (`tower_inspect` with `view: "preflight"`)
 
 1. Mission status must be `completed`; tasks and blockers are checked.
 2. The worktree exists; the base tip is an ancestor of the branch tip; changed files are computed

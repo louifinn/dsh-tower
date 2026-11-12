@@ -117,7 +117,7 @@ export async function waitForSpawnResult({ activation, report, recordOutcome, ma
   }
   if (result && result.__timeout) {
     report.timedOut = true
-    recordOutcome('unknown', 'spawn wait timed out; check tower_roster')
+    recordOutcome('unknown', 'spawn wait timed out; check tower_inspect with view: roster')
   } else {
     report.stopReason = result?.stopReason ?? null
     report.output = textOf(result?.output)

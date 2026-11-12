@@ -55,7 +55,7 @@ Everything an agent can do belongs in one release PR against protected `main`:
   ```
 
   `host/compatibility.js#parseCompatibility` reads cells 0–3 only: never insert a column before the
-  tag and never add one before "what was run", or `tower_doctor` stops seeing the row. The host pin
+  tag and never add one before "what was run", or `tower_inspect` with `view: "doctor"` stops seeing the row. The host pin
   in `scripts/mount-smoke/host.json` must equal cell 0 of the newest row (a unit test enforces it).
   Bump `scripts/support.json` first when the floor moves: `npm run support:check` fails unless the
   package engines, the mount host pin, the live CI matrix and this row all state the same Node/DSH

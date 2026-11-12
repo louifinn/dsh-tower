@@ -17,7 +17,7 @@ const ALLOW = [
   'grep',
   'pwsh',
   'tower_mission',
-  'tower_status',
+  'tower_inspect',
   'tower_finding',
   'tower_findings',
   'tower_inbox',

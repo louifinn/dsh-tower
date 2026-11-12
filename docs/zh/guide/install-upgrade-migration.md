@@ -62,13 +62,13 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 - **state schema v1 → v2（未发布）**：`state.json` 会自动迁移。升级后的第一次**写入**会保留
   `state.json.v1.bak` 备份、`revision` 只 +1，并向 `activity.jsonl` 追加 `state.migrated {from,to}`；
-  只读工具仍可读取 v1 文件且不改写它。`tower_doctor` 报告磁盘上的版本与待执行的迁移。由更新插件
+  只读工具仍可读取 v1 文件且不改写它。`tower_inspect` 的 `view: "doctor"` 视图 报告磁盘上的版本与待执行的迁移。由更新插件
   写入的文件会以 `[tower:state-version-unsupported]` 拒绝，绝不会被重写或降级；迁移抛错会报
   `[tower:state-migration-failed]`，原文件保持字节不变。
 - **state schema v2 → v3（未发布，#90）**：scope 匹配跟随检出目录所在文件系统的行为。迁移把
   `caseInsensitive` 回填为 `null`（“尚未探测”）；迁移不会读取文件系统，因此升级后的第一次
   `tower_init` 会探测一次并记录 `true`/`false`。在此之前使用安全的 `case-sensitive` 比较，
-  `tower_doctor` 会把未知模式报告为 `warn`（`case-mode`）。在大小写不敏感的检出上，
+  `tower_inspect` 的 `view: "doctor"` 视图 会把未知模式报告为 `warn`（`case-mode`）。在大小写不敏感的检出上，
   `src/Api/**` 与 `src/api/**` 从此视为重叠，仅大小写不同的改动不再被 out-of-scope 门禁拒绝。
   存储的 scope 文本永远不会被改写：看板仍显示操作者输入的原样。
 - **2.3.0 → 2.4.0（未发布）**：所有能力合一的 `tower-bundle` 组行已移除。`cordis.patch.yml`
@@ -78,7 +78,7 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   `tools` 配置组与 `dev.hotReload` 已删除：仍带这些键的 profile 现在会作为未知键被拒绝
   （`config-unknown-key`），在删除它们之前 host 不会挂载，因此不再存在静默无效的开关。请改为在插件页
   使用对应的组件行；`tower-hmr` 随包关闭，因此在为联动开发 profile 开启它之前，`tower_reload` 与
-  `/tower reload` 会报告为 “disabled by component tower-hmr”。`tower_doctor` 与 `tower_recover`
+  `/tower reload` 会报告为 “disabled by component tower-hmr”。`tower_inspect` 的 `view: "doctor"` 视图 与 `tower_recover`
   在任何配置下都会注册，无需配置键。策略为 `off` 或 `optional` 时 reviewer 行可以关闭；策略为
   `review.mode:required` 时，规划与模式进入会以带解释的错误拒绝该组合。不需要迁移 state。
 - **2.0.4 → 2.1.0-beta.1**：不需要迁移 config；state 会按上述说明自动迁移（v1/v2 → v3）。

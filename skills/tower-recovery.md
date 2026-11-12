@@ -1,6 +1,6 @@
 # Tower recovery playbook
 
-Read `tower_preflight` and the last failure before changing anything.
+Read `tower_inspect` with `view: "preflight"` and the last failure before changing anything.
 
 ## Merge hook failed or timed out (`merge-hook-failed`)
 
@@ -18,7 +18,7 @@ Only a clean/merge review qualifies; otherwise ask for a fresh review.
 
 ## Merge blocked with `stale-base`
 
-Run `tower_rebase` inside the mission worktree, then `tower_preflight` and `tower_merge`.
+Run `tower_rebase` inside the mission worktree, then `tower_inspect` with `view: "preflight"` and `tower_merge`.
 If the branch was already contained in the base, rebase returns `alreadyMerged` and leaves it
 untouched — call `tower_merge` to record it.
 
@@ -30,7 +30,7 @@ backup first. **Do not delete `state.lock` or the state directory from this play
 
 ## Worktree missing or dirty
 
-`tower_status` shows the expected path and branch. Re-add a missing worktree only from Git if the
+`tower_inspect` with `view: "status"` shows the expected path and branch. Re-add a missing worktree only from Git if the
 branch still exists; do not delete a branch you have not reviewed. Dirty worktrees require an
 explicit teardown `force` decision.
 
@@ -48,5 +48,5 @@ the human approves the dialog. Do not delete the state directory to change owner
 
 **Do not delete `<git-common-dir>/dsh-tower/` from this playbook.** That directory contains mission,
 review, roster, finding and activity history; deleting it can lose unrecoverable work. Stop and ask
-the human to inspect `tower_doctor`, take a backup, and decide on a controlled repair. Worktrees and
+the human to inspect `tower_inspect` with `view: "doctor"`, take a backup, and decide on a controlled repair. Worktrees and
 branches must be cleaned only after that decision.

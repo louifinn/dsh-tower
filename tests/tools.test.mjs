@@ -72,7 +72,7 @@ test('tool surface: every tool declares a structured object output schema', () =
   // registerTowerTools defines the 27 tools that go through define(); the two
   // Host-entry tools (tower_mode/tower_control) are registered by index.js and
   // are part of the shipped 29 measured in tests/surface.test.mjs (#118).
-  assert.equal(tools.size, 27)
+  assert.equal(tools.size, 23)
   for (const definition of tools.values()) {
     assert.equal(definition.output.schema.type, 'object', definition.name)
     assert.equal(typeof definition.output.render, 'function', definition.name)
@@ -86,8 +86,8 @@ test('tool surface: every tool declares a structured object output schema', () =
   // advertised as parameter properties, so they cost no schema bytes.
   const hiddenAliases = {
     tower_mission: ['missionId', 'taskDone', 'taskDrop', 'taskDropReason', 'clearBlockers'],
+    tower_inspect: ['id', 'mission_id', 'include_gate', 'include_archived', 'max_bytes'],
     tower_spawn: ['id', 'wait_ms'],
-    tower_diff: ['id'],
     tower_merge: ['id', 'timeout_ms'],
     tower_inbox: ['includeRead'],
     tower_teardown: ['dryRun'],
@@ -140,8 +140,8 @@ test('tool aliases: missionId/id and taskDone/task_done/clearBlockers all work',
     assert.deepEqual(cleared.mission.blockers, [])
     assert.equal(cleared.mission.status, 'active')
 
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
-    validateAgainstSchema(status, tools.get('tower_status').output.schema)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
+    validateAgainstSchema(status, tools.get('tower_inspect').output.schema)
     assert.equal(status.counts.blocked, 0)
     assert.equal(status.counts.active >= 1, true)
   } finally {
@@ -156,7 +156,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
   const exec = { agent: { id: 'agent-errors' } }
   try {
     await assert.rejects(
-      () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec),
       /\[tower:not-initialized\]/,
     )
     const notRepo = path.join(root, 'not-a-repo')
@@ -166,7 +166,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
       /\[tower:repo-invalid\]/,
     )
     await assert.rejects(
-      () => tools.get('tower_diff').execute({ repoRoot: repo }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'diff', repoRoot: repo }, exec),
       /\[tower:invalid-argument\].*requires missionId/,
     )
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)
@@ -182,7 +182,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
       /\[tower:invalid-argument\].*unknown mission status/,
     )
     await assert.rejects(
-      () => tools.get('tower_diff').execute({ repoRoot: repo, id: 'M9' }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'diff', repoRoot: repo, id: 'M9' }, exec),
       /\[tower:mission-not-found\]/,
     )
     await assert.rejects(
@@ -301,7 +301,7 @@ test('missing towerAgentId gives an actionable error and tower_init re-claims', 
       () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['y/**'] }] }, restored),
       /tower_init to re-claim/,
     )
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, restored)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, restored)
     assert.equal(status.ownerMissing, true)
     assert.equal(status.towerAgentId, null)
     await tools.get('tower_init').execute({ repoRoot: repo }, restored)

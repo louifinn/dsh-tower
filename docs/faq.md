@@ -13,13 +13,13 @@ Not concurrently in the same session: Tower mode refuses their tools and clears 
 phase instead—use Workflow/Team to analyze and decide, then start Tower to execute (and optionally
 review) the repository change. See the [full guide](guide/scenarios-and-philosophy.md#4-how-tower-differs-from-other-dsh-workflow-patterns).
 
-**Why did `tower_preflight` fail with `no-review` right after the worker finished?**
+**Why did `tower_inspect` with `view: "preflight"` fail with `no-review` right after the worker finished?**
 That happens only when the review policy is `required` (`review.mode:required`): a completed mission
 awaits an independent review. Spawn a reviewer; after a clean review the gate turns green. With the
 default `review.mode:optional`, review is optional and no `no-review` blocker is produced.
 
 **Do I need to poll the worker?**
-No. The worker's final report is delivered to this session; `tower_roster` shows live activity. Polling
+No. The worker's final report is delivered to this session; `tower_inspect` with `view: "roster"` shows live activity. Polling
 wastes turns.
 
 **`/tower` says the mode is on but `tower_control` is missing.**

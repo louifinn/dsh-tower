@@ -93,7 +93,7 @@ test('pagination: total/offset/limit/nextOffset page the mission list determinis
     })
     assert.deepEqual(planned.missions.map((mission) => mission.id), ['M1', 'M2', 'M3'])
 
-    const all = await call(tools, 'tower_status', { repoRoot: repo })
+    const all = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(all.total, 3)
     assert.equal(all.offset, 0)
     assert.equal(all.missions.length, 3)
@@ -101,28 +101,28 @@ test('pagination: total/offset/limit/nextOffset page the mission list determinis
     assert.equal(all.missions[0].id, 'M1')
     assert.equal(path.resolve(all.boardPath), path.resolve(path.join(all.commonDir, 'dsh-tower', 'MISSIONS.md')))
 
-    const first = await call(tools, 'tower_status', { repoRoot: repo, limit: 2 })
+    const first = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, limit: 2 })
     assert.equal(first.total, 3)
     assert.equal(first.missions.length, 2)
     assert.equal(first.nextOffset, 2)
     assert.deepEqual(first.missions.map((mission) => mission.id), ['M1', 'M2'])
 
-    const second = await call(tools, 'tower_status', { repoRoot: repo, offset: 2, limit: 2 })
+    const second = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, offset: 2, limit: 2 })
     assert.equal(second.missions.length, 1)
     assert.equal(second.nextOffset, null)
     assert.deepEqual(second.missions.map((mission) => mission.id), ['M3'])
 
     // Past the end is an empty page, never an error.
-    const past = await call(tools, 'tower_status', { repoRoot: repo, offset: 5, limit: 2 })
+    const past = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, offset: 5, limit: 2 })
     assert.equal(past.missions.length, 0)
     assert.equal(past.nextOffset, null)
 
     // limit is clamped to the documented 1..100 range.
-    const clamped = await call(tools, 'tower_status', { repoRoot: repo, limit: 1000 })
+    const clamped = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, limit: 1000 })
     assert.equal(clamped.missions.length, 3)
 
     // format:"markdown" returns the human-readable board in the same value.
-    const markdown = await call(tools, 'tower_status', { repoRoot: repo, format: 'markdown' })
+    const markdown = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, format: 'markdown' })
     assert.match(markdown.markdown, /^# Tower missions — /)
     assert.ok(markdown.markdown.includes('| Mission | Status | Kind | Title | Owner |'))
     assert.ok(markdown.markdown.includes('| M1 | planned |'))
@@ -152,7 +152,7 @@ test('includeGate: every paged mission carries a preflight-style digest', async 
         { title: 'Gate two', scope: ['b/**'] },
       ],
     })
-    const paged = await call(tools, 'tower_status', { repoRoot: repo, includeGate: true, limit: 1 })
+    const paged = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, includeGate: true, limit: 1 })
     assert.equal(paged.missions.length, 1)
     assert.equal(typeof paged.missions[0].gate, 'object')
     assert.equal(paged.missions[0].gate.ok, false)
@@ -221,7 +221,7 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
       breakGlassReason: 'status fixture has no independent reviewer',
     })
 
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.missionId, 'M1')
     assert.equal(detail.detail.mission.id, 'M1')
     assert.equal(detail.detail.mission.status, 'completed')
@@ -246,7 +246,7 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
 
     // Unknown ids still fail with the stable mission code.
     await assert.rejects(
-      () => tools.get('tower_status').execute({ repoRoot: repo, missionId: 'M99' }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo, missionId: 'M99' }, exec),
       /\[tower:mission-not-found\]/,
     )
   } finally {

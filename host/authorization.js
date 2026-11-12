@@ -60,13 +60,13 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   }),
   // Read-only operator surfaces are deliberately public so a broken repository
   // (no state, no owner) can still be diagnosed by an unidentified operator.
-  tower_status: Object.freeze({ allow: EVERYONE }),
+  // #163 Phase 3: the five read-only views share one row. Public by default so
+  // status/preflight/doctor can diagnose a broken repository; the check narrows
+  // the participant-bound views and the doctor config-diagnostic contract applies
+  // to the tool that now serves it.
+  tower_inspect: Object.freeze({ allow: EVERYONE, configDiagnostic: true, check: inspectViewAccess }),
   tower_spawn: towerOnly('spawn tower agents'),
-  tower_roster: Object.freeze({ allow: KNOWN }),
   tower_interrupt: towerOnly('interrupt tower agents'),
-  // A known agent may inspect a mission it participates in; the app layer still
-  // binds a reviewer's diff to its recorded review commit.
-  tower_diff: Object.freeze({ allow: KNOWN, check: requireParticipant }),
   tower_adopt: towerOnly('adopt the roster'),
   tower_send: Object.freeze({ allow: KNOWN }),
   tower_inbox: Object.freeze({ allow: KNOWN }),
@@ -82,19 +82,9 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? `tower_review requires a registered roster agent or the tower${ownerRemedy(actor)}`
         : `only an assigned reviewer or the tower may review; ${actor.name} is ${actor.role}`,
   }),
-  tower_preflight: Object.freeze({ allow: EVERYONE }),
   tower_merge: towerOnly('merge missions'),
   tower_rebase: towerOnly('rebase missions'),
   tower_teardown: towerOnly('tear down worktrees'),
-  // F41: the doctor is the one row that declares the config-diagnostic contract.
-  // Its handler already knows how to produce a degraded read-only report from an
-  // unresolvable config; the kernel still has to let the call reach that handler
-  // when opening the Tower fails on config resolution. The flag makes the
-  // exception explicit and keeps every other public row failing closed. The row
-  // is read-only: a healthy tower_doctor takes the workspace-lock hook like every
-  // other repository-scoped tool, and the registry skips the hook only when this
-  // degraded open path is taken (the hook would re-resolve the config that failed).
-  tower_doctor: Object.freeze({ allow: EVERYONE, configDiagnostic: true }),
   tower_recover: towerOnly('recover Tower state'),
   tower_batch: towerOnly('manage evidence batches'),
   tower_resource: towerOnly('manage resource leases'),
@@ -307,8 +297,11 @@ export async function authorize(tool, actor, context = {}) {
   if (access === A.unknown) {
     const bootstrap = rule.bootstrap === true && !actor?.owner
     if (!rule.allow.includes(A.unknown) && !bootstrap) throw denial(tool, actor, rule)
-    // The bootstrap exception never gets a participant check: the handler must
-    // resolve the repository (and may create it) itself.
+    // #163 Phase 3: a public row may still narrow some of its views (roster and
+    // diff are participant-bound). The bootstrap exception never gets a
+    // participant check: the handler must resolve the repository itself.
+    if (bootstrap) return { tool, access, bootstrap }
+    if (typeof rule.check === 'function') await rule.check({ actor, args: context.args ?? {}, tower: context.tower })
     return { tool, access, bootstrap }
   }
   if (!rule.allow.includes(access)) throw denial(tool, actor, rule)
@@ -326,6 +319,21 @@ function denial(tool, actor, rule) {
     'not-authorized',
     `only the tower can ${rule.action ?? tool}; ${actor.name} is a ${actor.role}${ownerRemedy(actor)}`,
   )
+}
+
+/**
+ * #163 Phase 3: view-level narrowing for the one public `tower_inspect` row.
+ * status/preflight/doctor stay public (a broken repository must be diagnosable),
+ * roster needs a known actor, and diff additionally needs mission participation.
+ *
+ * @param {{ actor: any, args: any }} input
+ */
+async function inspectViewAccess({ actor, args }) {
+  if (args?.view === 'roster') requireKnownActor(actor, 'read the roster')
+  if (args?.view === 'diff') {
+    requireKnownActor(actor, 'inspect a mission branch')
+    await requireParticipant({ actor, args })
+  }
 }
 
 /**

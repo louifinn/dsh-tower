@@ -59,5 +59,5 @@
 ## 为什么抛出？
 
 返回 `{ok:false}` 的形状保留给控制塔能决定的预期策略结果（`tower_merge`/`tower_rebase` 的门禁
-blocker 以及 `tower_preflight`）。任何阻止工具给出决策的问题都会抛出，以免模型把它误当成正常的
+blocker 以及 `tower_inspect` 的 `view: "preflight"` 视图）。任何阻止工具给出决策的问题都会抛出，以免模型把它误当成正常的
 否定结果。

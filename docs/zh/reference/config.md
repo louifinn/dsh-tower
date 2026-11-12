@@ -22,7 +22,7 @@
 
 每次 Tower 工具打开仓库时都会读取仓库配置层，因此仓库可以在不修改 profile 的情况下调整 review、
 merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON 形状（相同的分组与兼容别名），
-并按分组合并：仓库设置的键优先，仓库未设置的 profile 键保留。`tower_status` 会报告
+并按分组合并：仓库设置的键优先，仓库未设置的 profile 键保留。`tower_inspect` 的 `view: "status"` 视图 会报告
 `config.path` 与 `config.repoConfigPresent`。
 
 ```json

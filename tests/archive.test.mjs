@@ -343,7 +343,7 @@ test('fixture: 20 merged missions, teardown shrinks state and status still lists
     assert.ok(year.missions[0].findings.length >= 1)
 
     // Default dashboard and board list active missions only.
-    const dashboard = await call(tools, 'tower_status', { repoRoot: repo })
+    const dashboard = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(dashboard.total, 0)
     assert.equal(dashboard.archivedMissions, 20)
     assert.equal(dashboard.archive.count, 20)
@@ -351,7 +351,7 @@ test('fixture: 20 merged missions, teardown shrinks state and status still lists
     assert.equal(dashboard.markdown, undefined)
 
     // On demand: compact summaries, flagged archived, no report body.
-    const withArchived = await call(tools, 'tower_status', { repoRoot: repo, includeArchived: true, limit: 100 })
+    const withArchived = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, includeArchived: true, limit: 100 })
     assert.equal(withArchived.total, 20)
     assert.equal(withArchived.missions.length, 20)
     assert.ok(withArchived.missions.every((mission) => mission.archived === true))
@@ -361,7 +361,7 @@ test('fixture: 20 merged missions, teardown shrinks state and status still lists
 
     // Full detail is loaded from the year file and includes tasks, reviews,
     // findings and the completion report.
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.missionId, 'M1')
     assert.equal(detail.missions[0].archived, true)
     assert.equal(detail.detail.archived, true)
@@ -372,7 +372,7 @@ test('fixture: 20 merged missions, teardown shrinks state and status still lists
     assert.ok(detail.detail.findings.length >= 1)
 
     // The markdown board reports the archive without listing its rows.
-    const markdown = await call(tools, 'tower_status', { repoRoot: repo, format: 'markdown' })
+    const markdown = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, format: 'markdown' })
     assert.match(markdown.markdown, /Archived: 20 terminal mission/)
     assert.ok(!markdown.markdown.includes('| M1 |'), 'archived rows are not on the default board')
 
@@ -388,7 +388,7 @@ test('fixture: 20 merged missions, teardown shrinks state and status still lists
     })
     assert.equal(dependent.missions[0].id, 'M22')
     assert.deepEqual(dependent.missions[0].deps, ['M1'])
-    const dependentPreflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M22' })
+    const dependentPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M22' })
     assert.equal(
       dependentPreflight.blockers.some((blocker) => blocker.code === 'deps-unmerged'),
       false,
@@ -553,7 +553,7 @@ test('preflight and merge behave the same for an archived mission', async () => 
     const tower = await Tower.open(repo)
     await seedTerminalMissions(tower, 1, { includeReview: false })
 
-    const preflightBefore = await call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' })
+    const preflightBefore = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M1' })
     const mergeBefore = await call(tools, 'tower_merge', { repoRoot: repo, missionId: 'M1' })
     assert.equal(preflightBefore.ok, false)
     assert.equal(mergeBefore.ok, true)
@@ -563,7 +563,7 @@ test('preflight and merge behave the same for an archived mission', async () => 
     assert.deepEqual(torn.archived, ['M1'])
     assert.equal((await tower.load()).missions.length, 0)
 
-    const preflightAfter = await call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' })
+    const preflightAfter = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M1' })
     const mergeAfter = await call(tools, 'tower_merge', { repoRoot: repo, missionId: 'M1' })
     assert.equal(preflightAfter.archived, true)
     assert.deepEqual(preflightAfter.blockers, preflightBefore.blockers)
@@ -586,22 +586,22 @@ test('a truncated archive is a diagnostic in status and doctor; nothing is lost'
     const paths = archivePaths(tower.paths)
     fs.writeFileSync(paths.index, '{"archiveVersion":1,"missions":[')
 
-    const dashboard = await call(tools, 'tower_status', { repoRoot: repo })
+    const dashboard = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(dashboard.archive.unreadable, true)
     assert.equal(dashboard.archivedMissions, null)
     assert.match(dashboard.archive.message, /unreadable/)
     assert.equal(dashboard.total, 0)
 
-    const withArchived = await call(tools, 'tower_status', { repoRoot: repo, includeArchived: true })
+    const withArchived = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, includeArchived: true })
     assert.equal(withArchived.archive.unreadable, true)
     assert.deepEqual(withArchived.missions, [])
 
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.detail.archived, true)
     assert.equal(detail.detail.mission, null)
     assert.match(detail.detail.error, /unreadable/)
 
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.ok(doctor.archive.unreadable.length >= 1)
     const archiveCheck = doctor.checks.find((check) => check.id === 'archive')
     assert.equal(archiveCheck.status, 'warn')
@@ -688,12 +688,12 @@ test('a repository with no archive directory still init/status/doctor normally',
     const tower = await Tower.open(repo)
     assert.equal(fs.existsSync(archivePaths(tower.paths).dir), false)
 
-    const dashboard = await call(tools, 'tower_status', { repoRoot: repo })
+    const dashboard = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(dashboard.archive.present, false)
     assert.equal(dashboard.archive.count, 0)
     assert.equal(dashboard.archive.unreadable, false)
 
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(doctor.ok, true)
     assert.equal(doctor.archive.archivedMissions, 0)
     assert.equal(doctor.archive.missions, 0)

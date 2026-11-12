@@ -362,7 +362,7 @@ test('the real load path anchors a planned-but-never-provisioned legacy survey (
     const text = JSON.stringify(legacy, null, 2)
     fs.writeFileSync(tower.paths.state, text)
 
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(status.revision, legacy.revision, 'a read-only load never rewrites the v3 file')
     const survey = status.missions.find((mission) => mission.id === 'M2')
     assert.equal(survey.kind, 'survey')
@@ -372,7 +372,7 @@ test('the real load path anchors a planned-but-never-provisioned legacy survey (
     assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), text, 'the original v3 document stays byte-identical')
 
     // A second load of the same document is the same fixed point.
-    const again = await call(tools, 'tower_status', { repoRoot: repo })
+    const again = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.deepEqual(again.missions, status.missions)
 
     // The migrated survey is usable: a state write persists v4 and keeps the
@@ -385,7 +385,7 @@ test('the real load path anchors a planned-but-never-provisioned legacy survey (
     assert.equal(persistedSurvey.readCommit, baseCommit)
     assert.deepEqual(persistedSurvey.readDirty, ['README.md'])
     assert.ok(backupsFor(tower).includes('state.json.v3.bak'), 'the v3 document is backed up before the rewrite')
-    const reloaded = await call(tools, 'tower_status', { repoRoot: repo })
+    const reloaded = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const reloadedSurvey = reloaded.missions.find((mission) => mission.id === 'M2')
     assert.equal(reloadedSurvey.kind, 'survey')
     assert.equal(reloadedSurvey.readCommit, baseCommit)
@@ -409,7 +409,7 @@ test('a state written by a newer plugin degrades status but is never rewritten',
     // F40: status is a public read-only diagnostic row. It reports the
     // unreadable state from disk (including the raw schema version) instead of
     // failing inside the handler, and it never rewrites or migrates the file.
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(status.ok, false)
     assert.match(status.stateError, /state-version-unsupported/)
     assert.equal(status.stateSchema.status, 'newer')
@@ -430,10 +430,10 @@ test('a state written by a newer plugin degrades status but is never rewritten',
     assert.ok(status.components)
     // The declared output contract covers the degraded payload, not only the
     // normal one.
-    assert.deepEqual(validateJsonSchema(tools.get('tower_status').output.schema, status), [])
+    assert.deepEqual(validateJsonSchema(tools.get('tower_inspect').output.schema, status), [])
 
     // A mission detail request degrades the same way rather than throwing.
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.ok, false)
     assert.equal(detail.missionId, 'M1')
     assert.equal(detail.detail, null)
@@ -468,7 +468,7 @@ test('a corrupt state file degrades tower_status and stays byte-identical', asyn
       { text: JSON.stringify({ ...parsed, schemaVersion: 'v2' }, null, 2), raw: { ...parsed, schemaVersion: 'v2' } },
     ]) {
       fs.writeFileSync(tower.paths.state, text)
-      const status = await call(tools, 'tower_status', { repoRoot: repo })
+      const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
       assert.equal(status.ok, false)
       assert.match(status.stateError, /\[tower:state-corrupt\]/)
       assert.equal(status.stateSchema.status, 'invalid')
@@ -482,7 +482,7 @@ test('a corrupt state file degrades tower_status and stays byte-identical', asyn
       assert.equal(status.statePath, tower.paths.state)
       assert.equal(status.base, raw?.base ?? tower.branch ?? '')
       assert.equal(status.revision, raw?.revision ?? 0)
-      assert.deepEqual(validateJsonSchema(tools.get('tower_status').output.schema, status), [])
+      assert.deepEqual(validateJsonSchema(tools.get('tower_inspect').output.schema, status), [])
       await assert.rejects(
         () => call(tools, 'tower_inbox', { repoRoot: repo }),
         /\[tower:state-corrupt\]/,
@@ -516,21 +516,21 @@ test('tower_preflight keeps failing with the state error instead of inventing a 
     fs.writeFileSync(tower.paths.state, JSON.stringify({ ...parsed, schemaVersion: SCHEMA_VERSION + 1 }, null, 2))
     const newerBefore = sha256(tower.paths.state)
     await assert.rejects(
-      () => call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' }),
+      () => call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M1' }),
       (error) => error.code === 'state-version-unsupported',
       'a merge gate cannot be computed from a newer state',
     )
-    assert.deepEqual(seen, ['tower_preflight'], 'authorization fallback reached the handler, which rethrew the state error')
+    assert.deepEqual(seen, ['tower_inspect'], 'authorization fallback reached the handler, which rethrew the state error')
     assert.equal(sha256(tower.paths.state), newerBefore, 'a failed preflight must not rewrite state')
 
     fs.writeFileSync(tower.paths.state, 'this is not json at all')
     const corruptBefore = sha256(tower.paths.state)
     await assert.rejects(
-      () => call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M1' }),
+      () => call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M1' }),
       (error) => error.code === 'state-corrupt',
       'a merge gate cannot be computed from a corrupt state',
     )
-    assert.deepEqual(seen, ['tower_preflight', 'tower_preflight'])
+    assert.deepEqual(seen, ['tower_inspect', 'tower_inspect'])
     assert.equal(sha256(tower.paths.state), corruptBefore, 'a failed preflight must not rewrite state')
   } finally {
     removeTemp(root)
@@ -578,7 +578,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
     await call(tools, 'tower_init', { repoRoot: repo })
     const tower = await Tower.open(repo)
 
-    const current = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const current = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.deepEqual(current.stateSchema, {
       currentVersion: SCHEMA_VERSION,
       supportedVersion: SCHEMA_VERSION,
@@ -589,7 +589,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
 
     downgradeToV1(tower)
     const before = sha256(tower.paths.state)
-    const pending = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const pending = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.deepEqual(pending.stateSchema, {
       currentVersion: 1,
       supportedVersion: SCHEMA_VERSION,
@@ -610,7 +610,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
       JSON.stringify({ ...readState(tower.paths.state), schemaVersion: SCHEMA_VERSION + 1 }, null, 2),
     )
     const newerBefore = sha256(tower.paths.state)
-    const newer = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const newer = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(newer.stateSchema.currentVersion, SCHEMA_VERSION + 1)
     assert.equal(newer.stateSchema.status, 'newer')
     assert.equal(newer.checks.find((check) => check.id === 'state-schema').status, 'fail')
@@ -624,7 +624,7 @@ test('tower_doctor reports the state schema version and the pending migration wi
     const corruptText = 'this is not json at all'
     fs.writeFileSync(tower.paths.state, corruptText)
     const corruptBefore = sha256(tower.paths.state)
-    const corrupt = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const corrupt = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(corrupt.stateSchema.currentVersion, null)
     assert.equal(corrupt.stateSchema.supportedVersion, SCHEMA_VERSION)
     assert.deepEqual(corrupt.stateSchema.migrations, [])

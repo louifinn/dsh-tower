@@ -193,21 +193,21 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。三种审查模式、插件页控件位置与单版本别名迁移见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（29 个：22 个核心 + 7 个可选）
+## 工具（25 个：18 个核心 + 7 个可选）
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_status` · `tower_spawn` · `tower_roster` · `tower_adopt` · `tower_diff` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_preflight` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_doctor` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map` · `tower_control` · `tower_reload`
 
-上面列出的是 22 个核心工具加 5 个由组件行拥有的可选工具。`tower_control` 是第 6 个可选工具，默认注册（`allowAgentControl:true`）；设为 `false` 可禁用。`tower_reload` 是第 7 个，仅在 `tower-hmr` 组件行开启时注册（随包关闭），无 HMR 服务调用会返回 `reload-unavailable`（因此最多 29 个工具：22 个核心 + 7 个可选）。`tower_doctor` 与 `tower_recover` 属于核心：任何配置都会注册它们（#122）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+上面列出的是 18 个核心工具加 5 个由组件行拥有的可选工具。`tower_control` 是第 6 个可选工具，默认注册（`allowAgentControl:true`）；设为 `false` 可禁用。`tower_reload` 是第 7 个，仅在 `tower-hmr` 组件行开启时注册（随包关闭），无 HMR 服务调用会返回 `reload-unavailable`（最多 25 个工具：18 个核心 + 7 个可选）。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
-- **门禁不全绿不合并。** `tower_preflight` 是只读检查，返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
+- **门禁不全绿不合并。** 只读的 `tower_inspect` `view: "preflight"` 返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
 - **审查绑定提交。** 策略为 `review.mode:required` 时，审查后分支 tip 变化会报 `tip-moved`，必须重新审查；reviewer 使用只读 preset，若在审查期间改动分支，提交审查会被拒绝。`off` 是受支持的模式，会移除 `tower_review`；`optional` 记录审查但从不阻塞合并。非 clean 的一轮审查会让 mission 回到 active，此后其他 route 仍可为同一 reviewed tip 提交结论并追加到同一轮；依赖为 `completed` 的 survey 视为已满足（build 依赖仍需 merged）。
 - **scope 强制。** mission 只能修改其 scope glob 匹配的文件，越界会以 `out-of-scope` 阻止合并。
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：29 个工具、41 个工具错误码、34 个进程内事件、57 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
+表面计数（实时，由 `npm run docs:check` 校验）：25 个工具、41 个工具错误码、30 个进程内事件、57 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
 
 稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 

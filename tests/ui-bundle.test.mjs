@@ -29,18 +29,16 @@ const CLIENT_FILES = fs
   .sort()
 const ALL_SOURCE = CLIENT_FILES.map((name) => fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')).join('\n')
 
+// #163 Phase 3: the five read-only views are one tower_inspect toolview.
 const TOOL_NAMES = [
-  'tower_status',
-  'tower_roster',
+  'tower_inspect',
   'tower_spawn',
   'tower_mission',
   'tower_complete',
   'tower_review',
-  'tower_preflight',
   'tower_merge',
   'tower_teardown',
   'tower_interrupt',
-  'tower_doctor',
   'tower_batch',
 ].sort()
 
@@ -381,7 +379,7 @@ test('registers the twelve keyed tool.call.toolview entries', async () => {
     assert.equal(entry.options.locale, 'tower-ui')
     assert.equal(typeof entry.component, 'function')
   }
-  assert.ok(registrations.some((entry) => entry.options.key === 'tower_doctor'))
+  assert.ok(registrations.some((entry) => entry.options.key === 'tower_inspect'))
   assert.ok(registrations.some((entry) => entry.options.key === 'tower_batch'))
 })
 
@@ -418,7 +416,7 @@ test('locale dictionaries registered for tower-ui are complete in en/zh', async 
   const zh = dictionaries.zh
   assert.ok(en && zh)
   assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort(), 'en/zh key sets must match')
-  for (const key of ['card.title', 'card.blockers', 'card.tasks', 'card.checks', 'tool.status', 'dock.running', 'strip.started']) {
+  for (const key of ['card.title', 'card.blockers', 'card.tasks', 'card.checks', 'tool.inspect', 'dock.running', 'strip.started']) {
     assert.equal(typeof en[key], 'string')
     assert.equal(typeof zh[key], 'string')
   }
@@ -434,7 +432,7 @@ test('client locale copy uses the glossary terms and localizes known enums', asy
     'tool.mission': ['Mission', '任务线'],
     'tool.review': ['Review', '审查'],
     'tool.batch': ['Batch', '批次'],
-    'tool.doctor': ['Doctor', '体检'],
+    'tool.inspect': ['Inspect', '查看'],
     'card.batchLine': ['batch {status}', '批次 {status}'],
     'dock.batch': ['batch {status}', '批次 {status}'],
     'card.reviewLine': ['review {status} · merge {merge} · round {round}', '审查 {status} · 合并建议 {merge} · 第 {round} 轮'],
@@ -507,36 +505,37 @@ function t(key, params) {
 
 test('toolview renders a compact card and publishes start/result notices', async () => {
   const { react, toolviews, noticeSource } = await components()
-  const Card = toolviews.get('tower_status')
+  const Card = toolviews.get('tower_inspect')
 
   const startElement = render(react, Card, {
-    toolName: 'tower_status',
+    toolName: 'tower_inspect',
     phase: 'start',
     callId: 'call-1',
-    block: { callId: 'call-1', name: 'tower_status' },
+    block: { callId: 'call-1', name: 'tower_inspect' },
     t,
   })
-  assert.equal(startElement.props['data-tower-toolview'], 'tower_status')
+  assert.equal(startElement.props['data-tower-toolview'], 'tower_inspect')
   assert.equal(startElement.props['data-tower-phase'], 'start')
   assert.equal(startElement.props.role, 'group')
   assert.equal(startElement.props['aria-label'], startElement.props.title)
   assert.equal(startElement.props['aria-busy'], 'true')
   assert.match(textOf(startElement), /card\.running/)
-  assert.equal(noticeSource.getSnapshot().tool, 'tower_status')
+  assert.equal(noticeSource.getSnapshot().tool, 'tower_inspect')
   assert.equal(noticeSource.getSnapshot().running, true)
 
   const resultElement = render(react, Card, {
-    toolName: 'tower_status',
+    toolName: 'tower_inspect',
     phase: 'result',
     callId: 'call-1',
     block: {
       kind: 'tool/result',
       callId: 'call-1',
-      call: { name: 'tower_status' },
+      call: { name: 'tower_inspect' },
       content: [
         {
           type: 'text',
           text: JSON.stringify({
+            view: 'status',
             counts: { planned: 0, active: 1, completed: 0 },
             openTasks: 2,
             roster: 1,
@@ -554,7 +553,7 @@ test('toolview renders a compact card and publishes start/result notices', async
   assert.match(resultText, /card\.statusHeadline/)
   assert.match(resultText, /card\.openTasks/)
   const notice = noticeSource.getSnapshot()
-  assert.equal(notice.tool, 'tower_status')
+  assert.equal(notice.tool, 'tower_inspect')
   assert.equal(notice.running, false)
   assert.equal(notice.ok, true)
 })
@@ -563,15 +562,15 @@ test('toolview cards render review, preflight, merge, roster, complete and block
   const { react, toolviews } = await components()
   const cases = [
     ['tower_review', { review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: 'two problems', decision: 'fix first', checks: ['tests'] }, round: 2, branchTip: 'abcdef1234567' }],
-    ['tower_preflight', { ok: false, blockers: [{ code: 'no-review', detail: 'review missing' }], changedFiles: ['a.js'] }],
+    ['tower_inspect', { view: 'preflight', ok: false, blockers: [{ code: 'no-review', detail: 'review missing' }], changedFiles: ['a.js'] }],
     ['tower_merge', { ok: true, mergedCommit: 'abcdef1234567', baseTip: '1234567abcdef', warnings: ['slow hook'] }],
-    ['tower_roster', { roster: [{ name: 'worker-m1', role: 'worker', missionId: 'M1', activity: 'running' }, { name: 'worker-m2', role: 'worker', missionId: 'M2', activity: 'missing', stale: true }], parentStatus: { s1: 'ok' } }],
+    ['tower_inspect', { view: 'roster', roster: [{ name: 'worker-m1', role: 'worker', missionId: 'M1', activity: 'running' }, { name: 'worker-m2', role: 'worker', missionId: 'M2', activity: 'missing', stale: true }], parentStatus: { s1: 'ok' } }],
     ['tower_complete', { mission: { id: 'M1', completionReport: { report: 'done', checks: [{ name: 'npm test', exitCode: 0 }, { name: 'lint', exitCode: 1 }] } }, commits: 2, unread: 0 }],
     ['tower_mission', { mission: { id: 'M1', status: 'blocked', tasks: [{ status: 'done' }, { status: 'open' }], blockers: ['waiting on base'], reviewPolicy: 'required-clean' } }],
     ['tower_spawn', { name: 'worker-m1', role: 'worker', missionId: 'M1', agentId: 'agent-123', worktree: { branch: 'tower/m1' }, created: true }, /card\.spawnLine/],
     ['tower_teardown', { ok: true, dryRun: false, removed: ['M1'], decisions: [{ missionId: 'M1', action: 'remove' }, { missionId: 'M2', action: 'keep', reason: 'live agent' }] }, /card\.teardownLine/],
     ['tower_interrupt', { ok: true, interrupted: true, previousActivity: 'running', entry: { name: 'worker-m1' } }, /card\.interruptYes/],
-    ['tower_doctor', { ok: false, checks: [{ id: 'git', status: 'pass', detail: 'git version' }, { id: 'hmr', status: 'warn', detail: 'not mounted' }, { id: 'state', status: 'fail', detail: 'missing', action: 'init' }], environmentContract: {} }, /card\.doctorChecks/],
+    ['tower_inspect', { view: 'doctor', ok: false, checks: [{ id: 'git', status: 'pass', detail: 'git version' }, { id: 'hmr', status: 'warn', detail: 'not mounted' }, { id: 'state', status: 'fail', detail: 'missing', action: 'init' }], environmentContract: {} }, /card\.doctorChecks/],
     ['tower_batch', { ok: true, action: 'status', batches: [], summary: { batchId: 'B1', status: 'open', members: [{ id: 'M1' }], checks: [{ missionId: 'M1', name: 'check', ok: true, outcome: 'passed' }], pendingChecks: [], failedChecks: [] } }, /card\.batchLine/],
   ]
   for (const [tool, payload, expectedKey] of cases) {
@@ -682,7 +681,7 @@ test('composer dock keeps the static hint without tower results and marks unknow
         nodes: [
           {
             kind: 'tool/result',
-            call: { name: 'tower_status' },
+            call: { name: 'tower_inspect' },
             content: [{ type: 'text', text: JSON.stringify(statusPayload) }],
           },
         ],
@@ -919,7 +918,7 @@ test('dock surfaces mode unknown when history has Tower activity but no mode eve
   const bundle = await components()
   const dock = render(bundle.react, bundle.dock, {
     t,
-    useChat: chatUse(chatSnapshot([toolResultNode('tower_status', { ok: true, repoRoot: 'C:/repo' })])),
+    useChat: chatUse(chatSnapshot([toolResultNode('tower_inspect', { ok: true, repoRoot: 'C:/repo' })])),
   })
   assert.equal(dock.props['data-tower-ui'], 'dock-mode')
   assert.equal(dock.props['data-tower-mode'], 'unknown')

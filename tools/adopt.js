@@ -13,7 +13,7 @@ export function registerAdoptTool(ctx, deps) {
   define(ctx, {
     name: 'tower_adopt',
     description:
-      'Reconcile the roster with the durable subagent catalog after a restart or new session. Agents that are provably gone are marked retired (records are kept) or missing (retireMissing:false, so the tower can inspect/take over); agents whose parent catalog cannot be read stay unknown and are never changed. Only the tower may adopt.',
+      'Reconcile the roster with the durable subagent catalog after a restart. Provably gone agents are retired (or missing with retireMissing:false so the tower can inspect them); unreadable catalogs stay unknown. Tower-only.',
     parameters: AdoptInput,
     aliases: { retire_missing: ['retireMissing'] },
     output: output(SCHEMAS.adopt),

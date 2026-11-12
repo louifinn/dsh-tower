@@ -318,7 +318,7 @@ test('guard: the deny scope is the workspace, so a second session on the same ch
   assert.match(guard(teammateTool), /under Tower mode \(another Tower session\)/)
   // Non-orchestration tools stay available to the second session.
   assert.equal(guard({ agent: teammate, name: 'read', arguments: {} }), undefined)
-  assert.equal(guard({ agent: teammate, name: 'tower_status', arguments: {} }), undefined)
+  assert.equal(guard({ agent: teammate, name: 'tower_inspect', arguments: {} }), undefined)
 })
 
 test('prompt section is dynamic per agent and mentions agent control by default', async () => {
@@ -453,14 +453,14 @@ test('session tools stay callable when the repository state is unreadable (F31)'
   }
 })
 
-test('#122: tower_doctor and tower_recover are registered for every configuration', () => {
+test('#122: the doctor view and tower_recover are registered for every configuration', () => {
   // Every valid profile shape: no config, and every optional row on or off.
   for (const skip of [[], ...CAPABILITY_MODULES.map(([id]) => [id])]) {
     const { ctx, tools } = makeCtx()
     compose(ctx, { skip })
-    assert.ok(tools.has('tower_doctor'), `tower_doctor survives rows off: ${skip.join(',') || 'none'}`)
+    assert.ok(tools.has('tower_inspect'), `the doctor view survives rows off: ${skip.join(',') || 'none'}`)
     assert.ok(tools.has('tower_recover'), `tower_recover survives rows off: ${skip.join(',') || 'none'}`)
-    assert.ok(tools.has('tower_status'), 'the dashboard is never removed')
+    assert.ok(tools.has('tower_inspect'), 'the dashboard/doctor views are never removed')
     assert.ok(tools.has('tower_plan'), 'planning is never removed')
     assert.ok(tools.has('tower_mode'), 'the mode reporter is never removed')
   }
@@ -476,12 +476,12 @@ test('F41: only the public doctor row may degrade on a config-resolution failure
   // (a) The authorization matrix names the exception explicitly: exactly the
   // read-only doctor row opts into the degraded path. A new row must not be able
   // to inherit it silently.
-  assert.deepEqual(AUTHORIZATION_MATRIX.tower_doctor.allow, ['tower', 'worker', 'reviewer', 'survey', 'unknown'])
-  assert.equal(AUTHORIZATION_MATRIX.tower_doctor.configDiagnostic, true)
+  assert.deepEqual(AUTHORIZATION_MATRIX.tower_inspect.allow, ['tower', 'worker', 'reviewer', 'survey', 'unknown'])
+  assert.equal(AUTHORIZATION_MATRIX.tower_inspect.configDiagnostic, true)
   const diagnosticRows = Object.entries(AUTHORIZATION_MATRIX)
     .filter(([, row]) => row.configDiagnostic === true)
     .map(([name]) => name)
-  assert.deepEqual(diagnosticRows, ['tower_doctor'], 'only tower_doctor may degrade on a config failure')
+  assert.deepEqual(diagnosticRows, ['tower_inspect'], 'only tower_inspect (doctor view) may degrade on a config failure')
 
   // (b) Through the real apply() host: an invalid profile must not make the
   // doctor unreachable. Before F41 the call was rejected in the tool-registry
@@ -503,11 +503,11 @@ test('F41: only the public doctor row may degrade on a config-resolution failure
     assert.throws(() => configureRuntime({ allowAgentToggle: true }), /unknown key/i)
     let doctor
     try {
-      doctor = await tools.get('tower_doctor').execute({ repoRoot: repo }, { agent })
+      doctor = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: repo }, { agent })
     } finally {
       configureRuntime({})
     }
-    assertSchema(tools.get('tower_doctor'), doctor)
+    assertSchema(tools.get('tower_inspect'), doctor)
     assert.equal(doctor.ok, false)
     assert.match(doctor.configError, /\[tower:config-unknown-key\]/)
     const config = doctor.checks.find((entry) => entry.id === 'config')
@@ -515,8 +515,8 @@ test('F41: only the public doctor row may degrade on a config-resolution failure
     assert.match(config.detail, /unknown key/i)
     assert.equal(fs.readFileSync(stateFile, 'utf8'), stateBefore, 'the degraded diagnostic is read-only')
     // Restoring the profile restores the ordinary tools.
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent })
-    assertSchema(tools.get('tower_status'), status)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, { agent })
+    assertSchema(tools.get('tower_inspect'), status)
     assert.equal(status.counts.planned, 1)
   } finally {
     configureRuntime({})
@@ -547,8 +547,8 @@ test('F48: a healthy tower_doctor takes the workspace lock; only a degraded conf
     assert.equal(fs.existsSync(healthyLock), false, 'tower_init must not acquire the workspace lock')
 
     // workspaceLockScope:"all" means this read-only tool is not exempt.
-    const report = await tools.get('tower_doctor').execute({ repoRoot: healthy.repo }, { agent: healthyAgent })
-    assertSchema(tools.get('tower_doctor'), report)
+    const report = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: healthy.repo }, { agent: healthyAgent })
+    assertSchema(tools.get('tower_inspect'), report)
     assert.equal(report.ok, true)
     assert.ok(fs.existsSync(healthyLock), 'a healthy tower_doctor must acquire the workspace lock')
     const held = JSON.parse(fs.readFileSync(healthyLock, 'utf8'))
@@ -560,11 +560,11 @@ test('F48: a healthy tower_doctor takes the workspace lock; only a degraded conf
     assert.throws(() => configureRuntime({ allowAgentToggle: true }), /unknown key/i)
     let fallback
     try {
-      fallback = await tools.get('tower_doctor').execute({ repoRoot: degraded.repo }, { agent: degradedAgent })
+      fallback = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: degraded.repo }, { agent: degradedAgent })
     } finally {
       configureRuntime({})
     }
-    assertSchema(tools.get('tower_doctor'), fallback)
+    assertSchema(tools.get('tower_inspect'), fallback)
     assert.equal(fallback.ok, false)
     assert.match(fallback.configError, /\[tower:config-unknown-key\]/)
     assert.equal(
@@ -664,12 +664,12 @@ test('#121: turning one capability row off leaves a working Tower and is reporte
     const { ctx, tools } = makeCtx()
     compose(ctx, { skip: [id] })
     // Core surface still works.
-    for (const name of ['tower_mode', 'tower_plan', 'tower_status', 'tower_doctor', 'tower_recover', 'tower_spawn']) {
+    for (const name of ['tower_mode', 'tower_plan', 'tower_inspect', 'tower_inspect', 'tower_recover', 'tower_spawn']) {
       assert.ok(tools.has(name), `${id} off keeps ${name}`)
     }
     for (const name of owned) assert.equal(tools.has(name), false, `${id} off removes ${name}`)
     // The disabled capability is named by tower_doctor, not silently absent.
-    const report = await tools.get('tower_doctor').execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor') })
+    const report = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor') })
     assert.ok(
       report.components.disabled.some((entry) => entry.id === id && entry.reason === `disabled by component ${id}`),
       `${id} must be reported: ${JSON.stringify(report.components)}`,
@@ -680,8 +680,8 @@ test('#121: turning one capability row off leaves a working Tower and is reporte
   const reviewer = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
   compose(reviewer.ctx)
   const reviewerReport = await reviewer.tools
-    .get('tower_doctor')
-    .execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-reviewer') })
+    .get('tower_inspect')
+    .execute({ view: 'doctor', repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-reviewer') })
   assert.ok(
     reviewerReport.components.disabled.some(
       (entry) => entry.id === 'preset-tower-reviewer' && /disabled by component preset-tower-reviewer/.test(entry.reason),
@@ -695,15 +695,15 @@ test('#121: tower_doctor reports the full build surface, not the mounted subset'
   // ship on; tower-hmr is off, so 28 tools are actually registered.
   const { ctx, tools } = makeCtx()
   compose(ctx, { skip: ['tower-hmr'] })
-  assert.equal(tools.size, 28, 'the shipped profile mounts 28 tools')
+  assert.equal(tools.size, 24, 'the shipped profile mounts 24 tools')
   assert.equal(tools.has('tower_reload'), false, 'tower-hmr is off')
 
-  const report = await tools.get('tower_doctor').execute({ repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-surface') })
-  // The concept budget is the build surface (29), so it still agrees with
+  const report = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-surface') })
+  // The concept budget is the build surface (25), so it still agrees with
   // scripts/surface-baseline.json and docs; the mounted subset is not a
-  // different "29 vs 28" surface and must not be mistaken for one.
-  assert.equal(report.surface.tools, 29, 'the doctor reports every tool this build can register')
-  assert.match(report.surface.line, /tools: 29$/)
+  // different "25 vs 24" surface and must not be mistaken for one.
+  assert.equal(report.surface.tools, 25, 'the doctor reports every tool this build can register')
+  assert.match(report.surface.line, /tools: 25$/)
 })
 
 test('#121: tower_status also names a disabled component', async () => {
@@ -712,7 +712,7 @@ test('#121: tower_status also names a disabled component', async () => {
   const repo = makeRepo().repo
   const agent = makeAgent('agent-status-components')
   await tools.get('tower_init').execute({ repoRoot: repo }, { agent })
-  const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent })
+  const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, { agent })
   assert.ok(
     status.components.disabled.some(
       (entry) => entry.id === 'tower-batch' && entry.reason === 'disabled by component tower-batch',
@@ -787,7 +787,7 @@ test('#154: model takeover asks the human and transfers an inactive owner', asyn
     assert.equal(asked[0].questions[0].id, 'tower-ownership')
     assert.match(asked[0].questions[0].detail, /Current owner: owner-a/)
     assert.match(asked[0].questions[0].detail, /Reason: previous session is gone/)
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, { agent: next })
     assert.equal(status.ownership.owner, 'owner-b')
     assert.equal(status.ownership.sameOwner, true)
   } finally {
@@ -817,7 +817,7 @@ test('#154: takeover declines, cancellation and a live owner are non-destructive
     )
     assert.equal(declined.approved, false)
     assert.equal(declined.transferred, false)
-    let status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    let status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, { agent: next })
     assert.equal(status.ownership.owner, 'owner-refuse-a')
 
     // A cancelled dialog must end the turn, not transfer.
@@ -867,7 +867,7 @@ test('#154: human /tower takeover works without the model control gate', async (
     const result = await callCommand(commands, next, 'takeover recovering a finished session')
     assert.equal(result.kind, 'success', result.text)
     assert.match(result.text, /ownership transferred from owner-human-a to owner-human-b/)
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, { agent: next })
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, { agent: next })
     assert.equal(status.ownership.owner, 'owner-human-b')
   } finally {
     removeTemp(root)

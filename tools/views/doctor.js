@@ -1,7 +1,7 @@
-// tower_doctor: read-only health check.
-import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { DoctorInput } from '../domain/contracts/tool-inputs/index.js'
-import { DOCTOR_STATUS } from '../domain/vocabulary.js'
+// tower_inspect view: doctor — read-only health check.
+import { SCHEMAS, output } from '../../domain/contracts/outputs.js'
+import { DoctorInput } from '../../domain/contracts/tool-inputs/index.js'
+import { DOCTOR_STATUS } from '../../domain/vocabulary.js'
 
 /**
  * The config the degraded doctor runs against. The profile layer is used only
@@ -48,22 +48,11 @@ function configFailureChecks(checks, detail) {
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, createTower: any, resolveRepo: any, runtimeConfig: () => any, resolveTowerConfig: (raw: any) => any, isConfigResolutionError: (error: any) => boolean, runDoctor: any, surface?: () => { tools?: number } }} deps
+ * @param {{ define: import('../../types/index.js').DefineTool, openTower: any, createTower: any, resolveRepo: any, runtimeConfig: () => any, resolveTowerConfig: (raw: any) => any, isConfigResolutionError: (error: any) => boolean, runDoctor: any, surface?: () => { tools?: number } }} deps
  */
-export function registerDoctorTool(ctx, deps) {
-  const { define, createTower, resolveRepo, runtimeConfig, resolveTowerConfig, isConfigResolutionError, runDoctor } = deps
-  define(ctx, {
-    name: 'tower_doctor',
-    description:
-'Read-only\ environment\ and\ repository\ health\ check:\ the\ concept-budget\ surface\ \(config\ keys/sections/tools\),\ git,\ state\ schema,\ case-sensitivity\ detection\ \(caseInsensitive\ and\ the\ active\ scope\ comparison\ mode\),\ config,\ presets/subagents/HMR,\ the\ state\ lock\ age/heartbeat\ freshness,\ the\ repo-scoped\ git\ lock\ holder\ \(gitLock:\ \{held,pid,phase,heldMs\}\),\ workspace\ lock,\ roster\ staleness,\ worktree\ ownership,\ test\ discovery,\ leases,\ and\ the\ terminal-mission\ archive\ \(count,\ bytes,\ years,\ unreadable\ diagnostics\ and\ the\ configured\ afterDays/maxMissions\ policy\)\.\ Returns\ checks\ with\ pass/warn/fail,\ state-lock\ and\ git-lock\ reports\ and\ an\ environment\ contract\.\ Never\ writes\ state\ and\ never\ probes\ the\ filesystem\.',
-    parameters: DoctorInput,
-    output: output(SCHEMAS.doctor),
-    // F41: a config-resolution failure must not fail the call in the tool-registry
-    // open path. The public row declares the config-diagnostic contract (see
-    // host/authorization.js), so an unresolved profile/repo config reaches this
-    // handler, which opens the repository read-only without the failed layer and
-    // reports the failure as a failed `config` check instead.
-    async execute(args, exec) {
+export async function runDoctorView(ctx, args, exec, deps) {
+  const { createTower, resolveRepo, runtimeConfig, resolveTowerConfig, isConfigResolutionError, runDoctor } = deps
+  {
       let tower
       let configError = null
       try {
@@ -82,6 +71,5 @@ export function registerDoctorTool(ctx, deps) {
         configError,
         checks: configFailureChecks(report.checks, configError),
       }
-    },
-  })
+  }
 }

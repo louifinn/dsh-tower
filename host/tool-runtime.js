@@ -286,12 +286,13 @@ export function plainSchema(value) {
  *   execute: (args: import('@sinclair/typebox').Static<S> & { repoRoot?: string }, exec: any, actor?: any) => Promise<unknown>,
  *   aliases?: any,
  *   requiresMissionId?: any,
+ *   validateArgs?: (args: any) => void,
  *   board?: any,
  *   output?: any,
  * }} definition
  */
 export function define(ctx, definition) {
-  const { aliases, requiresMissionId, board, execute, ...rest } = definition
+  const { aliases, requiresMissionId, validateArgs, board, execute, ...rest } = definition
   // Record the definition for the concept budget. The capability that owns the
   // tool decides whether it is registered at all (#121): the component row is
   // the switch, so `define()` no longer consults a `tools.expose*` boolean.
@@ -309,6 +310,10 @@ export function define(ctx, definition) {
           }
           normalized.missionId = id.trim()
         }
+        // #163 Phase 3: a dispatcher can require arguments that depend on the
+        // selected operation; validating them before authorization keeps a
+        // malformed call `invalid-argument` rather than a role denial.
+        if (typeof validateArgs === 'function') validateArgs(normalized)
         let value
         try {
           // #163: resolve the repository here, once, before authorization, so the

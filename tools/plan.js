@@ -25,7 +25,7 @@ export function registerPlanTool(ctx, deps) {
   define(ctx, {
     name: 'tower_plan',
     description:
-      'Plan one or more missions in an initialized repository. Each mission has a printable-Unicode title (NFC-normalized, at most 120 characters), relative scope globs, optional task checklist, optional mission-id dependencies, and kind build|survey. Assigns M1.. ids and auto-adds a dependency when build scopes overlap (serializes merges); rejects dependency cycles. Returns survey-stale warnings for a build that depends on a survey whose recorded readCommit is not an ancestor of the base; those warnings are advisory and gates.requireFreshSurvey promotes them to merge blockers.',
+      'Plan missions in an initialized repository: title (printable Unicode, at most 120 chars), relative scope globs, optional tasks, deps, and kind build|survey. Assigns M1.. ids, serializes overlapping build scopes, rejects cycles, and warns when a survey dependency is stale.',
     parameters: PlanInput,
     board: true,
     output: output(SCHEMAS.plan),

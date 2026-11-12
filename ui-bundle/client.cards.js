@@ -65,8 +65,11 @@ window.__ModuleLoader__.load({
         const blockers = blockersOf(payload.blockers)
         let tone = toneForPayload(payload)
         let headline = translate(t, 'card.done')
+        // #163 Phase 3: the five read-only views share tower_inspect; the
+        // result carries the view it served so the card stays specific.
+        const view = toolName === 'tower_inspect' && typeof payload.view === 'string' ? payload.view : null
 
-        if (toolName === 'tower_status') {
+        if (view === 'status') {
           const counts = countsOf(payload)
           const openTasks = typeof payload.openTasks === 'number' ? payload.openTasks : null
           if (counts !== null) {
@@ -100,7 +103,7 @@ window.__ModuleLoader__.load({
           if (headline === translate(t, 'card.done')) {
             headline = translate(t, 'card.statusHeadline', { total: 0, active: 0 })
           }
-        } else if (toolName === 'tower_roster') {
+        } else if (view === 'roster') {
           const roster = Array.isArray(payload.roster) ? payload.roster : []
           let live = 0
           let stale = 0
@@ -205,7 +208,7 @@ window.__ModuleLoader__.load({
             rows.push({ text: firstLine(review.decision) })
           }
           if (typeof payload.branchTip === 'string') rows.push({ text: translate(t, 'card.branchTip', { commit: shortCommit(payload.branchTip) }) })
-        } else if (toolName === 'tower_preflight') {
+        } else if (view === 'preflight') {
           headline =
             payload.ok === true
               ? translate(t, 'card.mergeReady')
@@ -264,7 +267,7 @@ window.__ModuleLoader__.load({
             rows.push({ text: translate(t, 'card.previousActivity', { activity: enumLabel(t, 'activity', payload.previousActivity) }) })
           }
           if (typeof payload.reason === 'string' && payload.reason !== '') rows.push({ text: truncate(payload.reason) })
-        } else if (toolName === 'tower_doctor') {
+        } else if (view === 'doctor') {
           const checks = checkEntries(payload.checks)
           const passed = checks.filter((entry) => entry.ok === true).length
           const warned = checks.filter((entry) => entry.ok === null).length

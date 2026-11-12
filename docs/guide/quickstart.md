@@ -31,7 +31,7 @@ tower_spawn missionId=M1 role=worker
 
 The call returns immediately with the child agent id. The worker works inside the mission worktree,
 commits, marks tasks done, and calls `tower_complete`; its final report is delivered back to this
-session. Use `tower_roster` to observe activity; do not poll in a loop.
+session. Use `tower_inspect` with `view: "roster"` to observe activity; do not poll in a loop.
 
 ## 4. Optional: review
 
@@ -44,7 +44,7 @@ workflow, then:
 tower_spawn missionId=M1 role=reviewer
 ```
 
-Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_diff` and submit
+Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_inspect` with `view: "diff"` and submit
 `tower_review`; with `review.mode:required`, a `clean` + `merge` verdict is required to merge.
 `optional` records reviews but never blocks a merge, and `off` is a supported mode that does not
 register `tower_review`.
@@ -63,7 +63,7 @@ tower_merge     missionId=M1
 tower_teardown
 ```
 
-With `review.mode:required`, `tower_preflight` before review reports `no-review`, and after a clean
+With `review.mode:required`, `tower_inspect` with `view: "preflight"` before review reports `no-review`, and after a clean
 review it should be `ok:true`. With the default (`optional`), no review blocker is required.
 `tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned worktrees and
 branches.
@@ -164,8 +164,8 @@ mode first.
 
 Machine-facing output is **English only**, regardless of the request locale:
 
-- tool errors (`[tower:<code>] ...`), `nextAction`, blocker `detail` strings, `tower_status` /
-  `tower_doctor` detail lines, and completion reports;
+- tool errors (`[tower:<code>] ...`), `nextAction`, blocker `detail` strings, `tower_inspect` with `view: "status"` /
+  `tower_inspect` with `view: "doctor"` detail lines, and completion reports;
 - anything that a script, a log search or another agent is expected to pattern-match.
 
 Localized, human-facing copy lives in `locale/*.json` (component descriptions, UI labels) and is the
@@ -177,9 +177,9 @@ only translated surface. Two rules keep the split honest:
    English remedy phrase stay verbatim inside the message, so a grep for
    `disabled by component tower-tests` works in every locale.
 
-`tower_status` and `tower_doctor` follow this policy but are not textually identical: `tower_status`
+`tower_inspect` with `view: "status"` and `tower_inspect` with `view: "doctor"` follow this policy but are not textually identical: `tower_inspect` with `view: "status"`
 returns the cause only — `components.disabled` is `[{id, reason}]` with `reason` set to
-`disabled by component <id>` — while `tower_doctor` repeats that reason and adds the English remedy
+`disabled by component <id>` — while `tower_inspect` with `view: "doctor"` repeats that reason and adds the English remedy
 (`enable the reported row in the plugin page and restart DSH` for the `components` check; a
 capability-specific check names the row directly, e.g. `enable the tower-tests row and restart DSH`).
 Neither interpolates a translated label.

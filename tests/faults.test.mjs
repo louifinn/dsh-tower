@@ -127,7 +127,7 @@ test('unreadable state degrades tower_status to a read-only diagnostic and leave
       // F40: status is a public read-only diagnostic row. It reports the
       // unreadable state from disk instead of throwing inside the handler, and
       // it never migrates, backs up, or rewrites the file.
-      const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+      const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
       assert.equal(status.ok, false, `${label} must degrade status, not reject`)
       assert.match(status.stateError, /\[tower:state-corrupt\]/, `${label} must classify as state-corrupt`)
       assert.deepEqual(status.counts, {}, `${label} must not invent counts`)
@@ -160,7 +160,7 @@ test('unreadable state degrades tower_status to a read-only diagnostic and leave
     // silently downgrade state written by a newer one.
     const newerText = JSON.stringify({ ...parsed, schemaVersion: 99 }, null, 2)
     fs.writeFileSync(tower.paths.state, newerText)
-    const newer = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+    const newer = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
     assert.equal(newer.ok, false)
     assert.match(newer.stateError, /\[tower:state-version-unsupported\]/)
     assert.equal(newer.stateSchema.status, 'newer')
@@ -180,7 +180,7 @@ test('unreadable state degrades tower_status to a read-only diagnostic and leave
     fs.writeFileSync(tower.paths.state, baseline)
 
     // The untouched baseline still works afterwards.
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
     assert.equal(status.counts.planned, 1)
   } finally {
     removeTemp(root)
@@ -190,7 +190,7 @@ test('unreadable state degrades tower_status to a read-only diagnostic and leave
 test('F41: an invalid repository config still reaches tower_doctor as a degraded read-only report', async () => {
   const { root, repo } = seedRepo('dsh-tower-faults-config-')
   const { tools } = makeCtx()
-  const doctorTool = tools.get('tower_doctor')
+  const doctorTool = tools.get('tower_inspect')
   try {
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)
     await tools
@@ -217,7 +217,7 @@ test('F41: an invalid repository config still reaches tower_doctor as a degraded
     ]
     for (const variant of variants) {
       fs.writeFileSync(configFile, variant.text)
-      const doctor = await doctorTool.execute({ repoRoot: repo }, exec)
+      const doctor = await doctorTool.execute({ view: 'doctor', repoRoot: repo }, exec)
       assertConfigFailure(doctor, doctorTool, variant)
       assert.equal(doctor.environmentContract.repoRoot, repo)
       // Read-only means byte-identical: no state rewrite, no migration backup,
@@ -228,7 +228,7 @@ test('F41: an invalid repository config still reaches tower_doctor as a degraded
       // Only the config-diagnostic row degrades; every other tool fails closed.
       const codePattern = new RegExp(`\\[tower:${variant.code}\\]`)
       await assert.rejects(
-        () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+        () => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec),
         codePattern,
         `${variant.label}: status must report the config error`,
       )
@@ -249,7 +249,7 @@ test('F41: an invalid repository config still reaches tower_doctor as a degraded
 test('F41: an invalid profile config degrades tower_doctor while writers stay closed', async () => {
   const { root, repo } = seedRepo('dsh-tower-faults-profile-')
   const { tools } = makeCtx()
-  const doctorTool = tools.get('tower_doctor')
+  const doctorTool = tools.get('tower_inspect')
   try {
     // configureRuntime() assigns the raw profile before it validates it, so a
     // rejected plugin config (or a live `.volatile()` settings write) leaves an
@@ -275,12 +275,12 @@ test('F41: an invalid profile config degrades tower_doctor while writers stay cl
       }
       assert.equal(rejected?.code, variant.code, `${variant.label}: configureRuntime must reject the profile`)
       try {
-        const doctor = await doctorTool.execute({ repoRoot: repo }, exec)
+        const doctor = await doctorTool.execute({ view: 'doctor', repoRoot: repo }, exec)
         assertConfigFailure(doctor, doctorTool, variant)
         assert.equal(fs.readFileSync(tower.paths.state, 'utf8'), stateBefore, `${variant.label}: state must be untouched`)
         assert.equal(fs.existsSync(configFile), false, `${variant.label}: the doctor must not create a repo config`)
         const codePattern = new RegExp(`\\[tower:${variant.code}\\]`)
-        await assert.rejects(() => tools.get('tower_status').execute({ repoRoot: repo }, exec), codePattern)
+        await assert.rejects(() => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec), codePattern)
         await assert.rejects(
           () =>
             tools
@@ -297,7 +297,7 @@ test('F41: an invalid profile config degrades tower_doctor while writers stay cl
     // gone and the config row is no longer a hard failure. (The report as a
     // whole can still be `ok:false` for unrelated environment checks in this
     // mock host, so assert on the config row rather than `ok`.)
-    const healthy = await doctorTool.execute({ repoRoot: repo }, exec)
+    const healthy = await doctorTool.execute({ view: 'doctor', repoRoot: repo }, exec)
     validateJsonSchema(doctorTool.output.schema, healthy)
     assert.equal(healthy.configError, undefined)
     assert.notEqual(healthy.checks.find((entry) => entry.id === 'config')?.status, 'fail')
@@ -360,7 +360,7 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     assert.ok(fs.existsSync(worktreePath))
     removeTemp(worktreePath)
 
-    const preflight = await tools.get('tower_preflight').execute({ repoRoot: repo, missionId: 'M1' }, exec)
+    const preflight = await tools.get('tower_inspect').execute({ view: 'preflight', repoRoot: repo, missionId: 'M1' }, exec)
     assert.equal(preflight.ok, false)
     assert.ok(
       preflight.blockers.some((blocker) => blocker.code === 'branch-missing'),
@@ -368,8 +368,8 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     )
 
     const status = await tools
-      .get('tower_status')
-      .execute({ repoRoot: repo, includeGate: true }, exec)
+      .get('tower_inspect')
+      .execute({ view: 'status', repoRoot: repo, includeGate: true }, exec)
     const pageMission = status.missions.find((mission) => mission.id === 'M1')
     assert.equal(pageMission.gate.ok, false)
     assert.ok(pageMission.gate.blockers.some((blocker) => blocker.code === 'branch-missing'))

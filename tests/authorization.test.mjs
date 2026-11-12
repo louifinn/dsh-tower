@@ -165,16 +165,14 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_init: Object.freeze({ allow: [ACTOR_ACCESS.tower], bootstrap: true }),
   tower_plan: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_mission: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
-  tower_status: Object.freeze({
+  // #163 Phase 3: five read-only views share one public row. status/preflight/
+  // doctor stay public; roster and diff are narrowed by the row's check.
+  tower_inspect: Object.freeze({
     allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
-  tower_spawn: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_roster: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
-  tower_interrupt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_diff: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey],
     check: true,
   }),
+  tower_spawn: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  tower_interrupt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_adopt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_send: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
   tower_inbox: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
@@ -188,15 +186,9 @@ const EXPECTED_MATRIX = Object.freeze({
     allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey],
   }),
   tower_review: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.reviewer] }),
-  tower_preflight: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
   tower_merge: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_rebase: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_teardown: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_doctor: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
   tower_recover: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_batch: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_resource: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
@@ -317,8 +309,8 @@ test('authorization: the expected map pins every shipped tool and the matrix mat
   recordToolRegistration('tower_mode')
   recordToolRegistration('tower_control')
   const shipped = definedToolNames()
-  assert.equal(tools.size, 27, 'the define() aggregate registers 27 tools')
-  assert.equal(shipped.length, 29, 'the shipped build surface is 29 tools')
+  assert.equal(tools.size, 23, 'the define() aggregate registers 23 tools')
+  assert.equal(shipped.length, 25, 'the shipped build surface is 25 tools')
   const expected = Object.keys(EXPECTED_MATRIX).sort()
   assert.deepEqual(expected, shipped, 'the expected map names exactly the shipped surface')
   assert.deepEqual(Object.keys(AUTHORIZATION_MATRIX).sort(), expected, 'every shipped tool has exactly one policy row')
@@ -461,7 +453,7 @@ test('authorization: tower_reload is repository-optional only through the anonym
   assert.equal(isRepositoryOptional('tower_merge'), false)
   assert.equal(isRepositoryOptionalTool('tower_reload'), true, 'the profile registry is the single source (#163)')
   assert.equal('repoOptional' in AUTHORIZATION_MATRIX.tower_reload, false, 'the matrix row no longer duplicates the marker')
-  assert.equal(allowsAnonymous('tower_status'), true)
+  assert.equal(allowsAnonymous('tower_inspect'), true)
   assert.equal(allowsAnonymous('tower_reload'), false, 'the absent path is not a public row')
 
   const anonymous = anonymousActor(execFor('agent-reload-anon'))
@@ -528,8 +520,8 @@ test('authorization: the expected-map checker rejects a mutated matrix', () => {
   assert.match(matrixProblems(narrowed)[0], /tower_inbox/)
   const noBootstrap = withRow(clone(), 'tower_init', { bootstrap: false })
   assert.match(matrixProblems(noBootstrap)[0], /tower_init.*bootstrap/)
-  const noCheck = withRow(clone(), 'tower_diff', { check: undefined })
-  assert.match(matrixProblems(noCheck)[0], /tower_diff.*check/)
+  const noCheck = withRow(clone(), 'tower_inspect', { check: undefined })
+  assert.match(matrixProblems(noCheck)[0], /tower_inspect.*check/)
   const repeated = withRow(clone(), 'tower_merge', { allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.tower] })
   assert.match(matrixProblems(repeated)[0], /repeats a grant/)
 
@@ -631,16 +623,16 @@ test('authorization: unknown is denied everywhere except public rows, the two se
     const publicRows = Object.keys(EXPECTED_MATRIX).filter((tool) => EXPECTED_MATRIX[tool].allow.includes(ACTOR_ACCESS.unknown))
     assert.deepEqual(
       publicRows.sort(),
-      ['tower_control', 'tower_doctor', 'tower_mode', 'tower_preflight', 'tower_status'],
-      'the three read-only operator rows and the two session tools are public',
+      ['tower_control', 'tower_inspect', 'tower_mode'],
+      'the one read-only view tool and the two session tools are public',
     )
     for (const tool of publicRows) {
-      const grant = await authorize(tool, unknown, { args: { missionId: 'M1' } })
+      const grant = await authorize(tool, unknown, { args: { view: 'status', missionId: 'M1' } })
       assert.equal(grant.access, ACTOR_ACCESS.unknown, `${tool} is public`)
     }
     // Every other row denies an unknown caller, even on an owned repository.
     const guardedRows = Object.keys(EXPECTED_MATRIX).filter((tool) => !EXPECTED_MATRIX[tool].allow.includes(ACTOR_ACCESS.unknown))
-    assert.equal(guardedRows.length, 24, 'all but the five public rows deny the unknown caller')
+    assert.equal(guardedRows.length, 22, 'all but the three public rows deny the unknown caller')
     for (const tool of guardedRows) {
       await assert.rejects(
         () => authorize(tool, unknown, { args: { missionId: 'M1' } }),
@@ -692,16 +684,16 @@ test('authorization: unknown is denied everywhere except public rows, the two se
     assert.equal((await authorize('tower_complete', reviewer, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.reviewer)
 
     // Diff visibility is mission-scoped: a participant passes, a non-participant does not.
-    assert.equal((await authorize('tower_diff', worker, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
+    assert.equal((await authorize('tower_inspect', worker, { args: { view: 'diff', missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
     await assert.rejects(
-      () => authorize('tower_diff', worker, { args: { missionId: 'M2' } }),
+      () => authorize('tower_inspect', worker, { args: { view: 'diff', missionId: 'M2' } }),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
     await assert.rejects(
-      () => authorize('tower_diff', reviewer, { args: { missionId: 'M2' } }),
+      () => authorize('tower_inspect', reviewer, { args: { view: 'diff', missionId: 'M2' } }),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
-    assert.equal((await authorize('tower_diff', survey, { args: { missionId: 'M3' } })).access, ACTOR_ACCESS.survey)
+    assert.equal((await authorize('tower_inspect', survey, { args: { view: 'diff', missionId: 'M3' } })).access, ACTOR_ACCESS.survey)
   } finally {
     removeTemp(root)
   }
@@ -753,7 +745,7 @@ test('authorization: restricted rows deny every access class outside the expecte
   )
 
   // Public rows stay callable for every class, including unknown.
-  for (const tool of ['tower_status', 'tower_preflight', 'tower_doctor', 'tower_mode', 'tower_control']) {
+  for (const tool of ['tower_inspect', 'tower_inspect', 'tower_inspect', 'tower_mode', 'tower_control']) {
     for (const access of ACCESS_CLASSES) {
       const grant = await authorize(tool, actorFor(access), { args: { missionId: 'M1' } })
       assert.equal(grant.access, access, `${tool} is public for ${access}`)
@@ -824,15 +816,15 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
   try {
     // Denied before mission lookup: a stranger learns nothing about mission existence.
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M404' }, 'agent-not-in-roster'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M404' }, 'agent-not-in-roster'),
       (error) => assertCode(error, 'not-authorized', /requires a registered roster agent or the tower/),
     )
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M1' }, 'agent-worker-2'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M1' }, 'agent-worker-2'),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M1/),
     )
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M2' }, 'agent-reviewer-1'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M2' }, 'agent-reviewer-1'),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
 
@@ -843,7 +835,7 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
       ['agent-reviewer-1', 'M1'],
     ]) {
       await assert.rejects(
-        () => call(tools, 'tower_diff', { repoRoot: repo, missionId }, agentId),
+        () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId }, agentId),
         (error) => {
           assert.equal(error.code, 'invalid-argument', `${agentId} passes authorization for ${missionId}`)
           assert.match(error.message, /no worktree/)
@@ -854,7 +846,7 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
 
     // A survey worker participates, but its shape has no branch diff at all.
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M3' }, 'agent-survey-3'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M3' }, 'agent-survey-3'),
       (error) => assertCode(error, 'invalid-transition', /no branch diff/),
     )
   } finally {

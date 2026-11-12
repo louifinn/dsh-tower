@@ -264,7 +264,7 @@ test('regression: gates.requireChecks blocks a completion without evidence', asy
       { agent: { id: 'tower-agent' } },
     )
     assert.equal(reviewed.missionStatus, 'completed')
-    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
     assert.ok(preflight.blockers.some((blocker) => blocker.code === 'no-check-evidence'))
   } finally {
     removeTemp(root)

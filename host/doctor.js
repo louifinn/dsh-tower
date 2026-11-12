@@ -200,7 +200,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'git-lock',
           'warn',
           `held by pid ${gitLock.pid ?? 'unknown'}${gitLock.phase ? ` (${gitLock.phase})` : ''} for ${durationText(gitLock.heldMs)}; the repo-scoped git mutex is busy`,
-          'wait for the git mutation to finish; tower_status reports the same holder',
+          'wait for the git mutation to finish; tower_inspect with view: status reports the same holder',
         )
       : check('git-lock', 'pass', 'free'),
   )
@@ -229,7 +229,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'tower-owner',
           'warn',
           `ownership facts could not be read: ${String(ownershipError?.message ?? ownershipError ?? 'unknown error')}`,
-          'inspect the mode store and workspace lock files, then retry tower_doctor',
+          'inspect the mode store and workspace lock files, then retry tower_inspect with view: doctor',
         ),
       )
     } else {
@@ -491,7 +491,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'workspace-lock',
           'warn',
           `workspace lock ${lockDir} could not be inspected${ownershipError ? `: ${String(ownershipError?.message ?? ownershipError)}` : ''}`,
-          'inspect the lock path and retry tower_doctor',
+          'inspect the lock path and retry tower_inspect with view: doctor',
         ),
       )
     } else if (workspaceLock.corrupt) {
@@ -550,7 +550,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
     checks.push(
       missingWorktrees > 0
-        ? check('worktrees', 'fail', `${missingWorktrees} mission worktree(s) are missing or invalid${removedNote}`, 'inspect tower_status, restore the worktree/branch, then re-run tower_doctor')
+        ? check('worktrees', 'fail', `${missingWorktrees} mission worktree(s) are missing or invalid${removedNote}`, 'inspect tower_inspect with view: status, restore the worktree/branch, then re-run tower_inspect with view: doctor')
         : dirtyWorktrees > 0
           ? check('worktrees', 'warn', `${dirtyWorktrees} worktree(s) have uncommitted changes${removedNote}`)
           : check('worktrees', 'pass', `all registered worktrees are valid${removedNote}`),

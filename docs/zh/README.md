@@ -7,7 +7,7 @@
 
 ## 2.1 能力概览
 
-- **只读健康检查**：[Doctor](reference/doctor.md)（`tower_doctor`）检查 git、state、配置、preset、
+- **只读健康检查**：[Doctor](reference/doctor.md)（`tower_inspect` 的 `view: "doctor"` 视图）检查 git、state、配置、preset、
   workspace 锁、roster、worktree 归属、测试策略与租约，不写任何状态。
 - **测试发现与完成证据**：[测试、发现与证据](reference/testing.md)。仓库可在
   `package.json.tower.testDiscovery` 声明发现命令；回执可自动附加到 `tower_complete`，

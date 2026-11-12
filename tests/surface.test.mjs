@@ -15,6 +15,7 @@ import {
   surfaceLine,
   validateBaseline,
   validateClassification,
+  validateDescriptionBudget,
 } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
 import { liveSurface } from '../scripts/surface-baseline.mjs'
@@ -132,9 +133,12 @@ test('the live surface equals the committed baseline and is fully classified', (
     assert.ok(generated.includes(`> Surface: ${line} · baseline ${baseline.date}.`), `${file} carries the generated count line`)
   }
 
+  // #163: no advertised description may exceed the 300-character budget.
+  assert.deepEqual(validateDescriptionBudget(current.descriptions), [])
+  assert.equal(current.descriptions.length, 25)
   // #118: the count covers the full registered surface, including the two tools
   // index.js registers directly, and agrees with the count docs:check derives.
-  assert.equal(current.tools, 29)
+  assert.equal(current.tools, 25)
   assert.ok(current.liveNames.tools.includes('tower_mode'))
   assert.ok(current.liveNames.tools.includes('tower_control'))
   assert.deepEqual(current.liveNames.tools, documentedToolNames())
@@ -144,17 +148,17 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 23, inputBytes: 13287 },
-    worker: { tools: 8, inputBytes: 6465 },
-    reviewer: { tools: 7, inputBytes: 4661 },
+    tower: { tools: 19, inputBytes: 12895 },
+    worker: { tools: 7, inputBytes: 6348 },
+    reviewer: { tools: 6, inputBytes: 4544 },
   })
-  // #163 Phase 1+2 shrank the advertised schemas: the same tool counts with
-  // fewer input bytes. Each contraction is a dated decision, so the committed
-  // value is the chain's tail, not the seed.
-  assert.equal(baseline.profiles.tower.tools.value, 23)
-  assert.equal(baseline.profiles.worker.tools.value, 8)
-  assert.equal(baseline.profiles.reviewer.tools.value, 7)
-  for (const [profile, bytes] of [['tower', 13287], ['worker', 6465], ['reviewer', 4661]]) {
+  // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
+  // read-only views into tower_inspect. Each change is a dated decision, so the
+  // committed value is the chain's tail, not the seed.
+  assert.equal(baseline.profiles.tower.tools.value, 19)
+  assert.equal(baseline.profiles.worker.tools.value, 7)
+  assert.equal(baseline.profiles.reviewer.tools.value, 6)
+  for (const [profile, bytes] of [['tower', 12895], ['worker', 6348], ['reviewer', 4544]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)
@@ -182,7 +186,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   }
 })
 
-test('tower_doctor prints the surface counts plus the baseline date', async () => {
+test('the tower_inspect doctor view prints the surface counts plus the baseline date', async () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-surface-doctor-'))
   try {
     const dir = path.join(repo, '.git', 'dsh-tower')
@@ -217,8 +221,8 @@ test('tower_doctor prints the surface counts plus the baseline date', async () =
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
     // #118: the doctor line, the generated reference and docs:check agree.
-    assert.equal(report.surface.line, surfaceLine({ configKeys: 57, sections: 16, tools: 29 }))
-    assert.equal(current.tools, 29)
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 57, sections: 16, tools: 25 }))
+    assert.equal(current.tools, 25)
     assert.equal(current.tools, documentedToolNames().length)
     const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
     assert.ok(generatedTools.includes(`> Surface: ${surfaceLine(current)} · baseline ${readBaseline(root).date}.`))
@@ -520,3 +524,15 @@ Decision date: 2026-10-23
   const result = validateClassification(text, { configKeys: ['a', 'b'], sections: [], tools: ['tower_a'] })
   assert.deepEqual(result.findings, [])
 })
+
+// #163: advertised descriptions are a per-request cost, so the budget is a gate.
+test('a description over the 300-character budget is a gate finding (#163)', () => {
+  const findings = validateDescriptionBudget([
+    { name: 'tower_exact', length: 300 },
+    { name: 'tower_long', length: 301 },
+  ])
+  assert.equal(findings.length, 1)
+  assert.equal(findings[0].code, 'description-budget')
+  assert.match(findings[0].message, /tower_long advertises a 301-char description; the budget is 300/)
+})
+

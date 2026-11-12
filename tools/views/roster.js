@@ -1,22 +1,15 @@
-// tower_roster: authoritative roster activity.
-import { SCHEMAS, output } from '../domain/contracts/outputs.js'
-import { TowerToolError } from '../domain/errors.js'
-import { RosterInput } from '../domain/contracts/tool-inputs/index.js'
-import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_GONE_STATES } from '../domain/vocabulary.js'
+// tower_inspect view: roster — authoritative roster activity.
+import { SCHEMAS, output } from '../../domain/contracts/outputs.js'
+import { TowerToolError } from '../../domain/errors.js'
+import { RosterInput } from '../../domain/contracts/tool-inputs/index.js'
+import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_GONE_STATES } from '../../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any }} deps
+ * @param {{ define: import('../../types/index.js').DefineTool, openTower: any }} deps
  */
-export function registerRosterTool(ctx, deps) {
+export async function runRosterView(ctx, args, exec, deps) {
   const { define } = deps
-  define(ctx, {
-    name: 'tower_roster',
-    description:
-      'List tower roster agents with authoritative live activity from the subagent catalog (running/inactive/missing/unknown). Read-only; never resumes children. Use before completion or merge decisions.',
-    parameters: RosterInput,
-    output: output(SCHEMAS.roster),
-    async execute(args) {
       const tower = await deps.openTower(args.repoRoot)
       const view = await tower.rosterView()
       const subagents = ctx.get('subagents')
@@ -54,6 +47,4 @@ export function registerRosterTool(ctx, deps) {
         }
       })
       return { revision: view.revision, roster, parentStatus, missions: view.missions }
-    },
-  })
 }

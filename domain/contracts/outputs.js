@@ -314,6 +314,9 @@ const SCHEMAS = {
   ),
   importLegacy: S.obj({ ok: S.bool, summary: S.obj(), snapshot: S.obj() }, ['ok', 'summary']),
   legacyMap: S.obj({ ok: S.bool, map: S.obj(), maps: S.arr(S.obj()) }, ['ok']),
+  // #163 Phase 3: one schema for five views; `view` identifies which shape the
+  // value carries and the view-specific fields stay additive.
+  inspect: S.obj({ view: S.str }, ['view']),
 }
 
 /**

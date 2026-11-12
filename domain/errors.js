@@ -77,7 +77,7 @@ export const ERROR_CODES = {
     description: 'No mission with that id exists.',
     trigger: 'a stale or mistyped `M9`',
     retryable: false,
-    nextAction: 'list missions with tower_status',
+    nextAction: 'list missions with tower_inspect (view: status)',
   },
   'finding-not-found': {
     description: 'No finding with that id exists.',
@@ -95,7 +95,7 @@ export const ERROR_CODES = {
     description: 'The repository state changed while the operation was being prepared; retry.',
     trigger: 'two-phase mutation revalidation',
     retryable: true,
-    nextAction: 'retry the tool; if it keeps failing, run tower_preflight and inspect tower_status',
+    nextAction: 'retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status',
   },
   'state-locked': {
     description: 'Another Tower writer holds the state lock.',

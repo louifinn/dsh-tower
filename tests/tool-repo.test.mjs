@@ -75,7 +75,7 @@ test('tool profiles: the registry and the authorization matrix agree', () => {
     assert.ok(row, `${name} has an authorization row`)
     assert.deepEqual(row.allow, [ACTOR_ACCESS.tower], `${name} is a tower-only row`)
   }
-  assert.equal(isTowerOnlyTool('tower_status'), false)
+  assert.equal(isTowerOnlyTool('tower_inspect'), false)
   // Repository-optional is a subset of the tower-only contract (#163 Phase 1):
   // a tool cannot run without a repository unless its profile is tower-only.
   for (const name of REPOSITORY_OPTIONAL_TOOLS) {
@@ -98,7 +98,7 @@ test('tool repo resolution: session binding wins over the working directory and 
   modeState.set('agent-bound', { on: true, lock: { token: 't', commonDir: path.join(bound, '.git') } })
   try {
     const exec = { agent: { id: 'agent-bound', session: { header: { cwd: root } } } }
-    assert.equal(await resolveToolRepoRoot('tower_status', { repoRoot: root }, exec), bound)
+    assert.equal(await resolveToolRepoRoot('tower_inspect', { repoRoot: root }, exec), bound)
   } finally {
     modeState.delete('agent-bound')
     removeTemp(root)
@@ -110,7 +110,7 @@ test('tool repo resolution: the working directory resolves through git and maps 
   try {
     const exec = { agent: { id: 'agent-cwd', session: { header: { cwd: path.join(repo, 'subdir') } } } }
     fs.mkdirSync(path.join(repo, 'subdir'), { recursive: true })
-    assert.equal(await resolveToolRepoRoot('tower_status', {}, exec), repo)
+    assert.equal(await resolveToolRepoRoot('tower_inspect', {}, exec), repo)
 
     const worktree = path.join(root, 'wt')
     git(repo, ['worktree', 'add', '-b', 'agent/repo-resolve', worktree])
@@ -124,9 +124,9 @@ test('tool repo resolution: the working directory resolves through git and maps 
 test('tool repo resolution: the explicit field is accepted when no session is available', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-explicit-'))
   try {
-    assert.equal(await resolveToolRepoRoot('tower_status', { repoRoot: root }, { agent: { id: 'agent-x' } }), root)
+    assert.equal(await resolveToolRepoRoot('tower_inspect', { repoRoot: root }, { agent: { id: 'agent-x' } }), root)
     await assert.rejects(
-      () => resolveToolRepoRoot('tower_status', {}, { agent: { id: 'agent-x' } }),
+      () => resolveToolRepoRoot('tower_inspect', {}, { agent: { id: 'agent-x' } }),
       (error) => error.code === 'repo-invalid',
     )
   } finally {
@@ -142,7 +142,7 @@ test('tool repo resolution: a call without repoRoot uses the session working dir
   try {
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)
     await tools.get('tower_plan').execute({ missions: [{ title: 'cwd mission', scope: ['src/**'] }] }, exec)
-    const status = await tools.get('tower_status').execute({}, exec)
+    const status = await tools.get('tower_inspect').execute({ view: 'status',}, exec)
     assert.equal(fs.realpathSync(status.repoRoot), fs.realpathSync(repo))
     assert.equal(status.missions.length, 1)
   } finally {

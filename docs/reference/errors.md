@@ -25,10 +25,10 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `invalid-argument` | A tool argument is missing, malformed, or not allowed. | no | — | `missionId`/`id` omitted; unknown status; empty report; bad scope glob; `timeoutMs < 1000`; `status: "all"` on an update. |
 | `repo-invalid` | The target repository could not be resolved, or the resolved path is not inside a Git repository. | no | bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot` | a repository-scoped tool called with no workspace binding, outside a Git repository, and without an explicit `repoRoot` |
 | `not-initialized` | Tower is not initialized for this repository; run tower_init. | no | run tower_init for this repository | a read tool before `tower_init` |
-| `mission-not-found` | No mission with that id exists. | no | list missions with tower_status | a stale or mistyped `M9` |
+| `mission-not-found` | No mission with that id exists. | no | list missions with tower_inspect (view: status) | a stale or mistyped `M9` |
 | `finding-not-found` | No finding with that id exists. | no | list findings with tower_findings | `tower_findings({id:"F99"})` |
 | `invalid-transition` | The requested state transition is not allowed. | no | — | a blocked→merged attempt; a finding transition not in the graph; a reviewer mutating findings; completing a mission with open tasks, blockers, no commits, or unread inbox messages. |
-| `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_preflight and inspect tower_status | two-phase mutation revalidation |
+| `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status | two-phase mutation revalidation |
 | `state-locked` | Another Tower writer holds the state lock. | yes | wait for the other Tower writer to finish, then retry | concurrent mutation after the lock timeout |
 | `state-corrupt` | The Tower state file is unreadable or invalid. | no | restore state.json from a backup, or re-initialize after filing the corruption | hand-edited `state.json`; invalid JSON; no usable `schemaVersion` |
 | `state-version-unsupported` | The Tower state file uses a schema version this build cannot read or downgrade. | no | upgrade dsh-tower to a release that supports this state schemaVersion | opening a repository written by a newer plugin; an unknown older version; this build refuses to downgrade |
@@ -68,11 +68,11 @@ plain `Error` without a structured code is reported as `tool-internal`.
 A git-mutex timeout is a `state-locked` error that names the holder. Its `details` is
 `{ holderPid, holderPhase, heldMs, waitedMs }`, and the message renders the same facts as
 `held by pid 1234 (merge) for 92 s; waited 60 s`. `holderPhase` is the operation that holds the lock
-(`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_status` and `tower_doctor` expose the same
+(`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_inspect` with `view: "status"` and `tower_inspect` with `view: "doctor"` expose the same
 holder as `gitLock: { held, pid, phase, heldMs }` while it is held.
 
 ## Why thrown?
 
 Returned `{ok:false}` shapes are reserved for expected policy outcomes that the tower decides on
-(`tower_merge`/`tower_rebase` gate blockers and `tower_preflight`). Anything that prevents the tool
+(`tower_merge`/`tower_rebase` gate blockers and `tower_inspect` with `view: "preflight"`). Anything that prevents the tool
 from producing a decision is thrown so the model does not mistake it for a normal negative result.

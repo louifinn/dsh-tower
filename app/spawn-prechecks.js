@@ -88,7 +88,7 @@ export async function precheckWorkerOwnership({
   if (sameMission.length > 1) {
     throw new TowerToolError(
       'invalid-transition',
-      'mission ' + missionId + ' has ' + sameMission.length + ' live worker entries; inspect tower_roster before spawning',
+      'mission ' + missionId + ' has ' + sameMission.length + ' live worker entries; inspect tower_inspect with view: roster before spawning',
     )
   }
   if (sameMission.length === 1 && !effectiveTakeover) {
