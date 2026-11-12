@@ -20,6 +20,7 @@ import { assessHostVersion, detectHostVersion, readCompatibility } from './compa
 import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
+import { ralphLoopSnapshot } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -698,6 +699,37 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     )
   }
 
+  // #162 D5: a live Ralph loop is an environment fact — this repository has a
+  // loop in progress, and Tower cannot co-own it. Rounds are matched to this
+  // checkout by their parent session's cwd; workflow runs carry no cwd, so a
+  // run without scoped rounds is reported as process-wide rather than hidden.
+  const ralphLoop = (() => {
+    const scoped = ralphLoopSnapshot(tower.root)
+    const processWide = ralphLoopSnapshot(null)
+    return {
+      scopedRounds: scoped.rounds.length,
+      liveScopedRounds: scoped.liveRounds,
+      processRuns: processWide.runs,
+      detail: scoped.detail ?? (processWide.runs > 0 ? `${processWide.runs} ralph-loop workflow run(s) in this DSH process (no round agents matched this repository yet)` : null),
+    }
+  })()
+  checks.push(
+    ralphLoop.liveScopedRounds > 0 || (ralphLoop.scopedRounds === 0 && ralphLoop.processRuns > 0)
+      ? check(
+          'ralph-stance',
+          'warn',
+          `this repository has a Ralph loop in progress (${ralphLoop.detail}); Tower cannot co-own it`,
+          'finish or stop the loop before /tower on; entering Tower with mode.ralphPolicy:"stop" refuses the loop\'s rounds, "refuse" rejects the entry',
+        )
+      : check(
+          'ralph-stance',
+          'pass',
+          ralphLoop.scopedRounds > 0
+            ? `no live Ralph loop in this repository (${ralphLoop.scopedRounds} recorded round(s) outside the liveness window)`
+            : 'no live Ralph loop in this repository',
+        ),
+  )
+
   const failed = checks.filter((item) => item.status === 'fail').length
   return {
     ok: failed === 0,
@@ -743,6 +775,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       hostVersion: detectedHost,
       hostCompatibility: hostAssessment.verdict,
       hostCompatibilityDetail: hostAssessment.detail,
+      ralphLoop,
     },
     mode: agent ? 'ready' : 'unknown',
   }

@@ -17,6 +17,12 @@ import { fsp } from '../adapters/store-fs.js'
 import { Tower } from './tower.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import {
+  ensureStanceCommands,
+  liveRalphIn,
+  ralphPolicy,
+  releaseStanceCommands,
+} from './ralph-stance.js'
+import {
   acquireWorkspaceLock,
   inspectWorkspaceLock,
   releaseWorkspaceLock,
@@ -98,6 +104,26 @@ export async function openTowerFor(agent) {
   const cwd = agentCwd(agent)
   if (!cwd) throw new TowerToolError('invalid-argument', 'this command needs a session with a working directory')
   return Tower.open(cwd, createDefaultDeps())
+}
+
+/**
+ * Resolve the workspace identity for a Tower entry (#162): the repository
+ * root when the session cwd is inside one — so Ralph rounds started from any
+ * subdirectory of the same checkout still match — else the session cwd.
+ * Undefined when nothing can be resolved; `enterMode` then falls back to the
+ * raw session cwd.
+ * @param {object} agent
+ * @returns {Promise<string | undefined>}
+ */
+export async function resolveEntryWorkspace(agent) {
+  const cwd = agentCwd(agent)
+  if (!cwd) return undefined
+  try {
+    const repo = await resolveRepo(cwd)
+    return repo.root ?? cwd
+  } catch {
+    return cwd
+  }
 }
 
 export function configSection(config, allowAgentControl) {
@@ -277,9 +303,22 @@ export async function reconcileAgentTeam(ctx, agent) {
   }
 }
 
-export async function enterMode(ctx, key, agent, by, reason) {
+export async function enterMode(ctx, key, agent, by, reason, options = {}) {
   const previous = modeState.get(key)
   const wasOn = Boolean(previous && previous.on)
+  // #162: Tower and a Ralph loop cannot both own one repository. The loop is
+  // detected from observable stance facts (round agents, workflow meta), so a
+  // renamed entry point cannot hide it. `stop` reconciles and records; `refuse`
+  // rejects entry with the reason. This runs before the plan reconciliation so
+  // a refused entry does not clear a plan it never superseded.
+  const workspace = typeof options.workspace === 'string' && options.workspace.length > 0 ? options.workspace : agentCwd(agent)
+  const ralphLive = liveRalphIn(workspace)
+  if (ralphLive.live && ralphPolicy() === 'refuse') {
+    throw new TowerToolError(
+      'invalid-transition',
+      `a Ralph loop is live in this repository (${ralphLive.detail ?? 'round agents are running'}); stop it or let it finish before entering Tower mode — /tower on again once the loop has ended`,
+    )
+  }
   const plan = clearPlanModeForTower(ctx, agent)
   if (plan.refused) {
     throw new TowerToolError(
@@ -287,6 +326,9 @@ export async function enterMode(ctx, key, agent, by, reason) {
       'plan mode is active and mode.planModePolicy is "refuse"; exit plan mode before entering Tower',
     )
   }
+  const ralphReleased = ralphLive.live
+    ? { at: Date.now(), rounds: ralphLive.rounds, runs: ralphLive.runs, detail: ralphLive.detail }
+    : null
   const autoPauseGoal = runtimeConfig().mode.autoPauseGoal !== false
   let pausedGoal = previous?.pausedGoal ?? null
   let goalNote = null
@@ -317,11 +359,16 @@ export async function enterMode(ctx, key, agent, by, reason) {
     lock: previous?.lock ?? null,
     baseBranch: previous?.baseBranch ?? null,
     planModeCleared: plan.cleared,
+    workspace,
+    ralphReleased,
     humanAckAt: by === 'user' ? previous?.humanAckAt ?? now : previous?.humanAckAt ?? null,
     lastDisclosure: previous?.lastDisclosure ?? 'full',
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
+  // #162 D1: shadow the stance-owner commands (for example /ralph) for this
+  // agent with an actionable refusal while the mode is on.
+  ensureStanceCommands(agent, key)
   const saved = persistModes()
   return {
     wasOn,
@@ -329,6 +376,8 @@ export async function enterMode(ctx, key, agent, by, reason) {
     releasedTeam: wasOn ? null : releasedTeam,
     goalNote,
     teamNote,
+    workspace,
+    ralphReleased,
     planModeCleared: plan.cleared,
     planModeResult: plan.result ?? null,
     changed: !wasOn,
@@ -341,6 +390,7 @@ export async function enterMode(ctx, key, agent, by, reason) {
 export async function exitMode(key, by, reason) {
   const previous = modeState.get(key)
   if (!previous) {
+    releaseStanceCommands(key)
     return {
       wasOn: false,
       pausedGoal: null,
@@ -397,7 +447,10 @@ export async function exitMode(key, by, reason) {
     }
   }
   // Only a persisted off may release the workspace lock: the token came from
-  // the entry that was just written to disk.
+  // the entry that was just written to disk. The command shadows (#162 D1)
+  // follow the same rule — a failed save leaves the mode on, so /ralph stays
+  // refused until an off actually persists.
+  releaseStanceCommands(key)
   if (previous.lock) {
     await releaseWorkspaceLock(previous.lock.commonDir, { token: previous.lock.token }).catch(() => {})
   }
@@ -462,6 +515,11 @@ export function describeChange(active, outcome, forwarded, message, allowAgentCo
   }
   if (outcome.goalNote) lines.push(`Goal handling: ${outcome.goalNote}`)
   if (outcome.teamNote) lines.push(`Team handling: ${outcome.teamNote}`)
+  if (outcome.ralphReleased) {
+    lines.push(
+      `A live Ralph loop was released on entry (${outcome.ralphReleased.rounds} round agent(s) recorded); its rounds are refused while Tower mode is active.`,
+    )
+  }
   if (forwarded) lines.push(message ? `Carried your instruction: ${message}` : 'Carried your attachments.')
   if (!allowAgentControl) lines.push('Only the human can change Tower mode.')
   return lines.join(' ')

@@ -23,7 +23,10 @@ import {
   modeStoreView,
   openTowerFor,
   planModeState,
+  resolveEntryWorkspace,
 } from './mode-state.js'
+import { ralphLoopSnapshot, ralphPolicy } from './ralph-stance.js'
+import { recordRalphRelease } from './ralph-release.js'
 
 /** Body of `tower_mode`; the caller has already authorized the call. */
 export async function runTowerMode(ctx, exec, { config, allowAgentControl, workspace, pluginVersion }) {
@@ -50,6 +53,18 @@ export async function runTowerMode(ctx, exec, { config, allowAgentControl, works
     planMode: (() => {
       const state = planModeState(ctx, exec.agent)
       return { available: state.available, active: state.active, pending: state.pending }
+    })(),
+    ralph: (() => {
+      // #162: the live-loop facts the entry policy acted on, scoped to this
+      // session's workspace when it is known.
+      const snapshot = ralphLoopSnapshot(entry?.workspace ?? null)
+      return {
+        policy: ralphPolicy(),
+        runs: snapshot.runs,
+        rounds: snapshot.rounds.length,
+        liveRounds: snapshot.liveRounds,
+        detail: snapshot.detail,
+      }
     })(),
     baseBranch: entry?.baseBranch ?? null,
     workspaceLock: entry
@@ -142,15 +157,19 @@ export async function runTowerControl(ctx, args, exec, { config }) {
   if (args.action === 'enter' && !modeOn(key)) {
     await assertRuntimePreconditions(ctx, config)
   }
+  const entryWorkspace = args.action === 'enter' && !modeOn(key) ? await resolveEntryWorkspace(exec.agent) : undefined
   const outcome =
     args.action === 'enter'
       ? await (async () => {
           if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !modeState.get(key)?.humanAckAt) {
             throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
           }
-          return await enterMode(ctx, key, exec.agent, 'agent', reason)
+          return await enterMode(ctx, key, exec.agent, 'agent', reason, { workspace: entryWorkspace })
         })()
       : await exitMode(key, 'agent', reason)
+  // D2: what Tower released is recorded in the repository's activity log; the
+  // record is best-effort and never fails the mode change.
+  if (args.action === 'enter' && outcome.ralphReleased) await recordRalphRelease(exec.agent, outcome.ralphReleased)
   const persisted = outcome.persisted !== false
   return {
     ok: persisted,
@@ -163,6 +182,7 @@ export async function runTowerControl(ctx, args, exec, { config }) {
     releasedTeam: outcome.releasedTeam ?? null,
     goalNote: outcome.goalNote ?? null,
     teamNote: outcome.teamNote ?? null,
+    ralphReleased: outcome.ralphReleased ?? null,
     persisted,
     ...(persisted
       ? {}

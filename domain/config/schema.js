@@ -24,7 +24,8 @@ import { DEFAULT_DENY_TOOLS } from '../deny-owners.js'
 // domain/deny-owners.js and the generated inventory it reads — so an upstream
 // tool addition reaches this default through `npm run deny:generate` instead
 // of a second copy drifting in this file. Re-exported for the callers that
-// historically imported it from this module.
+// historically imported it from this module. #162 builds on this table for the
+// command and loop layers instead of keeping a second tool list.
 export { DEFAULT_DENY_TOOLS }
 
 const LEGACY_KEYS = ['section', 'allowAgentControl']
@@ -124,6 +125,11 @@ export const Config = Schema.object({
     planModePolicy: Schema.union(['clear', 'refuse'])
       .default('clear')
       .description('On Tower entry: clear an active plan mode, or refuse to enter until the plan is exited.'),
+    ralphPolicy: Schema.union(['stop', 'refuse'])
+      .default('stop')
+      .description(
+        'On Tower entry with a live Ralph loop in this repository: stop it (round agents are refused while Tower mode is active) or refuse to enter until the loop has ended.',
+      ),
     workspaceStaleMs: Schema.natural()
       .min(1000)
       .default(300000)
