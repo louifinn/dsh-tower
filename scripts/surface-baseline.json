@@ -168,5 +168,24 @@
         }
       ]
     }
+  },
+  "profileBytes": {
+    "date": "2026-11-12",
+    "profiles": {
+      "host:mode-off": { "tools": 2, "bytes": 1193 },
+      "host:idle": { "tools": 3, "bytes": 2597 },
+      "host:active": { "tools": 29, "bytes": 34835 },
+      "preset:worker": { "tools": 8, "bytes": 12141 },
+      "preset:reviewer": { "tools": 7, "bytes": 9320 },
+      "preset:survey": { "tools": 6, "bytes": 10236 },
+      "preset:survey-sandbox": { "tools": 6, "bytes": 10236 }
+    },
+    "decisions": [
+      {
+        "date": "2026-11-12",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "#164 stages 0/2/4: the first per-profile byte baseline. Bytes are the serialized {name, description, parameters} of the tower tools each profile advertises on the 2.8.0 surface. host:mode-off keeps only the entry affordance (tower_mode + tower_control, 1193 B vs the previous unconditional 34835 B; the 24 B increase over the first measurement is #161's tower_mode description naming the paused goal and released team); host:idle adds tower_init; host:active is the stable union (running and integrating merged per the ADR's break-even arithmetic); preset rows measure each role allow-list's tower share. The 29/34835 active row is unchanged by this decision — it is the committed record of what regrowth is measured against."
+      }
+    ]
   }
 }

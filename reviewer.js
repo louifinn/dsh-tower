@@ -1,22 +1,13 @@
 // tower-reviewer preset policy: read-only review surface. The reviewer must
 // never modify the mission branch: tower_review binds the verdict to the tip
 // recorded when the reviewer was spawned, so a modified tip is rejected.
+// #164: the allow-list lives in domain/exposure.js (see worker.js).
+import { PRESET_ALLOWS } from './domain/exposure.js'
+
 export const name = 'dsh-tower/reviewer'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
-  'read',
-  'glob',
-  'grep',
-  'tower_diff',
-  'tower_status',
-  'tower_send',
-  'tower_inbox',
-  'tower_finding',
-  'tower_findings',
-  'tower_review',
-  'skill',
-]
+const ALLOW = PRESET_ALLOWS['tower-reviewer']
 
 const PROTOCOL = [
   'You are an independent Tower reviewer in a DeepSeek Harness Tower workspace.',

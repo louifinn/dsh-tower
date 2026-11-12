@@ -66,6 +66,7 @@ docs/adr/0005-component-surface.md
 docs/adr/0006-mission-shapes.md
 docs/adr/0007-bounded-activity-log-rotation.md
 docs/adr/0008-process-local-advisory-budgets.md
+docs/adr/0009-role-phase-exposure.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -134,6 +135,7 @@ domain/deny-owners.js
 domain/errors.js
 domain/events.js
 domain/evidence.js
+domain/exposure.js
 domain/gate.js
 domain/generated/deny-surface.js
 domain/integration/gate.js
@@ -184,6 +186,7 @@ host/capability-tests.js
 host/compatibility.js
 host/config.js
 host/doctor.js
+host/exposure.js
 host/hmr.js
 host/mode-command.js
 host/mode-state.js
@@ -265,6 +268,7 @@ scripts/generate-tools-reference.mjs
 scripts/generate-types.mjs
 scripts/issue-audit.mjs
 scripts/lib/cli.mjs
+scripts/lib/profile-surface.mjs
 scripts/lib/surface.mjs
 scripts/lib/tmp.mjs
 scripts/lib/tool-surface.mjs

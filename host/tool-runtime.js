@@ -7,6 +7,7 @@
 // and `tool-registry.js` re-exports the stable public names.
 import { Tower } from '../app/tower.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
+import { exposureWhen, resetExposureMemo } from './exposure.js'
 import {
   allowsAnonymous,
   openForAuthorization,
@@ -291,56 +292,80 @@ export function define(ctx, definition) {
   // tool decides whether it is registered at all (#121): the component row is
   // the switch, so `define()` no longer consults a `tools.expose*` boolean.
   recordToolRegistration(rest.name)
+  // #164: when the host entry installed the exposure gate, every registration
+  // carries the step-time condition. The set that built request N is the set
+  // that validates calls in N (the host resolves `when` once per model step);
+  // a hidden tool resolves as UNKNOWN_TOOL. No gate installed (tests,
+  // embedders) keeps the unconditional registration.
+  const when = exposureWhen(rest.name)
   ctx.effect(() =>
-    ctx.tools.register({
-      ...rest,
-      parameters: plainSchema(rest.parameters),
-      async execute(args, exec) {
-        const normalized = normalizeToolArgs(args, aliases)
-        if (requiresMissionId) {
-          const id = normalized.missionId
-          if (typeof id !== 'string' || id.trim().length === 0) {
-            throw new TowerToolError('invalid-argument', `${rest.name} requires missionId (alias: id)`)
-          }
-          normalized.missionId = id.trim()
-        }
-        let value
-        try {
-          // Default-deny authorization runs before any side effect: a denied
-          // call must not take the workspace lock, write state, or spawn.
-          const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
-          if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
-            await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
-          }
-          value = await execute(normalized, exec, actor)
-        } catch (error) {
-          throw classifyError(error)
-        }
-        if (typeof normalized.repoRoot === 'string') watchRepo(normalized.repoRoot)
-        const event = rest.name.startsWith('tower_') ? rest.name.slice('tower_'.length) : null
-        if (event) {
+    ctx.tools.register(
+      {
+        ...rest,
+        parameters: plainSchema(rest.parameters),
+        async execute(args, exec) {
           try {
-            ctx.emit?.(`tower/${event}`, {
-              tool: rest.name,
-              repoRoot: typeof normalized.repoRoot === 'string' ? normalized.repoRoot : null,
-              value: value ?? null,
-            })
-          } catch {
-            // events are an optional side channel; never fail a tool for them
+            return await executeTowerCall(rest, { aliases, requiresMissionId, board }, execute, args, exec, ctx)
+          } finally {
+            // The phase facts are memoized per agent until the next tower
+            // tool call: tower_init/tower_teardown are the state-existence
+            // transitions, and both run through here.
+            resetExposureMemo()
           }
-        }
-        if (board === true && typeof normalized.repoRoot === 'string') {
-          try {
-            const opened = await openTower(normalized.repoRoot)
-            await opened.writeBoard()
-          } catch {
-            // board output is best effort
-          }
-        }
-        return value
+        },
       },
-    }),
+      when ? { when } : {},
+    ),
   )
+}
+
+/** The shared `define()` execution wrapper: aliases, authorization, effects.
+ * `aliases`, `requiresMissionId` and `board` are destructured *out* of the
+ * definition by `define()`, so they arrive as the second argument — `rest`
+ * never carries them. */
+async function executeTowerCall(rest, { aliases, requiresMissionId, board }, execute, args, exec, ctx) {
+  const normalized = normalizeToolArgs(args, aliases)
+  if (requiresMissionId) {
+    const id = normalized.missionId
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new TowerToolError('invalid-argument', `${rest.name} requires missionId (alias: id)`)
+    }
+    normalized.missionId = id.trim()
+  }
+  let value
+  try {
+    // Default-deny authorization runs before any side effect: a denied
+    // call must not take the workspace lock, write state, or spawn.
+    const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
+    if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
+      await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
+    }
+    value = await execute(normalized, exec, actor)
+  } catch (error) {
+    throw classifyError(error)
+  }
+  if (typeof normalized.repoRoot === 'string') watchRepo(normalized.repoRoot)
+  const event = rest.name.startsWith('tower_') ? rest.name.slice('tower_'.length) : null
+  if (event) {
+    try {
+      ctx.emit?.(`tower/${event}`, {
+        tool: rest.name,
+        repoRoot: typeof normalized.repoRoot === 'string' ? normalized.repoRoot : null,
+        value: value ?? null,
+      })
+    } catch {
+      // events are an optional side channel; never fail a tool for them
+    }
+  }
+  if (board === true && typeof normalized.repoRoot === 'string') {
+    try {
+      const opened = await openTower(normalized.repoRoot)
+      await opened.writeBoard()
+    } catch {
+      // board output is best effort
+    }
+  }
+  return value
 }
 
 export function textOf(blocks) {

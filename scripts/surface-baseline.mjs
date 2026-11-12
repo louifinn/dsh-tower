@@ -29,6 +29,7 @@ import { COMPONENT_PATCH_FILES, mergeCordisPatches, parseCordisPatch } from '../
 import { SURFACE_CLASSIFICATION_FILE, SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
+import { collectProfileSurface, validateProfileBytes } from './lib/profile-surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -47,26 +48,31 @@ the component count comes from the visible rows in every shipped
 cordis.patch.yml.`
 
 /**
- * The live tool names: apply the shipped Host entry so every registration path
- * is included, then release the mock context's timers.
+ * The live tool names and definitions: apply the shipped Host entry so every
+ * registration path is included, then release the mock context's timers.
  */
-function liveToolNames() {
+function liveToolSurface() {
   const surface = loadShippedToolSurface()
   try {
-    return surface.names
+    return { names: surface.names, definitions: surface.definitions }
   } finally {
     surface.dispose()
   }
+}
+
+function liveToolNames() {
+  return liveToolSurface().names
 }
 
 /**
  * The live surface used by the gate. Exported so tests can compare the counts
  * with the generated references without spawning the CLI.
  * @param {string} [root] repository root (defaults to this package)
+ * @param {readonly string[]} [tools] live tool names (measured once by the caller)
  */
-export function liveSurface(root = PACKAGE_ROOT) {
+export function liveSurface(root = PACKAGE_ROOT, tools = liveToolNames()) {
   const config = configSurface()
-  const tools = liveToolNames()
+  const toolNames = tools
   // #134: the counted component surface is every shipped patch, not only the
   // root one; `ui-bundle/cordis.patch.yml` ships the tower-ui row.
   const patches = {}
@@ -79,12 +85,12 @@ export function liveSurface(root = PACKAGE_ROOT) {
   return {
     configKeys: config.count,
     sections: config.sections.length,
-    tools: tools.length,
+    tools: toolNames.length,
     components: patch.visible.length,
     liveNames: {
       configKeys: config.keys,
       sections: config.sections,
-      tools,
+      tools: toolNames,
       components: patch.visible,
     },
   }
@@ -105,14 +111,33 @@ function main(argv) {
     console.error(`surface: ${SURFACE_BASELINE_FILE} is missing under ${root}`)
     return 2
   }
-  const current = liveSurface()
+  const surface = liveToolSurface()
+  const current = liveSurface(root, surface.names)
   const result = checkSurfaceBudget({ root, current })
+  // #164: the per-profile byte baseline over the same shipped surface. Any
+  // drift is a finding, so the ladder's savings and any later regrowth are
+  // both gated here.
+  let profileEntry = null
+  try {
+    profileEntry = JSON.parse(fs.readFileSync(path.join(root, SURFACE_BASELINE_FILE), 'utf8')).profileBytes
+  } catch (error) {
+    profileEntry = { error: String(error?.message ?? error) }
+  }
+  const profileCurrent = collectProfileSurface(surface)
+  const profileFindings = validateProfileBytes(profileEntry, profileCurrent, {
+    exists: (relative) => fs.existsSync(path.join(root, relative)),
+  })
+  const profileOk = profileFindings.length === 0
   if (options.json) {
-    console.log(JSON.stringify({ root, current, ...result }, null, 2))
-    return result.ok ? 0 : 1
+    console.log(JSON.stringify({ root, current, ...result, profileBytes: { current: profileCurrent, findings: profileFindings } }, null, 2))
+    return result.ok && profileOk ? 0 : 1
   }
   console.log(`surface: ${surfaceLine(current)}`)
   console.log(`surface: components: ${current.components} visible (${current.liveNames.components.join(', ')})`)
+  const profileLine = Object.entries(profileCurrent)
+    .map(([profile, value]) => `${profile} ${value.bytes} B/${value.tools}`)
+    .join(' · ')
+  console.log(`surface: profile bytes: ${profileLine}`)
   if (result.baseline) console.log(`surface: baseline ${result.baseline.date} (${SURFACE_BASELINE_FILE})`)
   if (result.classification) {
     const configRows = result.classification.entries.filter((entry) => entry.kind === 'config').length
@@ -120,9 +145,10 @@ function main(argv) {
     console.log(`surface: classified ${configRows} config keys and ${toolRows} tools (${SURFACE_CLASSIFICATION_FILE})`)
   }
   for (const finding of result.findings) console.log(`surface: ${finding.level} [${finding.code}] ${finding.message}`)
-  if (result.ok) console.log('surface: ok — counts match the committed baseline and every entry is classified')
-  else console.log(`surface: ${result.findings.length} problem(s); growth needs an ADR or a matching deletion`)
-  return result.ok ? 0 : 1
+  for (const finding of profileFindings) console.log(`surface: ${finding.level} [${finding.code}] ${finding.message}`)
+  if (result.ok && profileOk) console.log('surface: ok — counts match the committed baseline and every entry is classified')
+  else console.log(`surface: ${result.findings.length + profileFindings.length} problem(s); growth needs an ADR or a matching deletion`)
+  return result.ok && profileOk ? 0 : 1
 }
 
 await runMain(import.meta.url, () => main(process.argv.slice(2)), { errorPrefix: 'surface', usage: USAGE })

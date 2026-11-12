@@ -18,6 +18,8 @@
 import fs from 'node:fs'
 import { authorizeSessionCall, registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
+import { exists } from './adapters/store.js'
+import { installExposureGate } from './host/exposure.js'
 import { Config as ConfigSchema, configureRuntime } from './host/config.js'
 import {
   agentCwd,
@@ -28,6 +30,7 @@ import {
   loadModes,
   modeOn,
   modeState,
+  openTowerFor,
   planModeState,
   releaseOwnedLocks,
   setDenyTools,
@@ -68,6 +71,33 @@ export function apply(ctx, rawConfig) {
   }
   if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
   setDenyTools(config.mode.denyTools)
+
+  // #164 stage 2/4: install the step-time exposure gate before any tower
+  // registration, so every `define()` call captures its `when` condition. The
+  // gate subtracts only for host sessions: agents composed with a Tower role
+  // preset keep their preset allow-list as L0, and every probe failure fails
+  // open (exposure only subtracts, so the fallback is yesterday's surface,
+  // never a hidden way out). tower_mode/tower_control are registered below
+  // without a condition: they are the mode-off entry affordance (ADR 0009).
+  ctx.effect(() =>
+    installExposureGate({
+      modeOn,
+      presetOf: (agent) => {
+        const presets = ctx.get('agentPresets')
+        return presets && typeof presets.composedPreset === 'function'
+          ? (presets.composedPreset(agent?.ctx) ?? null)
+          : null
+      },
+      stateExists: async (agent) => {
+        try {
+          const tower = await openTowerFor(agent)
+          return await exists(tower.paths.state)
+        } catch {
+          return true
+        }
+      },
+    }),
+  )
 
   const workspace = createWorkspaceHook()
 
