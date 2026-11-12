@@ -1,7 +1,7 @@
 // Generate the tools overview from the registered tool definitions (#46).
 //
 // #118: use the shipped Host entry, not only the define() path, so the table and
-// its header count include tower_mode/tower_control as well.
+// its header count include tower_mode as well.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

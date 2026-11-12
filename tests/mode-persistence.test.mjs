@@ -167,14 +167,14 @@ test('/tower off: a successful save releases the lock and writes the off tombsto
   }
 })
 
-test('tower_control exit: a failed save returns persisted:false with mode-persist-failed and keeps the lock', async () => {
+test('tower_mode exit: a failed save returns persisted:false with mode-persist-failed and keeps the lock', async () => {
   const t = await setup('session-control-failure')
   try {
     const lockBefore = JSON.parse(fs.readFileSync(t.lockFile, 'utf8'))
     const storeBefore = fs.readFileSync(t.storeFile, 'utf8')
     fs.writeFileSync(t.storeFile, 'not json at all')
 
-    const failed = await t.call('tower_control', { action: 'exit', reason: 'task is done' })
+    const failed = await t.call('tower_mode', { active: false, reason: 'task is done' })
     assert.equal(failed.ok, false)
     assert.equal(failed.persisted, false)
     assert.equal(failed.changed, false, 'a rolled-back off is not a change')
@@ -187,7 +187,7 @@ test('tower_control exit: a failed save returns persisted:false with mode-persis
 
     // Repair the store and retry through the model path.
     fs.writeFileSync(t.storeFile, storeBefore)
-    const retry = await t.call('tower_control', { action: 'exit', reason: 'task is done, retry' })
+    const retry = await t.call('tower_mode', { active: false, reason: 'task is done, retry' })
     assert.equal(retry.ok, true)
     assert.equal(retry.persisted, true)
     assert.equal(retry.mode, 'off')

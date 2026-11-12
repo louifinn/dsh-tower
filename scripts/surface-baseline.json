@@ -106,7 +106,7 @@
     },
     "tools": {
       "seed": 27,
-      "value": 25,
+      "value": 21,
       "decisions": [
         {
           "from": 27,
@@ -123,6 +123,12 @@
           "to": 25,
           "date": "2026-11-12",
           "note": "#163 Phase 3: the five read-only views (status/roster/diff/preflight/doctor) fold into tower_inspect, so 29 - 5 + 1 = 25 tools."
+        },
+        {
+          "from": 25,
+          "to": 21,
+          "date": "2026-11-12",
+          "note": "#163 Phase 4: init+adopt, finding+findings, mode+control and import_legacy+legacy_map each become one tool with an op/active field, so 25 - 4 = 21 tools."
         }
       ]
     },
@@ -179,19 +185,25 @@
     "tower": {
       "tools": {
         "seed": 23,
-        "value": 19,
+        "value": 16,
         "decisions": [
           {
             "from": 23,
             "to": 19,
             "date": "2026-11-12",
             "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 19,
+            "to": 16,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: init+adopt, finding+findings and mode+control collapse; tower_mode now also carries the write parameters."
           }
         ]
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12895,
+        "value": 12921,
         "decisions": [
           {
             "from": 17008,
@@ -204,6 +216,12 @@
             "to": 12895,
             "date": "2026-11-12",
             "note": "#163 Phase 3: one tower_inspect replaces five view schemas, so the profile loses those tools and their input bytes."
+          },
+          {
+            "from": 12895,
+            "to": 12921,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: three merges remove two schemas each but tower_mode now advertises read plus write plus the takeover authorization reference, so the net byte change is +26."
           }
         ]
       }
@@ -211,7 +229,7 @@
     "worker": {
       "tools": {
         "seed": 8,
-        "value": 7,
+        "value": 6,
         "decisions": [
           {
             "from": 8,
@@ -224,12 +242,18 @@
             "to": 7,
             "date": "2026-11-12",
             "note": "#163 Phase 3: the worker allow-list names tower_inspect instead of tower_status and tower_diff; the profile keeps one schema where it had two."
+          },
+          {
+            "from": 7,
+            "to": 6,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: tower_findings folds into tower_finding."
           }
         ]
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6348,
+        "value": 6175,
         "decisions": [
           {
             "from": 8159,
@@ -248,6 +272,12 @@
             "to": 6348,
             "date": "2026-11-12",
             "note": "#163 Phase 3: the worker allow-list names tower_inspect instead of tower_status and tower_diff."
+          },
+          {
+            "from": 6348,
+            "to": 6175,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: the worker profile loses the tower_findings schema."
           }
         ]
       }
@@ -255,7 +285,7 @@
     "reviewer": {
       "tools": {
         "seed": 7,
-        "value": 6,
+        "value": 5,
         "decisions": [
           {
             "from": 7,
@@ -268,12 +298,18 @@
             "to": 6,
             "date": "2026-11-12",
             "note": "#163 Phase 3: the reviewer allow-list names tower_inspect (diff and status views) instead of two separate view tools."
+          },
+          {
+            "from": 6,
+            "to": 5,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: tower_findings folds into tower_finding."
           }
         ]
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4544,
+        "value": 4371,
         "decisions": [
           {
             "from": 5871,
@@ -292,6 +328,12 @@
             "to": 4544,
             "date": "2026-11-12",
             "note": "#163 Phase 3: the reviewer allow-list names tower_inspect instead of tower_diff and tower_status."
+          },
+          {
+            "from": 4544,
+            "to": 4371,
+            "date": "2026-11-12",
+            "note": "#163 Phase 4: the reviewer profile loses the tower_findings schema."
           }
         ]
       }

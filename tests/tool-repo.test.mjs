@@ -85,7 +85,7 @@ test('tool profiles: the registry and the authorization matrix agree', () => {
   assert.equal(REPOSITORY_OPTIONAL_TOOLS.includes('tower_reload'), true)
   // The worker/reviewer lists are the presets' mount lists; the repository
   // escape hatch and the optional capability tools are not part of them.
-  for (const name of ['tower_reload', 'tower_batch', 'tower_resource', 'tower_test', 'tower_import_legacy', 'tower_legacy_map']) {
+  for (const name of ['tower_reload', 'tower_batch', 'tower_resource', 'tower_test', 'tower_import']) {
     assert.equal(WORKER_ALLOW.includes(name), false, `worker does not mount ${name}`)
     assert.equal(REVIEWER_ALLOW.includes(name), false, `reviewer does not mount ${name}`)
   }

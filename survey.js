@@ -11,7 +11,7 @@ const ALLOW = [
   'tower_mission',
   'tower_inspect',
   'tower_finding',
-  'tower_findings',
+  'tower_finding',
   'tower_inbox',
   'tower_complete',
   'skill',

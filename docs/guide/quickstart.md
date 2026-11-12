@@ -104,8 +104,8 @@ The repository layer overrides the profile config; per-call tool arguments overr
 Out-of-scope observations go to `tower_finding`. Later, list or close them without editing code:
 
 ```
-tower_findings
-tower_findings id=F1 status=fixed note="fixed in M2"
+tower_finding({op: "list"})
+tower_finding({op: "update", id: "F1", status: "fixed", note: "fixed in M2"})
 ```
 
 Statuses are `open → triaged → fixed` / `wontfix`, and `fixed`/`wontfix` can reopen to `open`. Only the

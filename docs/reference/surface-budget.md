@@ -34,8 +34,9 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 merge or host tool.
 
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
-`tower_mode` and `tower_control` are registered directly by `index.js`, so the
-shipped surface was always 29. The 27 → 29 step is an explicit
+`tower_mode` is registered directly by `index.js` (the former `tower_control` merged into it in #163 Phase 4); it
+#163 Phase 4 folded it into `tower_mode`, so the 2.3.0 shipped surface was
+always 29. The 27 → 29 step is an explicit
 *measurement correction* with a reason and date in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) (see
 [ADR 0004](../adr/0004-surface-budget.md)), not surface growth; a later count
@@ -43,10 +44,10 @@ change still needs an ADR or a provably matching deletion.
 
 The tool count is the **build** surface, not one profile's mounted subset (#121):
 the recorder includes every tool this build can register, so a component row that
-ships off (`tower-hmr`, whose `tower_reload` keeps the count at 25) does not
-shrink the budget. `tower_inspect`'s `doctor` view reports the same 25 and names
+ships off (`tower-hmr`, whose `tower_reload` keeps the count at 21) does not
+shrink the budget. `tower_inspect`'s `doctor` view reports the same 21 and names
 the mounted subset through its `components` check; the mount smoke asserts the
-shipped profile's 24 loaded tools and pins 25 for the all-rows-on surface.
+shipped profile's 16 loaded tools and pins 21 for the all-rows-on surface.
 
 ## Per-profile surfaces (#163)
 
@@ -82,6 +83,16 @@ worker and reviewer allow-lists name `tower_inspect` exactly once (it serves
 their status and diff views), which is why their count drops by one rather
 than five. The removed tools are recorded as a dated decision on the `tools`
 surface and a dated decision per profile metric.
+
+#163 Phase 4 folded four same-resource pairs: `init`+`adopt`,
+`finding`+`findings`, `mode`+`control`, and `import_legacy`+`legacy_map`. The
+build surface went 25 → 21, the tower profile 19 → 16 tools (12,921 input
+bytes), the worker 7 → 6 tools (6,175 bytes) and the reviewer 6 → 5 tools
+(4,371 bytes). The tower profile's bytes rise by 26 rather than falling:
+`tower_mode` now advertises the read plus the write fields and the takeover
+audit reference, which is larger than the old read-only schema it absorbed.
+The tool count still falls by three there; that is a dated decision, not an
+exemption from the two-way rule.
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
@@ -244,21 +255,17 @@ them mandatory for every configuration.
 
 | Tool | Class | Note |
 |---|---|---|
-| `tower_adopt` | core | Reconciles a restored roster with the durable catalog. |
 | `tower_batch` | optional | Evidence-batch workflow; component `tower-batch`. |
 | `tower_complete` | core | The only completion path for a worker. |
-| `tower_control` | optional | Model-initiated mode change; `mode.allowAgentControl:false` removes it (ADR 0003). |
 | `tower_inspect` | core | The five read-only views (status, roster, diff, preflight, doctor) behind one tool (#163). |
-| `tower_finding` | core | Out-of-scope issue recording. |
-| `tower_findings` | core | Finding lifecycle. |
-| `tower_import_legacy` | optional | Legacy migration; component `tower-import`. |
+| `tower_finding` | core | Finding lifecycle: report, list/read and update (#163 Phase 4). |
+| `tower_import` | optional | Legacy migration and audit mapping; component `tower-import` (#163 Phase 4). |
 | `tower_inbox` | core | Message delivery and acknowledgement. |
-| `tower_init` | core | Creates the repository state. |
+| `tower_init` | core | Creates the repository state or adopts the roster (`op`) (#163 Phase 4). |
 | `tower_interrupt` | core | Stops a runaway worker. |
-| `tower_legacy_map` | optional | Legacy audit mapping; component `tower-import`. |
 | `tower_merge` | core | The only merge path. |
 | `tower_mission` | core | Mission progress and blockers. |
-| `tower_mode` | core | Reports the session stance, workspace lock, HMR and plugin version; always registered. |
+| `tower_mode` | core | Reads the session stance; writes enter/leave/takeover with `active`; `mode.allowAgentControl:false` refuses writes (ADR 0003). |
 | `tower_plan` | core | Mission planning. |
 | `tower_rebase` | core | Keeps a mission branch current. |
 | `tower_recover` | core | Stale-lock recovery; registered for every configuration (#122). |

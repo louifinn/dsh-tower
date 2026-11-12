@@ -15,8 +15,8 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 
 ## 特性
 
-- **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_control` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
-- **显式的所有权交接。** 仓库状态绑定初始化它的会话。旧会话结束后，新会话可用 `/tower takeover <原因>` 接管（人类命令，任何配置都可用）；模型也可在 Tower 模式中通过 `tower_control({action:"takeover"})` 请求接管，但必须得到用户明确批准。旧属主仍活跃、仍有运行中的 roster Agent 或外部工作区锁时会拒绝；交接保留全部历史与未读消息，并写入一条 `takeover` 活动记录，不会自动释放所有权。
+- **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_mode({active:true/false})` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
+- **显式的所有权交接。** 仓库状态绑定初始化它的会话。旧会话结束后，新会话可用 `/tower takeover <原因>` 接管（人类命令，任何配置都可用）；模型也可在 Tower 模式中通过 `tower_mode({active:"takeover", authorization:"<审计引用>"})` 请求接管，但必须得到用户明确批准。旧属主仍活跃、仍有运行中的 roster Agent 或外部工作区锁时会拒绝；交接保留全部历史与未读消息，并写入一条 `takeover` 活动记录，不会自动释放所有权。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
 - **两种 mission 形状，一个注册表。** 每个 mission 是 `build` 或 `survey`，其状态、完成证据、
   供给方式、路径权限与 spawn 契约都由 shape 拥有，不再散落 `if (kind === …)` 分支。survey 只读：
@@ -25,16 +25,16 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
   `domain/evidence.js` 之外的证据读取，以及角色检查与 shape 检查混合的写法。
 - **审查门禁合并。** 审查策略是插件页上的一个三态控件：`off`、`optional`（默认）或 `required`（配置键 `review.mode`）。设为 `required` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选；策略为 `required` 时，单个 mission 可用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。升级提示：旧的布尔审查开关是保留一个版本的别名；映射关系见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。
 - **可恢复的协作状态。** roster、inbox、findings、reviews 与 mission 状态持久化在 `.git/dsh-tower/` 下，重启不会丢计划。
-- **受控的状态增长。** worktree 已移除的终态任务在达到 `archive.afterDays`/`archive.maxMissions` 后移入 `.git/dsh-tower/archive/`，保留 tasks、reviews、findings 与完成报告；此后 mutation 只重写活跃工作。`tower_status includeArchived` 列出压缩后的归档摘要，`tower_doctor` 报告归档大小、数量与策略。
+- **受控的状态增长。** worktree 已移除的终态任务在达到 `archive.afterDays`/`archive.maxMissions` 后移入 `.git/dsh-tower/archive/`，保留 tasks、reviews、findings 与完成报告；此后 mutation 只重写活跃工作。`tower_inspect({view:"status", includeArchived:true})` 列出压缩后的归档摘要，`tower_inspect({view:"doctor"})` 报告归档大小、数量与策略。
 - **默认安全。** Tower 模式开启期间拒绝 `create_goal`、`update_goal(resume)`、`todo_write`、Team 任务板与 `spawn_teammate`；被暂停的 goal 不会被自动恢复。
-- **可追溯的 finding 生命周期。** `tower_findings` 列表、读取并按 `open → triaged → fixed` / `wontfix` 流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
+- **可追溯的 finding 生命周期。** `tower_finding` 按 `open → triaged → fixed` / `wontfix` 列表、读取与流转，也可重新打开；只有 tower 或 worker 能改状态，reviewer 只能读。
 - **仓库级配置。** 每个仓库可用 `<git-common-dir>/dsh-tower/config.json` 覆盖 review/merge/worktree/spawn 策略，工具参数再覆盖仓库配置；无需为不同仓库改 profile。
 - **稳定错误码。** 工具失败统一带 `[tower:<code>]` 前缀（如 `mission-not-found`、`preset-missing`、`config-invalid`），调用方可稳定分支处理。
 - **角色强制与可控中断。** worker 不能直接完成/放弃 mission 或扩界（完成必须走 `tower_complete` 证据门），tower 可随时用 `tower_interrupt` 停止跑偏的 agent；`tower_send(interrupt:true)` 可中止运行中的 turn。
 - **仓库互斥与限流。** 可选 `mode.workspaceLock` 让同一仓库只有一个 Tower 会话；`spawn.maxLiveWorkers`、`send.maxPerMinute`、roster stale 标记约束并发与消息风暴。
 - **可热重载。** 在带 DSH HMR 的 profile 中，`/tower reload`、`tower_reload` 与 `npm run dev:hmr` 让 linked 插件代码改动无需重启即生效；`plugin_manager` 安装/更新本身即时生效。
 - **测试证据门与事件。** worker 可在 `tower_complete` 记录 `checks`，`gates.requireChecks` 可强制；每次 mutation 后发射 `tower/*` 事件并刷新 `MISSIONS.md`。
-- **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_doctor` 只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import_legacy` / `tower_legacy_map` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
+- **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_doctor` 只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
 
 ## 何时使用 Tower
 
@@ -146,7 +146,7 @@ tower_teardown  repoRoot=D:\work\repo
 本 bundle 采用 **强制 host 锚点 + 可单独启停的可选行**（#121）：`cordis.patch.yml` 插入顶层
 `tower` group（挂载 Host 插件与强制的 `preset-tower-worker`），随后是可选组件 `tower-skills`、
 `tower-batch`、`tower-import`、`tower-leases`、`tower-tests`、`tower-hmr`（随包关闭）与
-`preset-tower-reviewer`。在插件页关闭某一行，只会移除该能力；模式、规划工具、`tower_status`
+`preset-tower-reviewer`。在插件页关闭某一行，只会移除该能力；模式、规划工具、`tower_inspect`
 与其余工具继续工作。
 
 进入 Tower 模式与 `tower_plan` 前会校验必需的 preset。worker preset 是强制依赖；reviewer
@@ -193,11 +193,13 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。三种审查模式、插件页控件位置与单版本别名迁移见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（25 个：18 个核心 + 7 个可选）
+## 工具（21 个：15 个核心 + 6 个可选）
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_adopt` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_findings` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_test` · `tower_batch` · `tower_resource` · `tower_import_legacy` · `tower_legacy_map` · `tower_control` · `tower_reload`
+随包最多 21 个工具：15 个核心 + 6 个可选。
 
-上面列出的是 18 个核心工具加 5 个由组件行拥有的可选工具。`tower_control` 是第 6 个可选工具，默认注册（`allowAgentControl:true`）；设为 `false` 可禁用。`tower_reload` 是第 7 个，仅在 `tower-hmr` 组件行开启时注册（随包关闭），无 HMR 服务调用会返回 `reload-unavailable`（最多 25 个工具：18 个核心 + 7 个可选）。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_import` · `tower_test` · `tower_batch` · `tower_resource` · `tower_reload`
+
+上面列出的是 15 个核心工具加 6 个由组件行拥有的可选工具（`tower_import`、`tower_test`、`tower_batch`、`tower_resource`、`tower_reload`，其中 `tower_reload` 属于随包关闭的 `tower-hmr` 行）。`tower_mode` 是会话工具：省略 `active` 只读，传入 `active` 才写；设 `mode.allowAgentControl:false` 可禁用写操作。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。`tower_init({op:"adopt"})` 承接旧的 roster 对账，`tower_finding({op:"report"/"list"/"update"})` 与 `tower_import({op:"snapshot"/"map"})` 同理（#163 Phase 4）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
 ## 安全与约束
 
@@ -207,7 +209,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：25 个工具、41 个工具错误码、30 个进程内事件、57 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
+表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、41 个工具错误码、26 个进程内事件、57 个配置键、33 个稳定 blocker/failure code、12 个可见组件。
 
 稳定 blocker/failure code（含 gate 守卫、`no-check-evidence`、worker-stale、tests 门禁与 merge/rebase 操作失败码）——完整清单、触发条件与修复动作见 [docs/reference/blockers.md](docs/reference/blockers.md)。工具本身抛出的错误码见 [docs/reference/errors.md](docs/reference/errors.md)，事件见 [docs/reference/events.md](docs/reference/events.md)。
 
@@ -266,7 +268,7 @@ live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，�
 
 `tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 
-`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 28 个 `tower_*` 工具（27 个 `tools/*.js` 模块 + `tower_mode` / `tower_control`，减去因 `tower-hmr` 随包关闭而不注册的 `tower_reload`；所有可选能力行全开时为 29 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
+`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 20 个 `tower_*` 工具（20 个 `tools/*.js` 模块 + `tower_mode`，减去因 `tower-hmr` 随包关闭而不注册的 `tower_reload`；所有可选能力行全开时为 21 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
 host build 固定在 `scripts/mount-smoke/host.json`；`scripts/support.json` 记录公开支持基线，`npm run support:check` 保证 package engines、host pin、live 矩阵与 `COMPATIBILITY.md` 最新行一致，单元测试再保证该行与 pin 相等，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
 
@@ -281,8 +283,8 @@ host build 固定在 `scripts/mount-smoke/host.json`；`scripts/support.json` �
 ## 常见问题
 
 - **安装/更新后插件不出现。** Host 插件在 DSH 启动时加载，请重启 DSH；并确认安装目标指向本仓库根目录（含 `package.json` 与 `cordis.patch.yml` 的那一层），而不是子目录。
-- **没有 `tower_control`。** 配置中被设为 `allowAgentControl:false`；改回 `true` 并重启。
-- **合并被阻止。** 运行 `tower_preflight` 查看 blocker code；`stale-base` 表示先执行 `tower_rebase`。
+- **`tower_mode` 写操作不可用。** 配置中被设为 `allowAgentControl:false`；改回 `true` 并重启（读取模式不受影响）。
+- **合并被阻止。** 运行 `tower_inspect({view:"preflight", missionId})` 查看 blocker code；`stale-base` 表示先执行 `tower_rebase`。
 - **基线前进后分支过期。** `tower_rebase` 在 worktree 内完成 rebase；干净且无冲突的 rebase 可免去上一轮审查的重审。
 - **合并提交已经存在，但 `tower_merge` 报了失败。** 重新执行 `tower_merge` 即可：它会检测已落地的合并提交（或分支已包含在 base 中）并记录为 reconciled，不会重复合并。
 - **仓库的 `pre-merge-commit` 钩子很慢。** 合并超时默认 15 分钟，可按次通过 `tower_merge({ ..., timeoutMs: 900000 })` 调大；钩子输出缓冲上限 64 MB。钩子失败返回 `merge-hook-failed`（超时带 `timeout: true`），并保持仓库干净以便重试。

@@ -200,7 +200,7 @@ export function checkDocs(root = packageRoot) {
   }
 
   // The architecture tree also counts the tools registered through define().
-  // tower_mode/tower_control are registered directly by the Host entry, so that
+  // tower_mode is registered directly by the Host entry, so that
   // number is derived from index.js instead of being restated by hand.
   const directSessionTools = new Set(
     [...indexSource.matchAll(/recordToolRegistration\('(tower_[a-z_]+)'\)/g)].map((match) => match[1]),

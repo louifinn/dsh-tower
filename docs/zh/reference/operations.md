@@ -38,7 +38,7 @@ API，Tower 无法强制每进程资源限制；这类限制请使用 live-worke
 
 ## 旧版导入与映射
 
-`tower_import_legacy({sourcePath})` 接受 Tower Codex `schemaVersion:1` state 文件或 DSH
+`tower_import({op:"snapshot", sourcePath})` 接受 Tower Codex `schemaVersion:1` state 文件或 DSH
 旧版 state。它会：
 
 - 要求绝对源路径，且位于 `<git-common-dir>/dsh-tower` 之外；
@@ -46,5 +46,5 @@ API，Tower 无法强制每进程资源限制；这类限制请使用 live-worke
   `<git-common-dir>/dsh-tower/legacy/<sha256>.json`，并在 `state.legacySnapshots` 中只记录摘要；
 - 绝不激活、接管或恢复暂停的 mission。
 
-`tower_legacy_map` 记录仅审计用途的 `sourceHash + oldId → newMissionId?` 映射。映射只追加；把已有
+`tower_import({op:"map"})` 记录仅审计用途的 `sourceHash + oldId → newMissionId?` 映射。映射只追加；把已有
 映射改写到另一个 mission 会被拒绝。映射不会改变 mission 状态。

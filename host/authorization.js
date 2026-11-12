@@ -8,15 +8,15 @@
 //   * a missing agent id, unreadable state, a state without an owner, or an
 //     agent id that is not in the roster resolves to `unknown`;
 //   * `unknown` is denied unless the matrix row is explicitly public (read-only
-//     operator tools and the two session tools) or the row is the bootstrap
-//     tool and no owner exists yet;
+//     operator tools and the session tool) or the row is the bootstrap tool and
+//     no owner exists yet;
 //   * a tool name without a matrix row is denied: default deny is the default.
 //
 // `authorize(tool, actor, context)` runs before a handler executes, so a denied
 // call cannot write state, acquire the workspace lock, or start a subagent.
-// Every shipped tool has a row here, including the two session tools the Host
-// entry registers directly (tower_mode and tower_control); together with the
-// 27 tools the component modules define that is the complete 29-tool surface.
+// Every shipped tool has a row here, including the session tool the Host entry
+// registers directly (tower_mode); together with the tools the component
+// modules define that is the complete registered surface (#163 Phase 4).
 import { TowerToolError } from '../domain/errors.js'
 import { ROLE, isReviewerRole, isTowerRole, isUnknownRole, isWorkerRole } from '../domain/vocabulary.js'
 import { rosterProjection } from '../domain/collab/spawn.js'
@@ -67,14 +67,13 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   tower_inspect: Object.freeze({ allow: EVERYONE, configDiagnostic: true, check: inspectViewAccess }),
   tower_spawn: towerOnly('spawn tower agents'),
   tower_interrupt: towerOnly('interrupt tower agents'),
-  tower_adopt: towerOnly('adopt the roster'),
   tower_send: Object.freeze({ allow: KNOWN }),
   tower_inbox: Object.freeze({ allow: KNOWN }),
   // Completion stays worker-owned; a reviewer reaches the app layer and is
   // refused there with "not a worker", preserving the ownership contract.
   tower_complete: Object.freeze({ allow: KNOWN }),
+  // #163 Phase 4: report, list and update are one resource and one row.
   tower_finding: Object.freeze({ allow: KNOWN }),
-  tower_findings: Object.freeze({ allow: KNOWN }),
   tower_review: Object.freeze({
     allow: Object.freeze([A.tower, A.reviewer]),
     denial: (actor) =>
@@ -88,8 +87,8 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   tower_recover: towerOnly('recover Tower state'),
   tower_batch: towerOnly('manage evidence batches'),
   tower_resource: towerOnly('manage resource leases'),
-  tower_import_legacy: towerOnly('import a legacy snapshot'),
-  tower_legacy_map: towerOnly('map a legacy mission'),
+  // #163 Phase 4: snapshot import and audit-only mapping share one resource.
+  tower_import: towerOnly('import or map legacy state'),
   tower_test: Object.freeze({
     allow: Object.freeze([A.tower, A.worker, A.survey]),
     denial: (actor) =>
@@ -105,16 +104,13 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin') }),
   // Session tools: these report or change the calling session's Tower stance,
   // not repository state, so a repository access class cannot decide them.
-  // tower_mode only reads the current mode entry keyed by the caller's agent
-  // id; it is public so a broken repository or state file stays diagnosable.
+  // #163 Phase 4: reads when `active` is absent; writes when it is present.
+  // Public so a broken repository or state file stays diagnosable, and so the
+  // entry, the mode policy (allowAgentControl) and the handler gates can decide
+  // a write: the handler still requires a live calling agent, a non-empty
+  // reason, the session's own mode entry, and the human approval path before an
+  // ownership takeover.
   tower_mode: Object.freeze({ allow: EVERYONE }),
-  // Explicit mode-policy row. The Host entry registers this tool only while
-  // mode.allowAgentControl is true, and the handler still requires a live
-  // calling agent, a non-empty reason, the session's own mode entry, and the
-  // human approval path before any ownership takeover. The row is therefore
-  // public: the mode policy and the handler gates, not the repository access
-  // class, decide whether a session tool call may proceed.
-  tower_control: Object.freeze({ allow: EVERYONE }),
 })
 
 /**

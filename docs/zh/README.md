@@ -13,13 +13,13 @@
   `package.json.tower.testDiscovery` 声明发现命令；回执可自动附加到 `tower_complete`，
   `gates.requireTests` 可要求针对当前 mission 分支 tip 的通过回执（与审查门禁独立）。
 - **证据批次、咨询式租约、旧版导入**：[批次、租约与旧版导入](reference/operations.md)
-  （`tower_batch`、`tower_resource`、`tower_import_legacy`、`tower_legacy_map`）。
+  （`tower_batch`、`tower_resource`、`tower_import`、`tower_reload`）。
 - **workspace 锁与计划模式**：`mode.workspaceLock` 限制每个仓库同时只有一个 Tower 会话，
   `mode.workspaceLockScope:"mutations"` 对只读工具跳过锁；`mode.planModePolicy` 控制进入 Tower
   时如何处理活跃的 plan mode。
 - **可观察性**：成功的工具调用发出进程内 [Tower 事件](reference/events.md)；稳定
   [工具错误码](reference/errors.md) 与 [blocker code](reference/blockers.md) 可被程序匹配。
-- **工具面**：本构建最多 29 个工具（含可选的 `tower_control` 与 `tower_reload`）；详见
+- **工具面**：本构建最多 21 个工具（含可选的 `tower_reload` 与 `tower_import`）；详见
   [工具参考](reference/tools.md)。
 
 ## 选择阅读路径

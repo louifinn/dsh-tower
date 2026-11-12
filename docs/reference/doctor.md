@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 25 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -17,9 +17,9 @@ It returns:
   "surface": {
     "configKeys": 57,
     "sections": 16,
-    "tools": 25,
+    "tools": 21,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 57 · sections: 16 · tools: 25"
+    "line": "config keys: 57 · sections: 16 · tools: 21"
   },
   "stateLock": {
     "held": true,
@@ -124,10 +124,10 @@ as a healthy repository.
 as the generated references: `config keys: N · sections: N · tools: N`, plus the
 committed baseline date from `scripts/surface-baseline.json`. The counts are live:
 the config schema and every tool the build ships — `define()`-registered tools,
-the `tower_mode`/`tower_control` pair the Host entry registers directly (#118),
+the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (29 in 2.4.0), even though the shipped profile mounts 28 because
+build surface (21 in 2.8.0), even though the shipped profile mounts 20 because
 `tower-hmr` ships off; the `components` check names the mounted subset and every
 disabled row. `npm run surface:check` is what fails when a count grew without an
 ADR, a matching deletion or a recorded measurement correction. See

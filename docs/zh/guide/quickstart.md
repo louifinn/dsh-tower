@@ -99,8 +99,8 @@ tower_teardown
 scope 之外的观察用 `tower_finding` 记录。之后可以列出或关闭它们，而不必改代码：
 
 ```
-tower_findings
-tower_findings id=F1 status=fixed note="fixed in M2"
+tower_finding({op: "list"})
+tower_finding({op: "update", id: "F1", status: "fixed", note: "fixed in M2"})
 ```
 
 状态为 `open → triaged → fixed` / `wontfix`，且 `fixed`/`wontfix` 可重新打开为 `open`。只有控制塔

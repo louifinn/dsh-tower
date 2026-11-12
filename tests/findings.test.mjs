@@ -1,4 +1,4 @@
-// Finding lifecycle: tower_finding writes, tower_findings lists/reads/updates.
+// Finding lifecycle: tower_finding reports, lists/reads and updates.
 // Run with: node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'

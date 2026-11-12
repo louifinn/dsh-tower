@@ -3,7 +3,7 @@
 [English](../../reference/events.md) | **简体中文**
 
 Tower 在工具成功调用（变更与只读）后发出进程内 Cordis 事件，其他插件因此可以观察仓库，而不必轮询。
-本版本发出 30 个进程内事件：5 个稳定领域事件和 25 个已弃用的工具形别名。事件**不会**通过网络发送，也不包含遥测。
+本版本发出 26 个进程内事件：5 个稳定领域事件和 21 个工具形别名。事件**不会**通过网络发送，也不包含遥测。
 
 ```js
 ctx.on('tower/merge', (payload) => {
@@ -13,7 +13,7 @@ ctx.on('tower/merge', (payload) => {
 
 | 事件 | 触发时机 |
 |---|---|
-| `tower/init` | `tower_init` 创建或重新锚定 state 之后 |
+| `tower/init` | `tower_init` 创建/重新锚定 state 或对账 roster 之后（`value.op`） |
 | `tower/plan` | `tower_plan` 创建 mission 之后 |
 | `tower/mission` | `tower_mission` 修改单个 mission 之后 |
 | `tower/spawn` | `tower_spawn` 记录 worker/reviewer 之后 |
@@ -22,21 +22,17 @@ ctx.on('tower/merge', (payload) => {
 | `tower/merge` | `tower_merge` 返回之后（包括门禁失败；检查 `value.ok`） |
 | `tower/rebase` | `tower_rebase` 返回之后 |
 | `tower/teardown` | `tower_teardown` 移除 worktree 之后 |
-| `tower/finding` | `tower_finding` 创建单条 finding 之后 |
-| `tower/findings` | `tower_findings` 读取/列出/更新 finding 之后 |
+| `tower/finding` | `tower_finding` 报告、列出或更新 finding 之后 |
 | `tower/send` | `tower_send` 持久化消息之后 |
 | `tower/inbox` | `tower_inbox` 确认消息之后 |
 | `tower/interrupt` | `tower_interrupt` 停止运行中的 agent 之后 |
 | `tower/inspect` | `tower_inspect` 渲染只读视图之后（`value.view`） |
-| `tower/adopt` | `tower_adopt` 对账 roster 之后 |
 | `tower/recover` | `tower_recover` 查看或清理 stale state 锁之后 |
 | `tower/test` | `tower_test` 运行测试发现之后 |
 | `tower/batch` | `tower_batch` 创建、查看或关闭 batch 之后 |
 | `tower/resource` | `tower_resource` 获取/释放/查看租约之后 |
-| `tower/import_legacy` | `tower_import_legacy` 保存旧版快照之后 |
-| `tower/legacy_map` | `tower_legacy_map` 映射或列出旧 id 之后 |
-| `tower/mode` | `tower_mode` 读取/变更会话模式之后（`value.mode`、`allowAgentControl`、`deniedWhileActive`） |
-| `tower/control` | `tower_control` 进入/退出模式之后（`value.mode`，操作者/理由在 `value` 中） |
+| `tower/import` | `tower_import` 保存旧版快照或映射旧 id 之后 |
+| `tower/mode` | `tower_mode` 读取、进入、退出或接管会话模式之后（`value.mode`、`value.action`，操作者/理由在 `value` 中） |
 | `tower/reload` | `tower_reload` 返回重载调度/结果之后 |
 
 payload 是 JSON：`{tool, repoRoot, value}`。监听器抛错不会影响工具结果。

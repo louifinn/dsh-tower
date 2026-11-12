@@ -1,7 +1,7 @@
 // Tower mode state and transitions (W5-A).
 //
 // Owns the per-agent mode entries, the persisted mode-store view, the deny list,
-// and the transitions the `/tower` command, `tower_control`, and the host
+// and the transitions the `/tower` command, `tower_mode` writes, and the host
 // effects share. `index.js` builds the Cordis workspace hook from
 // `createWorkspaceHook()`; `host/mode-command.js` owns the `/tower` command and
 // `host/session-tools.js` owns the two tool handler bodies. Behavior, output
@@ -57,7 +57,7 @@ const BASE_REMINDER = [
 ].join(' ')
 
 const AGENT_CONTROL_NOTE =
-  'You may also enter or leave Tower mode with tower_control when the user intent or task state clearly calls for it; always state a concrete reason.'
+  'You may also enter or leave Tower mode with tower_mode (active true/false) when the user intent or task state clearly calls for it; always state a concrete reason.'
 
 export function modeOn(key) {
   const entry = key ? modeState.get(key) : undefined

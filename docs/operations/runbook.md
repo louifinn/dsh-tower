@@ -27,7 +27,7 @@ leaves the branch untouched — then call `tower_merge` to record it. A conflict
 
 A runaway agent: `tower_interrupt({to:"worker-m1",reason:"..."})` interrupts the host subagent turn and
 records `state:"interrupted"`. `tower_inspect` with `view: "roster"` shows `stale:true` when an active entry has no catalog
-activity beyond `spawn.staleMs`; `tower_adopt` retires such entries (`retireMissing:false` marks them
+activity beyond `spawn.staleMs`; `tower_init({op:"adopt"})` retires such entries (`retire_missing:false` marks them
 `missing` instead). After the old owner is interrupted/failed/missing, spawn a replacement with
 `takeover:true`; a still-running owner returns `takeover-refused`.
 
@@ -74,7 +74,7 @@ is active without updating the roster.
 State is bound to the session that initialized it (`state.towerAgentId`). When that session is gone,
 the new session runs `/tower takeover <reason>`; the human command is always available, even with
 `mode.allowAgentControl:false`. A model can request the same transfer through
-`tower_control({action:"takeover"})`, but only from Tower mode and only after an explicit human
+`tower_mode({active:"takeover", authorization:"<audit ref>"})`, but only from Tower mode and only after an explicit human
 approval dialog. Both paths refuse while the previous owner still has Tower mode on with a live
 workspace lock ([tower:owner-live]), while live roster agents or a foreign workspace lock exist
 ([tower:owner-busy]). The transfer keeps all missions, reviews, findings and unread messages, writes

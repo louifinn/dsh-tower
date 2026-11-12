@@ -6,7 +6,7 @@
 //   config keys   leaf keys in domain/config/schema.js (one level deep)
 //   sections      object groups in that schema
 //   tools         every tool the Host entry registers, including the
-//                 tower_mode/tower_control pair that index.js registers
+//                 tower_mode tool that index.js registers
 //                 directly rather than through define() (#118)
 //   components    user-visible rows in every shipped cordis.patch.yml (#120,
 //                 #134), so the 2.3.0 4 -> 1 contraction and any future move

@@ -96,6 +96,17 @@ export const INSPECT_VIEW = Object.freeze({
 /** @type {readonly string[]} */
 export const INSPECT_VIEWS = Object.freeze(Object.values(INSPECT_VIEW))
 
+/** #163 Phase 4: same-resource operations on the merged tools. */
+export const INIT_OP = Object.freeze({ init: 'init', adopt: 'adopt' })
+/** @type {readonly string[]} */
+export const INIT_OPS = Object.freeze(Object.values(INIT_OP))
+export const FINDING_OP = Object.freeze({ report: 'report', list: 'list', update: 'update' })
+/** @type {readonly string[]} */
+export const FINDING_OPS = Object.freeze(Object.values(FINDING_OP))
+export const IMPORT_OP = Object.freeze({ snapshot: 'snapshot', map: 'map' })
+/** @type {readonly string[]} */
+export const IMPORT_OPS = Object.freeze(Object.values(IMPORT_OP))
+
 /** @param {string | null | undefined} format */
 export function isMarkdownFormat(format) {
   return format === STATUS_FORMAT.markdown

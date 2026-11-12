@@ -135,9 +135,9 @@ test('every tool output satisfies its declared schema across a full mission', as
       details: 'details',
       suggested_fix: 'fix it',
     })
-    await call('tower_findings', { repoRoot: repo })
-    await call('tower_findings', { repoRoot: repo, id: finding.id })
-    await call('tower_findings', { repoRoot: repo, id: finding.id, status: 'triaged', note: 'noted' })
+    await call('tower_finding', { repoRoot: repo })
+    await call('tower_finding', { repoRoot: repo, id: finding.id })
+    await call('tower_finding', { repoRoot: repo, op: 'update', id: finding.id, status: 'triaged', note: 'noted' })
 
     await call('tower_rebase', { repoRoot: repo, missionId })
 
@@ -164,7 +164,7 @@ test('every tool output satisfies its declared schema across a full mission', as
     await call('tower_inspect', { repoRoot: repo, view: 'status' })
     const torn = await call('tower_teardown', { repoRoot: repo })
     assert.deepEqual(torn.removed, [missionId])
-    await call('tower_adopt', { repoRoot: repo })
+    await call('tower_init', { repoRoot: repo, op: 'adopt' })
   } finally {
     removeTemp(root)
   }

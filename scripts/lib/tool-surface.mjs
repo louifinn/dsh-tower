@@ -2,7 +2,7 @@
 //
 // `scripts/surface-baseline.mjs` and `scripts/generate-tools-reference.mjs` must
 // measure the tools the plugin actually registers — including `tower_mode` and
-// `tower_control`, which `index.js` registers directly instead of through the
+// `tower_mode`, which `index.js` registers directly instead of through the
 // `define()` path. Loading the real `apply()` with a minimal Cordis context
 // means the measurement cannot drift from the shipped surface again.
 import os from 'node:os'

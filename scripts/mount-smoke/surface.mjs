@@ -12,14 +12,14 @@
 // individually switchable optional top-level rows (#121). Tools owned by a row
 // that ships off (today only `tower-hmr` -> `tower_reload`) are trimmed from the
 // expected surface using the same ownership table the runtime reports, so the
-// shipped default profile (24 tools) and the all-rows-on build surface (25)
+// shipped default profile (16 tools) and the all-rows-on build surface (21)
 // cannot be confused again. The five `tower_inspect` view modules live under
 // tools/views/ and are internal code, not top-level tool modules (#163 Phase 3).
 
 import { COMPONENT_TOOLS } from '../../host/capability-registry.js'
 
 /** Tools registered by index.js rather than by a handler module under tools/. */
-export const INDEX_TOOL_IDS = ['tower_control', 'tower_mode']
+export const INDEX_TOOL_IDS = ['tower_mode']
 
 /** The mandatory host group row: off equals uninstalling. */
 export const BUNDLE_ID = 'tower'
@@ -90,7 +90,7 @@ const OWNED_ROW_IDS = new Set([BUNDLE_ID, ...BUNDLE_CHILD_IDS, ...OPTIONAL_ROW_I
 
 /**
  * Map one tools/ file name to the tool id its module must register.
- * `import-legacy.js` registers `tower_import_legacy`; `index.js` registers none.
+ * `import.js` registers `tower_import`; `index.js` registers only `tower_mode`.
  * The `tower_inspect` view implementations live under tools/views/ and are not
  * part of the top-level module list this oracle reads (#163 Phase 3).
  * @param {string} fileName - a file name under tools/.
@@ -108,7 +108,7 @@ export function toolIdForModule(fileName) {
  * @param {{ enabledRows?: string[] }} [options] - rows enabled in the profile
  *   under test. Defaults to the shipped profile: every optional row except the
  *   ones in {@link DEFAULT_OFF_ROW_IDS}. Pass every row id to pin the full
- *   build surface (29 tools with the shipped sources).
+ *   build surface (21 tools with the shipped sources).
  * @returns {string[]} sorted tool ids the loaded profile must register.
  */
 export function expectedToolIds(moduleFiles, options = {}) {

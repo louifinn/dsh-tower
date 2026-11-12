@@ -71,7 +71,7 @@ cleanup; the benefit is that state never lies about what was integrated.
 
 Tower mode changes the session's stance: it narrows the tool surface and injects the mission protocol.
 The user can always change it with `/tower`; by default the model can also enter or leave with
-`tower_control`, provided it states a concrete reason. Every change records the actor and reason. The
+`tower_mode`, provided it states a concrete reason. Every change records the actor and reason. The
 design point is not that one side owns the switch, but that toggling is deliberate and visible; set
 `mode.allowAgentControl:false` if a deployment wants human-only control. Entering pauses an active goal
 and clears plan mode; leaving does not silently resume either. Tower intentionally refuses `goal`,
@@ -140,7 +140,7 @@ bound to the tip.
 ### 2.5 Long-running work that spans context compaction or restarts
 
 Example: a multi-day refactor interrupted by restarts, new sessions, or a context reset. The mission
-state, roster, inbox, reviews, and worktrees are durable; `tower_adopt` reconciles a lost roster;
+state, roster, inbox, reviews, and worktrees are durable; `tower_init({op:"adopt"})` reconciles a lost roster;
 `tower_inspect` with `view: "doctor"` reports what is broken; `tower_merge` reconciles an already-landed merge.
 
 **Why Tower:** the protocol is reconstructable from local state and Git, not from a conversation

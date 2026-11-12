@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 25 tools, 41 tool error codes, 30 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -99,17 +99,17 @@ The generated row files never touch the root locale `meta`.
 
 ```
 Host plugin (index.js — Cordis apply/effect glue)
- ├─ /tower command + Tower mode (guard, prompt section, tower_mode/tower_control)
+ ├─ /tower command + Tower mode (guard, prompt section, tower_mode)
  ├─ host/mode-state.js -> mode entries/transitions + workspace hook
  ├─ host/mode-command.js -> /tower command registration
- ├─ host/session-tools.js -> tower_mode/tower_control handler bodies
+ ├─ host/session-tools.js -> tower_mode handler bodies
  ├─ host/tool-registry.js -> stable registry facade (re-exports the modules below)
  ├─ host/tool-runtime.js -> runtime state, define(), openTower(), shared guards
  ├─ host/tool-capabilities.js -> registration aggregators
- │                    (+ 23 define()-registered tools)
- │                    (+ tower_mode/tower_control registered by the Host entry, 25 total
+ │                    (+ 20 define()-registered tools)
+ │                    (+ tower_mode registered by the Host entry, 21 total
  │                       once every optional capability row is on)
- │                    (tower_doctor/tower_recover are host tools, never switches)
+ │                    (tower_inspect/tower_recover are host tools, never switches)
  ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
  ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)
  ├─ tools/index.js  -> thin public wiring (re-exports the registry + briefings)
@@ -127,7 +127,7 @@ Host plugin (index.js — Cordis apply/effect glue)
        host/tool-observers.js  roster/activity/evidence observers
        host/mode-state.js      Tower mode entries, transitions, workspace hook
        host/mode-command.js    /tower command registration
-       host/session-tools.js   tower_mode/tower_control handler bodies
+       host/session-tools.js   tower_mode handler body
        host/config.js          profile/repo config layers over the pure schema
        host/doctor.js          read-only environment contract and health checks
        host/capability-registry.js  mounted-component report for status/doctor
@@ -178,7 +178,7 @@ Host plugin (index.js — Cordis apply/effect glue)
        tools/*.js               one module per tool, handler + imported input schema
  Subagents
  ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
- └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_diff + review/finding (read-only)
+ └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_inspect view diff + review/finding (read-only)
 ```
 
 

@@ -67,7 +67,7 @@ export const MISSION_EVENT_TABLE = Object.freeze(
 
 /** Tool-shaped alias events, kept for one minor release (#75). */
 export const LEGACY_TOOL_EVENT_TABLE = Object.freeze([
-  { name: 'tower/init', description: '`tower_init` created or re-anchored state' },
+  { name: 'tower/init', description: '`tower_init` created/re-anchored state or adopted the roster (`value.op`)' },
   { name: 'tower/plan', description: '`tower_plan` created missions' },
   { name: 'tower/mission', description: '`tower_mission` changed one mission' },
   { name: 'tower/spawn', description: '`tower_spawn` recorded a worker/reviewer' },
@@ -76,21 +76,17 @@ export const LEGACY_TOOL_EVENT_TABLE = Object.freeze([
   { name: 'tower/merge', description: '`tower_merge` returned (including gate failures; inspect `value.ok`)' },
   { name: 'tower/rebase', description: '`tower_rebase` returned' },
   { name: 'tower/teardown', description: '`tower_teardown` removed worktrees' },
-  { name: 'tower/finding', description: '`tower_finding` created one finding' },
-  { name: 'tower/findings', description: '`tower_findings` read/listed/updated findings' },
+  { name: 'tower/finding', description: '`tower_finding` reported, listed or updated findings' },
   { name: 'tower/send', description: '`tower_send` persisted a message' },
   { name: 'tower/inbox', description: '`tower_inbox` acknowledged messages' },
   { name: 'tower/interrupt', description: '`tower_interrupt` stopped a live agent' },
   { name: 'tower/inspect', description: '`tower_inspect` rendered a read-only view (`value.view`)' },
-  { name: 'tower/adopt', description: '`tower_adopt` reconciled the roster' },
   { name: 'tower/recover', description: '`tower_recover` inspected or cleared a stale state lock' },
   { name: 'tower/test', description: '`tower_test` ran discovery' },
   { name: 'tower/batch', description: '`tower_batch` created, inspected or closed a batch' },
   { name: 'tower/resource', description: '`tower_resource` acquired/released/inspected leases' },
-  { name: 'tower/import_legacy', description: '`tower_import_legacy` stored a legacy snapshot' },
-  { name: 'tower/legacy_map', description: '`tower_legacy_map` mapped or listed legacy ids' },
-  { name: 'tower/mode', description: '`tower_mode` read the session stance (`value.mode`, `allowAgentControl`, `deniedWhileActive`)' },
-  { name: 'tower/control', description: '`tower_control` entered/left the mode (`value.mode`, actor/reason in `value`)' },
+  { name: 'tower/import', description: '`tower_import` stored a legacy snapshot or mapped legacy ids (`value.op`-shaped result)' },
+  { name: 'tower/mode', description: '`tower_mode` read, entered, left or took over the session stance (`value.mode`, `value.action`, actor/reason in `value`)' },
   { name: 'tower/reload', description: '`tower_reload` returned a reload schedule/result' },
 ])
 

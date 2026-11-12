@@ -1,8 +1,9 @@
-// tower_init: repository initialization.
+// tower_init: repository initialization and roster adoption (#163 Phase 4).
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
+import { INIT_OP, isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 import { InitInput } from '../domain/contracts/tool-inputs/index.js'
-import { isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
+import { runAdoptView } from './views/adopt.js'
 
 /**
  * @param {any} ctx
@@ -13,12 +14,15 @@ export function registerInitTool(ctx, deps) {
   define(ctx, {
     name: 'tower_init',
     description:
-      'Initialize Tower state under <git-common-dir>/dsh-tower for the repository at absolute repoRoot. Idempotent. Options: autoGitInit, snapshotDirty, reanchor. Only the tower may initialize. Details: docs/reference/tools.md.',
+      'Initialize Tower state under <git-common-dir>/dsh-tower for the repository at absolute repoRoot (op: init, default), or reconcile the roster with the durable subagent catalog after a restart (op: adopt). Only the tower may init or adopt. Details: docs/reference/tools.md.',
     parameters: InitInput,
-    aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'] },
+    aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'], retire_missing: ['retireMissing'] },
     board: true,
-    output: output(SCHEMAS.init),
+    output: output(SCHEMAS.initAdopt),
     async execute(args, exec) {
+      if (args.op === INIT_OP.adopt) {
+        return runAdoptView(ctx, args, exec, { openTower: deps.openTower, actorFor, requireTowerActor })
+      }
       const profileInit = runtimeConfig().init ?? {}
       let repo = null
       try {

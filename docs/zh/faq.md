@@ -19,7 +19,7 @@ spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:
 **需要轮询 worker 吗？**
 不需要。worker 的最终报告会送回本会话；`tower_inspect` 的 `view: "roster"` 视图 显示实时活动。轮询只会浪费回合。
 
-**`/tower` 显示模式已开启，但没有 `tower_control`。**
+**`/tower` 显示模式已开启，但 `tower_mode` 写操作被拒绝。**
 `mode.allowAgentControl` 被关闭了。它默认为 `true`；如果被显式设为 `false`，在 profile patch 中改回
 `true` 并重启 DSH。
 
@@ -45,8 +45,8 @@ spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:
 不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支
 被改动，审查会被拒绝。mission 之外的问题用 `tower_finding` 记录，不要直接改文件。
 
-**`tower_finding` 与 `tower_findings` 有什么区别？**
-`tower_finding` 创建单条 finding（`open`）。`tower_findings` 是生命周期工具：列出/读取，并在
+**`tower_finding` 的 `op` 有什么用？**
+`op:"report"` 创建单条 finding（`open`）；`op:"list"`（默认）列出/读取 finding，
 `open → triaged → fixed`/`wontfix` 之间流转（允许重新打开）。只有控制塔或 worker 可以修改状态；
 roster 中的 reviewer 只能列出和读取。
 

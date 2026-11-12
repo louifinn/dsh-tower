@@ -81,9 +81,9 @@ export const ERROR_CODES = {
   },
   'finding-not-found': {
     description: 'No finding with that id exists.',
-    trigger: '`tower_findings({id:"F99"})`',
+    trigger: '`tower_finding({op:"list", id:"F99"})`',
     retryable: false,
-    nextAction: 'list findings with tower_findings',
+    nextAction: 'list findings with tower_finding',
   },
   'invalid-transition': {
     description: 'The requested state transition is not allowed.',
@@ -207,7 +207,7 @@ export const ERROR_CODES = {
   },
   'mode-persist-failed': {
     description: 'A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records.',
-    trigger: '`/tower on|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock)',
+    trigger: '`/tower on|off`, `tower_mode` writes, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock)',
     retryable: true,
     nextAction: 'fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change',
   },
@@ -225,7 +225,7 @@ export const ERROR_CODES = {
   },
   'approval-unavailable': {
     description: 'The human approval channel is unavailable for an ownership transfer.',
-    trigger: '`tower_control({action:"takeover"})` in a profile without the userQuestions service',
+    trigger: '`tower_mode({active:"takeover"})` in a profile without the userQuestions service',
     retryable: false,
     nextAction: 'use the human /tower takeover <reason> command, or restart this session with the user-questions service available',
   },

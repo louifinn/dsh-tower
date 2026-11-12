@@ -1,5 +1,5 @@
 // Plugin-level tests for the `/tower` command, the mode guard, the dynamic
-// prompt section, goal pausing and `tower_control`.
+// prompt section, goal pausing and `tower_mode`.
 //
 // These run the real `apply()` from the package root against a minimal mock
 // Cordis context, so they exercise the exact code the Host loads without
@@ -160,21 +160,20 @@ async function callCommand(commands, agent, rawInput, attachments = []) {
 test('config surface: tools, command descriptor and unknown-key rejection', () => {
   const plain = makeCtx()
   apply(plain.ctx, {})
-  assert.ok(plain.tools.has('tower_mode'))
-  assert.ok(plain.tools.has('tower_control'), 'agent control is on by default')
+  assert.ok(plain.tools.has('tower_mode'), 'the read/write session tool is mounted')
+  assert.ok(AUTHORIZATION_MATRIX.tower_mode, 'the matrix pins the session row')
   const command = plain.commands.get('tower')
   assert.equal(command.input.hint, '[on|off|reload|ack|takeover <reason>|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const disabled = makeCtx()
   apply(disabled.ctx, { mode: { allowAgentControl: false } })
-  assert.equal(disabled.tools.has('tower_control'), false, 'allowAgentControl false keeps the model tool unmounted')
-  assert.ok(disabled.tools.has('tower_mode'), 'the read-only session report stays mounted')
-  assert.ok(AUTHORIZATION_MATRIX.tower_control, 'the matrix still pins the mode-policy row regardless of the profile gate')
+  assert.ok(disabled.tools.has('tower_mode'), 'the read-only session report stays mounted when writes are off')
+  assert.ok(AUTHORIZATION_MATRIX.tower_mode, 'the matrix still pins the session row regardless of the profile gate')
 
   const controlled = makeCtx()
   apply(controlled.ctx, { allowAgentControl: true })
-  assert.ok(controlled.tools.has('tower_control'))
+  assert.ok(controlled.tools.has('tower_mode'))
 
   assert.throws(() => apply(makeCtx().ctx, { allowAgentToggle: true }), /unknown key/i)
 })
@@ -331,20 +330,20 @@ test('prompt section is dynamic per agent and mentions agent control by default'
   assert.equal(section.text({ agent }), '')
   await callCommand(plain.commands, agent, '')
   assert.match(section.text({ agent }), /Tower mode is active/)
-  assert.match(section.text({ agent }), /tower_control/)
+  assert.match(section.text({ agent }), /tower_mode/)
   assert.equal(section.text({ agent: makeAgent('other') }), '')
 
   const disabled = makeCtx()
   apply(disabled.ctx, { mode: { allowAgentControl: false } })
   const disabledAgent = makeAgent('agent-disabled')
   await callCommand(disabled.commands, disabledAgent, '')
-  assert.doesNotMatch(disabled.sections[0].text({ agent: disabledAgent }), /tower_control/)
+  assert.doesNotMatch(disabled.sections[0].text({ agent: disabledAgent }), /tower_mode/)
 
   const controlled = makeCtx()
   apply(controlled.ctx, { allowAgentControl: true })
   const agent2 = makeAgent('agent-section-2')
   await callCommand(controlled.commands, agent2, '')
-  assert.match(controlled.sections[0].text({ agent: agent2 }), /tower_control/)
+  assert.match(controlled.sections[0].text({ agent: agent2 }), /tower_mode/)
 })
 
 test('entering pauses an active goal exactly once', async () => {
@@ -396,26 +395,26 @@ test('a goal that is not active is left alone and reported', async () => {
   assert.match(result.text, /goal is paused/)
 })
 
-test('tower_control is gated by config and requires a reason', async () => {
+test('tower_mode is gated by config and requires a reason', async () => {
   const { ctx, tools } = makeCtx()
   apply(ctx, { allowAgentControl: true })
-  const control = tools.get('tower_control')
+  const control = tools.get('tower_mode')
   assert.ok(control)
   const agent = makeAgent('agent-control')
 
-  await assert.rejects(() => control.execute({ action: 'enter', reason: '   ' }, { agent }), /non-empty reason/)
+  await assert.rejects(() => control.execute({ active: true, reason: '   ' }, { agent }), /non-empty reason/)
 
-  const entered = await control.execute({ action: 'enter', reason: 'user asked for orchestration' }, { agent })
+  const entered = await control.execute({ active: true, reason: 'user asked for orchestration' }, { agent })
   assert.equal(entered.ok, true)
   assert.equal(entered.changed, true)
   assert.equal(entered.mode, 'on')
   assert.equal(entered.changedBy, 'agent')
   assert.equal((await tools.get('tower_mode').execute({}, { agent })).lastDisclosure, 'full')
 
-  const again = await control.execute({ action: 'enter', reason: 'still meant' }, { agent })
+  const again = await control.execute({ active: true, reason: 'still meant' }, { agent })
   assert.equal(again.changed, false)
 
-  const exited = await control.execute({ action: 'exit', reason: 'task is done' }, { agent })
+  const exited = await control.execute({ active: false, reason: 'task is done' }, { agent })
   assert.equal(exited.changed, true)
   assert.equal(exited.mode, 'off')
   assert.equal((await tools.get('tower_mode').execute({}, { agent })).mode, 'off')
@@ -444,7 +443,7 @@ test('session tools stay callable when the repository state is unreadable (F31)'
     assert.equal(view.agentId, 'agent-corrupt-state')
 
     // Entering mode keys off the session, not the unreadable repository state.
-    const entered = await tools.get('tower_control').execute({ action: 'enter', reason: 'diagnose a corrupt repo' }, { agent })
+    const entered = await tools.get('tower_mode').execute({ active: true, reason: 'diagnose a corrupt repo' }, { agent })
     assert.equal(entered.ok, true)
     assert.equal(entered.mode, 'on')
     assert.equal((await tools.get('tower_mode').execute({}, { agent })).mode, 'on')
@@ -583,14 +582,14 @@ test('mode.requireHumanAckOnFirstEntry blocks model entry until /tower ack', asy
   const { ctx, tools, commands } = makeCtx()
   apply(ctx, { mode: { allowAgentControl: true, requireHumanAckOnFirstEntry: true } })
   const agent = makeAgent('agent-ack')
-  const control = tools.get('tower_control')
+  const control = tools.get('tower_mode')
   await assert.rejects(
-    () => control.execute({ action: 'enter', reason: 'model wants in' }, { agent }),
+    () => control.execute({ active: true, reason: 'model wants in' }, { agent }),
     /human acknowledgement/,
   )
   const ack = await callCommand(commands, agent, 'ack')
   assert.equal(ack.kind, 'success')
-  const entered = await control.execute({ action: 'enter', reason: 'after human ack' }, { agent })
+  const entered = await control.execute({ active: true, reason: 'after human ack' }, { agent })
   assert.equal(entered.mode, 'on')
 })
 
@@ -601,7 +600,7 @@ test('mode tool outputs satisfy their declared schemas, including null fields', 
   apply(ctx, { allowAgentControl: true })
   const agent = makeAgent('agent-schema')
   const modeTool = tools.get('tower_mode')
-  const controlTool = tools.get('tower_control')
+  const controlTool = tools.get('tower_mode')
 
   const off = await modeTool.execute({}, { agent })
   assertSchema(modeTool, off)
@@ -620,15 +619,15 @@ test('mode tool outputs satisfy their declared schemas, including null fields', 
   assert.equal(typeof on.lastChange, 'object')
 
   // Entering with no goals service leaves pausedGoal and goalNote null.
-  const entered = await controlTool.execute({ action: 'enter', reason: 'schema check' }, { agent })
+  const entered = await controlTool.execute({ active: true, reason: 'schema check' }, { agent })
   assertSchema(controlTool, entered)
   assert.equal(entered.pausedGoal, null)
   assert.equal(entered.goalNote, null)
 
-  const exited = await controlTool.execute({ action: 'exit', reason: 'schema check' }, { agent })
+  const exited = await controlTool.execute({ active: false, reason: 'schema check' }, { agent })
   assertSchema(controlTool, exited)
 
-  const noAgent = await controlTool.execute({ action: 'exit', reason: 'schema check' }, {})
+  const noAgent = await controlTool.execute({ active: false, reason: 'schema check' }, {})
   assertSchema(controlTool, noAgent)
   assert.equal(noAgent.ok, false)
 })
@@ -654,7 +653,7 @@ test('mode entry refuses when a required preset is missing (#64)', async () => {
 test('#121: turning one capability row off leaves a working Tower and is reported', async () => {
   const disabledTools = {
     'tower-batch': ['tower_batch'],
-    'tower-import': ['tower_import_legacy', 'tower_legacy_map'],
+    'tower-import': ['tower_import'],
     'tower-leases': ['tower_resource'],
     'tower-tests': ['tower_test'],
     'tower-hmr': ['tower_reload'],
@@ -692,18 +691,18 @@ test('#121: turning one capability row off leaves a working Tower and is reporte
 
 test('#121: tower_doctor reports the full build surface, not the mounted subset', async () => {
   // The shipped default profile: the host plus the four capability rows that
-  // ship on; tower-hmr is off, so 28 tools are actually registered.
+  // ship on; tower-hmr is off, so 20 tools are actually registered.
   const { ctx, tools } = makeCtx()
   compose(ctx, { skip: ['tower-hmr'] })
-  assert.equal(tools.size, 24, 'the shipped profile mounts 24 tools')
+  assert.equal(tools.size, 20, 'the shipped profile mounts 20 tools')
   assert.equal(tools.has('tower_reload'), false, 'tower-hmr is off')
 
   const report = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: makeRepo().repo }, { agent: makeAgent('agent-doctor-surface') })
-  // The concept budget is the build surface (25), so it still agrees with
+  // The concept budget is the build surface (21), so it still agrees with
   // scripts/surface-baseline.json and docs; the mounted subset is not a
-  // different "25 vs 24" surface and must not be mistaken for one.
-  assert.equal(report.surface.tools, 25, 'the doctor reports every tool this build can register')
-  assert.match(report.surface.line, /tools: 25$/)
+  // different "21 vs 20" surface and must not be mistaken for one.
+  assert.equal(report.surface.tools, 21, 'the doctor reports every tool this build can register')
+  assert.match(report.surface.line, /tools: 21$/)
 })
 
 test('#121: tower_status also names a disabled component', async () => {
@@ -776,8 +775,8 @@ test('#154: model takeover asks the human and transfers an inactive owner', asyn
     const next = makeAgent('owner-b', repo)
     await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
     await callCommand(commands, next, 'on')
-    const result = await tools.get('tower_control').execute(
-      { action: 'takeover', reason: 'previous session is gone' },
+    const result = await tools.get('tower_mode').execute(
+      { active: 'takeover', authorization: 'ticket #163 test authorization', reason: 'previous session is gone' },
       { agent: next },
     )
     assert.equal(result.approved, true)
@@ -811,8 +810,8 @@ test('#154: takeover declines, cancellation and a live owner are non-destructive
     const next = makeAgent('owner-refuse-b', repo)
     await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
     await callCommand(commands, next, 'on')
-    const declined = await tools.get('tower_control').execute(
-      { action: 'takeover', reason: 'try' },
+    const declined = await tools.get('tower_mode').execute(
+      { active: 'takeover', authorization: 'ticket #163 test authorization', reason: 'try' },
       { agent: next },
     )
     assert.equal(declined.approved, false)
@@ -834,8 +833,8 @@ test('#154: takeover declines, cancellation and a live owner are non-destructive
     const cancelAgent = makeAgent('owner-cancel-b', repo)
     await callCommand(cancelCtx.commands, cancelAgent, 'on')
     let concluded = false
-    const cancelled = await cancelCtx.tools.get('tower_control').execute(
-      { action: 'takeover', reason: 'cancel' },
+    const cancelled = await cancelCtx.tools.get('tower_mode').execute(
+      { active: 'takeover', authorization: 'ticket #163 test authorization', reason: 'cancel' },
       { agent: cancelAgent, concludeTurn: () => { concluded = true } },
     )
     assert.equal(cancelled.cancelled, true)
@@ -846,7 +845,7 @@ test('#154: takeover declines, cancellation and a live owner are non-destructive
     await callCommand(commands, owner, 'on')
     asked.length = 0
     await assert.rejects(
-      () => tools.get('tower_control').execute({ action: 'takeover', reason: 'live' }, { agent: next }),
+      () => tools.get('tower_mode').execute({ active: 'takeover', authorization: 'ticket #163 test authorization', reason: 'live' }, { agent: next }),
       (error) => error.code === 'owner-live',
     )
     assert.equal(asked.length, 0, 'the human is not asked when the preconditions already fail')
@@ -863,7 +862,11 @@ test('#154: human /tower takeover works without the model control gate', async (
     const owner = makeAgent('owner-human-a', repo)
     const next = makeAgent('owner-human-b', repo)
     await tools.get('tower_init').execute({ repoRoot: repo }, { agent: owner })
-    assert.equal(tools.has('tower_control'), false)
+    assert.equal(tools.has('tower_mode'), true, 'reads stay available when writes are gated')
+    await assert.rejects(
+      () => tools.get('tower_mode').execute({ active: false, reason: 'gated' }, { agent: next }),
+      (error) => error.code === 'not-authorized' && /allowAgentControl/.test(error.message),
+    )
     const result = await callCommand(commands, next, 'takeover recovering a finished session')
     assert.equal(result.kind, 'success', result.text)
     assert.match(result.text, /ownership transferred from owner-human-a to owner-human-b/)

@@ -46,7 +46,7 @@ export const runtimeState = {
   // full build surface (29 tools) rather than one profile's mounted subset (28
   // with the shipped `tower-hmr` row off). `recordToolRegistration` is the one
   // recorder: define() calls it for every definition, the Host entry calls it
-  // for the directly registered tower_mode/tower_control pair, and the host
+  // for the directly registered tower_mode tool, and the host
   // records the declared capability tools (COMPONENT_TOOLS) because those entry
   // points only run when their row is on. The number is reported by
   // tower_doctor and compared with the committed scripts/surface-baseline.json.
@@ -59,7 +59,7 @@ export const runtimeState = {
  * This is the single recorder for the *build* tool surface. `define()` calls it
  * for every definition when a capability is mounted; the Host entry (`index.js`)
  * calls it for the two tools it registers directly, `tower_mode` and
- * `tower_control`; and `registerCoreTowerTools` records the declared capability
+ * `tower_mode`; and `registerCoreTowerTools` records the declared capability
  * tools up front so a row that ships off does not shrink the budget. One
  * recorder means the count cannot silently miss a registration path again: #118
  * found 27 of the 29 names because only the `define()` path was recorded.

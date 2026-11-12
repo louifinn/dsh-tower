@@ -75,8 +75,7 @@ test('survey preset: read-only surface that can still acknowledge the inbox (#14
     'tower_mission',
     'tower_inspect',
     'tower_finding',
-    'tower_findings',
-    'tower_inbox',
+      'tower_inbox',
     'tower_complete',
   ]) {
     assert.ok(state.allow.includes(allowed), `survey should allow ${allowed}`)

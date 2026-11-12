@@ -22,7 +22,7 @@ default `review.mode:optional`, review is optional and no `no-review` blocker is
 No. The worker's final report is delivered to this session; `tower_inspect` with `view: "roster"` shows live activity. Polling
 wastes turns.
 
-**`/tower` says the mode is on but `tower_control` is missing.**
+**`/tower` says the mode is on but `tower_mode` writes are rejected.**
 `mode.allowAgentControl` is disabled. It defaults to `true`; if it was set to `false`, set it back to
 `true` in the profile patch and restart DSH.
 
@@ -51,8 +51,8 @@ a deprecated one-release alias; the mapping is in
 No. Reviewers use the read-only `tower-reviewer` preset (no write/edit/pwsh); a branch changed after the
 reviewer spawned is rejected. Reviewers file `tower_finding` for issues outside the mission.
 
-**What is the difference between `tower_finding` and `tower_findings`?**
-`tower_finding` creates one finding (`open`). `tower_findings` is the lifecycle tool: list/read, and
+**What is `tower_finding`'s `op`?**
+`op:"report"` creates one finding (`open`); `op:"list"` (the default) lists/reads findings, and `op:"update"`
 transition `open → triaged → fixed`/`wontfix` (reopen allowed). Only the tower or a worker may change the
 status; a roster reviewer may list and read.
 

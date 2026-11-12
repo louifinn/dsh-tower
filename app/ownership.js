@@ -186,6 +186,7 @@ function assertTransferAllowed(snapshot) {
  * @param {{
  *   caller: string,
  *   reason: string,
+ *   authorization?: string,
  *   readFacts: () => Promise<{
  *     modes?: Map<string, any>,
  *     modeStore?: { status?: string, file?: string, error?: string } | null,
@@ -194,7 +195,7 @@ function assertTransferAllowed(snapshot) {
  *   }>,
  * }} input
  */
-export async function transferOwnership(tower, { caller, reason, readFacts }) {
+export async function transferOwnership(tower, { caller, reason, authorization, readFacts }) {
   if (!caller) {
     throw new TowerToolError('invalid-argument', 'ownership transfer needs a non-empty caller')
   }
@@ -247,7 +248,7 @@ export async function transferOwnership(tower, { caller, reason, readFacts }) {
     await tower.appendActivity({
       at: now,
       type: 'takeover',
-      text: takeoverActivityText({ from: previousOwner, to: String(caller), reason }),
+      text: takeoverActivityText({ from: previousOwner, to: String(caller), reason, authorization }),
     })
     return {
       ok: true,

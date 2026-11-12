@@ -8,9 +8,9 @@
 // arguments a caller happened to pass: the runtime consults this registry
 // instead of inferring the contract from a present `repoRoot`.
 //
-// Phase 3+ of #163 folds the five read-only views into `tower_inspect` and the
-// same-resource pairs into their canonical tools; those names move here when
-// they land.
+// #163 Phases 3-4 already folded the five read-only views into `tower_inspect`
+// and the same-resource pairs into their canonical tools; Phase 5 completes the
+// role contract.
 
 /** The tower-worker preset's tool list. */
 export const WORKER_ALLOW = Object.freeze([
@@ -26,7 +26,6 @@ export const WORKER_ALLOW = Object.freeze([
   'tower_inbox',
   'tower_complete',
   'tower_finding',
-  'tower_findings',
   'skill',
 ])
 
@@ -39,7 +38,6 @@ export const REVIEWER_ALLOW = Object.freeze([
   'tower_send',
   'tower_inbox',
   'tower_finding',
-  'tower_findings',
   'tower_review',
   'skill',
 ])
@@ -52,8 +50,7 @@ export const REVIEWER_ALLOW = Object.freeze([
  */
 export const TOWER_ONLY_TOOLS = Object.freeze([
   'tower_batch',
-  'tower_import_legacy',
-  'tower_legacy_map',
+  'tower_import',
   'tower_reload',
   'tower_resource',
 ])

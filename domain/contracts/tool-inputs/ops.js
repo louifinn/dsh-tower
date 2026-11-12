@@ -8,6 +8,8 @@
 // definitions' `aliases` maps but are no longer advertised.
 import {
   BATCH_ACTIONS,
+  IMPORT_OPS,
+  INIT_OPS,
   LEASE_ACTIONS,
   LEGACY_MAP_ACTIONS,
   RECOVERY_ACTIONS,
@@ -15,11 +17,13 @@ import {
 import { Type, enumOf, untypedObject } from './shared.js'
 
 export const InitInput = Type.Object({
+  op: Type.Optional(enumOf(INIT_OPS, { description: 'init creates/anchors Tower state (default); adopt reconciles the roster with the subagent catalog.' })),
   repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   base: Type.Optional(Type.String({ description: 'Optional local base branch (defaults to the checked-out branch).' })),
   auto_git_init: Type.Optional(Type.Boolean({ description: 'Run git init (and an empty initial commit) when repoRoot is not a repository yet.' })),
   snapshot_dirty: Type.Optional(Type.Boolean({ description: 'Snapshot uncommitted tracked changes into a dangling commit used as the mission baseline (untracked files are not included).' })),
   reanchor: Type.Optional(Type.Boolean({ description: 'Update the recorded base when no mission is active.' })),
+  retire_missing: Type.Optional(Type.Boolean({ description: 'adopt: retire provably missing agents (default true); false marks them missing so the tower can inspect them.' })),
 }, { additionalProperties: false })
 
 export const DoctorInput = Type.Object({}, { additionalProperties: false })
@@ -62,6 +66,16 @@ export const ImportLegacyInput = Type.Object({
 
 export const LegacyMapInput = Type.Object({
   action: enumOf(LEGACY_MAP_ACTIONS, { description: 'Mapping operation.' }),
+  sourceHash: Type.Optional(Type.String({ description: 'Legacy snapshot sha256 (map).' })),
+  oldId: Type.Optional(Type.String({ description: 'Legacy mission id (map).' })),
+  newMissionId: Type.Optional(Type.String({ description: 'Current mission id; optional audit pointer.' })),
+}, { additionalProperties: false })
+
+/** #163 Phase 4: snapshot + map share `tower_import`. */
+export const ImportInput = Type.Object({
+  op: Type.Optional(enumOf(IMPORT_OPS, { description: 'snapshot imports a legacy state file (default when sourcePath is present); map records/lists audit mappings.' })),
+  sourcePath: Type.Optional(Type.String({ description: 'Absolute path to the legacy JSON state file (snapshot).' })),
+  action: Type.Optional(enumOf(LEGACY_MAP_ACTIONS, { description: 'Mapping operation (map).' })),
   sourceHash: Type.Optional(Type.String({ description: 'Legacy snapshot sha256 (map).' })),
   oldId: Type.Optional(Type.String({ description: 'Legacy mission id (map).' })),
   newMissionId: Type.Optional(Type.String({ description: 'Current mission id; optional audit pointer.' })),

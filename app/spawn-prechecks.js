@@ -117,7 +117,7 @@ export async function precheckWorkerOwnership({
       if (activity === undefined) {
         throw new TowerToolError(
           'takeover-refused',
-          'worker ' + worker.name + ' is not in the live catalog; run tower_adopt before takeover',
+          'worker ' + worker.name + ' is not in the live catalog; run tower_init({op:"adopt"}) before takeover',
         )
       }
     } else {

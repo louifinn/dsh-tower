@@ -1,4 +1,4 @@
-// tower_mode / tower_control handler bodies (W5-A).
+// tower_mode read/write handler bodies (W5-A, #163 Phase 4).
 //
 // The two tools are registered directly by the Host entry (not through
 // `define()`), so their definitions and their authorize-first call stay in
@@ -58,15 +58,23 @@ export async function runTowerMode(ctx, exec, { config, allowAgentControl, works
   }
 }
 
-/** Body of `tower_control`; the caller has already authorized the call. */
+/** Body of `tower_mode` writes; the caller has already authorized the call. */
 export async function runTowerControl(ctx, args, exec, { config }) {
   const key = agentKey(exec.agent)
-  if (!key) return { ok: false, error: 'tower_control requires a live calling agent' }
+  if (!key) return { ok: false, mode: 'unknown', error: 'tower_mode requires a live calling agent' }
   if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
-    throw new TowerToolError('invalid-argument', 'tower_control requires a non-empty reason')
+    throw new TowerToolError('invalid-argument', 'tower_mode requires a non-empty reason for a mode change')
   }
   const reason = args.reason.trim()
-  if (args.action === 'takeover') {
+  const action = args.active === true ? 'enter' : args.active === false ? 'exit' : 'takeover'
+  if (action === 'takeover') {
+    const authorization = typeof args.authorization === 'string' ? args.authorization.trim() : ''
+    if (!authorization) {
+      throw new TowerToolError(
+        'invalid-argument',
+        'tower_mode active "takeover" requires authorization: the audit reference for the transfer (ticket, approval id, or decision link)',
+      )
+    }
     if (!modeOn(key)) {
       throw new TowerToolError('invalid-transition', 'takeover requires this session to be in Tower mode; run /tower on first')
     }
@@ -128,7 +136,7 @@ export async function runTowerControl(ctx, args, exec, { config }) {
     if (!approved) {
       return { ok: true, action: 'takeover', approved: false, transferred: false, reason, mode: 'on', selected }
     }
-    const result = await performTakeover(tower, { caller: key, reason })
+    const result = await performTakeover(tower, { caller: key, reason, authorization })
     return {
       ...result,
       ok: true,
@@ -136,14 +144,15 @@ export async function runTowerControl(ctx, args, exec, { config }) {
       approved: true,
       changedBy: 'agent',
       reason,
+      authorization,
       mode: modeOn(key) ? 'on' : 'off',
     }
   }
-  if (args.action === 'enter' && !modeOn(key)) {
+  if (action === 'enter' && !modeOn(key)) {
     await assertRuntimePreconditions(ctx, config)
   }
   const outcome =
-    args.action === 'enter'
+    action === 'enter'
       ? await (async () => {
           if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !modeState.get(key)?.humanAckAt) {
             throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
@@ -154,9 +163,9 @@ export async function runTowerControl(ctx, args, exec, { config }) {
   const persisted = outcome.persisted !== false
   return {
     ok: persisted,
-    action: args.action,
+    action,
     mode: modeOn(key) ? 'on' : 'off',
-    changed: outcome.changed ?? (args.action === 'enter' ? !outcome.wasOn : outcome.wasOn),
+    changed: outcome.changed ?? (action === 'enter' ? !outcome.wasOn : outcome.wasOn),
     changedBy: 'agent',
     reason,
     pausedGoal: outcome.pausedGoal ?? null,

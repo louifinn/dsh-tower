@@ -511,7 +511,7 @@ export function validateLegacyMap(state, input = {}) {
     return hash === sourceHash
   })
   if (!snapshot) {
-    fail('legacy-invalid', `unknown legacy snapshot ${sourceHash.slice(0, 12)}; import it with tower_import_legacy first`)
+    fail('legacy-invalid', `unknown legacy snapshot ${sourceHash.slice(0, 12)}; import it with tower_import first`)
   }
 
   const snapshotIds = Array.isArray(snapshot.missionIds)

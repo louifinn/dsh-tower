@@ -49,6 +49,7 @@ const findingSummarySchema = S.obj({
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
 // additive; `required` lists only fields every successful path returns.
+/** @type {Record<string, any>} */
 const SCHEMAS = {
   init: S.obj(
     {
@@ -318,6 +319,12 @@ const SCHEMAS = {
   // value carries and the view-specific fields stay additive.
   inspect: S.obj({ view: S.str }, ['view']),
 }
+
+// #163 Phase 4: dispatchers carry one of several documented shapes, so no
+// field is required by every path; the union keeps each shape visible.
+SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties }, [])
+SCHEMAS.findingOps = S.obj({ ...SCHEMAS.finding.properties, ...SCHEMAS.findings.properties }, [])
+SCHEMAS.importOps = S.obj({ ...SCHEMAS.importLegacy.properties, ...SCHEMAS.legacyMap.properties }, [])
 
 /**
  * @param {any} _args

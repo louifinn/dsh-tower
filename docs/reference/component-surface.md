@@ -28,7 +28,7 @@ row is a section of its parent and is not independently switchable.
 | `tower-host` | internal | row | The Host plugin itself, nested under the mandatory tower anchor. A mandatory dependency, never its own switch. |
 | `tower-skills` | visible | row | The 3 skills leave the catalog; the worker/reviewer PROTOCOL sections still ship through systemPrompt.section, so only the tower-recovery guidance is lost. |
 | `tower-batch` | visible | row | tower_batch is not registered; missions, gates and merges are unaffected because no state depends on a batch. |
-| `tower-import` | visible | row | tower_import_legacy and tower_legacy_map are not registered; new repository state is unaffected. |
+| `tower-import` | visible | row | tower_import is not registered; new repository state is unaffected. |
 | `tower-leases` | visible | row | tower_resource is not registered; advisory leases are coordination only, but spawn.requireLease still needs the tool to acquire one, so a config that sets spawn.requireLease is rejected at runtime preconditions instead of failing every spawn at lease-busy. |
 | `tower-tests` | visible | row | tower_test is not registered and no test receipt can be recorded. With gates.requireTests:true planning/mode entry is rejected with an explanation, and the merge gate still reports tests-missing. |
 | `tower-board` | visible | row | MISSIONS.md is not written or refreshed, so an existing board goes stale. Mission state tools, gates and every other capability keep working; docs.boardLocation still chooses where a board would be written. |

@@ -249,7 +249,7 @@ export const MODEL_COMMANDS = Object.freeze({
   rebase: Object.freeze({ kind: 'rebase', command: 'tower_rebase', target: null }),
   pause: Object.freeze({ kind: 'status', command: 'tower_mission', target: 'paused' }),
   resume: Object.freeze({ kind: 'status', command: 'tower_mission', target: 'active' }),
-  'findings.transition': Object.freeze({ kind: 'finding', command: 'tower_findings', target: null }),
+  'findings.transition': Object.freeze({ kind: 'finding', command: 'tower_finding', target: null }),
 })
 
 /** The command names in registration order. @type {readonly string[]} */

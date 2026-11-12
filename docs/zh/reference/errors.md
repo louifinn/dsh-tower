@@ -18,7 +18,7 @@
 | `repo-invalid` | 无法解析目标仓库，或解析出的路径不在 Git 仓库内。 | 调用仓库级工具时既无 workspace 绑定、又不在 Git 仓库内，且未显式传 `repoRoot` |
 | `not-initialized` | 该仓库尚未初始化 Tower。 | 在 `tower_init` 之前调用读取类工具 |
 | `mission-not-found` | 不存在该 id 的 mission。 | 过期或拼错的 `M9` |
-| `finding-not-found` | 不存在该 id 的 finding。 | `tower_findings({id:"F99"})` |
+| `finding-not-found` | 不存在该 id 的 finding。 | `tower_finding({op:"list", id:"F99"})` |
 | `invalid-transition` | 请求的状态转换不被允许。 | 尝试 blocked→merged；finding 状态图之外的流转；reviewer 修改 finding；在还有未完成任务、blocker、无提交或未读消息时完成 mission。 |
 | `stale-base` | 操作准备期间仓库状态已变化，需要重试。 | two-phase mutation 重校验 |
 | `worktree-dirty` | mission worktree 有未提交改动，不能完成。 | `tower_complete` 前遗留 staged/modified/untracked 文件 |
@@ -39,10 +39,10 @@
 | `not-authorized` | 调用方 agent 角色无权执行该操作。 | worker 调用仅限控制塔的工具，或修改 mission 状态/scope；reviewer 修改 finding |
 | `workspace-busy` | 另一个 Tower 会话持有该仓库的 workspace 锁。 | `mode.workspaceLock:true` 时第二个会话调用仓库级工具 |
 | `mode-store-corrupt` | 持久化的 Tower 模式存储不可读或已损坏，无法确定属主的模式。 | takeover 或读取模式时 `modes.json` 被截断、不是合法 JSON，或不是 `{version,modes}` 文档 |
-| `mode-persist-failed` | Tower 模式变更无法写入模式存储；执行 `/tower off` 时会回滚，使会话保持磁盘记录的模式。 | `/tower on/off`、`tower_control` 或 workspace 锁持久化无法写入模式存储（损坏的字节、不可写路径，或模式存储锁被占用） |
+| `mode-persist-failed` | Tower 模式变更无法写入模式存储；执行 `/tower off` 时会回滚，使会话保持磁盘记录的模式。 | `/tower on/off`、`tower_mode` 或 workspace 锁持久化无法写入模式存储（损坏的字节、不可写路径，或模式存储锁被占用） |
 | `owner-live` | 当前 Tower 属主仍在活动，无法转移所有权。 | 旧属主 Tower 模式仍开启且持有活动 workspace 锁时执行 takeover |
 | `owner-busy` | 仍有活动的 roster Agent 或外部 workspace 锁，阻止所有权转移。 | 有运行中的 worker，或另一个会话持有 workspace 锁时执行 takeover |
-| `approval-unavailable` | 所有权转移所需的人类批准通道不可用。 | 没有 userQuestions 服务的 profile 中调用 `tower_control({action:"takeover"})` |
+| `approval-unavailable` | 所有权转移所需的人类批准通道不可用。 | 没有 userQuestions 服务的 profile 中调用 `tower_mode({active:"takeover"})` |
 | `worker-limit` | 仓库达到 `spawn.maxLiveWorkers` 个活跃 worker。 | 默认上限下 spawn 第五个 worker |
 | `rate-limited` | 达到 `tower_send` 的每分钟速率限制。 | 超出 `send.maxPerMinute`；稍后重试 |
 | `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |

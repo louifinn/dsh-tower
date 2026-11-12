@@ -41,7 +41,7 @@ cap and your OS/CI scheduler for those.
 
 ## Legacy import and mapping
 
-`tower_import_legacy({sourcePath})` accepts a Tower Codex `schemaVersion:1` state file or a
+`tower_import({op:"snapshot", sourcePath})` accepts a Tower Codex `schemaVersion:1` state file or a
 DSH legacy state. It:
 
 - requires an absolute source path outside `<git-common-dir>/dsh-tower`;
@@ -50,6 +50,6 @@ DSH legacy state. It:
   `state.legacySnapshots`;
 - never activates, adopts, or resumes paused missions.
 
-`tower_legacy_map` records an audit-only `sourceHash + oldId → newMissionId?` mapping. Mappings are
+`tower_import({op:"map"})` records an audit-only `sourceHash + oldId → newMissionId?` mapping. Mappings are
 append-only; rewriting an existing mapping to another mission is rejected. Mapping does not change
 mission state.

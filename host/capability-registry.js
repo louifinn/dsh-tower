@@ -32,7 +32,7 @@ export const TOWER_COMPONENT_IDS = Object.freeze([
 export const COMPONENT_TOOLS = Object.freeze({
   'tower-skills': Object.freeze([]),
   'tower-batch': Object.freeze(['tower_batch']),
-  'tower-import': Object.freeze(['tower_import_legacy', 'tower_legacy_map']),
+  'tower-import': Object.freeze(['tower_import']),
   'tower-leases': Object.freeze(['tower_resource']),
   'tower-tests': Object.freeze(['tower_test']),
   'tower-board': Object.freeze([]),

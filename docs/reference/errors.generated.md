@@ -12,7 +12,7 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `repo-invalid` | The target repository could not be resolved, or the resolved path is not inside a Git repository. | no | bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot` |
 | `not-initialized` | Tower is not initialized for this repository; run tower_init. | no | run tower_init for this repository |
 | `mission-not-found` | No mission with that id exists. | no | list missions with tower_inspect (view: status) |
-| `finding-not-found` | No finding with that id exists. | no | list findings with tower_findings |
+| `finding-not-found` | No finding with that id exists. | no | list findings with tower_finding |
 | `invalid-transition` | The requested state transition is not allowed. | no | — |
 | `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status |
 | `state-locked` | Another Tower writer holds the state lock. | yes | wait for the other Tower writer to finish, then retry |

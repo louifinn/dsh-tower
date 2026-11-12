@@ -89,9 +89,9 @@ async function releasePreviousOwnerLock(tower, { lock, previousOwner }) {
 
 /**
  * @param {any} tower
- * @param {{ caller: string, reason: string }} input
+ * @param {{ caller: string, reason: string, authorization?: string }} input
  */
-export async function performTakeover(tower, { caller, reason }) {
+export async function performTakeover(tower, { caller, reason, authorization }) {
   // The closure keeps the in-lock facts for the orphan-lock release. They are
   // never returned to the model, so the workspace lock token stays in process.
   /** @type {null | { lock: any, roster: any[] }} */
@@ -99,6 +99,7 @@ export async function performTakeover(tower, { caller, reason }) {
   const result = await transferOwnership(tower, {
     caller,
     reason,
+    authorization,
     async readFacts() {
       const facts = await readFacts(tower, caller)
       observed = { lock: facts.lock, roster: facts.roster }

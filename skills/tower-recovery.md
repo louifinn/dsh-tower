@@ -41,7 +41,7 @@ Tower tools reject a session that is not `state.towerAgentId` with
 `/tower takeover <reason>` in the new session. It is the human path and works even with
 `mode.allowAgentControl:false`. If the previous owner is still live, or live roster agents or a foreign
 workspace lock remain, the takeover refuses with `[tower:owner-live]` / `[tower:owner-busy]`; stop the
-live work first. A model may request the same transfer with `tower_control({action:"takeover"})` after
+live work first. A model may request the same transfer with `tower_mode({active:"takeover", authorization:"<audit ref>"})` after
 the human approves the dialog. Do not delete the state directory to change owners.
 
 ## Reset a repository's Tower state

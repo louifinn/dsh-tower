@@ -928,7 +928,7 @@ test('dock surfaces mode unknown when history has Tower activity but no mode eve
   assert.match(dock.props.title, /dock\.mode\.unknownTooltip/)
 })
 
-test('dock mode inference follows /tower commands, tower_mode, and tower_control results', async () => {
+test('dock mode inference follows /tower commands and tower_mode reads/writes', async () => {
   const cases = [
     ['on command', [commandNode('on')], 'dock-mode'],
     ['bare command means on', [commandNode('')], 'dock-mode'],
@@ -945,13 +945,13 @@ test('dock mode inference follows /tower commands, tower_mode, and tower_control
     ['tower_mode off', [toolResultNode('tower_mode', { mode: 'off' })], 'dock-hint'],
     ['tower_mode unknown is not on', [toolResultNode('tower_mode', { mode: 'unknown' })], 'dock-hint'],
     ['tower_mode on', [toolResultNode('tower_mode', { mode: 'on' })], 'dock-mode'],
-    ['tower_control enter', [toolResultNode('tower_control', { ok: true, action: 'enter', mode: 'on', changedBy: 'agent' })], 'dock-mode'],
+    ['tower_mode enter', [toolResultNode('tower_mode', { ok: true, action: 'enter', mode: 'on', changedBy: 'agent', reason: 'x' })], 'dock-mode'],
     [
-      'tower_control exit',
-      [toolResultNode('tower_control', { ok: true, action: 'enter', mode: 'on' }), toolResultNode('tower_control', { ok: true, action: 'exit', mode: 'off' })],
+      'tower_mode exit',
+      [toolResultNode('tower_mode', { ok: true, action: 'enter', mode: 'on' }), toolResultNode('tower_mode', { ok: true, action: 'exit', mode: 'off' })],
       'dock-hint',
     ],
-    ['failed tower_control is ignored', [commandNode('on'), toolResultNode('tower_control', { ok: false, error: 'nope' })], 'dock-mode'],
+    ['failed tower_mode write is ignored', [commandNode('on'), toolResultNode('tower_mode', { ok: false, error: 'nope' })], 'dock-mode'],
   ]
   for (const [name, nodes, expected] of cases) {
     const bundle = await components()

@@ -274,11 +274,11 @@ test('2.1 legacy: import a Codex-shaped snapshot and audit-map it to a mission',
       events: [],
       legacySnapshots: [],
     }))
-    const imported = await call(tools, 'tower_import_legacy', { repoRoot: repo, sourcePath: legacyFile })
+    const imported = await call(tools, 'tower_import', { repoRoot: repo, sourcePath: legacyFile })
     assert.equal(imported.ok, true)
     assert.equal(imported.summary.missionCount, 1)
     assert.ok(imported.summary.sourceHash)
-    const mapped = await call(tools, 'tower_legacy_map', {
+    const mapped = await call(tools, 'tower_import', {
       repoRoot: repo,
       action: 'map',
       sourceHash: imported.summary.sourceHash,
@@ -287,7 +287,7 @@ test('2.1 legacy: import a Codex-shaped snapshot and audit-map it to a mission',
     })
     assert.equal(mapped.ok, true)
     assert.equal(mapped.map.oldId, 'T0001')
-    const listed = await call(tools, 'tower_legacy_map', { repoRoot: repo, action: 'status' })
+    const listed = await call(tools, 'tower_import', { repoRoot: repo, action: 'status' })
     assert.equal(listed.maps.length, 1)
   } finally {
     removeTemp(root)

@@ -29,14 +29,12 @@ import { registerRecoverTool } from '../tools/recover.js'
 import { registerTestTool } from '../tools/test.js'
 import { registerBatchTool } from '../tools/batch.js'
 import { registerResourceTool } from '../tools/resource.js'
-import { registerImportLegacyTool } from '../tools/import-legacy.js'
-import { registerLegacyMapTool } from '../tools/legacy-map.js'
+import { registerImportTool } from '../tools/import.js'
 import { registerReloadTool } from '../tools/reload.js'
 import { registerInitTool } from '../tools/init.js'
 import { registerPlanTool } from '../tools/plan.js'
 import { registerMissionTool } from '../tools/mission.js'
 import { registerInterruptTool } from '../tools/interrupt.js'
-import { registerAdoptTool } from '../tools/adopt.js'
 import { registerSendTool } from '../tools/send.js'
 import { registerInboxTool } from '../tools/inbox.js'
 import { registerReviewTool } from '../tools/review.js'
@@ -46,7 +44,6 @@ import { registerTeardownTool } from '../tools/teardown.js'
 import { registerSpawnTool } from '../tools/spawn.js'
 import { registerCompleteTool } from '../tools/complete.js'
 import { registerFindingTool } from '../tools/finding.js'
-import { registerFindingsTool } from '../tools/findings.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
 import {
@@ -208,7 +205,6 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 
   registerSendTool(ctx, { openTower, define, actorFor, checkSendRate })
 
@@ -218,7 +214,6 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerFindingTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerFindingsTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
   // #M39: `review.mode:off` is the one configuration that removes tower_review
   // from the mounted surface. The name is still recorded before the decision so
@@ -253,8 +248,7 @@ export function registerLeasesCapability(ctx) {
 
 /** Legacy import and its audit map — the `tower-import` component. */
 export function registerImportCapability(ctx) {
-  registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot })
-  registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor, validateLegacyMap })
+  registerImportTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot, validateLegacyMap })
 }
 
 /** Declared test discovery — the `tower-tests` component. */
