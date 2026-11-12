@@ -261,6 +261,48 @@ export function ralphRoundRejection(agent, towered) {
 export const RALPH_ROUND_REFUSAL =
   'tower mode: this repository is under Tower mode, so a Ralph loop cannot run here; the round agent is refused — stop the loop and rerun it after /tower off'
 
+/**
+ * The health-contract projection of the stance: the doctor check row plus the
+ * `environmentContract.ralphLoop` fact. It lives here, not in `host/doctor.js`,
+ * so the doctor module stays under the host size budget.
+ * @param {string} root repository root
+ * @returns {{ ralphLoop: {scopedRounds: number, liveScopedRounds: number, processRuns: number, detail: string|null}, row: {status: 'pass'|'warn', detail: string, action?: string} }}
+ */
+export function ralphStanceDoctorFact(root) {
+  const scoped = ralphLoopSnapshot(root)
+  const processWide = ralphLoopSnapshot(null)
+  const ralphLoop = {
+    scopedRounds: scoped.rounds.length,
+    liveScopedRounds: scoped.liveRounds,
+    processRuns: processWide.runs,
+    detail:
+      scoped.detail ??
+      (processWide.runs > 0
+        ? `${processWide.runs} ralph-loop workflow run(s) in this DSH process (no round agents matched this repository yet)`
+        : null),
+  }
+  if (ralphLoop.liveScopedRounds > 0 || (ralphLoop.scopedRounds === 0 && ralphLoop.processRuns > 0)) {
+    return {
+      ralphLoop,
+      row: {
+        status: 'warn',
+        detail: `this repository has a Ralph loop in progress (${ralphLoop.detail}); Tower cannot co-own it`,
+        action: 'finish or stop the loop before /tower on; entering Tower with mode.ralphPolicy:"stop" refuses the loop\'s rounds, "refuse" rejects the entry',
+      },
+    }
+  }
+  return {
+    ralphLoop,
+    row: {
+      status: 'pass',
+      detail:
+        ralphLoop.scopedRounds > 0
+          ? `no live Ralph loop in this repository (${ralphLoop.scopedRounds} recorded round(s) outside the liveness window)`
+          : 'no live Ralph loop in this repository',
+    },
+  }
+}
+
 /** The config policy read at entry time (hostConfig indirection for tests). */
 export function ralphPolicy() {
   const value = runtimeConfig().mode.ralphPolicy
