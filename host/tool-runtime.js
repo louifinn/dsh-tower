@@ -346,7 +346,7 @@ export function define(ctx, definition) {
           // #163 Phase 5: a role-owned tool reached from the wrong profile gets
           // the replacement path, not a bare unknown-tool or access denial.
           if (Array.isArray(roles) && !roles.includes(actor?.role) && !(allowTowerExecution === true && isTowerRole(actor?.role))) {
-            throw new TowerToolError('not-authorized', roleDenialHint(rest.name))
+            throw new TowerToolError('not-authorized', roleDenialHint(rest.name, actor?.role))
           }
           if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
             await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)

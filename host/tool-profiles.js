@@ -79,9 +79,9 @@ export const ROLE_TOOLS = Object.freeze({
 /** Actionable denial text for a role-owned tool called from the wrong profile. */
 export const ROLE_DENIAL_HINTS = Object.freeze({
   tower_complete:
-    'tower_complete belongs to worker and survey role sessions. As tower, spawn a worker with tower_spawn({ role: "worker" }) and let it complete the mission, or use role: "survey" for a survey mission.',
+    'tower_complete is not a worker action available from this session; it belongs to assigned worker and survey role sessions. Spawn a worker with tower_spawn({ role: "worker" }) and let it complete the mission, or use role: "survey" for a survey mission.',
   tower_review:
-    'tower_review belongs to reviewer role sessions. As tower, spawn a reviewer with tower_spawn({ role: "reviewer" }) after the mission is completed.',
+    'tower_review is not a worker action available from this session; it belongs to assigned reviewer role sessions. Spawn a reviewer with tower_spawn({ role: "reviewer" }) after the mission is completed.',
 })
 
 /**
@@ -123,9 +123,13 @@ export function roleAllowsTool(agent, name) {
   return roles.includes(roleForAgent(agent))
 }
 
-/** @param {string} name */
-export function roleDenialHint(name) {
-  return ROLE_DENIAL_HINTS[name] ?? `${name} is owned by another role profile`
+/**
+ * @param {string} name
+ * @param {string | null | undefined} [role]
+ */
+export function roleDenialHint(name, role) {
+  const hint = ROLE_DENIAL_HINTS[name] ?? `${name} is owned by another role profile`
+  return `${hint} You are acting as: ${role ?? 'tower'}.`
 }
 
 /** @param {string} name */

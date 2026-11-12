@@ -84,6 +84,7 @@ function makeCtx() {
   return { ctx, tools }
 }
 
+const towerExec = { agent: { id: 'agent-report-tower' } }
 const workerExec = { agent: { id: 'agent-report' } }
 
 async function call(tools, name, args, exec = workerExec) {
@@ -97,11 +98,11 @@ async function call(tools, name, args, exec = workerExec) {
 
 /** init + plan one mission, provision it, make a commit, and spawn its worker. */
 async function prepareMission(repo, tools) {
-  await call(tools, 'tower_init', { repoRoot: repo })
+  await call(tools, 'tower_init', { repoRoot: repo }, towerExec)
   await call(tools, 'tower_plan', {
     repoRoot: repo,
     missions: [{ title: 'Report cap', scope: ['src/**'], tasks: ['implement'] }],
-  })
+  }, towerExec)
   const tower = await Tower.open(repo)
   const provisioned = await tower.provision({ missionId: 'M1' })
   const worktree = provisioned.worktree.path
@@ -109,8 +110,8 @@ async function prepareMission(repo, tools) {
   fs.writeFileSync(path.join(worktree, 'src', 'a.txt'), 'a\n')
   git(worktree, ['add', '-A'])
   git(worktree, ['commit', '-m', 'M1 work'])
-  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active' })
-  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', taskDone: 'implement' })
+  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active' }, towerExec)
+  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', taskDone: 'implement' }, towerExec)
   await tower.recordSpawn({
     missionId: 'M1',
     name: worker.name,
