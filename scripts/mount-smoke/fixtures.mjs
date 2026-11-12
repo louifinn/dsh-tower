@@ -59,11 +59,11 @@ const fixtures = [
     name: 'renamed-tool-id',
     what: 'one tool module registers an id the bundle does not claim',
     seed(root) {
-      const file = path.join(root, 'tools', 'doctor.js')
+      const file = path.join(root, 'tools', 'inspect.js')
       const text = fs.readFileSync(file, 'utf8')
-      fs.writeFileSync(file, replaceOnce(text, "name: 'tower_doctor'", "name: 'tower_doctor_renamed'", 'tools/doctor.js tower_doctor'))
+      fs.writeFileSync(file, replaceOnce(text, "name: 'tower_inspect'", "name: 'tower_inspect_renamed'", 'tools/inspect.js tower_inspect'))
     },
-    expect: ['tool: missing tower_doctor', 'tool: unexpected tower_doctor_renamed'],
+    expect: ['tool: missing tower_inspect', 'tool: unexpected tower_inspect_renamed'],
   },
   {
     name: 'dropped-skills-section',
