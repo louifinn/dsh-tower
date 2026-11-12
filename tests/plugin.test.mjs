@@ -748,7 +748,7 @@ test('#148: survey row availability comes from the real agent-presets service', 
           .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row absent', kind: 'survey' }] }, { agent }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message),
+        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message),
     )
     presets.push({ id: 'tower-survey' })
     const planned = await profile.tools
