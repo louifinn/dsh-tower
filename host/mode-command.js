@@ -108,7 +108,7 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
         const transition = active && !modeOn(key)
         if (transition) await assertRuntimePreconditions(ctx, config)
         const outcome = active
-          ? enterMode(ctx, key, agent, 'user', message || null)
+          ? await enterMode(ctx, key, agent, 'user', message || null)
           : await exitMode(key, 'user', message || null)
         const persisted = outcome.persisted !== false
         let forwarded = false

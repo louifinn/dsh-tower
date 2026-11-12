@@ -7,7 +7,7 @@
 // session is never taken over because its heartbeat or `at` is old: only a
 // provably dead PID is reclaimed. A corrupt record fails closed (reported,
 // never removed), and release requires the exact token and bytes.
-import { fsp } from './store-fs.js'
+import { fs, fsp } from './store-fs.js'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { acquireLock, lockRecord, removeLockIfMatches, touchLock } from './lock.js'
@@ -120,5 +120,33 @@ export async function inspectWorkspaceLock(commonDir, options = {}) {
     holder: record,
     // Diagnostic only: a stale live session is still the owner, not a target.
     stale: now - Number(record.at ?? 0) > staleMs,
+  }
+}
+
+/**
+ * Synchronous workspace-lock read for the mode guard (#161 D4). The guard is a
+ * synchronous call, so it reads the record without the async kernel: held
+ * means a record exists — a corrupt file fails closed exactly like
+ * `acquireWorkspaceLock`, and staleness never demotes a live owner. Returns
+ * `{ held: false }` when no lock file exists.
+ * @param {string} commonDir
+ * @returns {{ held: boolean, corrupt?: boolean, holder?: object | null }}
+ */
+export function inspectWorkspaceLockSync(commonDir) {
+  const file = workspaceLockPath(commonDir)
+  let text
+  try {
+    text = fs.readFileSync(file, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { held: false }
+    // Unreadable bytes are an unknown owner, not an abandoned lock.
+    return { held: true, corrupt: true, holder: null }
+  }
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object') return { held: true, corrupt: true, holder: null }
+    return { held: true, corrupt: false, holder: parsed }
+  } catch {
+    return { held: true, corrupt: true, holder: null }
   }
 }

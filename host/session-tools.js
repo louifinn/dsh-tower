@@ -36,6 +36,7 @@ export async function runTowerMode(ctx, exec, { config, allowAgentControl, works
     lastChange: entry?.lastChange ?? null,
     lastDisclosure: entry?.lastDisclosure ?? null,
     pausedGoal: entry?.pausedGoal ?? null,
+    releasedTeam: entry?.releasedTeam ?? null,
     deniedWhileActive: deniedToolNames(),
     persistedAt: storePath(config.mode.storePath || undefined),
     modeStore: modeStoreView(),
@@ -143,11 +144,11 @@ export async function runTowerControl(ctx, args, exec, { config }) {
   }
   const outcome =
     args.action === 'enter'
-      ? (() => {
+      ? await (async () => {
           if (!modeOn(key) && runtimeConfig().mode.requireHumanAckOnFirstEntry === true && !modeState.get(key)?.humanAckAt) {
             throw new TowerToolError('not-authorized', 'this profile requires a human acknowledgement; run /tower ack first')
           }
-          return enterMode(ctx, key, exec.agent, 'agent', reason)
+          return await enterMode(ctx, key, exec.agent, 'agent', reason)
         })()
       : await exitMode(key, 'agent', reason)
   const persisted = outcome.persisted !== false
@@ -159,7 +160,9 @@ export async function runTowerControl(ctx, args, exec, { config }) {
     changedBy: 'agent',
     reason,
     pausedGoal: outcome.pausedGoal ?? null,
+    releasedTeam: outcome.releasedTeam ?? null,
     goalNote: outcome.goalNote ?? null,
+    teamNote: outcome.teamNote ?? null,
     persisted,
     ...(persisted
       ? {}

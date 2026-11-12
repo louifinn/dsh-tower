@@ -7,11 +7,13 @@
 // `host/session-tools.js` owns the two tool handler bodies. Behavior, output
 // shapes and state keys are unchanged from the single-file host entry.
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { loadModesDetailed, saveModesDetailed, storePath } from './modeStore.js'
 import { ModeState } from './modeState.js'
 import { DEFAULT_DENY_TOOLS, runtimeConfig } from './config.js'
 import { TowerToolError } from '../domain/errors.js'
 import { resolveRepo } from '../adapters/git.js'
+import { fsp } from '../adapters/store-fs.js'
 import { Tower } from './tower.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import {
@@ -187,7 +189,98 @@ export function clearPlanModeForTower(ctx, agent) {
   }
 }
 
-export function enterMode(ctx, key, agent, by, reason) {
+/**
+ * #161 D3: reconcile the session's Agent Team stance before Tower mode turns
+ * on. An active team is left: the roster is snapshotted, running teammates are
+ * suspended (an interrupt keeps their pending inbox, so nothing is lost),
+ * the released roster is written to the repository activity log, and the mode
+ * entry records it so `tower_mode` / `tower_status` report the new state.
+ * Nothing is ever resumed on `/tower off` — the exit response names what was
+ * released and a person decides.
+ *
+ * Only the Team Lead may suspend members (the service enforces it), so a
+ * teammate entering Tower mode records the roster and a note instead; the deny
+ * guard still blocks every team tool for the workspace while Tower mode is on.
+ *
+ * @param {any} ctx
+ * @param {any} agent
+ * @returns {Promise<{ attempted: boolean, ok?: boolean, reason?: string, released?: any, note?: string | null }>}
+ */
+export async function reconcileAgentTeam(ctx, agent) {
+  const teams = typeof ctx?.get === 'function' ? ctx.get('agentTeams') : null
+  if (!teams || typeof teams.tryMembership !== 'function' || !agent) {
+    return { attempted: false, reason: 'no agentTeams service' }
+  }
+  let membership
+  try {
+    membership = teams.tryMembership(agent)
+  } catch {
+    membership = undefined
+  }
+  if (!membership) return { attempted: false, reason: 'no active team' }
+  const role = membership.role === 'lead' ? 'lead' : 'teammate'
+  let rows = []
+  try {
+    rows = typeof teams.listMembers === 'function' ? teams.listMembers(agent) : []
+  } catch (error) {
+    return { attempted: true, ok: false, reason: `the team roster could not be read: ${String(error?.message ?? error)}` }
+  }
+  const members = rows
+    .filter((member) => member && typeof member === 'object')
+    .map((member) => ({
+      name: String(member.name ?? member.id ?? 'unknown'),
+      role: member.role === 'lead' ? 'lead' : 'teammate',
+      status: String(member.status ?? 'unknown'),
+    }))
+  const suspended = []
+  const failed = []
+  if (role === 'lead' && typeof teams.interrupt === 'function') {
+    for (const member of members) {
+      if (member.role !== 'teammate' || member.status !== 'running') continue
+      try {
+        teams.interrupt(agent, member.name)
+        suspended.push(member.name)
+      } catch (error) {
+        failed.push({ name: member.name, error: String(error?.message ?? error) })
+      }
+    }
+  }
+  const released = { role, members, suspended, failed, at: Date.now() }
+  // The roster release is part of the repository's activity trail; a
+  // repository Tower cannot open (no repo yet) keeps the in-memory record.
+  // The state directory may not exist before tower_init, so it is created the
+  // same way the workspace lock creates <common-dir>/dsh-tower.
+  let activityNote = null
+  try {
+    const tower = await openTowerFor(agent)
+    await fsp.mkdir(path.dirname(tower.paths.activity), { recursive: true })
+    await tower.appendActivity({
+      at: released.at,
+      type: 'mode',
+      text: [
+        `tower mode entry left the active agent team (role ${role})`,
+        `members: ${members.map((member) => `${member.name}=${member.status}`).join(', ') || '(none)'}`,
+        suspended.length > 0 ? `suspended: ${suspended.join(', ')}` : null,
+        failed.length > 0 ? `suspend-failed: ${failed.map((entry) => entry.name).join(', ')}` : null,
+      ]
+        .filter(Boolean)
+        .join(' — '),
+    })
+  } catch (error) {
+    activityNote = `activity log not written: ${String(error?.message ?? error)}`
+  }
+  return {
+    attempted: true,
+    ok: failed.length === 0,
+    reason: failed.length > 0 ? `suspending ${failed.map((entry) => entry.name).join(', ')} failed` : undefined,
+    released,
+    note: [role !== 'lead' ? 'only the Team Lead can suspend members' : null, activityNote]
+      .filter(Boolean)
+      .join('; ') || null,
+  }
+}
+
+export async function enterMode(ctx, key, agent, by, reason) {
   const previous = modeState.get(key)
   const wasOn = Boolean(previous && previous.on)
   const plan = clearPlanModeForTower(ctx, agent)
@@ -208,10 +301,22 @@ export function enterMode(ctx, key, agent, by, reason) {
       goalNote = paused.reason
     }
   }
+  // #161 D3: an active Agent Team is left before Tower mode reports active.
+  // A partial suspend still records the roster it did release; only a failed
+  // roster read leaves nothing to record (the note says so instead).
+  let releasedTeam = previous?.releasedTeam ?? null
+  let teamNote = null
+  if (!wasOn) {
+    const team = await reconcileAgentTeam(ctx, agent)
+    if (team.attempted && team.released) releasedTeam = team.released
+    if (team.attempted && !team.ok) teamNote = `team-reconcile-failed: ${team.reason}`
+    if (team.attempted && team.note) teamNote = teamNote ? `${teamNote}; ${team.note}` : team.note
+  }
   const now = Date.now()
   modeState.set(key, {
     on: true,
     pausedGoal,
+    releasedTeam,
     lock: previous?.lock ?? null,
     baseBranch: previous?.baseBranch ?? null,
     planModeCleared: plan.cleared,
@@ -224,7 +329,9 @@ export function enterMode(ctx, key, agent, by, reason) {
   return {
     wasOn,
     pausedGoal,
+    releasedTeam: wasOn ? null : releasedTeam,
     goalNote,
+    teamNote,
     planModeCleared: plan.cleared,
     planModeResult: plan.result ?? null,
     changed: !wasOn,
@@ -240,6 +347,7 @@ export async function exitMode(key, by, reason) {
     return {
       wasOn: false,
       pausedGoal: null,
+      releasedTeam: null,
       goalNote: null,
       by,
       reason: reason ?? null,
@@ -275,6 +383,7 @@ export async function exitMode(key, by, reason) {
     return {
       wasOn,
       pausedGoal: previous.pausedGoal ?? null,
+      releasedTeam: previous.releasedTeam ?? null,
       goalNote: null,
       by,
       reason: reason ?? null,
@@ -298,6 +407,7 @@ export async function exitMode(key, by, reason) {
   return {
     wasOn,
     pausedGoal: previous.pausedGoal ?? null,
+    releasedTeam: previous.releasedTeam ?? null,
     goalNote: null,
     by,
     reason: reason ?? null,
@@ -341,7 +451,20 @@ export function describeChange(active, outcome, forwarded, message, allowAgentCo
   if (outcome.pausedGoal) {
     lines.push(`A goal was paused on entry ("${outcome.pausedGoal.objective ?? outcome.pausedGoal.id}"); resume it yourself when ready.`)
   }
+  // #161 D3: leaving Tower mode never resurrects the team that was left on
+  // entry — the release is named so a person decides what to restart.
+  const released = outcome.releasedTeam ?? null
+  if (released && Array.isArray(released.members)) {
+    const names = released.members.map((member) => member.name).join(', ')
+    const suspended = Array.isArray(released.suspended) && released.suspended.length > 0 ? ` (suspended: ${released.suspended.join(', ')})` : ''
+    lines.push(
+      active
+        ? `An Agent Team was left on entry (role ${released.role}; members: ${names || 'none'}${suspended}); the roster is in the activity log and nothing is resumed automatically.`
+        : `The Agent Team left on Tower entry (members: ${names || 'none'}${suspended}) was not resumed; restart it yourself if you still want it.`,
+    )
+  }
   if (outcome.goalNote) lines.push(`Goal handling: ${outcome.goalNote}`)
+  if (outcome.teamNote) lines.push(`Team handling: ${outcome.teamNote}`)
   if (forwarded) lines.push(message ? `Carried your instruction: ${message}` : 'Carried your attachments.')
   if (!allowAgentControl) lines.push('Only the human can change Tower mode.')
   return lines.join(' ')
@@ -438,6 +561,8 @@ export function createWorkspaceHook() {
         allowAgentControl: runtimeConfig().mode.allowAgentControl === true,
         lastChange: entry?.lastChange ?? null,
         history,
+        pausedGoal: entry?.pausedGoal ?? null,
+        releasedTeam: entry?.releasedTeam ?? null,
         workspaceLock: entry?.lock
           ? { enabled: runtimeConfig().mode.workspaceLock === true, commonDir: entry.lock.commonDir }
           : null,
