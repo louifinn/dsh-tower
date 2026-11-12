@@ -152,7 +152,7 @@ it **enters** Tower mode:
 | `/tower`, `/tower on`, `/tower <text>` while the mode is off | validated |
 | `/tower off`, `/tower off <text>` | not validated |
 | `/tower <text>` while the mode is already on | not validated |
-| `/tower ack`, `/tower base <branch>`, `/tower reload` | not validated |
+| `/tower ack`, `/tower base <branch>`, `/tower reload`, `/tower tasks` | not validated |
 
 The reason: a row disabled after the session started (or a profile reloaded with a stricter config)
 must not make `/tower off` — the command a human needs to leave the mode — or an ordinary forwarded

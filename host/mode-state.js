@@ -123,6 +123,9 @@ export function parseTowerInput(rawInput) {
   const takeover = /^takeover(?:\s+([\s\S]+))?$/i.exec(raw)
   if (takeover) return { action: 'takeover', reason: (takeover[1] ?? '').trim() }
   if (/^reload$/i.test(raw)) return { action: 'reload' }
+  // #160: the read-only roster panel rides the tower-scoped alias so it stays
+  // reachable even when the host profile owns the `/tasks` name.
+  if (/^tasks$/i.test(raw)) return { action: 'tasks' }
   const match = /^(on|off)(?:\s+([\s\S]*))?$/i.exec(raw)
   if (match) return { action: 'mode', active: match[1].toLowerCase() === 'on', message: (match[2] ?? '').trim() }
   return { action: 'mode', active: true, message: raw }

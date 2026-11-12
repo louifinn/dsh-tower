@@ -131,6 +131,7 @@ tower_teardown  repoRoot=D:\work\repo
 | `/tower off` | 退出 Tower 模式 |
 | `/tower off <指令>` | 退出并转发 `<指令>` |
 | `/tower ack` | 记录人类确认，供 `mode.requireHumanAckOnFirstEntry` 使用 |
+| `/tasks`、`/tower tasks` | 只读实时 roster 面板（不消耗模型回合、不写状态）；宿主已占用 `/tasks` 名字时使用 `/tower tasks` |
 | `/tower <指令>` | 确保开启，然后转发 `<指令>` |
 
 图片与文件附件会随指令一起作为一条完整的 `UserMessage` 转发。

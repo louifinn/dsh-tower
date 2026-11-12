@@ -163,7 +163,7 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   assert.ok(plain.tools.has('tower_mode'), 'the read/write session tool is mounted')
   assert.ok(AUTHORIZATION_MATRIX.tower_mode, 'the matrix pins the session row')
   const command = plain.commands.get('tower')
-  assert.equal(command.input.hint, '[on|off|reload|ack|takeover <reason>|base <branch>] [message]')
+  assert.equal(command.input.hint, '[on|off|reload|ack|tasks|takeover <reason>|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const disabled = makeCtx()

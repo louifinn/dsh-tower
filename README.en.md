@@ -129,6 +129,7 @@ A small change usually takes one worker mission; add one reviewer round when ind
 | `/tower off` | Leave Tower mode |
 | `/tower off <instruction>` | Leave **and** forward `<instruction>` |
 | `/tower ack` | Record human acknowledgement for `mode.requireHumanAckOnFirstEntry` |
+| `/tasks`, `/tower tasks` | Read-only live-roster panel (no model turn, no writes); use `/tower tasks` when the host owns the `/tasks` name |
 | `/tower <instruction>` | Ensure on, then forward `<instruction>` |
 
 Image and file attachments are forwarded together with the instruction as one complete `UserMessage`.
