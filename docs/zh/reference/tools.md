@@ -20,6 +20,16 @@ profile 操作，而不是仓库授权操作）。
 status 上的 `include_gate`/`includeGate`、adopt 上的 `retire_missing`/`retireMissing`。
 输出始终使用规范的 camelCase 字段名。
 
+## 每个仓库只有一个姿态
+
+Tower 模式与 Ralph 循环（`@deepseek-ai/dsh-tool-ralph`、社区版 `dsh-ralph`，或同一姿态的任何其他实现）
+在每个仓库上互斥：Tower 模式激活期间 `/ralph` 命令会被拒绝、其工具名来自姿态属主表被拒绝
+（`mode.denyTools`，含社区版回退名 `ralph_prd`）、带活跃循环进入 Tower 模式会停止并记录该循环或拒绝进入
+（`mode.ralphPolicy`，默认 `stop`），且仓库处于 Tower 模式期间 round agent 会被拒绝——因此改名的入口
+无法在活跃控制塔下重启循环。`tower_doctor` 把活跃循环报告为环境事实。Tower worker **内部**的
+Ralph 循环不是冲突：worker 在自己的隔离 worktree 里拥有一个 mission，并通过 `tower_complete` 汇报。
+见 [ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)。
+
 ## 角色
 
 roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tower_interrupt`、
@@ -56,11 +66,11 @@ create/close/abandon、`tower_resource`
 | `tower_merge` | `missionId`（别名 `id`）、`timeoutMs?`（别名 `timeout_ms`） | 门禁全绿后合并。若合并提交已落地则记录（`reconciled`）；若命令失败但提交已存在则恢复（`recoveredFromFailure`）；区分 `merge-hook-failed` 与 `merge-conflict`。 |
 | `tower_rebase` | `missionId`（别名 `id`） | 在 worktree 内把分支 rebase 到基线。worker 运行中或 worktree 脏时拒绝。分支已包含在基线中时返回 `alreadyMerged` 且保持分支不动。 |
 | `tower_teardown` | `force?`、`exclude?`、`dry_run?`（别名 `dryRun`） | 移除符合条件的 merged/abandoned worktree 与分支；运行中的 agent 始终保留。 |
-| `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者。 |
+| `tower_mode` | — | 报告模式、最近修改、被暂停的 goal、被拒绝的工具、store 路径、插件版本、HMR 可用性、workspace 锁持有者，以及进入策略所依据的 Ralph 姿态（`ralph: {policy, runs, rounds, liveRounds, detail}`）。 |
 | `tower_control` | `action`（`enter`/`exit`/`takeover`）、`reason` | 模型主动切换模式；`takeover` 在获得用户明确批准后，从已停用的属主转移仓库所有权；默认注册，设 `mode.allowAgentControl:false` 可禁用；`reason` 必填。 |
 | `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
 | `tower_reload` | `repoRoot?` | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。不传 `repoRoot` 时是 profile 操作，无需打开仓库即可授权；传入 `repoRoot` 时调用者必须是控制塔。 |
-| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。当 `state.json` 更新或损坏而无法加载时，仍会从磁盘版本报告 `stateSchema.status`（`newer`/`invalid`）；从不写状态。`tower_status` 与 doctor 都会降级为该磁盘诊断；`tower_preflight` 则不同，会以状态错误失败，因为无法从不可读状态计算门禁。 |
+| `tower_doctor` | —（需要 `repoRoot`） | 只读健康契约：git、state schema、config、preset/subagents/HMR、state 锁的年龄与心跳新鲜度、仓库级 git 锁持有者、workspace 锁、roster、worktree realpath/归属、测试配置、leases，以及 Ralph 姿态（`environmentContract.ralphLoop` 与 `ralph-stance` 检查）。返回 `{ok, checks[{id,status,detail}], stateLock, gitLock, environmentContract}`；`stateLock` 报告 `{held, pid, startedAt, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`，`gitLock` 报告 `{held, pid, phase, heldMs}`（空闲时 `{held:false}`）并附带 `git-lock` 检查，无需读取文件即可诊断卡住的控制塔。当 `state.json` 更新或损坏而无法加载时，仍会从磁盘版本报告 `stateSchema.status`（`newer`/`invalid`）；从不写状态。`tower_status` 与 doctor 都会降级为该磁盘诊断；`tower_preflight` 则不同，会以状态错误失败，因为无法从不可读状态计算门禁。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |

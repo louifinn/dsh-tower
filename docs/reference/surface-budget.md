@@ -155,6 +155,7 @@ tool count moves.
 | `mode.workspaceLock` | core | One Tower session per repository is a safety contract. |
 | `mode.workspaceLockScope` | tuning | Chooses whether read-only tools skip the workspace lock. |
 | `mode.planModePolicy` | core | Entering Tower mode either clears plan mode or refuses. |
+| `mode.ralphPolicy` | core | Entering Tower mode with a live Ralph loop stops it (recording the release) or refuses the entry. |
 | `mode.workspaceStaleMs` | tuning | Stale window for the advisory workspace lock. |
 | `mode.heartbeatMs` | tuning | Heartbeat interval while the mode is on. |
 | `mode.denyTools` | core | The denied-tool list is part of the mode guard. |

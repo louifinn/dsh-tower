@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 57,
+      "value": 58,
       "decisions": [
         {
           "from": 64,
@@ -67,6 +67,13 @@
           "date": "2026-11-12",
           "adr": "docs/adr/0007-bounded-activity-log-rotation.md",
           "note": "#M76 (W5-B) bounds the append-only activity log: activity.maxBytes (default 4 MiB, 0 disables) and activity.retention (default 5) are tuning keys for adapter-enforced rotation. They are not a component row: rotation is always on by default and no capability disappears when it is tuned. The two keys are the only surface growth in this wave."
+        },
+        {
+          "from": 57,
+          "to": 58,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0009-tower-ralph-mutual-exclusion.md",
+          "note": "#162 adds one mode policy key, ralphPolicy (stop/refuse, default stop), mirroring planModePolicy for the Ralph stance: entering Tower mode with a live Ralph loop either stops and records it or refuses the entry. The stance-owner table that derives mode.denyTools adds the community fallback name ralph_prd without a key change; no tool, section or component moves."
         }
       ]
     },

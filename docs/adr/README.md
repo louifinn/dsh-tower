@@ -19,6 +19,7 @@ alternatives, Date and Status.
 | [0006](0006-mission-shapes.md) | Build and survey are separate mission shapes | 2026-11-10 |
 | [0007](0007-bounded-activity-log-rotation.md) | The activity log is bounded by adapter-owned segment rotation | 2026-11-12 |
 | [0008](0008-process-local-advisory-budgets.md) | Spawn backoff and send rate limits are process-local advisory budgets | 2026-11-12 |
+| [0009](0009-tower-ralph-mutual-exclusion.md) | Tower and a Ralph loop are mutually exclusive per repository | 2026-11-12 |
 
 ## Template
 

@@ -10,7 +10,8 @@
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
-    { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" }
+    { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
+    { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" }
   ],
   "stateLock": {
     "held": true,
@@ -62,7 +63,13 @@
     "commonDir": "D:/repo/.git",
     "stateDir": "D:/repo/.git/dsh-tower",
     "caseInsensitive": true,
-    "comparisonMode": "case-insensitive"
+    "comparisonMode": "case-insensitive",
+    "ralphLoop": {
+      "scopedRounds": 0,
+      "liveScopedRounds": 0,
+      "processRuns": 0,
+      "detail": null
+    }
   }
 }
 ```
@@ -110,6 +117,13 @@ test-discovery 策略、完成报告大小、归档健康度、旧版快照、ba
 `case-insensitive` 会折叠双方大小写，`case-sensitive` 则保持逐字节精确。doctor 从不执行探测（探测会
 创建临时文件，只读调用不能写入）；在没有可用写权限的检出上运行 `tower_init` 会记录该模式，在此之前
 使用安全的 `case-sensitive` 默认值。
+
+`environmentContract.ralphLoop`（以及 `ralph-stance` 检查）把活跃的 Ralph 循环报告为环境事实：
+本仓库有一个进行中的循环，Tower 无法与之共同持有它（见
+[ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)）。round 按其父会话的 cwd 归属到本检出
+（`scopedRounds`、`liveScopedRounds`）；第一方 workflow run 不携带 cwd，因此 `processRuns`
+按进程计数，且仅当尚无 round 匹配到本仓库时才据此告警。`warn` 的 action 会说明
+`mode.ralphPolicy` 的两种结果；循环本身不由 doctor 停止。
 
 检查覆盖：git 可用性、仓库身份、state schema/加载、已探测的大小写模式、仓库配置是否存在、
 worker/reviewer preset 名称、subagents 与 HMR 服务、state 锁年龄/心跳、workspace 锁持有者/是否过期、实时 roster、

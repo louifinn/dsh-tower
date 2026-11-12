@@ -94,6 +94,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `mode.workspaceLock` | `core` | One Tower session per repository is a safety contract; a row may not turn it off. |
 | `mode.workspaceLockScope` | `optional-config` | Chooses whether read-only tools take the workspace lock. |
 | `mode.planModePolicy` | `core` | Plan mode and Tower mode stay mutually exclusive. |
+| `mode.ralphPolicy` | `core` | Tower and a Ralph loop stay mutually exclusive per repository: entering with a live loop stops it (recording the release) or refuses the entry. |
 | `mode.workspaceStaleMs` | `optional-config` | Stale window for the advisory workspace lock. |
 | `mode.heartbeatMs` | `optional-config` | Heartbeat interval while the mode is on. |
 | `mode.denyTools` | `core` | The denied-tool list is part of the mode guard. |

@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 58 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for

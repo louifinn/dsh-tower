@@ -187,7 +187,7 @@ enforced by `npm run docs:check:components`.
 ```
 
 - `mode.allowAgentControl` defaults to `true` in code; the bundled `cordis.patch.yml` also sets it explicitly to `true` so the model may enter/leave when the user intent or task state warrants it, always stating a reason. Set it to `false` for human-only control. The bundled patch also enables `mode.workspaceLock` (single-active tower), `send.interruptDefault`, `init.autoGitInit`, and sets `spawn.staleMs` to 15s.
-- `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive.
+- `/tower base <branch>` records a session-level init base preference; `/tower on` clears an active plan mode (`mode.planModePolicy:"refuse"` instead refuses entry), keeping plan and Tower mutually exclusive; Tower and a Ralph loop are also mutually exclusive per repository (`mode.ralphPolicy`, see [ADR 0009](docs/adr/0009-tower-ralph-mutual-exclusion.md)).
 - Repository-level config: put the same JSON shape in `<git-common-dir>/dsh-tower/config.json` (usually `.git/dsh-tower/config.json`) to override `review`/`merge`/`worktrees`/`spawn`. Precedence is code defaults < profile config < repository config < tool arguments. `mode.*` is session-scoped and only the profile layer controls it.
 - Every key and default is in [docs/reference/config.md](docs/reference/config.md); unknown keys are rejected (top-level and inside a group) so typos cannot silently disable security-relevant settings. The three review modes, where the plugin-page control lives, and the one-release alias migration are in [install, upgrade and migration](docs/guide/install-upgrade-migration.md). Tool error codes are in [docs/reference/errors.md](docs/reference/errors.md).
 
@@ -205,7 +205,7 @@ The list above is the 22 core tools plus 5 of the component-owned optional tools
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 29 tools, 41 tool error codes, 34 process-local events, 58 config keys, 33 stable blocker/failure codes, 12 visible components.
 
 Stable blocker/failure codes (including gate guards, `no-check-evidence`, `worker-stale`, test gates, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 
