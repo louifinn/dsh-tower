@@ -30,6 +30,7 @@ export const BUNDLE_CHILD_IDS = ['preset-tower-worker', 'tower-host']
 export const OPTIONAL_ROW_IDS = [
   'preset-tower-reviewer',
   'tower-archive',
+  'tower-artifact',
   'tower-batch',
   'tower-board',
   'tower-hmr',

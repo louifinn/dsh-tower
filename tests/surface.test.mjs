@@ -102,7 +102,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(current.configKeys, configSurface().count)
   // #120/#121/#133/#134/#135: the component surface is every visible row in
   // every shipped cordis.patch.yml (root + ui-bundle).
-  assert.equal(current.components, 12)
+  assert.equal(current.components, 13)
   assert.deepEqual(current.liveNames.components, [
     'tower',
     'tower-skills',
@@ -115,6 +115,7 @@ test('the live surface equals the committed baseline and is fully classified', (
     'tower-hmr',
     'preset-tower-reviewer',
     'tower-survey',
+    'tower-artifact',
     'tower-ui',
   ])
 
