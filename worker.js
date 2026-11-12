@@ -1,12 +1,15 @@
 // tower-worker preset policy: narrow the visible tool surface and state the protocol.
-// The allow list lives in `host/tool-profiles.js` so the profile the surface gate
-// measures is the same list this preset mounts (#163).
-import { WORKER_ALLOW } from './host/tool-profiles.js'
+// #164: the allow-list lives in domain/exposure.js with the rest of the role ×
+// phase model, so the exposure gates and the byte baseline read the same data
+// the preset applies (a preset without an explicit allow-list is a bug, never
+// a default). host/tool-profiles.js re-exports the same list for the role
+// predicates, so there is exactly one table (#163).
+import { PRESET_ALLOWS } from './domain/exposure.js'
 
 export const name = 'dsh-tower/worker'
 export const inject = ['tools', 'systemPrompt']
 
-export const ALLOW = WORKER_ALLOW
+export const ALLOW = PRESET_ALLOWS['tower-worker']
 
 const PROTOCOL = [
   'You are a Tower worker in a DeepSeek Harness Tower workspace.',

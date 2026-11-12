@@ -101,8 +101,9 @@ test('types coverage: every root entry point and host module is in the shipped r
   // host/authorization.js is the authorization kernel added at this base.
   // W5-A: the tool-registry split added host/tool-runtime.js, host/tool-capabilities.js
   // and host/tool-observers.js; the Host-entry split added host/mode-state.js,
-  // host/mode-command.js and host/session-tools.js. #160 added host/tasks-command.js.
-  assert.equal(hostModules.length, 32)
+  // host/mode-command.js and host/session-tools.js. #160 added
+  // host/tasks-command.js and #164 added host/exposure.js.
+  assert.equal(hostModules.length, 33)
   for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
 })
 

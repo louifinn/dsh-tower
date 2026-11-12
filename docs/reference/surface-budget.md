@@ -7,7 +7,10 @@ the brakes are `npm run surface:check` for the first three and
 `npm run docs:check:components` for the component count; the decision records are
 [ADR 0004](../adr/0004-surface-budget.md),
 [ADR 0005](../adr/0005-component-surface.md) and
-[ADR 0007](../adr/0007-bounded-activity-log-rotation.md).
+[ADR 0007](../adr/0007-bounded-activity-log-rotation.md). Two per-profile axes
+sit on top of the counts: the #163 name/input-byte profiles and the #164
+role × phase byte ladder ([ADR 0009](../adr/0009-role-phase-exposure.md)),
+both gated by `npm run surface:check`.
 
 Decision date: 2026-11-12
 
@@ -34,8 +37,9 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 merge or host tool.
 
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
-`tower_mode` is registered directly by `index.js` (the former `tower_control` merged into it in #163 Phase 4); it
-#163 Phase 4 folded it into `tower_mode`, so the 2.3.0 shipped surface was
+`tower_mode` is registered directly by `index.js` — one of the two direct
+registrations that were uncounted at 2.3.0, the other being `tower_control`,
+which #163 Phase 4 folded into `tower_mode` — so the 2.3.0 shipped surface was
 always 29. The 27 → 29 step is an explicit
 *measurement correction* with a reason and date in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) (see
@@ -64,9 +68,10 @@ These numbers are **two-way**: both a consolidation (shrink) and a regression
 record (`date: "YYYY-MM-DD"`) in the same file. Unlike `configKeys` and
 `components`, a profile decision needs no ADR or deletion evidence — the dated
 phase commit that records the consolidation is the evidence. The worker and
-reviewer counts come from the same allow-lists their presets install
-(`host/tool-profiles.js`, imported by `worker.js` / `reviewer.js`), so a rename
-cannot leave the budget measuring a stale list.
+reviewer counts come from the same allow-lists their presets install: the
+lists live in `domain/exposure.js` (`PRESET_ALLOWS`) and are re-exported by
+`host/tool-profiles.js` for the role predicates, so `worker.js` /
+`reviewer.js`, the authorization kernel and this gate all read one table.
 
 #163 Phase 1+2 shrank the advertised schemas without changing the tool count:
 removing the repeated `repoRoot` field and the 21 alias fields took the tower
@@ -105,6 +110,57 @@ at 21. Closing a row is not a surface reduction: the tools stay in the build
 and `tower_doctor` reports each one as off with its enable step. The default
 tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
+
+## Role × phase exposure (#164)
+
+`tower_mode` is the only tool a host session advertises with Tower mode off.
+The role × phase gate (`domain/exposure.js`, `host/exposure.js`) registers
+every tool with a step-time `when` condition and subtracts the orchestration
+schemas until the session enters a rung; the admitted set is frozen for the
+step, so a hidden tool resolves exactly like a missing one. The ladder is:
+
+- `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
+- `idle` — mode on, no state for the repository: adds `tower_init`,
+  **2,185 B / 2 tools**.
+- `active` — mode on, state exists: the default host-admitted set, **14,977 B /
+  14 tools** (the 16 mounted tools minus the #163 role-owned
+  `tower_complete`/`tower_review`, which a non-role session never sees).
+
+The host ladder therefore measures the surface a session actually admits, not
+the all-on build surface: with every optional capability row on the build is
+**22,061 B / 21 tools**, and that figure is a build-surface statement, never a
+session baseline.
+
+Entering Tower mode and creating state are the only two transitions, so a
+mode-off session stops paying for 13 of the 14 host-admitted schemas and a
+mode-on session pays a prefix that stays stable for its lifetime (the
+arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
+
+Spawned role presets are not gated by the ladder: their `restrict` allow-list
+is the contract, and a role is admitted by both conditions when it also owns a
+role-gated tool. Measured over the tower tools each preset advertises:
+`preset:worker` **8,127 B / 6 tools**, `preset:reviewer` **6,000 B / 5**,
+`preset:survey` and `preset:survey-sandbox` **7,067 B / 5** each (the
+non-Tower names in their allow-lists are not part of this budget). The source
+of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
+`host/tool-profiles.js` re-exports for the role predicates and the preset
+modules import directly — one table, not a copy per consumer.
+
+`scripts/surface-baseline.json` carries these as a top-level `profileBytes`
+block, measured as the UTF-8 bytes of the advertised `name`, `description` and
+`parameters` fields in fixed key order, over the surface each profile actually
+sees: the host ladder over the default host-admitted session surface (the 16
+mounted tools minus the #163 role tools), the presets over their allow-lists
+intersected with the mounted surface, all from the same shipped-surface load
+`surface:check` already uses, and printed as the `surface: profile bytes:`
+line. The all-on build surface is not a profile and is not measured here. Any
+drift needs a dated decision in the same block; growth additionally needs one
+that names an existing ADR under `docs/adr/` (`profile-bytes-growth`).
+`tests/exposure.test.mjs` also enforces that every registered tool has a phase
+row ("no implicit all"), that every legal mission transition's driving tool is
+exposed to the profile that owns it, and that the host ladder stays on the
+default host-admitted surface (14 tools / 14,977 B) rather than the 21-tool
+build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and

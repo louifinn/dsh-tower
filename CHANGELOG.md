@@ -13,6 +13,17 @@
   合并门禁共享同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时才注册 `/tasks`；
   `/tower tasks` 始终可用，命令描述注明当前 profile 采用哪个面（#160）。新增 `tests/tasks-view.test.mjs` 与
   `tests/tasks-command.test.mjs`，锁定排序/静默标签/行数上限、只读零写入、宿主命令名冲突回退与别名一致性。
+- **角色 × 阶段工具暴露门禁（#164）**：宿主塔会话不再一次暴露全部构建工具，而是按会话阶段做步时投影：
+  Tower 模式关闭时只暴露 `tower_mode`（846 B），模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B），
+  状态存在后暴露默认宿主准入的 14 个工具（14,977 B；随包挂载 16 个，减去 `tower_complete`/`tower_review`），
+  全部可选行开启时的 21 工具 / 22,061 B 构建表面不是任何会话的基线。阶段表与四个角色 preset 的 allow-list
+  统一放在 `domain/exposure.js`，`host/tool-profiles.js` 转出同一份列表，`host/exposure.js` 把阶段表变成
+  `register(definition, { when })` 的步时条件：允许集合每个模型步解析一次并冻结，被隐藏的工具与不存在的工具
+  一样解析为 `UNKNOWN_TOOL`，门禁只做减法且任何探测失败时放开。`tower_complete`/`tower_review` 的阶段条件与
+  #163 的角色条件合取，二者都通过才暴露。新增 `tests/exposure.test.mjs`（减法、活性、单调、稳定性与
+  “无隐式全量”表检查）；`surface:check` 新增 `profileBytes` 逐 profile 字节基线（模式关闭/空闲/活跃与四个
+  角色 preset，任何漂移需带日期的 decision，增长还需 ADR），设计记录见 ADR 0009，参考文档同步更新
+  [表面预算](docs/reference/surface-budget.md)。
 
 ### 修复
 

@@ -202,6 +202,8 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 
 上面列出的是 15 个核心工具加 6 个由组件行拥有的可选工具（`tower_import`、`tower_test`、`tower_batch`、`tower_resource`、`tower_reload`，其中 `tower_reload` 属于随包关闭的 `tower-hmr` 行）。`tower_mode` 是会话工具：省略 `active` 只读，传入 `active` 才写；设 `mode.allowAgentControl:false` 可禁用写操作。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。`tower_complete` 与 `tower_review` 分别由 worker/survey 与 reviewer 角色会话挂载；从控制塔误用会得到 `not-authorized` 提示和 `tower_spawn` 角色入口，而不是 unknown tool。`tower_init({op:"adopt"})` 承接旧的 roster 对账，`tower_finding({op:"report"/"list"/"update"})` 与 `tower_import({op:"snapshot"/"map"})` 同理（#163 Phase 4）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
+**角色 × 阶段暴露（#164）。** 会话看到的工具是角色契约与宿主阶段的步时投影。Tower 模式关闭的塔会话只暴露 `tower_mode`（846 B）；模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B）；状态存在后暴露默认宿主准入的 14 个工具（14,977 B；随包挂载 16 个，减去 #163 角色谓词保留给 worker/survey 与 reviewer 的 `tower_complete`/`tower_review`）。21 个工具 / 22,061 B 是全部可选行开启时的构建表面，不是任何会话的基线。由 `tower_spawn` 派生的角色 preset 不受阶段梯子影响，继续使用各自的显式 allow-list（worker 6 个塔工具，reviewer 5 个，survey/survey-sandbox 各 5 个）。允许集合每个模型步解析一次并冻结，所以被隐藏的工具与不存在的工具完全一样（`UNKNOWN_TOOL`）；门禁只做减法且失败时放开。逐 profile 的字节基线与门禁规则见[表面预算](docs/reference/surface-budget.md)，设计记录见 [ADR 0009](docs/adr/0009-role-phase-exposure.md)。
+
 ## 安全与约束
 
 - **门禁不全绿不合并。** 只读的 `tower_inspect` `view: "preflight"` 返回稳定的 blocker code；存在 blocker 时 `tower_merge` 拒绝合并。
