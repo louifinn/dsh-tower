@@ -113,6 +113,7 @@ test('the shipped component surface passes every rule and classifies all 58 keys
     'tower-hmr',
     'preset-tower-reviewer',
     'tower-survey',
+    'tower-artifact',
     'tower-ui',
   ])
   for (const className of ['core', 'optional-config', 'forbidden-to-disable']) {
@@ -165,8 +166,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
   // baseline: reclassification moves no key and no component.
   assert.equal(surface.keys.length, 58)
   assert.equal(baseline.surfaces.configKeys.value, 58)
-  assert.equal(realMergedPatch().visible.length, 12)
-  assert.equal(baseline.surfaces.components.value, 12)
+  assert.equal(realMergedPatch().visible.length, 13)
+  assert.equal(baseline.surfaces.components.value, 13)
 })
 
 test('the review policy is one tri-state control, not a component row (#M42)', () => {
@@ -228,13 +229,13 @@ test('the review policy is one tri-state control, not a component row (#M42)', (
 test('the component count is baselined next to the other surfaces', () => {
   const baseline = readBaseline(root)
   assert.equal(baseline.surfaces.components.value, realMergedPatch().visible.length)
-  assert.equal(baseline.surfaces.components.value, 12)
+  assert.equal(baseline.surfaces.components.value, 13)
   // The seed keeps the 2.0.4 history: the 4 -> 1 contraction, the #121 growth
   // back to individually switchable optional rows, and the wave-2 rows (#133
   // tower-board, #135 tower-archive, #134 tower-ui) are recorded decisions.
   assert.equal(baseline.surfaces.components.seed, 4)
   const decisions = baseline.surfaces.components.decisions
-  assert.equal(decisions.length, 6)
+  assert.equal(decisions.length, 7)
   assert.deepEqual(
     decisions.map((decision) => [decision.from, decision.to]),
     [
@@ -244,15 +245,16 @@ test('the component count is baselined next to the other surfaces', () => {
       [9, 10],
       [10, 11],
       [11, 12],
+      [12, 13],
     ],
   )
   for (const [index, decision] of decisions.entries()) {
     assert.match(decision.date, /^\d{4}-\d{2}-\d{2}$/)
-    // The historical decisions cite the component-surface ADR; the shape redesign
-    // is the only later decision and cites its own ADR (#149).
+    // The historical decisions cite the component-surface ADR; the shape wave
+    // decisions (tower-survey #148/#149, then tower-artifact #159) cite theirs.
     assert.equal(
       decision.adr,
-      index === decisions.length - 1 ? 'docs/adr/0006-mission-shapes.md' : 'docs/adr/0005-component-surface.md',
+      index >= decisions.length - 2 ? 'docs/adr/0006-mission-shapes.md' : 'docs/adr/0005-component-surface.md',
     )
   }
 })
@@ -330,6 +332,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     'tower-hmr',
     'preset-tower-reviewer',
     'tower-survey',
+    'tower-artifact',
   ])
   assert.deepEqual(
     patch.rows.map((row) => row.id),
@@ -349,6 +352,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
       'tower-survey',
       'preset-tower-survey',
       'preset-tower-survey-sandbox',
+      'tower-artifact',
     ],
   )
   assert.equal(patch.rows.find((row) => row.id === 'tower').kind, 'group')

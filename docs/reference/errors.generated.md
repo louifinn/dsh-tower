@@ -36,7 +36,8 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change |
 | `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover |
 | `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover |
-| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available |
+| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer or an artifact acceptance. | no | use the human /tower takeover <reason> command (or accept in a session with the user-questions service available); an artifact acceptance is never auto-recorded |
+| `acceptance-human-only` | An artifact mission merges on a human acceptance of the committed tip; an agent cannot accept. | no | only the tower may ask the human through the approval channel; the recorded acceptance always says by:"human" |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute |
 | `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover |

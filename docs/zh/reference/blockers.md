@@ -5,7 +5,7 @@
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_inspect` 的 `view: "preflight"` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 33 个稳定 blocker/failure code。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 35 个稳定 blocker/failure code。
 
 `survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
 变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。
@@ -13,7 +13,7 @@
 下列审查 blocker（`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`, `review-not-approved`, `tip-moved`, `review-exemption-invalid`）只在 `review.mode` 为 `required`
 时产生。`off` 或 `optional` 不会产生审查 blocker；`off` 还会移除 `tower_review` 并拒绝 reviewer spawn。
 
-## 门禁 blocker（26 个）
+## 门禁 blocker（28 个）
 
 | Code | 含义 / 下一步 |
 |---|---|
@@ -34,6 +34,8 @@
 | `review-hold` | `review.mode:required` 且最新审查建议 hold；必须由后续的干净审查取代。 |
 | `review-not-approved` | `review.mode:required` 且最新干净审查给出的是 `fix-then-merge` 或 `hold`；只有 `merge` 才算批准。 |
 | `tip-moved` | `review.mode:required` 且审查之后分支发生变化；重新审查（或使用干净 rebase 的免审豁免）。 |
+| `acceptance-missing` | artifact mission 只有在人类接受整个已提交 tip 后才能合并。记录接受（tower_mission accept）；任何 agent 不能自批，也不会自动接受。 |
+| `acceptance-stale` | 人类接受绑定的是旧 tip：新提交或 rebase 移动了分支。需要人类重新接受新 tip；门禁会给出已接受的 sha 和当前 sha。 |
 | `worker-busy` | 该 mission 的 roster agent 正在运行；等待或让其退役。 |
 | `worker-status-unknown` | 父目录不可用，无法证明 live roster agent 已停止；等目录恢复后重试，或先 adopt。 |
 | `base-wrong-branch` | 主检出不在记录的基线分支上。 |
@@ -68,4 +70,4 @@
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 33 个（26 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 35 个（28 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。

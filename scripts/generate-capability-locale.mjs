@@ -50,6 +50,7 @@ export const CAPABILITY_LOCALES = [
   { specifier: 'board', component: 'tower-board' },
   { specifier: 'archive', component: 'tower-archive' },
   { specifier: 'hmr', component: 'tower-hmr' },
+  { specifier: 'artifact', component: 'tower-artifact' },
 ]
 
 /**

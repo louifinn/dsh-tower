@@ -9,15 +9,17 @@
 // `TRANSITIONS` tables are gone.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { artifactShape } from './artifact.js'
 import { buildShape } from './build.js'
 import { surveyShape } from './survey.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 
-/** @type {Readonly<Record<string, typeof buildShape | typeof surveyShape>>} */
+/** @type {Readonly<Record<string, typeof buildShape | typeof surveyShape | typeof artifactShape>>} */
 export const SHAPES = Object.freeze({
   build: buildShape,
   survey: surveyShape,
+  artifact: artifactShape,
 })
 
 /** Ordered kind vocabulary; the first kind is the default for absent kinds. */
@@ -32,7 +34,7 @@ export const SHAPE_KINDS = Object.freeze(Object.keys(SHAPES))
  * resolve an absent kind as the build shape. An unknown non-empty kind is never
  * guessed.
  * @param {string | null | undefined} kind
- * @returns {typeof buildShape | typeof surveyShape}
+ * @returns {typeof buildShape | typeof surveyShape | typeof artifactShape}
  */
 export function shapeFor(kind) {
   if (kind === undefined || kind === null || kind === '') return SHAPES.build
@@ -133,7 +135,7 @@ export function defaultPresetFor(kind, config = {}, mission = null) {
  * `shape.completion`/`shape.resolveCompletion` themselves, so the shared
  * `domain/shapes/completion.js` vocabulary is the only way an invariant set is
  * built.
- * @param {typeof buildShape | typeof surveyShape} shape
+ * @param {typeof buildShape | typeof surveyShape | typeof artifactShape} shape
  * @param {Mission} mission
  * @param {import('../../types/index.js').TowerConfig} [config]
  * @returns {Readonly<{

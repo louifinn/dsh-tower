@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 41 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 42 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -42,7 +42,8 @@
 | `mode-persist-failed` | Tower 模式变更无法写入模式存储；执行 `/tower off` 时会回滚，使会话保持磁盘记录的模式。 | `/tower on/off`、`tower_mode` 或 workspace 锁持久化无法写入模式存储（损坏的字节、不可写路径，或模式存储锁被占用） |
 | `owner-live` | 当前 Tower 属主仍在活动，无法转移所有权。 | 旧属主 Tower 模式仍开启且持有活动 workspace 锁时执行 takeover |
 | `owner-busy` | 仍有活动的 roster Agent 或外部 workspace 锁，阻止所有权转移。 | 有运行中的 worker，或另一个会话持有 workspace 锁时执行 takeover |
-| `approval-unavailable` | 所有权转移所需的人类批准通道不可用。 | 没有 userQuestions 服务的 profile 中调用 `tower_mode({active:"takeover"})` |
+| `approval-unavailable` | 所有权转移或交付物接受所需的人类批准通道不可用。 | 没有 userQuestions 服务的 profile 中调用 `tower_mode({active:"takeover"})` 或 `tower_mission({accept:true})` |
+| `acceptance-human-only` | artifact mission 只有在人类接受整个已提交 tip 后才能合并；agent 不能代为接受。 | worker 对 artifact mission 调用 tower_mission accept |
 | `worker-limit` | 仓库达到 `spawn.maxLiveWorkers` 个活跃 worker。 | 默认上限下 spawn 第五个 worker |
 | `rate-limited` | 达到 `tower_send` 的每分钟速率限制。 | 超出 `send.maxPerMinute`；稍后重试 |
 | `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |

@@ -211,8 +211,9 @@ export const buildShape = Object.freeze({
   canRebase: true,
   provisioning: /** @type {const} */ ('branch-worktree'),
   reach: REACH,
-  // Document dimensions this shape owns; the state validator reads these.
-  fields: Object.freeze({ worktree: true, readCommit: false, merge: true, sandbox: false }),
+  // Document dimensions this shape owns; the state validator reads these. A
+  // build owns neither the artifact deliverables nor the acceptance record.
+  fields: Object.freeze({ worktree: true, readCommit: false, merge: true, sandbox: false, artifacts: false, acceptance: false }),
   requiredComponent: null,
   acceptsResult: false,
   evidence: EVIDENCE,

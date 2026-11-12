@@ -103,7 +103,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(current.configKeys, configSurface().count)
   // #120/#121/#133/#134/#135: the component surface is every visible row in
   // every shipped cordis.patch.yml (root + ui-bundle).
-  assert.equal(current.components, 12)
+  assert.equal(current.components, 13)
   assert.deepEqual(current.liveNames.components, [
     'tower',
     'tower-skills',
@@ -116,6 +116,7 @@ test('the live surface equals the committed baseline and is fully classified', (
     'tower-hmr',
     'preset-tower-reviewer',
     'tower-survey',
+    'tower-artifact',
     'tower-ui',
   ])
 
@@ -148,8 +149,8 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 14, inputBytes: 10582 },
-    worker: { tools: 6, inputBytes: 6175 },
+    tower: { tools: 14, inputBytes: 11585 },
+    worker: { tools: 6, inputBytes: 6654 },
     reviewer: { tools: 5, inputBytes: 4371 },
   })
   // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
@@ -158,7 +159,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(baseline.profiles.tower.tools.value, 14)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 5)
-  for (const [profile, bytes] of [['tower', 10582], ['worker', 6175], ['reviewer', 4371]]) {
+  for (const [profile, bytes] of [['tower', 11585], ['worker', 6654], ['reviewer', 4371]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)

@@ -198,6 +198,15 @@ export function roleMissionBlockers(role, { shape, mission, reviewAvailable = tr
       message: `mission ${mission?.id} is a ${shape?.kind}: it has no branch to review and is never reviewed`,
     })
   }
+  // #159: an acceptance-gated shape has no review to do. The reviewer role is
+  // not a human-acceptance channel, so spawning one for such a mission would
+  // produce a verdict the merge gate structurally ignores.
+  if (spec.requires.review && shape?.fields?.acceptance) {
+    blockers.push({
+      code: 'invalid-transition',
+      message: `mission ${mission?.id} is a ${shape?.kind}: its gate is a human acceptance of the committed tip, not a review; a reviewer cannot be spawned for it`,
+    })
+  }
   if (spec.requires.worktree && !mission?.worktree) {
     blockers.push({
       code: 'reviewer-prerequisite',

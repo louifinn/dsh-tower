@@ -27,17 +27,18 @@ import { COMPLETION_INVARIANT_KEYS, completionInvariants } from '../domain/shape
 const BUILD_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'merged', 'abandoned']
 const SURVEY_STATUSES = ['planned', 'active', 'completed', 'blocked', 'paused', 'abandoned']
 
-test('the registry is the only kind source: build|survey is frozen and re-exported', () => {
-  assert.deepEqual(SHAPE_KINDS, ['build', 'survey'])
+test('the registry is the only kind source: build|survey|artifact is frozen and re-exported', () => {
+  assert.deepEqual(SHAPE_KINDS, ['build', 'survey', 'artifact'])
   assert.ok(Object.isFrozen(SHAPES))
   assert.deepEqual(MISSION_KINDS, SHAPE_KINDS)
   assert.equal(isShapeKind('build'), true)
   assert.equal(isShapeKind('survey'), true)
+  assert.equal(isShapeKind('artifact'), true)
   assert.equal(isShapeKind('review'), false)
   assert.equal(isShapeKind(undefined), false)
   assert.deepEqual(
     MISSION_STATUSES,
-    [...new Set([...SHAPES.build.statuses, ...SHAPES.survey.statuses])],
+    [...new Set([...SHAPES.build.statuses, ...SHAPES.survey.statuses, ...SHAPES.artifact.statuses])],
     'the union vocabulary is derived from the registry, never hand-written',
   )
 })
@@ -115,8 +116,47 @@ test('capabilities are structural: a survey can not merge or rebase', () => {
   assert.equal(SHAPES.survey.acceptsResult, true)
   assert.deepEqual(SHAPES.build.reach, { ownsPaths: true, fence: 'scope' })
   assert.deepEqual(SHAPES.survey.reach, { ownsPaths: false, fence: 'read-only' })
-  assert.deepEqual(SHAPES.build.fields, { worktree: true, readCommit: false, merge: true, sandbox: false })
-  assert.deepEqual(SHAPES.survey.fields, { worktree: false, readCommit: true, merge: false, sandbox: true })
+  assert.deepEqual(SHAPES.build.fields, { worktree: true, readCommit: false, merge: true, sandbox: false, artifacts: false, acceptance: false })
+  assert.deepEqual(SHAPES.survey.fields, { worktree: false, readCommit: true, merge: false, sandbox: true, artifacts: false, acceptance: false })
+})
+
+test('#159 artifact capabilities: it merges, so the graph is build\u2019s; its gate is the tower-artifact row', () => {
+  // It merges, so the status graph and terminality are build's exactly.
+  assert.deepEqual(SHAPES.artifact.statuses, BUILD_STATUSES)
+  assert.deepEqual(SHAPES.artifact.transitions, SHAPES.build.transitions)
+  assert.equal(isTerminal('artifact', 'merged'), true)
+  assert.equal(isTerminal('artifact', 'abandoned'), true)
+  // `merged` is recorded by tower_merge, not by a lifecycle edge; the tables
+  // agree with build's exactly (completed -> active|blocked|abandoned).
+  assert.equal(canTransition('artifact', 'completed', 'merged'), canTransition('build', 'completed', 'merged'))
+  assert.equal(canTransition('artifact', 'completed', 'active'), true)
+  // It writes, so it needs isolation and may merge/rebase like a build.
+  assert.equal(canMerge('artifact'), true)
+  assert.equal(canRebase('artifact'), true)
+  assert.equal(provisioningFor('artifact'), 'branch-worktree')
+  assert.equal(defaultPresetFor('artifact'), null, 'an artifact worker uses config.spawn.workerPreset like a build')
+  // The shape owns the deliverables and the acceptance record; a build and a
+  // survey own neither.
+  assert.equal(SHAPES.artifact.requiredComponent, 'tower-artifact')
+  assert.equal(SHAPES.artifact.acceptsResult, false)
+  assert.deepEqual(SHAPES.artifact.reach, { ownsPaths: true, fence: 'scope' })
+  assert.deepEqual(SHAPES.artifact.fields, { worktree: true, readCommit: false, merge: true, sandbox: false, artifacts: true, acceptance: true })
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(SHAPES.artifact.completion).filter(([key]) => key.startsWith('requires'))),
+    {
+      requiresWorktree: true,
+      requiresSandbox: false,
+      requiresCommits: true,
+      requiresClean: true,
+      requiresHeadMatch: false,
+      requiresTrackedStatus: false,
+      requiresArtifacts: true,
+    },
+  )
+  // An artifact mission is never legacy: the kind is new, so no pre-v4
+  // document can claim it.
+  assert.equal(SHAPES.artifact.isLegacy({ kind: undefined }), false)
+  assert.equal(SHAPES.artifact.isLegacy({ kind: 'artifact' }), false)
 })
 
 test('assertActionSupported refuses every build-only action on a survey with an actionable message', () => {
@@ -266,6 +306,14 @@ test('build and survey share the common completion blockers', () => {
       .map((entry) => entry.code),
     ['branch-owned-by-closed-missions', 'mission-not-completed', 'tasks-open'],
   )
+  // An artifact merges, so it shares the build's closed-mission row.
+  assert.deepEqual(codes('artifact'), codes('build'))
+  assert.deepEqual(
+    shapeFor('artifact')
+      .completionBlockers({ ...common, kind: 'artifact', status: 'merged', artifacts: ['reports/r.html'] }, {})
+      .map((entry) => entry.code),
+    ['branch-owned-by-closed-missions', 'mission-not-completed', 'tasks-open'],
+  )
 })
 
 test('dependencySatisfied is per shape: merged for a build, completed for a survey', () => {
@@ -275,6 +323,10 @@ test('dependencySatisfied is per shape: merged for a build, completed for a surv
   assert.equal(dependencySatisfied({ kind: 'survey', status: 'merged' }), false)
   assert.equal(dependencySatisfied({ kind: 'survey', status: 'abandoned' }), true)
   assert.equal(dependencySatisfied(null), false)
+  // #159 D4: an artifact dependency is satisfied exactly like a build's.
+  assert.equal(dependencySatisfied({ kind: 'artifact', status: 'merged' }), true)
+  assert.equal(dependencySatisfied({ kind: 'artifact', status: 'abandoned' }), true)
+  assert.equal(dependencySatisfied({ kind: 'artifact', status: 'completed' }), false)
 })
 
 test('migrateLegacy is a fixed point once the shape is stamped', () => {

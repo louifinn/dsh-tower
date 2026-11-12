@@ -18,9 +18,11 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **可配置的 Tower 模式。** `/tower` 切换会话级模式：收窄工具面并注入 Tower 协议；`/tower on|off <指令>` 还能把指令作为下一步用户消息转发给模型。默认也允许 Agent 通过 `tower_mode({active:true/false})` 带理由进出；设 `mode.allowAgentControl:false` 可改为仅人类控制。
 - **显式的所有权交接。** 仓库状态绑定初始化它的会话。旧会话结束后，新会话可用 `/tower takeover <原因>` 接管（人类命令，任何配置都可用）；模型也可在 Tower 模式中通过 `tower_mode({active:"takeover", authorization:"<审计引用>"})` 请求接管，但必须得到用户明确批准。旧属主仍活跃、仍有运行中的 roster Agent 或外部工作区锁时会拒绝；交接保留全部历史与未读消息，并写入一条 `takeover` 活动记录，不会自动释放所有权。
 - **任务级隔离。** 每个 mission 使用独立分支和 Git worktree，worker 不会碰到你的主检出。
-- **两种 mission 形状，一个注册表。** 每个 mission 是 `build` 或 `survey`，其状态、完成证据、
+- **三种 mission 形状，一个注册表。** 每个 mission 是 `build`、`survey` 或 `artifact`，其状态、完成证据、
   供给方式、路径权限与 spawn 契约都由 shape 拥有，不再散落 `if (kind === …)` 分支。survey 只读：
-  固定一个 `readCommit`（默认在 detached sandbox 中）即可完成，不需要提交、分支或合并。
+  固定一个 `readCommit`（默认在 detached sandbox 中）即可完成，不需要提交、分支或合并。artifact 与
+  build 一样使用 worktree，声明具体的交付物路径，并且只凭人类对已提交末端（tip）的接受记录合并，
+  而不是审查。
   `npm run shape:audit` 会拒绝第二套词汇、`domain/shapes/` 之外的按 kind 条件、
   `domain/evidence.js` 之外的证据读取，以及角色检查与 shape 检查混合的写法。
 - **审查门禁合并。** 审查策略是插件页上的一个三态控件：`off`、`optional`（默认）或 `required`（配置键 `review.mode`）。设为 `required` 时，审查者针对当前分支 tip 给出 `clean` / `merge` 结论；合并门禁重新校验 scope、分支新鲜度、任务完成度、审查记录与 worktree 归属，通过后才执行 `--no-ff` 合并。独立审查默认可选；策略为 `required` 时，单个 mission 可用 `reviewPolicy:"none"` + 理由并开启 `gates.allowReviewExemption:true` 做更窄豁免。升级提示：旧的布尔审查开关是保留一个版本的别名；映射关系见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。
@@ -202,7 +204,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 
 上面列出的是 15 个核心工具加 6 个由组件行拥有的可选工具（`tower_import`、`tower_test`、`tower_batch`、`tower_resource`、`tower_reload`，其中 `tower_reload` 属于随包关闭的 `tower-hmr` 行）。`tower_mode` 是会话工具：省略 `active` 只读，传入 `active` 才写；设 `mode.allowAgentControl:false` 可禁用写操作。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。`tower_complete` 与 `tower_review` 分别由 worker/survey 与 reviewer 角色会话挂载；从控制塔误用会得到 `not-authorized` 提示和 `tower_spawn` 角色入口，而不是 unknown tool。`tower_init({op:"adopt"})` 承接旧的 roster 对账，`tower_finding({op:"report"/"list"/"update"})` 与 `tower_import({op:"snapshot"/"map"})` 同理（#163 Phase 4）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
-**角色 × 阶段暴露（#164）。** 会话看到的工具是角色契约与宿主阶段的步时投影。Tower 模式关闭的塔会话只暴露 `tower_mode`（846 B）；模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B）；状态存在后暴露默认宿主准入的 14 个工具（14,977 B；随包挂载 16 个，减去 #163 角色谓词保留给 worker/survey 与 reviewer 的 `tower_complete`/`tower_review`）。21 个工具 / 22,061 B 是全部可选行开启时的构建表面，不是任何会话的基线。由 `tower_spawn` 派生的角色 preset 不受阶段梯子影响，继续使用各自的显式 allow-list（worker 6 个塔工具，reviewer 5 个，survey/survey-sandbox 各 5 个）。允许集合每个模型步解析一次并冻结，所以被隐藏的工具与不存在的工具完全一样（`UNKNOWN_TOOL`）；门禁只做减法且失败时放开。逐 profile 的字节基线与门禁规则见[表面预算](docs/reference/surface-budget.md)，设计记录见 [ADR 0009](docs/adr/0009-role-phase-exposure.md)。
+**角色 × 阶段暴露（#164）。** 会话看到的工具是角色契约与宿主阶段的步时投影。Tower 模式关闭的塔会话只暴露 `tower_mode`（846 B）；模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B）；状态存在后暴露默认宿主准入的 14 个工具（16,017 B；随包挂载 16 个，减去 #163 角色谓词保留给 worker/survey 与 reviewer 的 `tower_complete`/`tower_review`）。21 个工具 / 23,109 B 是全部可选行开启时的构建表面，不是任何会话的基线。由 `tower_spawn` 派生的角色 preset 不受阶段梯子影响，继续使用各自的显式 allow-list（worker 6 个塔工具，reviewer 5 个，survey/survey-sandbox 各 5 个）。允许集合每个模型步解析一次并冻结，所以被隐藏的工具与不存在的工具完全一样（`UNKNOWN_TOOL`）；门禁只做减法且失败时放开。逐 profile 的字节基线与门禁规则见[表面预算](docs/reference/surface-budget.md)，设计记录见 [ADR 0009](docs/adr/0009-role-phase-exposure.md)。
 
 ## 安全与约束
 
@@ -212,7 +214,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、41 个工具错误码、26 个进程内事件、58 个配置键、33 个稳定 blocker/failure code、12 个可见组件。默认 profile 注册其中 16 个。
+表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、42 个工具错误码、26 个进程内事件、58 个配置键、35 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 16 个。
 
 五个子系统行默认关闭；`tower_doctor` 逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
 

@@ -74,6 +74,11 @@
       "summary": "The detached-survey dependency: a disposable sandbox that may write and run commands inside its checkout while reading one recorded commit, with no branch and no commit of its own.",
       "disables": "A detached survey cannot be dispatched; shared surveys and build missions keep working."
     },
+    "tower-artifact": {
+      "title": "Artifact missions",
+      "summary": "Plan missions whose deliverables are committed files a code review cannot judge (a rendered report, a dataset, a training output): the mission declares its artifacts, and a human accepts the whole committed tip instead of a review before the real merge.",
+      "disables": "Artifact missions cannot be planned (planning one is refused with an actionable code). Build and survey missions and every other capability keep working."
+    },
     "tower-ui": {
       "title": "Tower UI",
       "summary": "Adds Tower cards for tool results, a compact status summary above the message box, and a short status strip, in the web client.",

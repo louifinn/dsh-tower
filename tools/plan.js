@@ -25,7 +25,7 @@ export function registerPlanTool(ctx, deps) {
   define(ctx, {
     name: 'tower_plan',
     description:
-      'Plan missions in an initialized repository: title (printable Unicode, at most 120 chars), relative scope globs, optional tasks, deps, and kind build|survey. Assigns M1.. ids, serializes overlapping build scopes, rejects cycles, and warns when a survey dependency is stale.',
+      'Plan missions M1..: title (printable Unicode, max 120 chars), scope globs, tasks, deps, kind build|survey|artifact. Artifact missions declare artifacts deliverables and land on a human acceptance. Serializes overlapping build scopes, rejects cycles, warns on stale survey deps.',
     parameters: PlanInput,
     board: true,
     output: output(SCHEMAS.plan),

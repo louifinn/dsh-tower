@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Artifact missions",
+    "description": "Plan missions whose deliverables are committed files a code review cannot judge (a rendered report, a dataset, a training output): the mission declares its artifacts, and a human accepts the whole committed tip instead of a review before the real merge. When off: Artifact missions cannot be planned (planning one is refused with an actionable code). Build and survey missions and every other capability keep working."
+  }
+}

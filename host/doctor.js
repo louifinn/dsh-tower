@@ -21,6 +21,7 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
+import { artifactAcceptanceCheck } from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -598,6 +599,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
     )
+
+    checks.push(artifactAcceptanceCheck(state))
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
     checks.push(check('batches', 'pass', `${state.batches?.length ?? 0} batch(es)`))
 
