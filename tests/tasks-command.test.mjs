@@ -62,10 +62,13 @@ function seedRepo(prefix) {
  * live), and `listDescendants` returns only the catalog rows a case injects.
  */
 function fakeSubagents(rows = []) {
+  let sequence = 0
   return {
     list: () => ['spawn'],
     async startActivation() {
-      return { childId: `child-${Math.random().toString(36).slice(2, 8)}`, result: new Promise(() => {}) }
+      // Deterministic fixture ids: test inputs must stay replayable (#130).
+      sequence += 1
+      return { childId: `child-fixture-${sequence}`, result: new Promise(() => {}) }
     },
     async sendMessage() {},
     async listDescendants() {
