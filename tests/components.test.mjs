@@ -95,12 +95,12 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 57 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 58 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 57)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 57)
+  assert.equal(report.surface.keys.length, 58)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 58)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -163,8 +163,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 57)
-  assert.equal(baseline.surfaces.configKeys.value, 57)
+  assert.equal(surface.keys.length, 58)
+  assert.equal(baseline.surfaces.configKeys.value, 58)
   assert.equal(realMergedPatch().visible.length, 12)
   assert.equal(baseline.surfaces.components.value, 12)
 })
@@ -366,6 +366,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     { key: 'mode.workspaceLock', value: 'true' },
     { key: 'mode.workspaceLockScope', value: 'all' },
     { key: 'mode.planModePolicy', value: 'clear' },
+    { key: 'mode.ralphPolicy', value: 'stop' },
     { key: 'init.autoGitInit', value: 'true' },
     { key: 'send.interruptDefault', value: 'true' },
     { key: 'spawn.staleMs', value: '15000' },
