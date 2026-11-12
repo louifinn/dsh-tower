@@ -109,6 +109,12 @@
       "fallback": "Declared by dsh-tower/preset-survey-sandbox: the detached-sandbox survey preset is a dependency of the tower-survey group, never its own switch. It is selected only when survey.sandbox is detached; with the group off, a detached survey cannot be dispatched."
     },
     {
+      "id": "tower-artifact",
+      "scope": "visible",
+      "kind": "row",
+      "fallback": "Artifact missions cannot be planned: tower_plan refuses kind:\"artifact\" with an actionable code, and no artifact mission exists to accept or merge. Build and survey missions and every other capability are unaffected; the human-acceptance gate applies only to artifact missions."
+    },
+    {
       "id": "tower-ui",
       "scope": "visible",
       "kind": "row",

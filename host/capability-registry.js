@@ -26,6 +26,7 @@ export const TOWER_COMPONENT_IDS = Object.freeze([
   'tower-hmr',
   'preset-tower-reviewer',
   'tower-survey',
+  'tower-artifact',
 ])
 
 /** Tool ids each code component owns; the preset row owns no tool. */
@@ -40,6 +41,7 @@ export const COMPONENT_TOOLS = Object.freeze({
   'tower-hmr': Object.freeze(['tower_reload']),
   'preset-tower-reviewer': Object.freeze([]),
   'tower-survey': Object.freeze([]),
+  'tower-artifact': Object.freeze([]),
 })
 
 /** id -> number of live registrations (redelivery/HMR can overlap briefly). */

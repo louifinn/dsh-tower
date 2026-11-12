@@ -122,7 +122,7 @@
     },
     "components": {
       "seed": 4,
-      "value": 12,
+      "value": 13,
       "decisions": [
         {
           "from": 4,
@@ -165,6 +165,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148/#149: tower-survey is a visible optional row: off means surveys cannot be planned and no survey agent is dispatched; build missions are unaffected."
+        },
+        {
+          "from": 12,
+          "to": 13,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#159: tower-artifact is a visible optional row for the third mission shape: off means artifact missions cannot be planned (tower_plan refuses kind:\"artifact\" with an actionable code) and no artifact mission exists to accept or merge; build and survey missions are unaffected. The row owns no tool and no preset — an artifact worker uses the mandatory worker preset — so it gates the shape, strictly better than all-off."
         }
       ]
     }

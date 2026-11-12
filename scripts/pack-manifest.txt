@@ -159,6 +159,7 @@ domain/report.js
 domain/roles.js
 domain/roster.js
 domain/scope.js
+domain/shapes/artifact.js
 domain/shapes/blockers.js
 domain/shapes/build.js
 domain/shapes/completion.js
@@ -172,8 +173,10 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/acceptance.js
 host/authorization.js
 host/capability-archive.js
+host/capability-artifact.js
 host/capability-batch.js
 host/capability-board.js
 host/capability-hmr.js
@@ -205,6 +208,8 @@ icon.svg
 index.js
 locale/archive/en.json
 locale/archive/zh.json
+locale/artifact/en.json
+locale/artifact/zh.json
 locale/batch/en.json
 locale/batch/zh.json
 locale/board/en.json
