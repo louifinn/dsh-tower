@@ -197,7 +197,7 @@ applies.
 
 `environmentContract.ralphLoop` (and the `ralph-stance` check) reports a live Ralph loop as an
 environment fact: this repository has a loop in progress and Tower cannot co-own it (see
-[ADR 0009](../adr/0009-tower-ralph-mutual-exclusion.md)). Rounds are matched to the checkout by their
+[ADR 0010](../adr/0010-tower-ralph-mutual-exclusion.md)). Rounds are matched to the checkout by their
 parent session's cwd (`scopedRounds`, `liveScopedRounds`); first-party workflow runs carry no cwd, so
 `processRuns` counts them process-wide and the check warns on them only while no round has matched.
 The `warn` action names both `mode.ralphPolicy` outcomes; the loop itself is not doctor's to stop.

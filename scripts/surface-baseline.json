@@ -72,7 +72,7 @@
           "from": 57,
           "to": 58,
           "date": "2026-11-12",
-          "adr": "docs/adr/0009-tower-ralph-mutual-exclusion.md",
+          "adr": "docs/adr/0010-tower-ralph-mutual-exclusion.md",
           "note": "#162 adds one mode policy key, ralphPolicy (stop/refuse, default stop), mirroring planModePolicy for the Ralph stance: entering Tower mode with a live Ralph loop either stops and records it or refuses the entry. Tool denial stays #161's owner-derived default (no name is added to mode.denyTools); #162 adds only the command-owner surface and the loop sensor, so no tool, section or component moves."
         }
       ]

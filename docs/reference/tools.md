@@ -32,7 +32,7 @@ renamed entry point cannot restart a loop under a live tower. `tower_doctor` rep
 environment fact.
 A Ralph loop *inside* a Tower worker is not a conflict: the worker owns one mission in its isolated
 worktree and reports through `tower_complete`. See
-[ADR 0009](../adr/0009-tower-ralph-mutual-exclusion.md).
+[ADR 0010](../adr/0010-tower-ralph-mutual-exclusion.md).
 
 ## Roles
 

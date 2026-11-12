@@ -120,7 +120,7 @@ test-discovery 策略、完成报告大小、归档健康度、旧版快照、ba
 
 `environmentContract.ralphLoop`（以及 `ralph-stance` 检查）把活跃的 Ralph 循环报告为环境事实：
 本仓库有一个进行中的循环，Tower 无法与之共同持有它（见
-[ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)）。round 按其父会话的 cwd 归属到本检出
+[ADR 0010](../../adr/0010-tower-ralph-mutual-exclusion.md)）。round 按其父会话的 cwd 归属到本检出
 （`scopedRounds`、`liveScopedRounds`）；第一方 workflow run 不携带 cwd，因此 `processRuns`
 按进程计数，且仅当尚无 round 匹配到本仓库时才据此告警。`warn` 的 action 会说明
 `mode.ralphPolicy` 的两种结果；循环本身不由 doctor 停止。

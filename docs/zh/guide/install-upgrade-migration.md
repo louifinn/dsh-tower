@@ -36,7 +36,7 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   （命令不是工具，#161 的属主派生 `mode.denyTools` 覆盖不到）；仓库处于 Tower 模式期间
   round agent 会被拒绝；新增 `mode.ralphPolicy`（默认 `stop`，或 `refuse`）决定进入时是停止并记录
   该循环，还是给出原因拒绝进入。`tower_doctor` 把活跃循环报告为环境事实。无 state 迁移；配置键从
-  57 增至 58。见 [ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)。
+  57 增至 58。见 [ADR 0010](../../adr/0010-tower-ralph-mutual-exclusion.md)。
 - **2.7.1 → 2.8.0（#M71）—— 支持基线提升到 Node.js 24.9+ 与 DSH 0.2.2-rc.1**：DSH 0.2.2-rc.1
   声明 `engines.node >=24.9.0`，因此 Tower 在 package engines 与 package-lock 根节点发布同一条基线。
   `scripts/support.json` 是唯一的清单：mount-smoke host pin、live CI 矩阵与 COMPATIBILITY 最新行

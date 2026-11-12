@@ -1,8 +1,12 @@
-# ADR 0009: Tower and a Ralph loop are mutually exclusive per repository
+# ADR 0010: Tower and a Ralph loop are mutually exclusive per repository
 
 - Status: accepted
 - Date: 2026-11-12
 - Ref: #162
+
+Numbering note: 0009 is #164's role/phase exposure record
+(`docs/adr/0009-role-phase-exposure.md`); this mutual-exclusion decision follows
+it and keeps the next free number.
 
 ## Context
 

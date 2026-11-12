@@ -28,7 +28,7 @@ Tower 模式与 Ralph 循环（`@deepseek-ai/dsh-tool-ralph`、社区版 `dsh-ra
 （`mode.ralphPolicy`，默认 `stop`），且仓库处于 Tower 模式期间 round agent 会被拒绝——因此改名的入口
 无法在活跃控制塔下重启循环。`tower_doctor` 把活跃循环报告为环境事实。Tower worker **内部**的
 Ralph 循环不是冲突：worker 在自己的隔离 worktree 里拥有一个 mission，并通过 `tower_complete` 汇报。
-见 [ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)。
+见 [ADR 0010](../../adr/0010-tower-ralph-mutual-exclusion.md)。
 
 ## 角色
 

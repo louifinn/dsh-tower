@@ -36,7 +36,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   while the repository is under Tower mode, and the new `mode.ralphPolicy` (`stop`, the default, or
   `refuse`) decides whether entry stops and records the loop or rejects with the reason.
   `tower_doctor` reports a live loop as an environment fact. No state migration; the config surface
-  grows from 57 to 58 keys. See [ADR 0009](../adr/0009-tower-ralph-mutual-exclusion.md).
+  grows from 57 to 58 keys. See [ADR 0010](../adr/0010-tower-ralph-mutual-exclusion.md).
 - **2.8.0 — bounded activity log**: two optional tuning keys were added under `activity`:
   `activity.maxBytes` (default 4 MiB, `0` disables rotation) and `activity.retention` (default 5
   segments, range 1–100). The defaults preserve the previous unbounded behavior only up to the byte
