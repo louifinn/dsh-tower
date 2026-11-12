@@ -60,8 +60,9 @@ see:
    isolated worktrees, and a Ralph loop inside a Tower worker is not a
    conflict (the worker owns one mission).
 
-`tower_doctor` reports a live loop as an environment fact plus a
-`ralph-stance` check, and `tower_mode` exposes the policy and the live counts.
+`tower_inspect({ view: "doctor" })` reports a live loop as an environment
+fact plus a `ralph-stance` check, and `tower_mode` exposes the policy and the
+live counts.
 
 ## Consequences
 
