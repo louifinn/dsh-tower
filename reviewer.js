@@ -4,7 +4,7 @@
 export const name = 'dsh-tower/reviewer'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
+export const ALLOW = [
   'read',
   'glob',
   'grep',

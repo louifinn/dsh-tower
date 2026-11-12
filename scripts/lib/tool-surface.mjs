@@ -67,11 +67,17 @@ export function loadShippedToolSurface() {
   // *build* surface, so the all-capabilities aggregate is applied on top.
   __testResetToolSurface()
   apply(ctx, { mode: { storePath: path.join(os.tmpdir(), 'dsh-tower-surface-check') } })
+  // #163: the default profile mounts only the mandatory surface. Snapshot it
+  // before the optional capability rows are applied, so the per-profile budget
+  // measures what one session actually advertises rather than the all-rows-on
+  // build surface.
+  const defaultDefinitions = new Map(definitions)
   registerAllCapabilities(ctx)
   const names = definedToolNames()
   return {
     names,
     definitions,
+    defaultDefinitions,
     dispose() {
       for (const dispose of disposers.reverse()) {
         try {

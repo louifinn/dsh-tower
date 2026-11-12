@@ -9,7 +9,7 @@ the brakes are `npm run surface:check` for the first three and
 [ADR 0005](../adr/0005-component-surface.md) and
 [ADR 0007](../adr/0007-bounded-activity-log-rotation.md).
 
-Decision date: 2026-10-23
+Decision date: 2026-11-12
 
 Every key and tool is classified here so "why is this here" has an answer that a
 check can read. `core` is a behavioural or safety contract, `tuning` is a safe
@@ -47,6 +47,25 @@ ships off (`tower-hmr`, whose `tower_reload` keeps the count at 29) does not
 shrink the budget. `tower_doctor` reports the same 29 and names the mounted
 subset through its `components` check; the mount smoke asserts the shipped
 profile's 28 loaded tools and pins 29 for the all-rows-on surface.
+
+## Per-profile surfaces (#163)
+
+The build count is not the whole bill. The tower profile, the worker preset and
+the reviewer preset each mount a different subset, and each pays that subset's
+advertised input-schema bytes on every request — the `repoRoot` field repeated
+on every tool is the biggest item. `scripts/surface-baseline.json` therefore
+also carries a `profiles` block: `tools` (mounted tool count) and `inputBytes`
+(UTF-8 bytes of the advertised `parameters` JSON) for `tower`, `worker` and
+`reviewer`. `npm run surface:check` prints all three lines.
+
+These numbers are **two-way**: both a consolidation (shrink) and a regression
+(growth) change the committed value, and any change needs a dated decision
+record (`date: "YYYY-MM-DD"`) in the same file. Unlike `configKeys` and
+`components`, a profile decision needs no ADR or deletion evidence — the dated
+phase commit that records the consolidation is the evidence. The worker and
+reviewer counts come from the same allow-lists their presets install
+(`worker.js` / `reviewer.js`), so a rename cannot leave the budget measuring a
+stale list.
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and

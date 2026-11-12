@@ -11,6 +11,10 @@
 //   components    user-visible rows in every shipped cordis.patch.yml (#120,
 //                 #134), so the 2.3.0 4 -> 1 contraction and any future move
 //                 need a written decision
+//   profiles      (#163) per-profile mounted tool counts and advertised
+//                 input-schema bytes for the tower/worker/reviewer presets:
+//                 consolidation work is judged by these numbers, so moving one
+//                 needs a dated decision in the same baseline
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
@@ -26,7 +30,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configSurface } from '../domain/config/schema.js'
 import { COMPONENT_PATCH_FILES, mergeCordisPatches, parseCordisPatch } from '../domain/components.js'
-import { SURFACE_CLASSIFICATION_FILE, SURFACE_BASELINE_FILE, surfaceLine } from '../domain/surface.js'
+import {
+  SURFACE_BASELINE_FILE,
+  SURFACE_CLASSIFICATION_FILE,
+  SURFACE_PROFILES,
+  surfaceLine,
+} from '../domain/surface.js'
+import { ALLOW as WORKER_ALLOW } from '../worker.js'
+import { ALLOW as REVIEWER_ALLOW } from '../reviewer.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
@@ -41,22 +52,44 @@ const USAGE = `usage: node scripts/surface-baseline.mjs [--root <dir>] [--json]
 Growth is refused by default. To grow a count, update ${SURFACE_BASELINE_FILE}
 with a decision that names an existing docs/adr/ ADR, deletions that are no
 longer in the live surface, or a measurement-correction record with a reason and
-date. The classification table in
+date. The per-profile tool counts and advertised input-schema bytes (tower,
+worker, reviewer) are two-way and need a dated decision for any change. The
+classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
 the component count comes from the visible rows in every shipped
 cordis.patch.yml.`
 
 /**
- * The live tool names: apply the shipped Host entry so every registration path
- * is included, then release the mock context's timers.
+ * The advertised input-schema bytes of one tool definition: the JSON a client
+ * receives for `parameters`, measured in UTF-8 bytes (#163).
+ * @param {{ parameters?: unknown }} definition
  */
-function liveToolNames() {
-  const surface = loadShippedToolSurface()
-  try {
-    return surface.names
-  } finally {
-    surface.dispose()
+function schemaBytes(definition) {
+  return Buffer.byteLength(JSON.stringify(definition.parameters ?? {}), 'utf8')
+}
+
+/**
+ * Per-profile counts (#163): each profile mounts a different subset, and each
+ * pays the advertised input-schema bytes of that subset on every request.
+ *
+ * The tower profile is the default Host surface (`defaultDefinitions`, before
+ * the optional capability rows are applied). The worker and reviewer profiles
+ * are the very allow-lists their presets install (`worker.js` / `reviewer.js`),
+ * intersected with the tools this build registers — so a rename cannot leave
+ * the budget measuring a stale list.
+ *
+ * @param {Map<string, any>} definitions the default-profile definitions
+ */
+function profileCounts(definitions) {
+  const all = [...definitions.values()]
+  const measure = (allow) => {
+    const selected = allow ? all.filter((definition) => allow.includes(definition.name)) : all
+    return {
+      tools: selected.length,
+      inputBytes: selected.reduce((total, definition) => total + schemaBytes(definition), 0),
+    }
   }
+  return { tower: measure(null), worker: measure(WORKER_ALLOW), reviewer: measure(REVIEWER_ALLOW) }
 }
 
 /**
@@ -66,7 +99,15 @@ function liveToolNames() {
  */
 export function liveSurface(root = PACKAGE_ROOT) {
   const config = configSurface()
-  const tools = liveToolNames()
+  const surface = loadShippedToolSurface()
+  let tools
+  let profiles
+  try {
+    tools = surface.names
+    profiles = profileCounts(surface.defaultDefinitions)
+  } finally {
+    surface.dispose()
+  }
   // #134: the counted component surface is every shipped patch, not only the
   // root one; `ui-bundle/cordis.patch.yml` ships the tower-ui row.
   const patches = {}
@@ -81,6 +122,7 @@ export function liveSurface(root = PACKAGE_ROOT) {
     sections: config.sections.length,
     tools: tools.length,
     components: patch.visible.length,
+    profiles,
     liveNames: {
       configKeys: config.keys,
       sections: config.sections,
@@ -113,6 +155,10 @@ function main(argv) {
   }
   console.log(`surface: ${surfaceLine(current)}`)
   console.log(`surface: components: ${current.components} visible (${current.liveNames.components.join(', ')})`)
+  const profileLine = SURFACE_PROFILES.map(
+    (profile) => `${profile} ${current.profiles[profile].tools} tools / ${current.profiles[profile].inputBytes} B input schema`,
+  ).join(' · ')
+  console.log(`surface: profiles: ${profileLine}`)
   if (result.baseline) console.log(`surface: baseline ${result.baseline.date} (${SURFACE_BASELINE_FILE})`)
   if (result.classification) {
     const configRows = result.classification.entries.filter((entry) => entry.kind === 'config').length

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "date": "2026-10-23",
+  "date": "2026-11-12",
   "surfaces": {
     "configKeys": {
       "seed": 64,
@@ -167,6 +167,44 @@
           "note": "#148/#149: tower-survey is a visible optional row: off means surveys cannot be planned and no survey agent is dispatched; build missions are unaffected."
         }
       ]
+    }
+  },
+  "profiles": {
+    "tower": {
+      "tools": {
+        "seed": 23,
+        "value": 23,
+        "decisions": []
+      },
+      "inputBytes": {
+        "seed": 17008,
+        "value": 17008,
+        "decisions": []
+      }
+    },
+    "worker": {
+      "tools": {
+        "seed": 8,
+        "value": 8,
+        "decisions": []
+      },
+      "inputBytes": {
+        "seed": 8159,
+        "value": 8159,
+        "decisions": []
+      }
+    },
+    "reviewer": {
+      "tools": {
+        "seed": 7,
+        "value": 7,
+        "decisions": []
+      },
+      "inputBytes": {
+        "seed": 5871,
+        "value": 5871,
+        "decisions": []
+      }
     }
   }
 }

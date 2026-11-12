@@ -27,6 +27,13 @@ export const SURFACE_TWO_WAY_KEYS = ['components', 'configKeys']
 export const CONFIG_CLASSES = ['core', 'tuning', 'niche']
 export const TOOL_CLASSES = ['core', 'optional']
 export const SURFACE_SCHEMA_VERSION = 1
+// #163: one tool count is not the operator's surface. The tower profile, the
+// worker preset and the reviewer preset each mount a different subset and each
+// pays its own advertised input-schema bytes on every request. These are
+// two-way: a shrink is a consolidation decision and needs a dated record just
+// like growth, so a phase cannot silently move the numbers it is judged by.
+export const SURFACE_PROFILES = ['tower', 'worker', 'reviewer']
+export const PROFILE_METRICS = ['tools', 'inputBytes']
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -74,33 +81,62 @@ export function parseBaseline(source) {
   if (!isPlainObject(value.surfaces)) throw surfaceError('surface baseline needs a "surfaces" object')
   const surfaces = {}
   for (const key of SURFACE_KEYS) {
-    const entry = value.surfaces[key]
-    if (!isPlainObject(entry)) throw surfaceError(`surface baseline misses the "${key}" entry`)
-    if (!Number.isInteger(entry.seed) || entry.seed < 0) {
-      throw surfaceError(`surface baseline ${key}.seed must be a non-negative integer`)
-    }
-    if (!Number.isInteger(entry.value) || entry.value < 0) {
-      throw surfaceError(`surface baseline ${key}.value must be a non-negative integer`)
-    }
-    if (!Array.isArray(entry.decisions)) throw surfaceError(`surface baseline ${key}.decisions must be an array`)
-    surfaces[key] = {
-      seed: entry.seed,
-      value: entry.value,
-      decisions: entry.decisions.map((decision, index) => {
-        if (!isPlainObject(decision)) {
-          throw surfaceError(`surface baseline ${key}.decisions[${index}] must be an object`)
-        }
-        if (!Number.isInteger(decision.from) || decision.from < 0) {
-          throw surfaceError(`surface baseline ${key}.decisions[${index}].from must be a non-negative integer`)
-        }
-        if (!Number.isInteger(decision.to) || decision.to < 0) {
-          throw surfaceError(`surface baseline ${key}.decisions[${index}].to must be a non-negative integer`)
-        }
-        return { ...decision }
-      }),
+    surfaces[key] = normalizeCountedEntry(value.surfaces[key], key)
+  }
+  // #163: profiles are optional here so a synthetic baseline in a focused test
+  // can still exercise one surface. The real gate (`surface:check`) always
+  // passes live profile counts, and then a baseline without them fails with
+  // `profiles-missing` through validateProfiles().
+  let profiles = null
+  if (value.profiles !== undefined) {
+    if (!isPlainObject(value.profiles)) throw surfaceError('surface baseline "profiles" must be an object')
+    profiles = {}
+    for (const profile of SURFACE_PROFILES) {
+      const entry = value.profiles[profile]
+      if (!isPlainObject(entry)) throw surfaceError(`surface baseline misses the "profiles.${profile}" entry`)
+      profiles[profile] = {}
+      for (const metric of PROFILE_METRICS) {
+        profiles[profile][metric] = normalizeCountedEntry(
+          entry[metric],
+          `profiles.${profile}.${metric}`,
+        )
+      }
     }
   }
-  return { schema: SURFACE_SCHEMA_VERSION, date: value.date, surfaces }
+  return { schema: SURFACE_SCHEMA_VERSION, date: value.date, surfaces, profiles }
+}
+
+/**
+ * Parse one `{ seed, value, decisions }` count entry and validate its shape.
+ * @param {unknown} entry
+ * @param {string} where dotted path used in error messages
+ * @returns {{ seed: number, value: number, decisions: any[] }}
+ */
+function normalizeCountedEntry(entry, where) {
+  if (!isPlainObject(entry)) throw surfaceError(`surface baseline misses the "${where}" entry`)
+  if (!Number.isInteger(entry.seed) || entry.seed < 0) {
+    throw surfaceError(`surface baseline ${where}.seed must be a non-negative integer`)
+  }
+  if (!Number.isInteger(entry.value) || entry.value < 0) {
+    throw surfaceError(`surface baseline ${where}.value must be a non-negative integer`)
+  }
+  if (!Array.isArray(entry.decisions)) throw surfaceError(`surface baseline ${where}.decisions must be an array`)
+  return {
+    seed: entry.seed,
+    value: entry.value,
+    decisions: entry.decisions.map((decision, index) => {
+      if (!isPlainObject(decision)) {
+        throw surfaceError(`surface baseline ${where}.decisions[${index}] must be an object`)
+      }
+      if (!Number.isInteger(decision.from) || decision.from < 0) {
+        throw surfaceError(`surface baseline ${where}.decisions[${index}].from must be a non-negative integer`)
+      }
+      if (!Number.isInteger(decision.to) || decision.to < 0) {
+        throw surfaceError(`surface baseline ${where}.decisions[${index}].to must be a non-negative integer`)
+      }
+      return { ...decision }
+    }),
+  }
 }
 
 /**
@@ -325,11 +361,106 @@ export function validateSurfaceEntry(key, entry, live, liveNames, options = {}) 
 }
 
 /**
- * Validate the whole committed baseline. Every surface in SURFACE_KEYS is
- * checked, so a missing `current` entry is a `surface-missing` finding.
+ * Validate one per-profile count entry (#163). Both metrics are two-way, so
+ * every decision must carry a date and growth additionally fails with
+ * `growth-without-evidence` when its only record is undated. Unlike the four
+ * whole-build surfaces, a profile decision needs no ADR or deletion evidence:
+ * the dated record is the evidence, because the phase commits that justify a
+ * change are the consolidation work itself.
+ *
+ * @param {string} where dotted path, e.g. `profiles.tower.tools`
+ * @param {{ seed: number, value: number, decisions: any[] }} entry
+ * @param {number | undefined} live
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+function validateProfileEntry(where, entry, live) {
+  const findings = []
+  const record = (code, message) => findings.push({ code, level: 'error', message })
+  if (!Number.isInteger(live)) {
+    record('surface-missing', `live ${where} count is unavailable`)
+    return findings
+  }
+  if (live !== entry.value) {
+    const direction = live > entry.value ? 'grew' : 'shrank'
+    record(
+      'stale-baseline',
+      `${where} ${direction} from the committed baseline ${entry.value} to ${live}; update ${SURFACE_BASELINE_FILE} with a dated decision record before landing`,
+    )
+  }
+  let running = entry.seed
+  entry.decisions.forEach((decision, index) => {
+    const at = `${where}.decisions[${index}]`
+    if (decision.from !== running) {
+      record('broken-chain', `${at}.from ${decision.from} does not continue from ${running}`)
+    }
+    const dated = typeof decision.date === 'string' && ISO_DATE.test(decision.date)
+    if (!dated) {
+      record(
+        'broken-chain',
+        `${at}.date is required: a per-profile surface is two-way and needs a dated decision (YYYY-MM-DD)`,
+      )
+    }
+    const growth = decision.to - decision.from
+    if (growth > 0 && !dated) {
+      record(
+        'growth-without-evidence',
+        `${at} grows ${where} by ${growth} without a dated decision (YYYY-MM-DD)`,
+      )
+    }
+    running = decision.to
+  })
+  if (running !== entry.value) {
+    record(
+      'broken-chain',
+      `${where} value ${entry.value} does not match the last decision (${running}); every count change needs a dated decision record`,
+    )
+  }
+  return findings
+}
+
+/**
+ * Validate every per-profile count against the live measurement (#163).
  *
  * @param {ReturnType<typeof parseBaseline>} baseline
- * @param {{ configKeys: number, sections: number, tools: number, components: number, liveNames: { configKeys: string[], sections: string[], tools: string[], components: string[] } }} current
+ * @param {{ profiles?: Record<string, { tools: number, inputBytes: number }> }} current
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function validateProfiles(baseline, current = {}) {
+  const findings = []
+  if (!baseline.profiles) {
+    findings.push({
+      code: 'profiles-missing',
+      level: 'error',
+      message: `surface baseline needs a "profiles" object with ${SURFACE_PROFILES.join('/')} tool counts and advertised input-schema bytes (#163)`,
+    })
+    return findings
+  }
+  for (const profile of SURFACE_PROFILES) {
+    const entry = baseline.profiles[profile]
+    if (!entry) {
+      findings.push({
+        code: 'profiles-missing',
+        level: 'error',
+        message: `surface baseline misses the "profiles.${profile}" entry`,
+      })
+      continue
+    }
+    for (const metric of PROFILE_METRICS) {
+      const where = `profiles.${profile}.${metric}`
+      findings.push(...validateProfileEntry(where, entry[metric], current?.profiles?.[profile]?.[metric]))
+    }
+  }
+  return findings
+}
+
+/**
+ * Validate the whole committed baseline. Every surface in SURFACE_KEYS is
+ * checked, so a missing `current` entry is a `surface-missing` finding. When
+ * the baseline or the live measurement carries per-profile counts (#163), those
+ * are validated too.
+ *
+ * @param {ReturnType<typeof parseBaseline>} baseline
+ * @param {{ configKeys: number, sections: number, tools: number, components: number, profiles?: Record<string, { tools: number, inputBytes: number }>, liveNames: { configKeys: string[], sections: string[], tools: string[], components: string[] } }} current
  * @param {{ exists?: (relativePath: string) => boolean }} [options]
  * @returns {Array<{ code: string, level: string, message: string }>}
  */
@@ -338,6 +469,7 @@ export function validateBaseline(baseline, current, options = {}) {
   for (const key of SURFACE_KEYS) {
     findings.push(...validateSurfaceEntry(key, baseline.surfaces[key], current[key], current.liveNames?.[key], options))
   }
+  if (baseline.profiles || current?.profiles) findings.push(...validateProfiles(baseline, current))
   return findings
 }
 

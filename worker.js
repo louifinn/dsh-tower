@@ -2,7 +2,7 @@
 export const name = 'dsh-tower/worker'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
+export const ALLOW = [
   'read',
   'write',
   'edit',

@@ -138,6 +138,34 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.ok(current.liveNames.tools.includes('tower_mode'))
   assert.ok(current.liveNames.tools.includes('tower_control'))
   assert.deepEqual(current.liveNames.tools, documentedToolNames())
+
+  // #163: per-profile counts and advertised input-schema bytes are baselined.
+  // The tower profile is the default mounted surface (mode/control included,
+  // optional capability rows excluded); worker/reviewer come from their presets'
+  // allow-lists.
+  assert.deepEqual(current.profiles, {
+    tower: { tools: 23, inputBytes: 17008 },
+    worker: { tools: 8, inputBytes: 8159 },
+    reviewer: { tools: 7, inputBytes: 5871 },
+  })
+  assert.deepEqual(baseline.profiles, {
+    tower: {
+      tools: { seed: 23, value: 23, decisions: [] },
+      inputBytes: { seed: 17008, value: 17008, decisions: [] },
+    },
+    worker: {
+      tools: { seed: 8, value: 8, decisions: [] },
+      inputBytes: { seed: 8159, value: 8159, decisions: [] },
+    },
+    reviewer: {
+      tools: { seed: 7, value: 7, decisions: [] },
+      inputBytes: { seed: 5871, value: 5871, decisions: [] },
+    },
+  })
+  assert.equal(current.profiles.tower.tools, baseline.profiles.tower.tools.value)
+  assert.equal(current.profiles.tower.inputBytes, baseline.profiles.tower.inputBytes.value)
+  assert.equal(current.profiles.worker.tools, baseline.profiles.worker.tools.value)
+  assert.equal(current.profiles.reviewer.tools, baseline.profiles.reviewer.tools.value)
   const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
   for (const name of current.liveNames.tools) {
     assert.ok(generatedTools.includes(`| \`${name}\` |`), `tools.generated.md lists ${name}`)
@@ -400,6 +428,76 @@ Decision date: 2026-10-23
   assert.ok(codes.includes('classification-duplicate'))
   assert.ok(codes.includes('classification-missing'))
   assert.ok(codes.includes('niche-removal-note'))
+})
+
+test('per-profile counts are two-way: every change needs a dated decision (#163)', () => {
+  const liveProfiles = {
+    tower: { tools: 23, inputBytes: 17008 },
+    worker: { tools: 8, inputBytes: 8159 },
+    reviewer: { tools: 7, inputBytes: 5871 },
+  }
+  const baselineWith = (profiles) => {
+    const baseline = baselineFor({ configKeys: 1, sections: 1, tools: 1 })
+    baseline.profiles = profiles
+    return baseline
+  }
+  const entry = (seed, value, decisions = []) => ({ seed, value, decisions })
+
+  // Growth needs a dated decision. An undated from/to record is a broken chain
+  // and growth without evidence, exactly like the two-way whole-build surfaces.
+  const undated = baselineWith({
+    tower: {
+      tools: entry(23, 24, [{ from: 23, to: 24 }]),
+      inputBytes: entry(17008, 17008),
+    },
+    worker: { tools: entry(8, 8), inputBytes: entry(8159, 8159) },
+    reviewer: { tools: entry(7, 7), inputBytes: entry(5871, 5871) },
+  })
+  const undatedFindings = validateBaseline(undated, { ...currentFor({ configKeys: 1, sections: 1, tools: 1 }), profiles: liveProfiles })
+  assert.ok(undatedFindings.some((finding) => finding.code === 'broken-chain'))
+  assert.ok(undatedFindings.some((finding) => finding.code === 'growth-without-evidence'))
+
+  // A dated decision reaches the new count and passes.
+  const dated = baselineWith({
+    tower: {
+      tools: entry(23, 24, [{ from: 23, to: 24, date: '2026-11-12' }]),
+      inputBytes: entry(17008, 17008),
+    },
+    worker: { tools: entry(8, 8), inputBytes: entry(8159, 8159) },
+    reviewer: { tools: entry(7, 7), inputBytes: entry(5871, 5871) },
+  })
+  assert.deepEqual(
+    validateBaseline(dated, {
+      ...currentFor({ configKeys: 1, sections: 1, tools: 1 }),
+      profiles: { ...liveProfiles, tower: { tools: 24, inputBytes: 17008 } },
+    }),
+    [],
+  )
+
+  // A shrink is a consolidation decision too, so it needs its own dated record.
+  const shrink = baselineWith({
+    tower: {
+      tools: entry(23, 22),
+      inputBytes: entry(17008, 16000),
+    },
+    worker: { tools: entry(8, 8), inputBytes: entry(8159, 8159) },
+    reviewer: { tools: entry(7, 7), inputBytes: entry(5871, 5871) },
+  })
+  const shrinkFindings = validateBaseline(shrink, {
+    ...currentFor({ configKeys: 1, sections: 1, tools: 1 }),
+    profiles: { ...liveProfiles, tower: { tools: 22, inputBytes: 16000 } },
+  })
+  const shrinkChains = shrinkFindings.filter((finding) => finding.code === 'broken-chain')
+  assert.equal(shrinkChains.length, 2, JSON.stringify(shrinkFindings))
+  assert.ok(shrinkChains.every((finding) => /every count change needs a dated decision record/.test(finding.message)))
+
+  // A real baseline without profiles is refused when the live measurement has
+  // them: the gate cannot quietly stop measuring what #163 added.
+  const missing = validateBaseline(baselineFor({ configKeys: 1, sections: 1, tools: 1 }), {
+    ...currentFor({ configKeys: 1, sections: 1, tools: 1 }),
+    profiles: liveProfiles,
+  })
+  assert.ok(missing.some((finding) => finding.code === 'profiles-missing'))
 })
 
 test('classification: a niche entry with a removal note satisfies the mechanism', () => {
