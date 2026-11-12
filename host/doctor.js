@@ -10,6 +10,7 @@ import { lockTiming } from '../adapters/persistence.js'
 import { inspectArchive } from '../adapters/archive.js'
 import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
 import { hasTestReceipts } from '../domain/evidence.js'
@@ -568,6 +569,32 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           ? 'test discovery disabled (disabled by component tower-tests; enable the tower-tests row and restart DSH)'
           : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
+    )
+
+    // #159: an artifact mission's merge gate is a human acceptance of the
+    // committed tip, not a review. A missing acceptance is a warning (the
+    // human decides when to accept), never a review failure; a recorded one is
+    // reported so the pending decision is visible without running preflight.
+    const acceptanceMissions = (state.missions ?? []).filter((mission) => shapeFor(mission.kind).fields.acceptance)
+    const acceptancePending = acceptanceMissions.filter(
+      (mission) => !shapeFor(mission.kind).isTerminal(mission.status) && !(/** @type {any} */ (mission).acceptance),
+    )
+    const accepted = acceptanceMissions.filter((mission) => Boolean(/** @type {any} */ (mission).acceptance))
+    checks.push(
+      acceptancePending.length > 0
+        ? check(
+            'artifact-acceptance',
+            'warn',
+            `${acceptancePending.length} artifact mission(s) wait on a human acceptance of the committed tip (${acceptancePending.map((mission) => mission.id).join(', ')})`,
+            'the human accepts through the approval channel (tower_mission accept); no agent may self-accept and the merge gate refuses without it',
+          )
+        : check(
+            'artifact-acceptance',
+            'pass',
+            accepted.length > 0
+              ? `${accepted.length} artifact mission(s) with a recorded human acceptance`
+              : 'no artifact missions pending acceptance',
+          ),
     )
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
     checks.push(check('batches', 'pass', `${state.batches?.length ?? 0} batch(es)`))
