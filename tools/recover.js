@@ -13,7 +13,7 @@ export function registerRecoverTool(ctx, deps) {
   define(ctx, {
     name: 'tower_recover',
     description:
-      'Read-only recovery diagnostics and an explicit stale-state-lock repair. status reports the state lock owner with its age, heartbeat age and staleness; clear-stale-lock requires confirm:"CLEAR_STALE_LOCK" and only moves a lock whose PID is provably dead to a backup file. force:true additionally clears a live-but-silent PID (a recycled PID) and still renames the record to a .recovered-<ts> backup. It never resets Tower state or worktrees.',
+      'Recovery diagnostics and stale state-lock repair. status reports the lock owner with age, heartbeat, and staleness; clear-stale-lock needs confirm:CLEAR_STALE_LOCK and only moves a lock whose PID is dead (force also clears a live-but-silent PID) to a backup. Never resets state.',
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {

@@ -88,7 +88,7 @@ export async function precheckWorkerOwnership({
   if (sameMission.length > 1) {
     throw new TowerToolError(
       'invalid-transition',
-      'mission ' + missionId + ' has ' + sameMission.length + ' live worker entries; inspect tower_roster before spawning',
+      'mission ' + missionId + ' has ' + sameMission.length + ' live worker entries; inspect tower_inspect with view: roster before spawning',
     )
   }
   if (sameMission.length === 1 && !effectiveTakeover) {
@@ -117,7 +117,7 @@ export async function precheckWorkerOwnership({
       if (activity === undefined) {
         throw new TowerToolError(
           'takeover-refused',
-          'worker ' + worker.name + ' is not in the live catalog; run tower_adopt before takeover',
+          'worker ' + worker.name + ' is not in the live catalog; run tower_init({op:"adopt"}) before takeover',
         )
       }
     } else {

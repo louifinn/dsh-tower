@@ -36,8 +36,8 @@ const DEFINITIONS = [
     code: 'mission-missing',
     kinds: ['gate'],
     summary: {
-      en: 'Unknown mission id. Check `tower_status`.',
-      zh: '未知 mission id。用 `tower_status` 查看。',
+      en: 'Unknown mission id. Check `tower_inspect` with view: status.',
+      zh: '未知 mission id。用 `tower_inspect` 的 view: status 查看。',
     },
   },
   {

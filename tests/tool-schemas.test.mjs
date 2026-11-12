@@ -105,7 +105,7 @@ test('every tool output satisfies its declared schema across a full mission', as
       missions: [{ title: 'Schema walk', scope: ['src/**'], tasks: ['write it', 'commit it'], kind: 'build' }],
     })
     const missionId = planned.missions[0].id
-    await call('tower_status', { repoRoot: repo })
+    await call('tower_inspect', { repoRoot: repo, view: 'status' })
 
     const spawned = await call('tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
     assert.equal(spawned.preset, 'custom-worker', 'repo config spawn.workerPreset wins over the profile')
@@ -118,8 +118,8 @@ test('every tool output satisfies its declared schema across a full mission', as
 
     await call('tower_mission', { repoRoot: repo, missionId, taskDone: 'write it' })
     await call('tower_mission', { repoRoot: repo, id: ` ${missionId} `, taskDone: 'commit it' })
-    await call('tower_roster', { repoRoot: repo })
-    await call('tower_diff', { repoRoot: repo, missionId })
+    await call('tower_inspect', { repoRoot: repo, view: 'status' })
+    await call('tower_inspect', { repoRoot: repo, view: 'diff', missionId })
 
     const completed = await call('tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
     assert.equal(completed.mission.status, 'completed')
@@ -135,9 +135,9 @@ test('every tool output satisfies its declared schema across a full mission', as
       details: 'details',
       suggested_fix: 'fix it',
     })
-    await call('tower_findings', { repoRoot: repo })
-    await call('tower_findings', { repoRoot: repo, id: finding.id })
-    await call('tower_findings', { repoRoot: repo, id: finding.id, status: 'triaged', note: 'noted' })
+    await call('tower_finding', { repoRoot: repo })
+    await call('tower_finding', { repoRoot: repo, id: finding.id })
+    await call('tower_finding', { repoRoot: repo, op: 'update', id: finding.id, status: 'triaged', note: 'noted' })
 
     await call('tower_rebase', { repoRoot: repo, missionId })
 
@@ -158,13 +158,13 @@ test('every tool output satisfies its declared schema across a full mission', as
       },
       reviewerExec,
     )
-    await call('tower_preflight', { repoRoot: repo, missionId })
+    await call('tower_inspect', { repoRoot: repo, view: 'status', missionId })
     const merged = await call('tower_merge', { repoRoot: repo, missionId })
     assert.equal(merged.ok, true)
-    await call('tower_status', { repoRoot: repo })
+    await call('tower_inspect', { repoRoot: repo, view: 'status' })
     const torn = await call('tower_teardown', { repoRoot: repo })
     assert.deepEqual(torn.removed, [missionId])
-    await call('tower_adopt', { repoRoot: repo })
+    await call('tower_init', { repoRoot: repo, op: 'adopt' })
   } finally {
     removeTemp(root)
   }

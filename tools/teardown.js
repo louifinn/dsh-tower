@@ -20,7 +20,7 @@ export function registerTeardownTool(ctx, deps) {
   define(ctx, {
     name: 'tower_teardown',
     description:
-      'Tear down eligible mission worktrees after their missions are merged or abandoned. A worktree whose roster agent is running is always kept (force cannot override); dirty worktrees need force; exclude keeps named missions. dry_run previews the remove/keep decisions without changing anything. Terminal missions whose worktree is gone and whose configured archive policy is due (archive.afterDays / archive.maxMissions) are moved to <git-common-dir>/dsh-tower/archive/ so state.json stops rewriting them; nothing is deleted.',
+      'Remove eligible merged/abandoned mission worktrees. A running agent is always kept; dirty worktrees need force; exclude skips named missions; dry_run previews. Due terminal missions are archived under dsh-tower/archive, never deleted.',
     parameters: TeardownInput,
     aliases: {"dry_run":["dryRun"]},
     board: true,

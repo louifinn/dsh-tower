@@ -30,7 +30,7 @@ worker 永远不合并。控制塔运行 preflight；只有之后 `tower_merge` 
 
 ### 1.5 证据优先于断言
 
-"完成了"是声明；commit、diff、通过的测试回执、审查结论都是证据。Tower 全部记录：`tower_doctor` 检查环境，`tower_test` 记录发现，`tower_complete` 记录 checks，`tower_review` 把结论绑定到提交（开启审查时），`tower_batch` 只有在有限 mission 集合的必需证据齐全时才允许收口。
+"完成了"是声明；commit、diff、通过的测试回执、审查结论都是证据。Tower 全部记录：`tower_inspect` 的 `view: "doctor"` 视图 检查环境，`tower_test` 记录发现，`tower_complete` 记录 checks，`tower_review` 把结论绑定到提交（开启审查时），`tower_batch` 只有在有限 mission 集合的必需证据齐全时才允许收口。
 
 ### 1.6 失败关闭，显式恢复
 
@@ -39,7 +39,7 @@ Tower 宁可显示 blocker，也不静默修复。stale worker 被标记而不�
 ### 1.7 模式切换显式且可归因
 
 Tower 模式改变会话姿态：收窄工具面并注入 mission 协议。人类始终可以用 `/tower` 切换；默认情况下
-模型也可以带具体理由用 `tower_control` 进出，每次变更记录操作者与理由。设计重点不是某一方拥有
+模型也可以带具体理由用 `tower_mode` 进出，每次变更记录操作者与理由。设计重点不是某一方拥有
 开关，而是切换必须显式、可见；若部署需要仅人类控制，设 `mode.allowAgentControl:false`。进入会
 暂停活跃 goal 并清除 plan mode；退出不会静默恢复。Tower 激活期间刻意拒绝 `goal`、`todo`、
 Team 任务板、Workflow、Ralph 与普通 subagent 工具，避免两套编排协议争夺同一会话。
@@ -70,7 +70,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 
 ### 2.2 有顺序约束的迁移或重构
 
-例：重命名包、更新 import、重生成快照、再更新文档。部分工作可并行，但后续 mission 依赖前面的合并。Tower 记录 `deps`，依赖未合并时拒绝合并当前 mission，控制塔用 `tower_status`/preflight 检查图，而不是靠聊天记忆。
+例：重命名包、更新 import、重生成快照、再更新文档。部分工作可并行，但后续 mission 依赖前面的合并。Tower 记录 `deps`，依赖未合并时拒绝合并当前 mission，控制塔用 `tower_inspect` 的 `view: "status"` 视图/preflight 检查图，而不是靠聊天记忆。
 
 **为什么用 Tower：** 依赖图和分支新鲜度是被执行的，不是建议。
 
@@ -88,7 +88,7 @@ Tower 是 Host 插件，只使用本地 Git、本地文件和 DSH subagent 服�
 
 ### 2.5 跨上下文压缩或重启的长期工作
 
-例：多日重构，期间重启、开新会话或上下文重置。mission 状态、roster、inbox、reviews、worktree 都是持久的；`tower_adopt` 对账丢失的 roster；`tower_doctor` 报告问题；`tower_merge` 对账已落地的合并。
+例：多日重构，期间重启、开新会话或上下文重置。mission 状态、roster、inbox、reviews、worktree 都是持久的；`tower_init({op:"adopt"})` 对账丢失的 roster；`tower_inspect` 的 `view: "doctor"` 视图 报告问题；`tower_merge` 对账已落地的合并。
 
 **为什么用 Tower：** 协议可以从本地状态与 Git 重建，而不是从对话窗口重建。
 
@@ -227,7 +227,7 @@ Plan mode 决定做什么；Tower 把已决定的计划执行到仓库。进入 
 2. 对独立 mission 启动 worker；API 等依赖完成。
 3. 每个 worker 在自己分支提交，带 checks 完成。
 4. 若策略为 `review.mode:required`，启动 reviewer 并要求 clean + merge；否则审查可选或关闭。
-5. 逐 mission `tower_preflight` + `tower_merge`，处理 scope/base/review blocker。
+5. 逐 mission `tower_inspect` 的 `view: "preflight"` 视图 + `tower_merge`，处理 scope/base/review blocker。
 6. `tower_teardown`；`MISSIONS.md` 是人类可读记录。
 
 **为什么不用 Team/Workflow？** 这是已知的仓库变更集合，需要按顺序经受控合并落地（可选独立审查）。Team 任务板不隔离写入；Workflow 会分析但不会门禁合并。

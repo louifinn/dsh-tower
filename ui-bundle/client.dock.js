@@ -59,7 +59,9 @@ window.__ModuleLoader__.load({
           return { tool: toolName, running: false, tone: 'idle', key: 'dock.generic' }
         }
         const blockers = blockersOf(payload.blockers)
-        if (toolName === 'tower_status') {
+        // #163 Phase 3: tower_inspect carries its view in the payload.
+        const view = toolName === 'tower_inspect' && typeof payload.view === 'string' ? payload.view : null
+        if (view === 'status') {
           const counts = countsOf(payload)
           const open = typeof payload.openTasks === 'number' ? payload.openTasks : 0
           if (counts !== null) {
@@ -67,7 +69,7 @@ window.__ModuleLoader__.load({
           }
           return { tool: toolName, running: false, tone: 'ok', key: 'dock.generic' }
         }
-        if (toolName === 'tower_roster') {
+        if (view === 'roster') {
           const roster = Array.isArray(payload.roster) ? payload.roster : []
           let live = 0
           for (const entry of roster) if (isPlainObject(entry) && entry.activity === 'running') live += 1
@@ -85,7 +87,7 @@ window.__ModuleLoader__.load({
             },
           }
         }
-        if (toolName === 'tower_preflight') {
+        if (view === 'preflight') {
           return payload.ok === true
             ? { tool: toolName, running: false, tone: 'ok', key: 'dock.ready' }
             : { tool: toolName, running: false, tone: 'error', key: 'dock.blocked', params: { count: blockers.length } }
@@ -144,7 +146,7 @@ window.__ModuleLoader__.load({
             ? { tool: toolName, running: false, tone: 'warn', key: 'dock.interrupt', params: { name } }
             : { tool: toolName, running: false, tone: 'idle', key: 'dock.generic' }
         }
-        if (toolName === 'tower_doctor') {
+        if (view === 'doctor') {
           const status = enumLabel(t, 'doctor', payload.ok === true ? 'ok' : 'issues')
           return {
             tool: toolName,

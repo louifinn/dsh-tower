@@ -5,7 +5,7 @@
 // history-derived composer dock chip/summary, the root-scoped overlay status
 // strip, the dynamic mode-aware denied-tool rows (#12), and the `tower-ui`
 // locale dictionaries (en/zh). Tower mode has no Client RPC: the dock derives
-// it from the durable `/tower`, `tower_mode` and `tower_control` history in the
+// it from the durable `/tower` and `tower_mode` history in the
 // `useChat` legacy slice, so a page refresh re-derives the same stance.
 //
 // Since #71 the surfaces live in package-local sibling chunks

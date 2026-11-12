@@ -33,9 +33,9 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 test('a tool module file name is its tool id', () => {
-  assert.equal(toolIdForModule('doctor.js'), 'tower_doctor')
-  assert.equal(toolIdForModule('import-legacy.js'), 'tower_import_legacy')
-  assert.equal(toolIdForModule('legacy-map.js'), 'tower_legacy_map')
+  assert.equal(toolIdForModule('inspect.js'), 'tower_inspect')
+  assert.equal(toolIdForModule('views/doctor.js'), null, 'view implementations under tools/views/ are not tool modules (#163)')
+  assert.equal(toolIdForModule('import.js'), 'tower_import')
   assert.equal(toolIdForModule('index.js'), null, 'the wiring module registers nothing itself')
   assert.equal(toolIdForModule('README.md'), null)
 })
@@ -45,20 +45,19 @@ test('expected tool ids are the tool modules plus the host entry tools, minus de
   const off = defaultOffToolIds()
   const ids = expectedToolIds(modules)
   // The shipped profile: one id per tool module (index.js registers none) plus
-  // the two Host entry tools, minus the tools of rows that ship off (#121).
-  assert.equal(ids.length, modules.length - 1 + INDEX_TOOL_IDS.length - off.size)
-  assert.equal(ids.length, 28, 'the shipped profile mounts 28 tools (tower-hmr is off)')
+  // the Host entry session tool, minus the tools of rows that ship off (#121).
+  assert.equal(ids.length, modules.filter((name) => toolIdForModule(name) !== null).length + INDEX_TOOL_IDS.length - off.size)
+  assert.equal(ids.length, 16, 'the shipped profile mounts 16 tools (the five subsystem rows ship off)')
   assert.deepEqual(ids, [...ids].sort(), 'ids stay sorted for stable diagnostics')
-  assert.ok(ids.includes('tower_doctor'))
-  assert.ok(ids.includes('tower_import_legacy'))
+  assert.ok(ids.includes('tower_inspect'))
   for (const id of INDEX_TOOL_IDS) assert.ok(ids.includes(id))
   for (const id of off) assert.ok(!ids.includes(id), `${id} belongs to a default-off row and must not be expected`)
   assert.ok(!ids.includes('tower_reload'), 'tower_reload is owned by the shipped-off tower-hmr row')
 
-  // The build surface with every optional row on is 29, so both numbers are
-  // pinned: the smoke must not silently accept the wrong one.
+  // The build surface with every optional row on is 21, so both numbers are
+  // pinned: the smoke must not silently accept the wrong one (#163 Phase 5).
   const allRowsOn = expectedToolIds(modules, { enabledRows: [...BUNDLE_CHILD_IDS, ...OPTIONAL_ROW_IDS] })
-  assert.equal(allRowsOn.length, 29, 'enabling tower-hmr yields the full 29-tool build surface')
+  assert.equal(allRowsOn.length, 21, 'enabling tower-hmr yields the full 21-tool build surface')
   assert.ok(allRowsOn.includes('tower_reload'))
 })
 

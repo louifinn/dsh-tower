@@ -69,8 +69,8 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   - **`blocked` is derived.** Write `status:"blocked"` through `tower_mission` is refused; use
     `blocker` to report and `clear_blockers` to resolve. Batch statuses are canonical
     `open → closed|abandoned`; an expired foreign lease requires explicit `force` to recover.
-  - **Survey actions are explicit.** `tower_merge`, `tower_rebase`, `tower_preflight`, and
-    `tower_diff` refuse surveys with `invalid-transition`; a completed survey is terminal for
+  - **Survey actions are explicit.** `tower_merge`, `tower_rebase`, `tower_inspect` with `view: "preflight"`, and
+    `tower_inspect` with `view: "diff"` refuse surveys with `invalid-transition`; a completed survey is terminal for
     planning, archive, dependency satisfaction, and reanchor. `tower_complete` accepts an optional
     structured `result` (`paths`, `symbols`, `notes`, `plan`) for surveys only.
   - Reviewers are now spawned into a detached checkout bound to the recorded commit; a verdict is
@@ -123,7 +123,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 - **state schema v1 → v2 (unreleased)**: `state.json` migrates automatically. The first **write** after
   upgrading keeps a `state.json.v1.bak` backup, advances `revision` once, and appends
   `state.migrated {from,to}` to `activity.jsonl`; read-only tools keep reading a v1 file without
-  rewriting it. `tower_doctor` reports the on-disk version and the pending migration. A file written by
+  rewriting it. `tower_inspect` with `view: "doctor"` reports the on-disk version and the pending migration. A file written by
   a newer plugin is refused with `[tower:state-version-unsupported]` and is never rewritten or
   downgraded; a migration that throws reports `[tower:state-migration-failed]` and leaves the original
   file byte-identical.
@@ -131,7 +131,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 - **state schema v2 → v3 (unreleased, #90)**: scope matching follows the checkout's filesystem. The
   migration backfills `caseInsensitive: null` ("not detected"); a migration never reads the filesystem,
   so the first `tower_init` after upgrading probes the checkout once and records `true`/`false`. Until
-  then the safe `case-sensitive` comparison applies, and `tower_doctor` reports the unknown mode as a
+  then the safe `case-sensitive` comparison applies, and `tower_inspect` with `view: "doctor"` reports the unknown mode as a
   `warn` (`case-mode`). On a case-insensitive checkout, `src/Api/**` and `src/api/**` then count as
   overlapping and case-only mismatches are no longer refused by the out-of-scope gate. Stored scope
   strings are never rewritten: the board keeps showing what the operator typed.
@@ -144,7 +144,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   profile that still carries them is now rejected as an unknown key (`config-unknown-key`) and the host stops
   mounting until they are deleted, so no silent no-op switch remains. Move each capability to its row
   in the plugin page instead; `tower-hmr` ships off, so `tower_reload` and `/tower reload` are reported
-  as "disabled by component tower-hmr" until you enable it for a linked dev profile. `tower_doctor` and
+  as "disabled by component tower-hmr" until you enable it for a linked dev profile. `tower_inspect` with `view: "doctor"` and
   `tower_recover` are registered for every configuration and need no key. The reviewer row may be off
   while the policy is `off` or `optional`; with `review.mode:required`, planning and mode entry refuse
   the combination with an explanatory error. No state migration is needed.

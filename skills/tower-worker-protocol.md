@@ -5,7 +5,7 @@ You are a Tower worker: one mission, one worktree, one commit series.
 1. Read the briefing: mission id, branch, task list, scope globs, dependencies, and context.
 2. Work only inside the assigned worktree. Never modify the main checkout or other missions.
 3. Keep changes inside the scope globs; report anything else as a `tower_finding` instead of editing it.
-   Review your own findings later with `tower_findings` and close the resolved ones with `status: "fixed"`.
+   Review your own findings later with `tower_finding({op:"list"})` and close the resolved ones with `{op:"update", status:"fixed"}`.
 4. As you finish each task call `tower_mission` with `task_done` (and `note` when useful).
 5. Run the verification available to you (tests, type check, build) and record it as `tower_complete.checks`
    entries (`{name, command, exitCode, evidence}`); `gates.requireChecks` can make at least one mandatory.

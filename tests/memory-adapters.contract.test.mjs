@@ -509,10 +509,10 @@ test('the composition root supplies the ports the registry injects', async () =>
   const { ctx, tools, dispose } = makeRegistrationCtx()
   try {
     registerTowerTools(ctx, { deps: sentinel })
-    const status = tools.get('tower_status')
-    assert.ok(status, 'tower_status is registered')
+    const status = tools.get('tower_inspect')
+    assert.ok(status, 'tower_inspect is registered')
     await assert.rejects(
-      () => status.execute({ repoRoot: '/virtual/repo' }, { agent: { id: 'contract-test' } }),
+      () => status.execute({ view: 'status', repoRoot: '/virtual/repo' }, { agent: { id: 'contract-test' } }),
       /sentinel-composition-root/,
       'the registry must open the Tower with the host-supplied port set',
     )

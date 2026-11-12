@@ -216,7 +216,7 @@ test('regression: rework rounds can spawn again with unique default names and ta
     const view = await tower.rosterView()
     const workers = view.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker')
     assert.equal(workers.filter((entry) => entry.state !== 'retired').length, 1)
-    const takeover = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker', takeover: true })
+    const takeover = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker', op: 'takeover' })
     assert.equal(takeover.name, 'worker-m1-3')
     const after = await (await Tower.open(repo)).rosterView()
     assert.equal(after.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker' && entry.state !== 'retired').length, 1)
@@ -264,7 +264,7 @@ test('regression: gates.requireChecks blocks a completion without evidence', asy
       { agent: { id: 'tower-agent' } },
     )
     assert.equal(reviewed.missionStatus, 'completed')
-    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId }, { agent: { id: 'tower-agent' } })
     assert.ok(preflight.blockers.some((blocker) => blocker.code === 'no-check-evidence'))
   } finally {
     removeTemp(root)

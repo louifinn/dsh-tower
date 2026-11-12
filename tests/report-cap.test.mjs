@@ -84,6 +84,7 @@ function makeCtx() {
   return { ctx, tools }
 }
 
+const towerExec = { agent: { id: 'agent-report-tower' } }
 const workerExec = { agent: { id: 'agent-report' } }
 
 async function call(tools, name, args, exec = workerExec) {
@@ -97,11 +98,11 @@ async function call(tools, name, args, exec = workerExec) {
 
 /** init + plan one mission, provision it, make a commit, and spawn its worker. */
 async function prepareMission(repo, tools) {
-  await call(tools, 'tower_init', { repoRoot: repo })
+  await call(tools, 'tower_init', { repoRoot: repo }, towerExec)
   await call(tools, 'tower_plan', {
     repoRoot: repo,
     missions: [{ title: 'Report cap', scope: ['src/**'], tasks: ['implement'] }],
-  })
+  }, towerExec)
   const tower = await Tower.open(repo)
   const provisioned = await tower.provision({ missionId: 'M1' })
   const worktree = provisioned.worktree.path
@@ -109,8 +110,8 @@ async function prepareMission(repo, tools) {
   fs.writeFileSync(path.join(worktree, 'src', 'a.txt'), 'a\n')
   git(worktree, ['add', '-A'])
   git(worktree, ['commit', '-m', 'M1 work'])
-  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active' })
-  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', taskDone: 'implement' })
+  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active' }, towerExec)
+  await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', taskDone: 'implement' }, towerExec)
   await tower.recordSpawn({
     missionId: 'M1',
     name: worker.name,
@@ -197,7 +198,7 @@ test('a 40 KB report is rejected with the nextAction and leaves state.json byte-
   const { tools } = makeCtx()
   try {
     await prepareMission(repo, tools)
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const statePath = statePathOf(status.commonDir)
     const before = sha256(statePath)
 
@@ -219,7 +220,7 @@ test('a 40 KB report is rejected with the nextAction and leaves state.json byte-
     assert.equal(sha256(statePath), before, 'a rejected report must not mutate state.json')
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     assert.equal(state.missions[0].completionReport, undefined)
-    assert.equal((await call(tools, 'tower_status', { repoRoot: repo })).counts.completed, 0)
+    assert.equal((await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })).counts.completed, 0)
   } finally {
     cleanup(root)
   }
@@ -237,7 +238,7 @@ test('a completion at the cap keeps state.json under a stated ceiling and status
     const completed = await call(tools, 'tower_complete', { repoRoot: repo, missionId: 'M1', report })
     assert.equal(completed.mission.completionReport.reportBytes, DEFAULT_MAX_REPORT_BYTES)
 
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const statePath = statePathOf(status.commonDir)
     const stateBytes = fs.statSync(statePath).size
     assert.ok(stateBytes <= stateCeiling, `state.json is ${stateBytes} B, ceiling ${stateCeiling} B`)
@@ -249,13 +250,13 @@ test('a completion at the cap keeps state.json under a stated ceiling and status
     assert.equal('report' in paged, false)
 
     // The full body is only in the missionId detail.
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.detail.mission.completionReport.report, report)
     assert.equal(detail.detail.mission.completionReport.reportBytes, DEFAULT_MAX_REPORT_BYTES)
     assert.equal(detail.detail.mission.reportBytes, DEFAULT_MAX_REPORT_BYTES)
 
     // Doctor reports the largest report in the repository.
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const reports = doctor.checks.find((entry) => entry.id === 'reports')
     assert.ok(reports, 'doctor reports check is present')
     assert.match(reports.detail, /32768/)
@@ -285,7 +286,7 @@ test('sub-cap completions without reportBytes load unchanged and the size is der
     const completed = await call(tools, 'tower_complete', { repoRoot: repo, missionId: 'M1', report })
     assert.equal(completed.mission.status, 'completed')
 
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const statePath = statePathOf(status.commonDir)
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     // Simulate a completion written before #89: no reportBytes field.
@@ -293,13 +294,13 @@ test('sub-cap completions without reportBytes load unchanged and the size is der
     fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
     const before = sha256(statePath)
 
-    const paged = await call(tools, 'tower_status', { repoRoot: repo })
+    const paged = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const mission = paged.missions.find((entry) => entry.id === 'M1')
     assert.equal(mission.reportBytes, utf8ByteLength(report))
     assert.equal('completionReport' in mission, false)
     assert.equal(sha256(statePath), before, 'reads must not rewrite the state file')
 
-    const detail = await call(tools, 'tower_status', { repoRoot: repo, missionId: 'M1' })
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId: 'M1' })
     assert.equal(detail.detail.mission.completionReport.report, report)
     assert.equal(detail.detail.mission.completionReport.reportBytes, undefined)
     assert.equal(detail.detail.mission.reportBytes, utf8ByteLength(report))
@@ -313,7 +314,7 @@ test('a repository config lowers the cap for tower_complete', async () => {
   const { tools } = makeCtx()
   try {
     await prepareMission(repo, tools)
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const configDir = path.join(status.commonDir, 'dsh-tower')
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ gates: { maxReportBytes: 2048 } }))
 

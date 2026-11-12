@@ -1,8 +1,9 @@
-// tower_init: repository initialization.
+// tower_init: repository initialization and roster adoption (#163 Phase 4).
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
+import { INIT_OP, isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 import { InitInput } from '../domain/contracts/tool-inputs/index.js'
-import { isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
+import { runAdoptView } from './views/adopt.js'
 
 /**
  * @param {any} ctx
@@ -13,25 +14,28 @@ export function registerInitTool(ctx, deps) {
   define(ctx, {
     name: 'tower_init',
     description:
-      'Initialize Tower mission state for a repository (absolute repoRoot). Creates <git-common-dir>/dsh-tower/state.json and an activity log; idempotent on an existing workspace. Probes whether the checkout filesystem folds case and records caseInsensitive once, so scope matching follows the real filesystem (a skipped probe records null and keeps the safe case-sensitive comparison). Options: autoGitInit (git init + empty initial commit when the directory is not a repository), snapshotDirty (snapshot uncommitted work into a dangling commit used as the mission baseline), reanchor (change base when every mission is merged/abandoned). Only the tower may initialize.',
+      'Initialize Tower state under <git-common-dir>/dsh-tower for the repository at absolute repoRoot (op: init, default), or reconcile the roster with the durable subagent catalog after a restart (op: adopt). Only the tower may init or adopt. Details: docs/reference/tools.md.',
     parameters: InitInput,
-    aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'] },
+    aliases: { auto_git_init: ['autoGitInit'], snapshot_dirty: ['snapshotDirty'], retire_missing: ['retireMissing'] },
     board: true,
-    output: output(SCHEMAS.init),
+    output: output(SCHEMAS.initAdopt),
     async execute(args, exec) {
+      if (args.op === INIT_OP.adopt) {
+        return runAdoptView(ctx, args, exec, { openTower: deps.openTower, actorFor, requireTowerActor })
+      }
       const profileInit = runtimeConfig().init ?? {}
       let repo = null
       try {
         repo = await resolveRepo(args.repoRoot)
       } catch (error) {
         const autoGitInit =
-          args.autoGitInit === true || (args.autoGitInit === undefined && profileInit.autoGitInit === true)
+          args.auto_git_init === true || (args.auto_git_init === undefined && profileInit.autoGitInit === true)
         repo = await ensureRepository(args.repoRoot, autoGitInit)
       }
       const tower = await deps.openTower(repo.root)
       const initConfig = tower.config.init ?? {}
       const snapshotDirty =
-        args.snapshotDirty === true || (args.snapshotDirty === undefined && initConfig.snapshotDirty === true)
+        args.snapshot_dirty === true || (args.snapshot_dirty === undefined && initConfig.snapshotDirty === true)
       const agentId = exec?.agent?.id !== undefined ? String(exec.agent.id) : null
       if (!agentId) {
         throw new TowerToolError('not-authorized', 'tower_init requires a caller agent id; refusing to treat an unidentified caller as the tower')

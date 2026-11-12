@@ -186,9 +186,9 @@ test('security: adopt needs two observations before retiring an absent worker', 
     const planned = await initPlan(tools, repo)
     const missionId = planned.missions[0].id
     await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
-    const first = await call(tools, 'tower_adopt', { repoRoot: repo })
+    const first = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
     assert.deepEqual(first.retired, [])
-    const second = await call(tools, 'tower_adopt', { repoRoot: repo })
+    const second = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
     assert.equal(second.retired.length, 1)
   } finally {
     removeTemp(root)

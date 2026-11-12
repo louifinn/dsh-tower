@@ -69,35 +69,41 @@ function validateAgainstSchema(value, schema, where = '$') {
 test('tool surface: every tool declares a structured object output schema', () => {
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
-  // registerTowerTools defines the 27 tools that go through define(); the two
-  // Host-entry tools (tower_mode/tower_control) are registered by index.js and
-  // are part of the shipped 29 measured in tests/surface.test.mjs (#118).
-  assert.equal(tools.size, 27)
+  // registerTowerTools defines the 20 tools that go through define(); the Host
+  // entry registers tower_mode itself, so together they are the 21 measured in
+  // tests/surface.test.mjs (#118, #163 Phase 4).
+  assert.equal(tools.size, 20)
   for (const definition of tools.values()) {
     assert.equal(definition.output.schema.type, 'object', definition.name)
     assert.equal(typeof definition.output.render, 'function', definition.name)
     assert.ok(definition.description.length > 40, definition.name)
     assert.equal(definition.parameters.type, 'object', definition.name)
   }
-  assert.ok(tools.has('tower_findings'), 'the finding lifecycle tool is registered')
-  assert.ok(tools.get('tower_findings').description.includes('open'), 'statuses are documented')
+  assert.ok(tools.has('tower_finding'), 'the finding lifecycle tool is registered')
+  assert.ok(tools.get('tower_finding').description.includes('update'), 'the update op is documented')
 
-  // Accepted input aliases are part of the parameter contract, not only of the
-  // runtime normalizer.
-  const aliasProperties = {
+  // #163 Phase 2: aliases are accepted by the runtime but are no longer
+  // advertised as parameter properties, so they cost no schema bytes.
+  const hiddenAliases = {
     tower_mission: ['missionId', 'taskDone', 'taskDrop', 'taskDropReason', 'clearBlockers'],
+    tower_inspect: ['id', 'mission_id', 'include_gate', 'include_archived', 'max_bytes'],
     tower_spawn: ['id', 'wait_ms'],
-    tower_diff: ['id'],
     tower_merge: ['id', 'timeout_ms'],
     tower_inbox: ['includeRead'],
     tower_teardown: ['dryRun'],
     tower_finding: ['mission_id'],
-    tower_findings: ['mission_id'],
   }
-  for (const [name, keys] of Object.entries(aliasProperties)) {
+  for (const [name, keys] of Object.entries(hiddenAliases)) {
     for (const key of keys) {
-      assert.ok(key in tools.get(name).parameters.properties, `${name} parameter schema declares alias ${key}`)
+      assert.ok(!(key in tools.get(name).parameters.properties), `${name} parameter schema no longer advertises alias ${key}`)
     }
+  }
+
+  // #163 Phase 1: the repository is resolved by the runtime; only tower_init is
+  // the bootstrap tool that still advertises `repoRoot`.
+  for (const definition of tools.values()) {
+    const advertised = 'repoRoot' in definition.parameters.properties
+    assert.equal(advertised, definition.name === 'tower_init', `${definition.name} advertises repoRoot only on tower_init`)
   }
 })
 
@@ -133,8 +139,8 @@ test('tool aliases: missionId/id and taskDone/task_done/clearBlockers all work',
     assert.deepEqual(cleared.mission.blockers, [])
     assert.equal(cleared.mission.status, 'active')
 
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
-    validateAgainstSchema(status, tools.get('tower_status').output.schema)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
+    validateAgainstSchema(status, tools.get('tower_inspect').output.schema)
     assert.equal(status.counts.blocked, 0)
     assert.equal(status.counts.active >= 1, true)
   } finally {
@@ -149,7 +155,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
   const exec = { agent: { id: 'agent-errors' } }
   try {
     await assert.rejects(
-      () => tools.get('tower_status').execute({ repoRoot: repo }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec),
       /\[tower:not-initialized\]/,
     )
     const notRepo = path.join(root, 'not-a-repo')
@@ -159,7 +165,7 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
       /\[tower:repo-invalid\]/,
     )
     await assert.rejects(
-      () => tools.get('tower_diff').execute({ repoRoot: repo }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'diff', repoRoot: repo }, exec),
       /\[tower:invalid-argument\].*requires missionId/,
     )
     await tools.get('tower_init').execute({ repoRoot: repo }, exec)
@@ -175,11 +181,11 @@ test('tool errors: stable [tower:<code>] prefixes for common failures', async ()
       /\[tower:invalid-argument\].*unknown mission status/,
     )
     await assert.rejects(
-      () => tools.get('tower_diff').execute({ repoRoot: repo, id: 'M9' }, exec),
+      () => tools.get('tower_inspect').execute({ view: 'diff', repoRoot: repo, id: 'M9' }, exec),
       /\[tower:mission-not-found\]/,
     )
     await assert.rejects(
-      () => tools.get('tower_findings').execute({ repoRoot: repo, id: 'F9' }, exec),
+      () => tools.get('tower_finding').execute({ repoRoot: repo, id: 'F9' }, exec),
       /\[tower:finding-not-found\]/,
     )
   } finally {
@@ -215,17 +221,17 @@ test('findings tool: file, list, read and transition through the tool surface', 
     validateAgainstSchema(filed, tools.get('tower_finding').output.schema)
     assert.equal(filed.status, 'open')
 
-    const list = await tools.get('tower_findings').execute({ repoRoot: repo }, exec)
-    validateAgainstSchema(list, tools.get('tower_findings').output.schema)
+    const list = await tools.get('tower_finding').execute({ repoRoot: repo }, exec)
+    validateAgainstSchema(list, tools.get('tower_finding').output.schema)
     assert.equal(list.total, 1)
     assert.equal(list.counts.open, 1)
 
-    const read = await tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id }, exec)
-    validateAgainstSchema(read, tools.get('tower_findings').output.schema)
+    const read = await tools.get('tower_finding').execute({ repoRoot: repo, id: filed.id }, exec)
+    validateAgainstSchema(read, tools.get('tower_finding').output.schema)
     assert.equal(read.finding.details, 'no backoff')
 
     const updated = await tools
-      .get('tower_findings')
+      .get('tower_finding')
       .execute({ repoRoot: repo, id: filed.id, status: 'triaged', note: 'scheduled' }, exec)
     assert.equal(updated.finding.status, 'triaged')
 
@@ -243,10 +249,10 @@ test('findings tool: file, list, read and transition through the tool surface', 
     })
     const reviewerExec = { agent: { id: 'agent-reviewer' } }
     await assert.rejects(
-      () => tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id, status: 'fixed' }, reviewerExec),
+      () => tools.get('tower_finding').execute({ repoRoot: repo, id: filed.id, status: 'fixed' }, reviewerExec),
       /\[tower:(?:invalid-transition|not-authorized)\].*reviewers may list and read/,
     )
-    const reviewerRead = await tools.get('tower_findings').execute({ repoRoot: repo, id: filed.id }, reviewerExec)
+    const reviewerRead = await tools.get('tower_finding').execute({ repoRoot: repo, id: filed.id }, reviewerExec)
     assert.equal(reviewerRead.finding.status, 'triaged')
   } finally {
     removeTemp(root)
@@ -294,7 +300,7 @@ test('missing towerAgentId gives an actionable error and tower_init re-claims', 
       () => tools.get('tower_plan').execute({ repoRoot: repo, missions: [{ title: 'Blocked', scope: ['y/**'] }] }, restored),
       /tower_init to re-claim/,
     )
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, restored)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, restored)
     assert.equal(status.ownerMissing, true)
     assert.equal(status.towerAgentId, null)
     await tools.get('tower_init').execute({ repoRoot: repo }, restored)

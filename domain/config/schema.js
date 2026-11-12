@@ -89,7 +89,7 @@ export const Config = Schema.object({
     'Legacy alias for mode.promptSection: replaces the whole Tower-mode system prompt text.',
   ),
   allowAgentControl: Schema.boolean().description(
-    'Legacy alias for mode.allowAgentControl: register tower_control so the model may toggle the mode.',
+    'Legacy alias for mode.allowAgentControl: allow tower_mode writes so the model may toggle the mode.',
   ),
   init: Schema.object({
     autoGitInit: Schema.boolean()
@@ -107,7 +107,7 @@ export const Config = Schema.object({
   mode: Schema.object({
     promptSection: Schema.string().description('Replacement Tower-mode system prompt text. Empty keeps the built-in reminder.'),
     sectionAppend: Schema.string().description('Extra text appended to the Tower-mode system prompt section (team conventions).'),
-    allowAgentControl: Schema.boolean().description('Register tower_control so the model may enter/leave the mode with a reason.'),
+    allowAgentControl: Schema.boolean().description('Allow tower_mode writes (enter/leave/takeover) so the model may change the mode with a reason.'),
     autoPauseGoal: Schema.boolean().default(true).description('Pause an active goal when entering Tower mode.'),
     requireResumeAuthorization: Schema.boolean()
       .default(false)
@@ -197,7 +197,7 @@ export const Config = Schema.object({
       .min(1000)
       .max(600000)
       .default(90000)
-      .description('Upper bound for tower_spawn waitMs (default 90s, Kimi-compatible).'),
+      .description('Upper bound for a blocking tower_spawn wait (default 90s, Kimi-compatible).'),
     requireLease: Schema.string().description('Optional lease name tower_spawn must hold before starting a worker.'),
   })
     .default({})

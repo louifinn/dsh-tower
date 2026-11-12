@@ -239,7 +239,7 @@ export function reviewerBriefing({
   lines.push('- Read-only: do not modify files, commit, or merge.')
   if (review) {
     lines.push(`- Pass workdir="${review.path}" on every command: the checkout is a detached read of commit ${String(review.commit).slice(0, 12)}, not the mutable mission worktree.`)
-    lines.push('- tower_diff shows the recorded commit your verdict will stamp; do not review anything newer.')
+    lines.push('- tower_inspect with view: diff shows the recorded commit your verdict will stamp; do not review anything newer.')
   }
   lines.push('- Inspect the diff from the reviewed base to the branch tip and map every task to the diff.')
   lines.push('- Check scope, correctness, tests, and security. Report severity and concrete evidence.')

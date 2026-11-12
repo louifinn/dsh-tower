@@ -2,7 +2,7 @@
 //
 // `scripts/surface-baseline.mjs` and `scripts/generate-tools-reference.mjs` must
 // measure the tools the plugin actually registers — including `tower_mode` and
-// `tower_control`, which `index.js` registers directly instead of through the
+// `tower_mode`, which `index.js` registers directly instead of through the
 // `define()` path. Loading the real `apply()` with a minimal Cordis context
 // means the measurement cannot drift from the shipped surface again.
 import os from 'node:os'
@@ -67,11 +67,17 @@ export function loadShippedToolSurface() {
   // *build* surface, so the all-capabilities aggregate is applied on top.
   __testResetToolSurface()
   apply(ctx, { mode: { storePath: path.join(os.tmpdir(), 'dsh-tower-surface-check') } })
+  // #163: the default profile mounts only the mandatory surface. Snapshot it
+  // before the optional capability rows are applied, so the per-profile budget
+  // measures what one session actually advertises rather than the all-rows-on
+  // build surface.
+  const defaultDefinitions = new Map(definitions)
   registerAllCapabilities(ctx)
   const names = definedToolNames()
   return {
     names,
     definitions,
+    defaultDefinitions,
     dispose() {
       for (const dispose of disposers.reverse()) {
         try {

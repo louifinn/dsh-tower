@@ -17,10 +17,12 @@ import {
   SpawnInput,
 } from './collaboration.js'
 import { DiffInput, MergeInput, RebaseInput, TeardownInput } from './integration.js'
-import { FindingInput, FindingsInput } from './findings.js'
+import { InspectInput } from './inspect.js'
+import { FindingInput } from './findings.js'
 import {
   BatchInput,
   DoctorInput,
+  ImportInput,
   ImportLegacyInput,
   InitInput,
   LegacyMapInput,
@@ -47,10 +49,11 @@ export {
   MergeInput,
   RebaseInput,
   TeardownInput,
+  InspectInput,
   FindingInput,
-  FindingsInput,
   BatchInput,
   DoctorInput,
+  ImportInput,
   ImportLegacyInput,
   InitInput,
   LegacyMapInput,
@@ -65,29 +68,22 @@ const ToolInputs = {
   tower_init: InitInput,
   tower_plan: PlanInput,
   tower_mission: MissionInput,
-  tower_status: StatusInput,
+  tower_inspect: InspectInput,
   tower_spawn: SpawnInput,
-  tower_roster: RosterInput,
   tower_interrupt: InterruptInput,
-  tower_adopt: AdoptInput,
   tower_send: SendInput,
   tower_inbox: InboxInput,
   tower_complete: CompleteInput,
   tower_finding: FindingInput,
-  tower_findings: FindingsInput,
-  tower_diff: DiffInput,
   tower_review: ReviewInput,
-  tower_preflight: PreflightInput,
   tower_merge: MergeInput,
   tower_rebase: RebaseInput,
   tower_teardown: TeardownInput,
-  tower_doctor: DoctorInput,
   tower_recover: RecoverInput,
   tower_test: TestInput,
   tower_batch: BatchInput,
   tower_resource: ResourceInput,
-  tower_import_legacy: ImportLegacyInput,
-  tower_legacy_map: LegacyMapInput,
+  tower_import: ImportInput,
   tower_reload: ReloadInput,
 }
 

@@ -4,7 +4,7 @@
 // sides: the `/tower` command (bare `/tower`, `/tower on [message]`, `/tower
 // off [message]`, and `/tower <message>`; trailing text is forwarded to the
 // model as the next user message) and, when config.allowAgentControl is true
-// (the default), the model through `tower_control`. Every change is recorded
+// (the default), the model through `tower_mode` writes. Every change is recorded
 // with its actor and reason; set allowAgentControl:false for human-only mode
 // control.
 //
@@ -34,6 +34,8 @@ import {
 } from './host/mode-state.js'
 import { registerTowerCommand } from './host/mode-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
+import { isRoleOwnedTool, roleAllowsTool, roleDenialHint } from './host/tool-profiles.js'
+import { TowerToolError } from './domain/errors.js'
 import { inspectWorkspaceLockSync, touchWorkspaceLock } from './adapters/workspaceLock.js'
 import { resolveCommonDirSync } from './adapters/git.js'
 
@@ -79,14 +81,12 @@ export function apply(ctx, rawConfig) {
   // capability.
   registerCoreTowerTools(ctx, { workspace, deps: createDefaultDeps() })
 
-  // #118/#121: tower_mode/tower_control are registered directly here instead of
-  // through define(), so record them through the same recorder the registry
-  // uses. tower_control is recorded before the allowAgentControl gate: the
+  // #118/#121: the session tool is registered directly here instead of through
+  // define(), so record it through the same recorder the registry uses. The
   // concept budget measures the surface this build can register, not only the
   // tools one profile exposes (#84). Together with the capability-tool names the
-  // registry records before row gating, these are the shipped 29.
+  // registry records before row gating, these are the shipped #163 Phase 4 set.
   recordToolRegistration('tower_mode')
-  recordToolRegistration('tower_control')
 
   // On dispose (including an HMR reload) release advisory workspace locks this
   // process still owns; a reloaded plugin restores the entries from modes.json.
@@ -126,6 +126,16 @@ export function apply(ctx, rawConfig) {
         return `tower mode: ${execution.name} is disabled because this repository is under Tower mode (${who}); run /tower off in that session first, or /tower takeover <reason> here once it is gone`
       }
       return undefined
+    }),
+  )
+
+  // #163 Phase 5: a role-owned tool called from the wrong profile is a role
+  // error with a concrete next step, never a bare unknown-tool failure.
+  ctx.effect(() =>
+    ctx.tools.guard((execution) => {
+      if (!isRoleOwnedTool(execution.name)) return undefined
+      if (roleAllowsTool(execution.agent, execution.name)) return undefined
+      return roleDenialHint(execution.name)
     }),
   )
 
@@ -169,17 +179,34 @@ export function apply(ctx, rawConfig) {
     return () => clearInterval(timer)
   })
 
-  // The two session tools below are registered directly instead of through the
-  // define() aggregate, so each handler authorizes first through the same
-  // default-deny kernel (host/authorization.js). The matrix covers all 29
-  // shipped tools, including these two; no tool bypasses the decision point.
-  // The post-authorization body lives in host/session-tools.js.
+  // #163 Phase 4: stance read, mode change and ownership takeover share one
+  // tool. `active` being absent is the read; its presence is a write, so the
+  // matrix row, mode.allowAgentControl and the handler gates keep deciding a
+  // write while a broken repository stays diagnosable. The session handler
+  // authorizes first through the same default-deny kernel
+  // (host/authorization.js); the post-authorization body lives in
+  // host/session-tools.js.
   ctx.effect(() =>
     ctx.tools.register({
       name: 'tower_mode',
       description:
-        'Report whether Tower mode is active for the calling agent, who changed it last, whether the model may toggle it, any goal paused and any Agent Team left on entry, the workspace lock, HMR availability and the plugin version.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
+        'Read the calling session\'s Tower mode (omit active), or enter (active true), leave (active false), or take over repository ownership (active "takeover", needs authorization). Writes require mode.allowAgentControl. Details: docs/reference/tools.md.',
+      parameters: {
+        type: 'object',
+        properties: {
+          active: {
+            type: ['boolean', 'string'],
+            enum: [true, false, 'takeover'],
+            description: 'Omit to read the current entry; true enters, false leaves, "takeover" transfers ownership after user approval.',
+          },
+          reason: { type: 'string', description: 'Why this mode change or ownership transfer is warranted (user intent or task state).' },
+          authorization: {
+            type: 'string',
+            description: 'Audit reference for a takeover (ticket, approval id, or decision link). Required with active:"takeover".',
+          },
+        },
+        additionalProperties: false,
+      },
       output: {
         schema: {
           type: 'object',
@@ -195,72 +222,40 @@ export function apply(ctx, rawConfig) {
             pluginVersion: {},
             hotReload: {},
             workspaceLock: {},
+            ok: { type: 'boolean' },
+            action: { type: 'string', enum: ['enter', 'exit', 'takeover'] },
+            changed: { type: 'boolean' },
+            changedBy: { type: 'string', enum: ['agent', 'user'] },
+            reason: { type: 'string' },
+            authorization: { type: 'string' },
+            approved: { type: 'boolean' },
+            transferred: { type: 'boolean' },
+            alreadyOwner: { type: 'boolean' },
+            owner: { type: 'string' },
+            previousOwner: {},
+            unreadMessages: { type: 'number' },
+            goalNote: {},
+            teamNote: {},
+            error: { type: 'string' },
           },
-          required: ['mode', 'allowAgentControl', 'deniedWhileActive'],
+          required: ['mode'],
           additionalProperties: true,
         },
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
-      async execute(_args, exec) {
+      async execute(args = {}, exec) {
         await authorizeSessionCall('tower_mode', exec, agentCwd(exec.agent))
-        return runTowerMode(ctx, exec, { config, allowAgentControl, workspace, pluginVersion: readPluginVersion() })
+        if (args.active === undefined) {
+          return runTowerMode(ctx, exec, { config, allowAgentControl, workspace, pluginVersion: readPluginVersion() })
+        }
+        if (!allowAgentControl) {
+          throw new TowerToolError('not-authorized', 'tower_mode writes are disabled: mode.allowAgentControl is false')
+        }
+        return runTowerControl(ctx, args, exec, { config })
       },
     }),
   )
 
-  if (allowAgentControl) {
-    ctx.effect(() =>
-      ctx.tools.register({
-        name: 'tower_control',
-        description:
-          'Enter, leave, or take over Tower mode for the calling agent. `takeover` transfers repository ownership from an inactive owner to this session after explicit user approval. Allowed only when the deployment enables allowAgentControl; use it when the user intent or task state clearly calls for Tower orchestration or a return to normal collaboration, and always state a concrete reason.',
-        parameters: {
-          type: 'object',
-          properties: {
-            action: {
-              type: 'string',
-              enum: ['enter', 'exit', 'takeover'],
-              description: 'enter = Tower mode on; exit = Tower mode off; takeover = transfer repository ownership to this session after approval.',
-            },
-            reason: { type: 'string', description: 'Why this mode change or ownership transfer is warranted (user intent or task state).' },
-          },
-          required: ['action', 'reason'],
-          additionalProperties: false,
-        },
-        output: {
-          schema: {
-            type: 'object',
-            properties: {
-              ok: { type: 'boolean' },
-              action: { type: 'string', enum: ['enter', 'exit', 'takeover'] },
-              mode: { type: 'string', enum: ['on', 'off'] },
-              changed: { type: 'boolean' },
-              changedBy: { type: 'string', enum: ['agent', 'user'] },
-              reason: { type: 'string' },
-              approved: { type: 'boolean' },
-              transferred: { type: 'boolean' },
-              alreadyOwner: { type: 'boolean' },
-              owner: { type: 'string' },
-              previousOwner: {},
-              unreadMessages: { type: 'number' },
-              pausedGoal: {},
-              releasedTeam: {},
-              goalNote: {},
-              teamNote: {},
-              error: { type: 'string' },
-            },
-            required: ['ok'],
-            additionalProperties: true,
-          },
-          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-        },
-        async execute(args, exec) {
-          await authorizeSessionCall('tower_control', exec, agentCwd(exec.agent))
-          return runTowerControl(ctx, args, exec, { config })
-        },
-      }),
-    )
-  }
 
   registerTowerCommand(ctx, { config, allowAgentControl })
 }

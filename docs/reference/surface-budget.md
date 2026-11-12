@@ -9,7 +9,7 @@ the brakes are `npm run surface:check` for the first three and
 [ADR 0005](../adr/0005-component-surface.md) and
 [ADR 0007](../adr/0007-bounded-activity-log-rotation.md).
 
-Decision date: 2026-10-23
+Decision date: 2026-11-12
 
 Every key and tool is classified here so "why is this here" has an answer that a
 check can read. `core` is a behavioural or safety contract, `tuning` is a safe
@@ -34,8 +34,9 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 merge or host tool.
 
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
-`tower_mode` and `tower_control` are registered directly by `index.js`, so the
-shipped surface was always 29. The 27 → 29 step is an explicit
+`tower_mode` is registered directly by `index.js` (the former `tower_control` merged into it in #163 Phase 4); it
+#163 Phase 4 folded it into `tower_mode`, so the 2.3.0 shipped surface was
+always 29. The 27 → 29 step is an explicit
 *measurement correction* with a reason and date in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) (see
 [ADR 0004](../adr/0004-surface-budget.md)), not surface growth; a later count
@@ -43,10 +44,67 @@ change still needs an ADR or a provably matching deletion.
 
 The tool count is the **build** surface, not one profile's mounted subset (#121):
 the recorder includes every tool this build can register, so a component row that
-ships off (`tower-hmr`, whose `tower_reload` keeps the count at 29) does not
-shrink the budget. `tower_doctor` reports the same 29 and names the mounted
-subset through its `components` check; the mount smoke asserts the shipped
-profile's 28 loaded tools and pins 29 for the all-rows-on surface.
+ships off (`tower-hmr`, whose `tower_reload` keeps the count at 21) does not
+shrink the budget. `tower_inspect`'s `doctor` view reports the same 21 and names
+the mounted subset through its `components` check; the mount smoke asserts the
+shipped profile's 16 loaded tools and pins 21 for the all-rows-on surface.
+
+## Per-profile surfaces (#163)
+
+The build count is not the whole bill. The tower profile, the worker preset and
+the reviewer preset each mount a different subset, and each pays that subset's
+advertised input-schema bytes on every request — the `repoRoot` field repeated
+on every tool is the biggest item. `scripts/surface-baseline.json` therefore
+also carries a `profiles` block: `tools` (mounted tool count) and `inputBytes`
+(UTF-8 bytes of the advertised `parameters` JSON) for `tower`, `worker` and
+`reviewer`. `npm run surface:check` prints all three lines.
+
+These numbers are **two-way**: both a consolidation (shrink) and a regression
+(growth) change the committed value, and any change needs a dated decision
+record (`date: "YYYY-MM-DD"`) in the same file. Unlike `configKeys` and
+`components`, a profile decision needs no ADR or deletion evidence — the dated
+phase commit that records the consolidation is the evidence. The worker and
+reviewer counts come from the same allow-lists their presets install
+(`host/tool-profiles.js`, imported by `worker.js` / `reviewer.js`), so a rename
+cannot leave the budget measuring a stale list.
+
+#163 Phase 1+2 shrank the advertised schemas without changing the tool count:
+removing the repeated `repoRoot` field and the 21 alias fields took the tower
+profile from 17,008 to 13,287 input bytes, the worker from 8,159 to 6,465, and
+the reviewer from 5,871 to 4,661. Every such contraction is a dated decision in
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); a later
+growth past the committed value fails `npm run surface:check` the same way.
+
+#163 Phase 3 folded the five read-only views (`status`, `roster`, `diff`,
+`preflight`, `doctor`) into one `tower_inspect` tool: the build surface went
+29 → 25, the tower profile 23 → 19 tools (12,895 input bytes), the worker
+8 → 7 tools (6,348 bytes) and the reviewer 7 → 6 tools (4,544 bytes). The
+worker and reviewer allow-lists name `tower_inspect` exactly once (it serves
+their status and diff views), which is why their count drops by one rather
+than five. The removed tools are recorded as a dated decision on the `tools`
+surface and a dated decision per profile metric.
+
+#163 Phase 4 folded four same-resource pairs: `init`+`adopt`,
+`finding`+`findings`, `mode`+`control`, and `import_legacy`+`legacy_map`. The
+build surface went 25 → 21, the tower profile 19 → 16 tools (12,921 input
+bytes), the worker 7 → 6 tools (6,175 bytes) and the reviewer 6 → 5 tools
+(4,371 bytes). The tower profile's bytes rise by 26 rather than falling:
+`tower_mode` now advertises the read plus the write fields and the takeover
+audit reference, which is larger than the old read-only schema it absorbed.
+The tool count still falls by three there; that is a dated decision, not an
+exemption from the two-way rule.
+
+#163 Phase 5 keeps the build surface at 21 but narrows what the tower profile
+mounts: `tower_complete` and `tower_review` are registered with a role
+predicate and belong to the worker/survey and reviewer presets, so the tower
+profile advertises 16 → 14 tools and 12,921 → 10,582 input bytes (both dated
+decisions). The five subsystem rows (`tower-batch`, `tower-import`,
+`tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
+shipped profile mounts 16 of the 21 and the all-on build surface is unchanged
+at 21. Closing a row is not a surface reduction: the tools stay in the build
+and `tower_doctor` reports each one as off with its enable step. The default
+tool list and the all-on list are documented in
+[tools.md](tools.md#tool-sets).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
@@ -209,33 +267,25 @@ them mandatory for every configuration.
 
 | Tool | Class | Note |
 |---|---|---|
-| `tower_adopt` | core | Reconciles a restored roster with the durable catalog. |
 | `tower_batch` | optional | Evidence-batch workflow; component `tower-batch`. |
 | `tower_complete` | core | The only completion path for a worker. |
-| `tower_control` | optional | Model-initiated mode change; `mode.allowAgentControl:false` removes it (ADR 0003). |
-| `tower_diff` | core | The read-only review view. |
-| `tower_doctor` | core | Read-only health contract; registered for every configuration (#122). |
-| `tower_finding` | core | Out-of-scope issue recording. |
-| `tower_findings` | core | Finding lifecycle. |
-| `tower_import_legacy` | optional | Legacy migration; component `tower-import`. |
+| `tower_inspect` | core | The five read-only views (status, roster, diff, preflight, doctor) behind one tool (#163). |
+| `tower_finding` | core | Finding lifecycle: report, list/read and update (#163 Phase 4). |
+| `tower_import` | optional | Legacy migration and audit mapping; component `tower-import` (#163 Phase 4). |
 | `tower_inbox` | core | Message delivery and acknowledgement. |
-| `tower_init` | core | Creates the repository state. |
+| `tower_init` | core | Creates the repository state or adopts the roster (`op`) (#163 Phase 4). |
 | `tower_interrupt` | core | Stops a runaway worker. |
-| `tower_legacy_map` | optional | Legacy audit mapping; component `tower-import`. |
 | `tower_merge` | core | The only merge path. |
 | `tower_mission` | core | Mission progress and blockers. |
-| `tower_mode` | core | Reports the session stance, workspace lock, HMR and plugin version; always registered. |
+| `tower_mode` | core | Reads the session stance; writes enter/leave/takeover with `active`; `mode.allowAgentControl:false` refuses writes (ADR 0003). |
 | `tower_plan` | core | Mission planning. |
-| `tower_preflight` | core | The read-only merge gate. |
 | `tower_rebase` | core | Keeps a mission branch current. |
 | `tower_recover` | core | Stale-lock recovery; registered for every configuration (#122). |
 | `tower_reload` | optional | Dev-only reload; component `tower-hmr` (shipped off). |
 | `tower_resource` | optional | Advisory leases; component `tower-leases`. |
 | `tower_review` | core | Independent review verdicts. |
-| `tower_roster` | core | Roster and live activity. |
 | `tower_send` | core | Durable messages to agents. |
-| `tower_spawn` | core | Starts workers and reviewers. |
-| `tower_status` | core | The dashboard. |
+| `tower_spawn` | core | Starts workers and reviewers; the takeover case is `op:"takeover"` and the wait bound is `spawn.maxWaitMs` (#163 Phase 5). |
 | `tower_teardown` | core | Worktree cleanup and archiving. |
 | `tower_test` | optional | Explicit discovery; component `tower-tests`. |
 

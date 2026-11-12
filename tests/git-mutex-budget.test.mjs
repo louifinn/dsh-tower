@@ -225,12 +225,12 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
 
       // (c) The git mutex is visible while the merge runs.
       const { tools } = makeCtx()
-      const heldStatus = await tools.get('tower_status').execute({ repoRoot: ctx.repo }, exec)
+      const heldStatus = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: ctx.repo }, exec)
       assert.equal(heldStatus.gitLock.held, true)
       assert.equal(heldStatus.gitLock.pid, process.pid)
       assert.equal(heldStatus.gitLock.phase, 'merge')
       assert.equal(typeof heldStatus.gitLock.heldMs, 'number')
-      const heldDoctor = await tools.get('tower_doctor').execute({ repoRoot: ctx.repo }, exec)
+      const heldDoctor = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: ctx.repo }, exec)
       assert.equal(heldDoctor.gitLock.held, true)
       assert.equal(heldDoctor.gitLock.pid, process.pid)
       assert.equal(heldDoctor.gitLock.phase, 'merge')
@@ -302,7 +302,7 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
       assert.ok(initHold.waitedMs >= 60000, `waitedMs ${initHold.waitedMs} must show the 90 s wait`)
 
       // (c) The lock is reported free after the merge finishes.
-      const freeDoctor = await tools.get('tower_doctor').execute({ repoRoot: ctx.repo }, exec)
+      const freeDoctor = await tools.get('tower_inspect').execute({ view: 'doctor', repoRoot: ctx.repo }, exec)
       assert.equal(freeDoctor.gitLock.held, false)
       assert.equal(freeDoctor.checks.find((entry) => entry.id === 'git-lock').status, 'pass')
     } finally {

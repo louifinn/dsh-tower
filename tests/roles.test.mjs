@@ -237,10 +237,10 @@ test('workers update tasks, blockers and notes; the tower owns lifecycle; review
     })
 
     // Reviewers may read findings but never mutate them.
-    const read = await call(tools, 'tower_findings', { repoRoot: repo, id: finding.id }, reviewerAgentId)
+    const read = await call(tools, 'tower_finding', { repoRoot: repo, id: finding.id }, reviewerAgentId)
     assert.equal(read.finding.id, finding.id)
     await assert.rejects(
-      () => call(tools, 'tower_findings', { repoRoot: repo, id: finding.id, status: 'fixed' }, reviewerAgentId),
+      () => call(tools, 'tower_finding', { repoRoot: repo, id: finding.id, status: 'fixed' }, reviewerAgentId),
       (error) => {
         assert.ok(
           ['invalid-transition', 'not-authorized'].includes(error.code),
@@ -250,7 +250,7 @@ test('workers update tasks, blockers and notes; the tower owns lifecycle; review
         return true
       },
     )
-    const untouched = await call(tools, 'tower_findings', { repoRoot: repo, id: finding.id }, reviewerAgentId)
+    const untouched = await call(tools, 'tower_finding', { repoRoot: repo, id: finding.id }, reviewerAgentId)
     assert.equal(untouched.finding.status, 'open')
 
     // A reviewer cannot report completion for the mission.
@@ -294,7 +294,7 @@ test('tower-only tools reject a roster worker and start no activations', async (
       ['tower_spawn', { missionId: 'M1', role: 'worker' }],
       ['tower_merge', { missionId: 'M1' }],
       ['tower_teardown', {}],
-      ['tower_adopt', {}],
+      ['tower_init', { op: 'adopt' }],
       ['tower_interrupt', { to: 'worker-m1' }],
       ['tower_init', {}],
     ]

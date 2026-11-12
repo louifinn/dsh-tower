@@ -506,27 +506,27 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
 
     // required: the review gate is on, and status/doctor say so.
     writeRepoConfig(path.join(repo, '.git'), { review: { mode: 'required' } })
-    const requiredStatus = await call(tools, 'tower_status', { repoRoot: repo })
+    const requiredStatus = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(requiredStatus.review.mode, 'required')
     assert.equal(requiredStatus.review.required, true)
     assert.equal(requiredStatus.review.available, true)
-    const requiredDoctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const requiredDoctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(requiredDoctor.review.mode, 'required')
     const reviewCheck = requiredDoctor.checks.find((check) => check.id === 'review')
     assert.equal(reviewCheck.status, 'pass')
     assert.match(reviewCheck.detail, /review\.mode:required/)
     assert.match(reviewCheck.detail, /merge blocker/)
-    const requiredPreflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    const requiredPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.ok(requiredPreflight.blockers.some((blocker) => blocker.code === 'no-review'), JSON.stringify(requiredPreflight.blockers))
 
     // optional: review is recorded but never blocks.
     writeRepoConfig(path.join(repo, '.git'), { review: { mode: 'optional' } })
-    const optionalStatus = await call(tools, 'tower_status', { repoRoot: repo })
+    const optionalStatus = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(optionalStatus.review.mode, 'optional')
     assert.equal(optionalStatus.review.required, false)
-    const optionalDoctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const optionalDoctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.match(optionalDoctor.checks.find((check) => check.id === 'review').detail, /review\.mode:optional/)
-    const optionalPreflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    const optionalPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.equal(optionalPreflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
 
     // off: review is intentionally unavailable — no reviewer spawn, no blocker,
@@ -534,7 +534,7 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     // default/optional, so `tower_review` IS registered: a repository-level off
     // refuses the submission instead of unregistering the profile-owned tool.
     writeRepoConfig(path.join(repo, '.git'), { review: { mode: 'off' } })
-    const offStatus = await call(tools, 'tower_status', { repoRoot: repo })
+    const offStatus = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(offStatus.review.mode, 'off')
     assert.equal(offStatus.review.available, false)
     assert.match(offStatus.review.detail, /intentionally unavailable/)
@@ -558,7 +558,7 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
         return true
       },
     )
-    const offDoctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const offDoctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(offDoctor.review.mode, 'off')
     const offCheck = offDoctor.checks.find((check) => check.id === 'review')
     assert.equal(offCheck.status, 'pass', 'off is a supported posture, not a degradation')
@@ -571,7 +571,7 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
         return true
       },
     )
-    const offPreflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    const offPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.equal(offPreflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
     const merged = await call(tools, 'tower_merge', { repoRoot: repo, missionId })
     assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
@@ -584,7 +584,7 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     const profileOff = makeCtx()
     registerTowerTools(profileOff.ctx)
     assert.equal(profileOff.tools.has('tower_review'), false, 'a profile-level off never registers tower_review')
-    const profileOffStatus = await call(profileOff.tools, 'tower_status', { repoRoot: repo })
+    const profileOffStatus = await call(profileOff.tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(profileOffStatus.review.mode, 'off')
     assert.match(profileOffStatus.review.detail, /a profile-level off does not register tower_review/)
   } finally {

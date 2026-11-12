@@ -274,11 +274,11 @@ test('2.1 legacy: import a Codex-shaped snapshot and audit-map it to a mission',
       events: [],
       legacySnapshots: [],
     }))
-    const imported = await call(tools, 'tower_import_legacy', { repoRoot: repo, sourcePath: legacyFile })
+    const imported = await call(tools, 'tower_import', { repoRoot: repo, sourcePath: legacyFile })
     assert.equal(imported.ok, true)
     assert.equal(imported.summary.missionCount, 1)
     assert.ok(imported.summary.sourceHash)
-    const mapped = await call(tools, 'tower_legacy_map', {
+    const mapped = await call(tools, 'tower_import', {
       repoRoot: repo,
       action: 'map',
       sourceHash: imported.summary.sourceHash,
@@ -287,7 +287,7 @@ test('2.1 legacy: import a Codex-shaped snapshot and audit-map it to a mission',
     })
     assert.equal(mapped.ok, true)
     assert.equal(mapped.map.oldId, 'T0001')
-    const listed = await call(tools, 'tower_legacy_map', { repoRoot: repo, action: 'status' })
+    const listed = await call(tools, 'tower_import', { repoRoot: repo, action: 'status' })
     assert.equal(listed.maps.length, 1)
   } finally {
     removeTemp(root)
@@ -300,7 +300,7 @@ test('2.1 doctor: reports repository, state and worktree checks without writing'
   registerTowerTools(ctx)
   try {
     await initPlan(tools, repo)
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(doctor.ok, true)
     assert.ok(doctor.checks.some((check) => check.id === 'state' && check.status === 'pass'))
     assert.ok(doctor.checks.some((check) => check.id === 'git'))
@@ -325,7 +325,7 @@ test('2.1 governance: watchdog marks a quiet worker stale and the gate blocks me
     await new Promise((resolve) => setTimeout(resolve, 20))
     const swept = await tower.sweepRoster({ staleMs: 1, activity: {}, authoritative: true })
     assert.equal(swept.marked.length, 1)
-    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.ok(preflight.blockers.some((blocker) => blocker.code === 'worker-stale'))
   } finally {
     removeTemp(root)
@@ -432,11 +432,11 @@ test('2.1 gates.requireTests: a completed mission without a test run is blocked'
     // rather than decrementing whatever the earlier fixtures registered.
     __testResetComponentRegistry()
     registerComponent('tower-tests')
-    const rowOn = await call(tools, 'tower_status', { repoRoot: repo, includeGate: true })
+    const rowOn = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, includeGate: true })
     assert.doesNotMatch(String(blockerOf(rowOn)?.detail), /disabled by component/)
     __testResetComponentRegistry()
     try {
-      const off = await call(tools, 'tower_status', { repoRoot: repo, includeGate: true })
+      const off = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, includeGate: true })
       assert.match(String(blockerOf(off)?.detail), /disabled by component tower-tests/)
       assert.match(String(blockerOf(off)?.detail), /re-enable the tower-tests component/)
     } finally {
@@ -452,7 +452,7 @@ test('2.1 doctor: an uninitialized repository reports state failure instead of t
   const { ctx, tools } = makeCtx()
   registerTowerTools(ctx)
   try {
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(doctor.ok, false)
     assert.ok(doctor.checks.some((check) => check.id === 'state' && check.status === 'fail'))
   } finally {
@@ -554,7 +554,7 @@ test('2.0.1 preflight: an unknown mission returns a lossless blocker shape', asy
   registerTowerTools(ctx)
   try {
     await call(tools, 'tower_init', { repoRoot: repo })
-    const result = await call(tools, 'tower_preflight', { repoRoot: repo, missionId: 'M99' })
+    const result = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId: 'M99' })
     assert.equal(result.ok, false)
     assert.equal(result.missionId, 'M99')
     assert.equal(result.branchTip, null)
@@ -681,7 +681,7 @@ test('2.0.1 doctor: an intentionally removed worktree is not a failure', async (
     }
     state.missions[0].worktreeRemovedAt = Date.now()
     fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const worktrees = doctor.checks.find((check) => check.id === 'worktrees')
     assert.equal(worktrees.status, 'pass')
     assert.match(worktrees.detail, /removed by teardown/)
@@ -708,7 +708,7 @@ test('2.8.0 review policy: review.mode:optional allows a merge without a reviewe
       await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: task.text }, workerExec)
     }
     await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
-    const preflight = await call(tools, 'tower_preflight', { repoRoot: repo, missionId })
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.equal(preflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
     const merged = await call(tools, 'tower_merge', { repoRoot: repo, missionId })
     assert.equal(merged.ok, true, JSON.stringify(merged.blockers))
@@ -725,7 +725,7 @@ test('2.8.0 config: a repository that still sets review.requireReview is rejecte
   registerTowerTools(ctx)
   try {
     await assert.rejects(
-      () => call(tools, 'tower_status', { repoRoot: repo }),
+      () => call(tools, 'tower_inspect', { view: 'status', repoRoot: repo }),
       (error) => {
         const text = `${error.code ?? ''} ${error.message ?? error}`
         assert.match(text, /config-unknown-key/)

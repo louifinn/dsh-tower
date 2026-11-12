@@ -41,7 +41,7 @@ function mockCtx() {
 test('worker preset: writable mission surface without review', () => {
   const { ctx, state } = mockCtx()
   worker.apply(ctx)
-  for (const tool of ['read', 'write', 'edit', 'pwsh', 'tower_mission', 'tower_complete', 'tower_diff', 'skill']) {
+  for (const tool of ['read', 'write', 'edit', 'pwsh', 'tower_mission', 'tower_complete', 'tower_inspect', 'skill']) {
     assert.ok(state.allow.includes(tool), `worker should allow ${tool}`)
   }
   assert.equal(state.allow.includes('tower_review'), false, 'workers must not review their own work')
@@ -54,7 +54,7 @@ test('reviewer preset: read-only surface with diff and review', () => {
   for (const denied of ['write', 'edit', 'pwsh', 'tower_mission', 'tower_complete']) {
     assert.equal(state.allow.includes(denied), false, `reviewer must not allow ${denied}`)
   }
-  for (const allowed of ['read', 'glob', 'grep', 'tower_diff', 'tower_status', 'tower_review', 'skill']) {
+  for (const allowed of ['read', 'glob', 'grep', 'tower_inspect', 'tower_inspect', 'tower_review', 'skill']) {
     assert.ok(state.allow.includes(allowed), `reviewer should allow ${allowed}`)
   }
   assert.match(state.section.text, /read-only/i)
@@ -64,7 +64,7 @@ test('reviewer preset: read-only surface with diff and review', () => {
 test('survey preset: read-only surface that can still acknowledge the inbox (#148)', () => {
   const { ctx, state } = mockCtx()
   survey.apply(ctx)
-  for (const denied of ['write', 'edit', 'pwsh', 'tower_spawn', 'tower_merge', 'tower_rebase', 'tower_review', 'tower_diff']) {
+  for (const denied of ['write', 'edit', 'pwsh', 'tower_spawn', 'tower_merge', 'tower_rebase', 'tower_review']) {
     assert.equal(state.allow.includes(denied), false, `survey must not allow ${denied}`)
   }
   for (const allowed of [
@@ -73,10 +73,9 @@ test('survey preset: read-only surface that can still acknowledge the inbox (#14
     'grep',
     'skill',
     'tower_mission',
-    'tower_status',
+    'tower_inspect',
     'tower_finding',
-    'tower_findings',
-    'tower_inbox',
+      'tower_inbox',
     'tower_complete',
   ]) {
     assert.ok(state.allow.includes(allowed), `survey should allow ${allowed}`)

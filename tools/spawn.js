@@ -3,7 +3,7 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { SpawnInput } from '../domain/contracts/tool-inputs/index.js'
 import { defaultPresetFor, shapeFor } from '../domain/shapes/index.js'
-import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OUTCOME, isCompletedStopReason, isSpawnAdmission } from '../domain/vocabulary.js'
+import { DEFAULT_ROLE, ROLES as ROLE_ENUM, SPAWN_OP, SPAWN_OUTCOME, isCompletedStopReason, isSpawnAdmission } from '../domain/vocabulary.js'
 import { resolveRoleSpawn, roleSpawnDiscovery } from '../domain/roles.js'
 import {
   assertSpawnableMission,
@@ -20,29 +20,36 @@ export function registerSpawnTool(ctx, deps) {
   define(ctx, {
     name: 'tower_spawn',
     description:
-      'Spawn a worker or reviewer for a mission. Workers use the mission shape\'s preset (tower-worker for a build, tower-survey for a read-only shared survey, tower-survey-sandbox for a detached survey with survey.sandbox=detached); reviewers require a completed build mission and use the read-only tower-reviewer preset, and the reviewer role is refused when review.mode is off. A build provisions (or reuses) the mission git worktree and branch; a shared survey runs in the shared checkout because it reads one commit; a detached survey provisions (or reuses) a disposable detached worktree at its readCommit with no branch. Generates a self-contained briefing (including dependency survey result evidence) and starts a background subagent. The child final report is delivered back to this session; tower_roster shows authoritative activity. Records the agent in the roster; reviewer spawns get a disposable detached checkout at the recorded branch tip, and the verdict is stamped with that commit (never a live worktree HEAD). Returns immediately unless wait=true.', parameters: SpawnInput,
-    aliases: {"missionId":["id"],"waitMs":["wait_ms"]},
-    requiresMissionId: true, board: true, output: output(SCHEMAS.spawn),
+      'Spawn a worker, survey, or reviewer for a mission (op: spawn, default), or replace a stale live worker entry (op: takeover). Returns when the agent is recorded; wait=true waits for the result. Details: docs/reference/tools.md.', parameters: SpawnInput,
+    aliases: { missionId: ['id'] },
+    requiresMissionId: true,
+    board: true,
+    output: output(SCHEMAS.spawn),
+    validateArgs(args) {
+      const legacy = /** @type {any} */ (args)
+      if (legacy.takeover !== undefined) {
+        throw new TowerToolError('invalid-argument', 'tower_spawn no longer takes takeover; pass op: "takeover" to replace a live worker entry that is no longer running')
+      }
+      if (legacy.waitMs !== undefined) {
+        throw new TowerToolError('invalid-argument', 'tower_spawn no longer takes waitMs; wait time is bounded by the spawn.maxWaitMs config (default 90000)')
+      }
+    },
     async execute(args, exec) {
       const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
       const role = args.role ?? DEFAULT_ROLE
-      if (!ROLE_ENUM.includes(role)) throw new TowerToolError('invalid-argument', `role must be one of ${ROLE_ENUM.join('|')}`)
       // Repository config (if any) already overrides the profile config here.
       const config = tower.config
       const context = await tower.missionContext(args.missionId)
       assertSpawnableMission({ role, context, config })
       const shape = shapeFor(context.mission.kind)
-      // #148 W2: the shape resolves its preset from tuning config, so a detached
-      // survey gets the sandbox preset and a shared survey stays read-only.
-      // #149 W4: role resolution (preset row, model route, placement, briefing)
-      // is one contract, orthogonal to the shape that supplies the facts.
+      // #148/#149: the shape resolves its preset from config; role resolution (row,
+      // model route, placement, briefing) is one contract orthogonal to the facts.
       const shapePreset = defaultPresetFor(context.mission.kind, config, context.mission)
       const roleSpawn = resolveRoleSpawn(role, { config, shape, shapePreset })
       if (!roleSpawn) throw new TowerToolError('invalid-argument', `role must be one of ${ROLE_ENUM.join('|')}`)
-      const preset = roleSpawn.preset
-      const model = roleSpawn.model
+      const { preset, model } = roleSpawn
       const spawned = await enqueueSpawn(tower.root, async () => {
         const observed = await observeActivity(ctx, tower)
         await tower.reconcileObservedInactive(observed.activity)
@@ -53,13 +60,13 @@ export function registerSpawnTool(ctx, deps) {
         }
         const view = await tower.rosterView()
         const name = resolveRosterName({ role, missionId: args.missionId, requested: args.name, roster: view.roster })
-        const takeover = await precheckWorkerOwnership({ role, tower, ctx, view, missionId: args.missionId, takeover: args.takeover, maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity })
+        const replacing = args.op === SPAWN_OP.takeover
+        const takeover = await precheckWorkerOwnership({ role, tower, ctx, view, missionId: args.missionId, takeover: replacing, maxLiveWorkers: config.spawn.maxLiveWorkers, budget: backoff.budget, observeActivity })
         const { subagents, provider } = await precheckSpawnServices({
           tower, ctx, config, preset, actor, exec, inspectLeases: deps.inspectLeases,
           // #131: the app layer only needs the row fact; the root owns the registry.
           leaseComponent: deps.leaseComponent,
         })
-
         const { mission, worktree, cwd, branch, review, briefing, provisioning, created, sandbox } = await provisionSpawnPlacement(tower, {
           role,
           context,
@@ -70,7 +77,6 @@ export function registerSpawnTool(ctx, deps) {
           instructions: args.instructions,
         })
         const agentOptions = buildAgentOptions(model)
-
         if (roleSpawnDiscovery(role, shape) && isSpawnAdmission(tower.config.tests?.admission)) {
           const discovery = await runMissionDiscovery(tower, mission)
           if (discovery.configured && discovery.receipt.ok !== true) {
@@ -80,10 +86,7 @@ export function registerSpawnTool(ctx, deps) {
             )
           }
         }
-
-        let activation = null
-        let agentId = null
-        let entry = null
+        let activation = null, agentId = null, entry = null
         await tower.reserveRoster({
           missionId: mission.id,
           name,
@@ -149,7 +152,6 @@ export function registerSpawnTool(ctx, deps) {
           }
           throw error
         }
-
         const recordOutcome = (state, detail) =>
           tower.recordSpawnOutcome({ missionId: mission.id, name, state, detail }).catch(() => {})
 
@@ -189,7 +191,7 @@ export function registerSpawnTool(ctx, deps) {
         report,
         recordOutcome,
         maxWaitMs: config.spawn.maxWaitMs ?? 90000,
-        requestedWaitMs: args.waitMs ?? 180000,
+        requestedWaitMs: undefined,
         textOf,
       })
     },

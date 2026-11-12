@@ -46,7 +46,7 @@
       "id": "tower-import",
       "scope": "visible",
       "kind": "row",
-      "fallback": "tower_import_legacy and tower_legacy_map are not registered; new repository state is unaffected."
+      "fallback": "tower_import is not registered; new repository state is unaffected."
     },
     {
       "id": "tower-leases",

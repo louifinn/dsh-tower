@@ -1,5 +1,9 @@
 // tower_plan / tower_mission / tower_status / tower_complete / tower_review /
 // tower_preflight input contracts. Pure TypeBox only; no I/O.
+//
+// #163: no schema advertises `repoRoot`; the runtime resolves the calling
+// session's repository. Alias fields stay accepted through the tool
+// definitions' `aliases` maps but are no longer advertised.
 import {
   MERGE_VERDICTS,
   MISSION_KINDS,
@@ -11,7 +15,6 @@ import {
 import { Type, enumOf } from './shared.js'
 
 export const PlanInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missions: Type.Array(
     Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
@@ -29,39 +32,30 @@ export const PlanInput = Type.Object({
 }, { additionalProperties: false })
 
 export const MissionInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   id: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: missionId).' })),
-  missionId: Type.Optional(Type.String({ description: 'Alias for id; both are accepted.' })),
   status: Type.Optional(enumOf(MISSION_STATUSES, { description: 'New lifecycle status.' })),
   note: Type.Optional(Type.String({ description: 'Append a decision-log note.' })),
   blocker: Type.Optional(Type.String({ description: 'Report a blocker (also sets status to blocked).' })),
   clear_blockers: Type.Optional(Type.Boolean({ description: 'Clear all recorded blockers.' })),
-  clearBlockers: Type.Optional(Type.Boolean({ description: 'Alias for clear_blockers.' })),
   task_done: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as done.' })),
-  taskDone: Type.Optional(Type.String({ description: 'Alias for task_done.' })),
   task_drop: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as dropped.' })),
-  taskDrop: Type.Optional(Type.String({ description: 'Alias for task_drop.' })),
   task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is legitimately descoped.' })),
-  taskDropReason: Type.Optional(Type.String({ description: 'Alias for task_drop_reason.' })),
   scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs; bumps scopeGeneration.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
 }, { additionalProperties: false })
 
 export const StatusInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missionId: Type.Optional(Type.String({ description: 'Return full detail for one mission instead of the dashboard list.' })),
   offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Mission list offset (default 0).' })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Mission list page size (default 20).' })),
-  includeGate: Type.Optional(Type.Boolean({ description: 'Compute tower_preflight-style gate digests for missions on this page.' })),
+  includeGate: Type.Optional(Type.Boolean({ description: 'Compute gate digests for missions on this page.' })),
   includeArchived: Type.Optional(Type.Boolean({ description: 'Append archived terminal missions (compact summaries, marked archived:true) after the active page. The default dashboard and board list active missions only.' })),
   format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'markdown returns the MISSIONS.md board text.' })),
 }, { additionalProperties: false })
 
 export const CompleteInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-  id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
   report: Type.String({ description: 'Full completion report for the tower and the next review round.' }),
   result: Type.Optional(
     Type.Object({
@@ -85,9 +79,7 @@ export const CompleteInput = Type.Object({
 }, { additionalProperties: false })
 
 export const ReviewInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-  id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
   status: Type.String({ description: 'Verdict: "clean", or "p1-Nitems" / "p2-Nitems" with the number of findings at that priority.' }),
   merge: enumOf(MERGE_VERDICTS, { description: 'Merge recommendation for the tower.' }),
   findings: Type.String({ description: 'Full findings text (markdown); write "none" when clean.' }),
@@ -97,7 +89,5 @@ export const ReviewInput = Type.Object({
 }, { additionalProperties: false })
 
 export const PreflightInput = Type.Object({
-  repoRoot: Type.String({ description: 'Absolute path inside the target Git repository.' }),
   missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
-  id: Type.Optional(Type.String({ description: 'Alias for missionId; both are accepted.' })),
 }, { additionalProperties: false })

@@ -8,19 +8,20 @@
 //   * a missing agent id, unreadable state, a state without an owner, or an
 //     agent id that is not in the roster resolves to `unknown`;
 //   * `unknown` is denied unless the matrix row is explicitly public (read-only
-//     operator tools and the two session tools) or the row is the bootstrap
-//     tool and no owner exists yet;
+//     operator tools and the session tool) or the row is the bootstrap tool and
+//     no owner exists yet;
 //   * a tool name without a matrix row is denied: default deny is the default.
 //
 // `authorize(tool, actor, context)` runs before a handler executes, so a denied
 // call cannot write state, acquire the workspace lock, or start a subagent.
-// Every shipped tool has a row here, including the two session tools the Host
-// entry registers directly (tower_mode and tower_control); together with the
-// 27 tools the component modules define that is the complete 29-tool surface.
+// Every shipped tool has a row here, including the session tool the Host entry
+// registers directly (tower_mode); together with the tools the component
+// modules define that is the complete registered surface (#163 Phase 4).
 import { TowerToolError } from '../domain/errors.js'
 import { ROLE, isReviewerRole, isTowerRole, isUnknownRole, isWorkerRole } from '../domain/vocabulary.js'
 import { rosterProjection } from '../domain/collab/spawn.js'
 import { shapeFor } from '../domain/shapes/index.js'
+import { isRepositoryOptionalTool } from './tool-profiles.js'
 
 /**
  * Access classes the kernel understands. `survey` is not a roster role: it is
@@ -59,21 +60,20 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   }),
   // Read-only operator surfaces are deliberately public so a broken repository
   // (no state, no owner) can still be diagnosed by an unidentified operator.
-  tower_status: Object.freeze({ allow: EVERYONE }),
+  // #163 Phase 3: the five read-only views share one row. Public by default so
+  // status/preflight/doctor can diagnose a broken repository; the check narrows
+  // the participant-bound views and the doctor config-diagnostic contract applies
+  // to the tool that now serves it.
+  tower_inspect: Object.freeze({ allow: EVERYONE, configDiagnostic: true, check: inspectViewAccess }),
   tower_spawn: towerOnly('spawn tower agents'),
-  tower_roster: Object.freeze({ allow: KNOWN }),
   tower_interrupt: towerOnly('interrupt tower agents'),
-  // A known agent may inspect a mission it participates in; the app layer still
-  // binds a reviewer's diff to its recorded review commit.
-  tower_diff: Object.freeze({ allow: KNOWN, check: requireParticipant }),
-  tower_adopt: towerOnly('adopt the roster'),
   tower_send: Object.freeze({ allow: KNOWN }),
   tower_inbox: Object.freeze({ allow: KNOWN }),
   // Completion stays worker-owned; a reviewer reaches the app layer and is
   // refused there with "not a worker", preserving the ownership contract.
   tower_complete: Object.freeze({ allow: KNOWN }),
+  // #163 Phase 4: report, list and update are one resource and one row.
   tower_finding: Object.freeze({ allow: KNOWN }),
-  tower_findings: Object.freeze({ allow: KNOWN }),
   tower_review: Object.freeze({
     allow: Object.freeze([A.tower, A.reviewer]),
     denial: (actor) =>
@@ -81,24 +81,14 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? `tower_review requires a registered roster agent or the tower${ownerRemedy(actor)}`
         : `only an assigned reviewer or the tower may review; ${actor.name} is ${actor.role}`,
   }),
-  tower_preflight: Object.freeze({ allow: EVERYONE }),
   tower_merge: towerOnly('merge missions'),
   tower_rebase: towerOnly('rebase missions'),
   tower_teardown: towerOnly('tear down worktrees'),
-  // F41: the doctor is the one row that declares the config-diagnostic contract.
-  // Its handler already knows how to produce a degraded read-only report from an
-  // unresolvable config; the kernel still has to let the call reach that handler
-  // when opening the Tower fails on config resolution. The flag makes the
-  // exception explicit and keeps every other public row failing closed. The row
-  // is read-only: a healthy tower_doctor takes the workspace-lock hook like every
-  // other repository-scoped tool, and the registry skips the hook only when this
-  // degraded open path is taken (the hook would re-resolve the config that failed).
-  tower_doctor: Object.freeze({ allow: EVERYONE, configDiagnostic: true }),
   tower_recover: towerOnly('recover Tower state'),
   tower_batch: towerOnly('manage evidence batches'),
   tower_resource: towerOnly('manage resource leases'),
-  tower_import_legacy: towerOnly('import a legacy snapshot'),
-  tower_legacy_map: towerOnly('map a legacy mission'),
+  // #163 Phase 4: snapshot import and audit-only mapping share one resource.
+  tower_import: towerOnly('import or map legacy state'),
   tower_test: Object.freeze({
     allow: Object.freeze([A.tower, A.worker, A.survey]),
     denial: (actor) =>
@@ -106,24 +96,21 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? 'reviewers may not run test discovery'
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
-  // tower_reload is repository-optional (ReloadInput): without a repoRoot it is a
-  // profile operation, not a repository-authorized one, so the kernel must not
-  // open a repository to authorize it. `repoOptional` is the explicit opt-in for
-  // that absent-repository path; a call that names a repository is still
-  // tower-only and the handler repeats the guard.
-  tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin'), repoOptional: true }),
+  // tower_reload is repository-optional (#163): the tool may run without a
+  // repository so a broken profile can still be reloaded. That contract is tool
+  // identity registered in `host/tool-profiles.js`, not a guess about whether a
+  // caller happened to pass repoRoot; supplying one still follows this
+  // tower-only row.
+  tower_reload: Object.freeze({ ...towerOnly('reload the Tower plugin') }),
   // Session tools: these report or change the calling session's Tower stance,
   // not repository state, so a repository access class cannot decide them.
-  // tower_mode only reads the current mode entry keyed by the caller's agent
-  // id; it is public so a broken repository or state file stays diagnosable.
+  // #163 Phase 4: reads when `active` is absent; writes when it is present.
+  // Public so a broken repository or state file stays diagnosable, and so the
+  // entry, the mode policy (allowAgentControl) and the handler gates can decide
+  // a write: the handler still requires a live calling agent, a non-empty
+  // reason, the session's own mode entry, and the human approval path before an
+  // ownership takeover.
   tower_mode: Object.freeze({ allow: EVERYONE }),
-  // Explicit mode-policy row. The Host entry registers this tool only while
-  // mode.allowAgentControl is true, and the handler still requires a live
-  // calling agent, a non-empty reason, the session's own mode entry, and the
-  // human approval path before any ownership takeover. The row is therefore
-  // public: the mode policy and the handler gates, not the repository access
-  // class, decide whether a session tool call may proceed.
-  tower_control: Object.freeze({ allow: EVERYONE }),
 })
 
 /**
@@ -181,14 +168,14 @@ export async function openForAuthorization(tool, repoRoot, open) {
 }
 
 /**
- * True when a matrix row declares the repository-optional contract: the tool may
- * be called without a repository, and that path is authorized without resolving
- * a repository actor. A call that names a repository still follows the row.
+ * True when a tool is registered as repository-optional in the profile registry
+ * (#163). The registry is the single source: the matrix row no longer carries a
+ * duplicate `repoOptional` flag.
  *
  * @param {string} tool
  */
 export function isRepositoryOptional(tool) {
-  return AUTHORIZATION_MATRIX[tool]?.repoOptional === true
+  return isRepositoryOptionalTool(tool)
 }
 
 /**
@@ -297,17 +284,20 @@ export async function authorize(tool, actor, context = {}) {
   }
   // An explicit repository-optional call without a repository has no repository
   // ownership to check. Only the anonymous actor can take this path: no
-  // repository identity can be proven without one. The tool is part of a
-  // capability row (tower-hmr), and supplying a repository opts back into the
-  // matrix row (tower-only for tower_reload).
-  if (context.repositoryAbsent === true && rule.repoOptional === true && access === A.unknown) {
+  // repository identity can be proven without one. The tool identity is
+  // registered in `host/tool-profiles.js`, and supplying a repository opts back
+  // into the matrix row (tower-only for tower_reload).
+  if (context.repositoryAbsent === true && isRepositoryOptional(tool) && access === A.unknown) {
     return { tool, access, bootstrap: false, repositoryAbsent: true }
   }
   if (access === A.unknown) {
     const bootstrap = rule.bootstrap === true && !actor?.owner
     if (!rule.allow.includes(A.unknown) && !bootstrap) throw denial(tool, actor, rule)
-    // The bootstrap exception never gets a participant check: the handler must
-    // resolve the repository (and may create it) itself.
+    // #163 Phase 3: a public row may still narrow some of its views (roster and
+    // diff are participant-bound). The bootstrap exception never gets a
+    // participant check: the handler must resolve the repository itself.
+    if (bootstrap) return { tool, access, bootstrap }
+    if (typeof rule.check === 'function') await rule.check({ actor, args: context.args ?? {}, tower: context.tower })
     return { tool, access, bootstrap }
   }
   if (!rule.allow.includes(access)) throw denial(tool, actor, rule)
@@ -325,6 +315,21 @@ function denial(tool, actor, rule) {
     'not-authorized',
     `only the tower can ${rule.action ?? tool}; ${actor.name} is a ${actor.role}${ownerRemedy(actor)}`,
   )
+}
+
+/**
+ * #163 Phase 3: view-level narrowing for the one public `tower_inspect` row.
+ * status/preflight/doctor stay public (a broken repository must be diagnosable),
+ * roster needs a known actor, and diff additionally needs mission participation.
+ *
+ * @param {{ actor: any, args: any }} input
+ */
+async function inspectViewAccess({ actor, args }) {
+  if (args?.view === 'roster') requireKnownActor(actor, 'read the roster')
+  if (args?.view === 'diff') {
+    requireKnownActor(actor, 'inspect a mission branch')
+    await requireParticipant({ actor, args })
+  }
 }
 
 /**

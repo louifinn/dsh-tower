@@ -22,7 +22,7 @@ export function registerMergeTool(ctx, deps) {
   define(ctx, {
     name: 'tower_merge',
     description:
-      'Merge a mission branch into the recorded base branch with --no-ff, after the hard gate passes. Verifies the two merge parents and records the mission as merged. If the merge commit already landed (manual merge, crashed or slow pre-merge hook), it detects the merge commit and records it as reconciled instead of merging again. A failed gate returns stable blocker codes without merging; a hook failure aborts cleanly and returns "merge-hook-failed" while a real content conflict returns "merge-conflict".',
+      'Merge a mission branch into the recorded base with --no-ff after the gate passes, or reconcile an already-landed merge. A failed gate returns blocker codes; hook failures and content conflicts are reported separately. Tower-only.',
     parameters: MergeInput,
     aliases: {"missionId":["id"],"timeoutMs":["timeout_ms"]},
     requiresMissionId: true,

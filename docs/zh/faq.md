@@ -11,15 +11,15 @@
 同一会话中不能并发：Tower 模式会拒绝这些工具并清除 plan mode。请按阶段组合——先用 Workflow/Team
 分析与决策，再启动 Tower 执行（可选审查）仓库变更。详见[完整指南](guide/scenarios-and-philosophy.md#4-tower-与其他-dsh-工作流模式的区别)。
 
-**为什么 worker 刚完成，`tower_preflight` 就因 `no-review` 失败？**
+**为什么 worker 刚完成，`tower_inspect` 的 `view: "preflight"` 视图 就因 `no-review` 失败？**
 只有在审查策略为 `required`（`review.mode:required`）时才会如此：已完成的 mission 在等待独立审查。
 spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:optional` 时审查可选，不会产生
 `no-review` blocker。
 
 **需要轮询 worker 吗？**
-不需要。worker 的最终报告会送回本会话；`tower_roster` 显示实时活动。轮询只会浪费回合。
+不需要。worker 的最终报告会送回本会话；`tower_inspect` 的 `view: "roster"` 视图 显示实时活动。轮询只会浪费回合。
 
-**`/tower` 显示模式已开启，但没有 `tower_control`。**
+**`/tower` 显示模式已开启，但 `tower_mode` 写操作被拒绝。**
 `mode.allowAgentControl` 被关闭了。它默认为 `true`；如果被显式设为 `false`，在 profile patch 中改回
 `true` 并重启 DSH。
 
@@ -45,8 +45,8 @@ spawn 一个 reviewer；干净审查后门禁就会变绿。默认 `review.mode:
 不能。reviewer 使用只读的 `tower-reviewer` preset（没有 write/edit/pwsh）；reviewer spawn 之后分支
 被改动，审查会被拒绝。mission 之外的问题用 `tower_finding` 记录，不要直接改文件。
 
-**`tower_finding` 与 `tower_findings` 有什么区别？**
-`tower_finding` 创建单条 finding（`open`）。`tower_findings` 是生命周期工具：列出/读取，并在
+**`tower_finding` 的 `op` 有什么用？**
+`op:"report"` 创建单条 finding（`open`）；`op:"list"`（默认）列出/读取 finding，
 `open → triaged → fixed`/`wontfix` 之间流转（允许重新打开）。只有控制塔或 worker 可以修改状态；
 roster 中的 reviewer 只能列出和读取。
 

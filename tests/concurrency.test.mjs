@@ -144,14 +144,14 @@ test('spawn.maxLiveWorkers caps live roster workers and allows the limit', async
     )
 
     // The failed spawn must not add a second live worker to the roster.
-    const roster = await tools.get('tower_roster').execute({ repoRoot: repo }, exec)
+    const roster = await tools.get('tower_inspect').execute({ view: 'roster', repoRoot: repo }, exec)
     assert.equal(roster.roster.filter((entry) => entry.role === 'worker').length, 1)
 
     // Raising the limit to 2 lets exactly one more worker start.
     writeRepoConfig(repo, { spawn: { maxLiveWorkers: 2 } })
     const spawned = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M2', role: 'worker' }, exec)
     assert.equal(spawned.role, 'worker')
-    const after = await tools.get('tower_roster').execute({ repoRoot: repo }, exec)
+    const after = await tools.get('tower_inspect').execute({ view: 'roster', repoRoot: repo }, exec)
     assert.equal(
       after.roster.filter((entry) => entry.role === 'worker').length,
       2,
@@ -225,7 +225,7 @@ test('a live survey worker does not consume the build worker budget (#148)', asy
       (error) => error.code === 'invalid-transition' && /already has a live worker/.test(error.message),
     )
     await assert.rejects(
-      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker', takeover: true }, exec),
+      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' }, exec),
       (error) => error.code === 'takeover-refused' && /not in the live catalog/.test(error.message),
     )
   } finally {
@@ -253,14 +253,14 @@ test('tower_send rate limit: send.maxPerMinute rejects further sends in the wind
       },
     )
     // The rejected send was not persisted.
-    const status = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+    const status = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
     assert.equal(status.messages, 1)
 
     // maxPerMinute:0 disables the limiter entirely.
     writeRepoConfig(repo, { send: { maxPerMinute: 0 } })
     await tools.get('tower_send').execute({ repoRoot: repo, to: 'all', subject: 'third', body: 'three' }, exec)
     await tools.get('tower_send').execute({ repoRoot: repo, to: 'all', subject: 'fourth', body: 'four' }, exec)
-    const reloaded = await tools.get('tower_status').execute({ repoRoot: repo }, exec)
+    const reloaded = await tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec)
     assert.equal(reloaded.messages, 3)
   } finally {
     removeTemp(root)
@@ -279,7 +279,7 @@ test('spawn.staleMs marks roster entries without catalog activity as stale', asy
     const spawned = await tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker' }, exec)
     await new Promise((resolve) => setTimeout(resolve, 120))
 
-    const stale = await tools.get('tower_roster').execute({ repoRoot: repo }, exec)
+    const stale = await tools.get('tower_inspect').execute({ view: 'roster', repoRoot: repo }, exec)
     const entry = stale.roster.find((candidate) => candidate.agentId === spawned.agentId)
     assert.ok(entry, 'spawned entry must be listed')
     assert.equal(entry.observed, false)
@@ -289,7 +289,7 @@ test('spawn.staleMs marks roster entries without catalog activity as stale', asy
 
     // staleMs:0 disables staleness detection.
     writeRepoConfig(repo, { spawn: { staleMs: 0 } })
-    const fresh = await tools.get('tower_roster').execute({ repoRoot: repo }, exec)
+    const fresh = await tools.get('tower_inspect').execute({ view: 'roster', repoRoot: repo }, exec)
     const entryAgain = fresh.roster.find((candidate) => candidate.agentId === spawned.agentId)
     assert.equal(entryAgain.stale, false)
   } finally {
@@ -324,7 +324,7 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
         exec,
       ),
     )
-    const reads = Array.from({ length: 8 }, () => tools.get('tower_status').execute({ repoRoot: repo }, exec))
+    const reads = Array.from({ length: 8 }, () => tools.get('tower_inspect').execute({ view: 'status', repoRoot: repo }, exec))
     const results = await Promise.allSettled([...writes, ...reads])
     const rejected = results.filter((result) => result.status === 'rejected')
     assert.deepEqual(rejected, [], `no parallel operation may fail: ${rejected.map((result) => result.reason?.message).join('; ')}`)

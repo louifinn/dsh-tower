@@ -73,7 +73,7 @@
     "host/*.js",
     "domain/**/*.js",
     "app/*.js",
-    "tools/*.js",
+    "tools/**/*.js",
     "adapters/*.js",
     "types/",
     "cordis.patch.yml",

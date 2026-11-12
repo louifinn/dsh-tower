@@ -45,7 +45,7 @@ function registeredToolNames() {
   try {
     registerTowerTools(ctx)
     const names = new Set(tools.keys())
-    // tower_mode/tower_control are registered by the Host entry itself, outside
+    // tower_mode is registered by the Host entry itself, outside
     // the aggregator; they are part of the same registry surface.
     const indexSource = fs.readFileSync(path.join(root, 'index.js'), 'utf8')
     for (const match of indexSource.matchAll(/name:\s*'(tower_[a-z_]+)'/g)) names.add(match[1])

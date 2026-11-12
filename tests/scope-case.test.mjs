@@ -230,7 +230,7 @@ test('tower_init probes once, records caseInsensitive, and does not re-probe on 
 
     // Acceptance: tower_doctor reports the detected mode and the comparison it
     // activates, without probing or writing anything itself.
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(doctor.environmentContract.caseInsensitive, state.caseInsensitive)
     assert.equal(
       doctor.environmentContract.comparisonMode,
@@ -260,7 +260,7 @@ test('tower_init skips a failed probe cleanly and leaves the mode unknown', asyn
     // Acceptance: doctor reports the unknown result as a warning and names the
     // safe comparison it is actually using.
     const { tools } = makeCtx()
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(doctor.environmentContract.caseInsensitive, null)
     assert.equal(doctor.environmentContract.comparisonMode, 'case-sensitive')
     assert.equal(doctor.checks.find((entry) => entry.id === 'case-mode').status, 'warn')

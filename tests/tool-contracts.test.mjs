@@ -12,7 +12,7 @@ import { loadShippedToolSurface } from '../scripts/lib/tool-surface.mjs'
 
 // index.js registers these two directly with inline schemas (they are session
 // tools, not repository tools); the rest must all have a named input contract.
-const SESSION_TOOLS = ['tower_mode', 'tower_control']
+const SESSION_TOOLS = ['tower_mode']
 
 test('every shipped repository tool registers the schema from ToolInputs', () => {
   const surface = loadShippedToolSurface()

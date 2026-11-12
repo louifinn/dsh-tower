@@ -3,7 +3,7 @@
 // One actor x tool matrix decides access, and the caller is resolved from the
 // tower owner / roster only. These tests pin all 29 shipped rows (27 define()d
 // tools plus the two directly registered session tools, tower_mode and
-// tower_control), the five access classes, and the two tools that used to
+// tower_mode), the five access classes, and the tools that used to
 // promote an unknown caller to the tower: tower_inbox and tower_diff.
 // Run with: node --test tests/authorization.test.mjs
 import test from 'node:test'
@@ -24,6 +24,7 @@ import {
 } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
 import { ACTOR_ACCESS, AUTHORIZATION_MATRIX, allowsAnonymous, anonymousActor, authorize, isRepositoryOptional, resolveActor } from '../host/authorization.js'
+import { isRepositoryOptionalTool } from '../host/tool-profiles.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -164,17 +165,14 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_init: Object.freeze({ allow: [ACTOR_ACCESS.tower], bootstrap: true }),
   tower_plan: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_mission: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
-  tower_status: Object.freeze({
+  // #163 Phase 3: five read-only views share one public row. status/preflight/
+  // doctor stay public; roster and diff are narrowed by the row's check.
+  tower_inspect: Object.freeze({
     allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
-  tower_spawn: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_roster: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
-  tower_interrupt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_diff: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey],
     check: true,
   }),
-  tower_adopt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  tower_spawn: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  tower_interrupt: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_send: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
   tower_inbox: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey] }),
   tower_complete: Object.freeze({
@@ -183,32 +181,19 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_finding: Object.freeze({
     allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey],
   }),
-  tower_findings: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey],
-  }),
   tower_review: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.reviewer] }),
-  tower_preflight: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
   tower_merge: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_rebase: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_teardown: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_doctor: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
   tower_recover: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_batch: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_resource: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_import_legacy: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
-  tower_legacy_map: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  tower_import: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_test: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
-  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower], repoOptional: true }),
-  // Session tools, not repository-authorized tools: they key off the calling
+  tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
+  // Session tool, not a repository-authorized tool: it keys off the calling
   // agent's session, so every access class reaches the handler's own gates.
   tower_mode: Object.freeze({
-    allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
-  }),
-  tower_control: Object.freeze({
     allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.reviewer, ACTOR_ACCESS.survey, ACTOR_ACCESS.unknown],
   }),
 })
@@ -254,8 +239,8 @@ function matrixProblems(matrix) {
     if ((typeof row.check === 'function') !== (expected.check === true)) {
       problems.push(`row "${key}" check is ${typeof row.check === 'function'}; expected ${expected.check === true}`)
     }
-    if ((row.repoOptional === true) !== (expected.repoOptional === true)) {
-      problems.push(`row "${key}" repoOptional is ${row.repoOptional === true}; expected ${expected.repoOptional === true}`)
+    if (Object.hasOwn(row, 'repoOptional')) {
+      problems.push(`row "${key}" carries repoOptional; the repository-optional contract lives in host/tool-profiles.js (#163)`)
     }
   }
   return problems
@@ -310,14 +295,13 @@ async function setupMembers(prefix) {
 
 test('authorization: the expected map pins every shipped tool and the matrix matches it exactly', async () => {
   const { tools } = makeCtx()
-  // F31: registerTowerTools() defines 27 tools; the Host entry records the two
-  // session tools it registers directly. The matrix must cover the recorded
-  // build surface (29) even though the define() aggregate stays at 27.
+  // F31: registerTowerTools() defines 20 tools; the Host entry records the
+  // session tool it registers directly. The matrix must cover the recorded
+  // build surface (#163 Phase 4: 21) even though the define() aggregate is 20.
   recordToolRegistration('tower_mode')
-  recordToolRegistration('tower_control')
   const shipped = definedToolNames()
-  assert.equal(tools.size, 27, 'the define() aggregate registers 27 tools')
-  assert.equal(shipped.length, 29, 'the shipped build surface is 29 tools')
+  assert.equal(tools.size, 20, 'the define() aggregate registers 20 tools')
+  assert.equal(shipped.length, 21, 'the shipped build surface is 21 tools')
   const expected = Object.keys(EXPECTED_MATRIX).sort()
   assert.deepEqual(expected, shipped, 'the expected map names exactly the shipped surface')
   assert.deepEqual(Object.keys(AUTHORIZATION_MATRIX).sort(), expected, 'every shipped tool has exactly one policy row')
@@ -326,22 +310,15 @@ test('authorization: the expected map pins every shipped tool and the matrix mat
   // deny still applies to names that are not part of the shipped surface.
   for (const name of shipped) assert.ok(Object.hasOwn(AUTHORIZATION_MATRIX, name), `${name} must have a matrix row`)
 
-  // tower_mode and tower_control are mounted by the Host entry, not by the
-  // define() aggregate; tower_control is additionally gated by
-  // mode.allowAgentControl before it is registered at all. The matrix row is
-  // the same regardless, so the kernel never depends on which profile mounted.
+  // tower_mode is mounted by the Host entry, not by the define() aggregate; the
+  // matrix row is the same regardless, so the kernel never depends on which
+  // profile mounted.
   assert.equal(tools.has('tower_mode'), false, 'the define() aggregate never mounts tower_mode')
-  assert.equal(tools.has('tower_control'), false, 'the define() aggregate never mounts tower_control')
 
   assert.deepEqual(
     [...AUTHORIZATION_MATRIX.tower_mode.allow].sort(),
     [...ACCESS_CLASSES].sort(),
-    'tower_mode is a public read-only session tool',
-  )
-  assert.deepEqual(
-    [...AUTHORIZATION_MATRIX.tower_control.allow].sort(),
-    [...ACCESS_CLASSES].sort(),
-    'tower_control is an explicit mode-policy row; mode.allowAgentControl and the handler own its gates',
+    'tower_mode is a public session tool; mode.allowAgentControl gates writes in the handler',
   )
 
   assert.deepEqual(
@@ -388,16 +365,15 @@ test('authorization: authorizeSessionCall fails closed when the repository canno
   assert.equal(actor.ownerMissing, true)
 })
 
-test('authorization: both Host session handlers call the kernel before any handler logic', () => {
+test('authorization: the Host session handler calls the kernel before any handler logic', () => {
   const source = fs.readFileSync(path.join(root, 'index.js'), 'utf8')
   assertSessionHandlerPinned(source, 'tower_mode')
-  assertSessionHandlerPinned(source, 'tower_control')
 
   // Exactly one kernel call per directly registered session tool: deleting one
   // call site drops its name here even though the public row and every handler
   // behaviour test would still pass, because both rows allow every access class.
   const callSites = [...source.matchAll(/await authorizeSessionCall\('(tower_[a-z_]+)'/g)].map((match) => match[1])
-  assert.deepEqual(callSites.sort(), ['tower_control', 'tower_mode'], 'both and only both session handlers authorize')
+  assert.deepEqual(callSites.sort(), ['tower_mode'], 'the session handler authorizes before reading or writing')
   assert.match(
     source,
     /import \{[^}]*authorizeSessionCall[^}]*\} from '\.\/host\/tool-registry\.js'/,
@@ -417,8 +393,8 @@ test('authorization: both Host session handlers call the kernel before any handl
     '}',
   ].join('\n')
   assert.throws(() => assertSessionHandlerPinned(reordered, 'tower_mode'), /must await authorizeSessionCall/)
-  const missing = ["name: 'tower_control',", 'async execute(args, exec) {', '  const key = agentKey(exec.agent)', '}'].join('\n')
-  assert.throws(() => assertSessionHandlerPinned(missing, 'tower_control'), /must await authorizeSessionCall/)
+  const missing = ["name: 'tower_mode',", 'async execute(args, exec) {', '  const key = agentKey(exec.agent)', '}'].join('\n')
+  assert.throws(() => assertSessionHandlerPinned(missing, 'tower_mode'), /must await authorizeSessionCall/)
 })
 
 test('authorization: every actor x tool cell resolves exactly as the expected map says', async () => {
@@ -458,9 +434,9 @@ test('authorization: every actor x tool cell resolves exactly as the expected ma
 test('authorization: tower_reload is repository-optional only through the anonymous absent-repository path', async () => {
   assert.equal(isRepositoryOptional('tower_reload'), true)
   assert.equal(isRepositoryOptional('tower_merge'), false)
-  const optional = Object.keys(EXPECTED_MATRIX).filter((tool) => EXPECTED_MATRIX[tool].repoOptional === true)
-  assert.deepEqual(optional, ['tower_reload'], 'exactly one row declares the repository-optional contract')
-  assert.equal(allowsAnonymous('tower_status'), true)
+  assert.equal(isRepositoryOptionalTool('tower_reload'), true, 'the profile registry is the single source (#163)')
+  assert.equal('repoOptional' in AUTHORIZATION_MATRIX.tower_reload, false, 'the matrix row no longer duplicates the marker')
+  assert.equal(allowsAnonymous('tower_inspect'), true)
   assert.equal(allowsAnonymous('tower_reload'), false, 'the absent path is not a public row')
 
   const anonymous = anonymousActor(execFor('agent-reload-anon'))
@@ -527,21 +503,22 @@ test('authorization: the expected-map checker rejects a mutated matrix', () => {
   assert.match(matrixProblems(narrowed)[0], /tower_inbox/)
   const noBootstrap = withRow(clone(), 'tower_init', { bootstrap: false })
   assert.match(matrixProblems(noBootstrap)[0], /tower_init.*bootstrap/)
-  const noCheck = withRow(clone(), 'tower_diff', { check: undefined })
-  assert.match(matrixProblems(noCheck)[0], /tower_diff.*check/)
+  const noCheck = withRow(clone(), 'tower_inspect', { check: undefined })
+  assert.match(matrixProblems(noCheck)[0], /tower_inspect.*check/)
   const repeated = withRow(clone(), 'tower_merge', { allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.tower] })
   assert.match(matrixProblems(repeated)[0], /repeats a grant/)
 
-  // A session row is pinned like any other: dropping tower_control or narrowing
-  // tower_mode away from the public policy is a visible deviation.
-  const missingControl = clone()
-  delete missingControl.tower_control
-  assert.match(matrixProblems(missingControl)[0], /missing row "tower_control"/)
+  // A session row is pinned like any other: dropping tower_mode or narrowing it
+  // away from the public policy is a visible deviation.
+  const missingMode = clone()
+  delete missingMode.tower_mode
+  assert.match(matrixProblems(missingMode)[0], /missing row "tower_mode"/)
   const narrowedMode = withRow(clone(), 'tower_mode', { allow: [ACTOR_ACCESS.tower] })
   assert.match(matrixProblems(narrowedMode)[0], /tower_mode/)
 
   // The repository-optional contract is pinned in both directions: dropping it
-  // from tower_reload or lending it to another row is a deviation.
+  // from tower_reload or lending it to another row is a deviation, and so is
+  // re-introducing the duplicate matrix flag the profile registry replaced.
   const noRepoOptional = withRow(clone(), 'tower_reload', { repoOptional: false })
   assert.match(matrixProblems(noRepoOptional)[0], /tower_reload.*repoOptional/)
   const borrowedRepoOptional = withRow(clone(), 'tower_merge', { repoOptional: true })
@@ -629,16 +606,16 @@ test('authorization: unknown is denied everywhere except public rows, the two se
     const publicRows = Object.keys(EXPECTED_MATRIX).filter((tool) => EXPECTED_MATRIX[tool].allow.includes(ACTOR_ACCESS.unknown))
     assert.deepEqual(
       publicRows.sort(),
-      ['tower_control', 'tower_doctor', 'tower_mode', 'tower_preflight', 'tower_status'],
-      'the three read-only operator rows and the two session tools are public',
+      ['tower_inspect', 'tower_mode'],
+      'the read-only view tool and the session tool are public',
     )
     for (const tool of publicRows) {
-      const grant = await authorize(tool, unknown, { args: { missionId: 'M1' } })
+      const grant = await authorize(tool, unknown, { args: { view: 'status', missionId: 'M1' } })
       assert.equal(grant.access, ACTOR_ACCESS.unknown, `${tool} is public`)
     }
     // Every other row denies an unknown caller, even on an owned repository.
     const guardedRows = Object.keys(EXPECTED_MATRIX).filter((tool) => !EXPECTED_MATRIX[tool].allow.includes(ACTOR_ACCESS.unknown))
-    assert.equal(guardedRows.length, 24, 'all but the five public rows deny the unknown caller')
+    assert.equal(guardedRows.length, 19, 'all but the two public rows deny the unknown caller')
     for (const tool of guardedRows) {
       await assert.rejects(
         () => authorize(tool, unknown, { args: { missionId: 'M1' } }),
@@ -686,20 +663,20 @@ test('authorization: unknown is denied everywhere except public rows, the two se
     assert.equal((await authorize('tower_mission', worker, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
     assert.equal((await authorize('tower_test', worker, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
     assert.equal((await authorize('tower_inbox', survey)).access, ACTOR_ACCESS.survey)
-    assert.equal((await authorize('tower_findings', reviewer, { args: { id: 'F1' } })).access, ACTOR_ACCESS.reviewer)
+    assert.equal((await authorize('tower_finding', reviewer, { args: { id: 'F1' } })).access, ACTOR_ACCESS.reviewer)
     assert.equal((await authorize('tower_complete', reviewer, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.reviewer)
 
     // Diff visibility is mission-scoped: a participant passes, a non-participant does not.
-    assert.equal((await authorize('tower_diff', worker, { args: { missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
+    assert.equal((await authorize('tower_inspect', worker, { args: { view: 'diff', missionId: 'M1' } })).access, ACTOR_ACCESS.worker)
     await assert.rejects(
-      () => authorize('tower_diff', worker, { args: { missionId: 'M2' } }),
+      () => authorize('tower_inspect', worker, { args: { view: 'diff', missionId: 'M2' } }),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
     await assert.rejects(
-      () => authorize('tower_diff', reviewer, { args: { missionId: 'M2' } }),
+      () => authorize('tower_inspect', reviewer, { args: { view: 'diff', missionId: 'M2' } }),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
-    assert.equal((await authorize('tower_diff', survey, { args: { missionId: 'M3' } })).access, ACTOR_ACCESS.survey)
+    assert.equal((await authorize('tower_inspect', survey, { args: { view: 'diff', missionId: 'M3' } })).access, ACTOR_ACCESS.survey)
   } finally {
     removeTemp(root)
   }
@@ -710,7 +687,7 @@ test('authorization: restricted rows deny every access class outside the expecte
   const towerOnly = Object.keys(EXPECTED_MATRIX).filter(
     (tool) => EXPECTED_MATRIX[tool].allow.length === 1 && EXPECTED_MATRIX[tool].allow[0] === ACTOR_ACCESS.tower,
   )
-  assert.equal(towerOnly.length, 14, 'fourteen rows are tower-only')
+  assert.equal(towerOnly.length, 12, 'twelve rows are tower-only')
   for (const tool of towerOnly) {
     for (const access of ACCESS_CLASSES) {
       if (access === ACTOR_ACCESS.tower) continue
@@ -751,7 +728,7 @@ test('authorization: restricted rows deny every access class outside the expecte
   )
 
   // Public rows stay callable for every class, including unknown.
-  for (const tool of ['tower_status', 'tower_preflight', 'tower_doctor', 'tower_mode', 'tower_control']) {
+  for (const tool of ['tower_inspect', 'tower_mode']) {
     for (const access of ACCESS_CLASSES) {
       const grant = await authorize(tool, actorFor(access), { args: { missionId: 'M1' } })
       assert.equal(grant.access, access, `${tool} is public for ${access}`)
@@ -822,15 +799,15 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
   try {
     // Denied before mission lookup: a stranger learns nothing about mission existence.
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M404' }, 'agent-not-in-roster'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M404' }, 'agent-not-in-roster'),
       (error) => assertCode(error, 'not-authorized', /requires a registered roster agent or the tower/),
     )
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M1' }, 'agent-worker-2'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M1' }, 'agent-worker-2'),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M1/),
     )
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M2' }, 'agent-reviewer-1'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M2' }, 'agent-reviewer-1'),
       (error) => assertCode(error, 'not-authorized', /does not participate in mission M2/),
     )
 
@@ -841,7 +818,7 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
       ['agent-reviewer-1', 'M1'],
     ]) {
       await assert.rejects(
-        () => call(tools, 'tower_diff', { repoRoot: repo, missionId }, agentId),
+        () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId }, agentId),
         (error) => {
           assert.equal(error.code, 'invalid-argument', `${agentId} passes authorization for ${missionId}`)
           assert.match(error.message, /no worktree/)
@@ -852,7 +829,7 @@ test('tower_diff: unknown callers and non-participants are denied, participants 
 
     // A survey worker participates, but its shape has no branch diff at all.
     await assert.rejects(
-      () => call(tools, 'tower_diff', { repoRoot: repo, missionId: 'M3' }, 'agent-survey-3'),
+      () => call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M3' }, 'agent-survey-3'),
       (error) => assertCode(error, 'invalid-transition', /no branch diff/),
     )
   } finally {

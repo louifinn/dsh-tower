@@ -4,7 +4,7 @@
 
 [English](../../reference/blockers.md) | **简体中文**
 
-`tower_preflight` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
+`tower_inspect` 的 `view: "preflight"` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
 在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 33 个稳定 blocker/failure code。
 
 `survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
@@ -17,7 +17,7 @@
 
 | Code | 含义 / 下一步 |
 |---|---|
-| `mission-missing` | 未知 mission id。用 `tower_status` 查看。 |
+| `mission-missing` | 未知 mission id。用 `tower_inspect` 的 view: status 查看。 |
 | `mission-not-completed` | mission 不是 `completed`；只有 `completed`（可进入 preflight/合并）的 mission 才能合并。 |
 | `tasks-open` | 仍有未完成任务；worker 必须先完成，或带理由 `task_drop`。 |
 | `blockers-present` | mission 仍有 blocker；解决后清除。 |

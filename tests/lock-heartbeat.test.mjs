@@ -436,7 +436,7 @@ test('tower_doctor reports state-lock age and heartbeat freshness (#92)', async 
       }),
     )
 
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const check = doctor.checks.find((entry) => entry.id === 'state-lock')
     assert.equal(check.status, 'warn')
     assert.match(check.detail, /heartbeat/i)
@@ -454,7 +454,7 @@ test('tower_doctor reports state-lock age and heartbeat freshness (#92)', async 
       tower.paths.lock,
       JSON.stringify({ token: 'fresh', pid: process.pid, since: Date.now(), at: Date.now() }),
     )
-    const fresh = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const fresh = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(fresh.stateLock.stale, false)
     assert.match(fresh.checks.find((entry) => entry.id === 'state-lock').detail, /held by pid/i)
   } finally {

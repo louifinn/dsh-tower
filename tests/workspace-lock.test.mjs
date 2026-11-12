@@ -246,7 +246,7 @@ test('mode.workspaceLock: the second Tower session is refused until the first le
   const storePath = path.join(home, 'modes')
   try {
     apply(harness.ctx, { mode: { workspaceLock: true, storePath } })
-    assert.ok(harness.tools.has('tower_status'), 'the tool surface is registered')
+    assert.ok(harness.tools.has('tower_inspect'), 'the tool surface is registered')
     const agentA = { id: 'session-A' }
     const agentB = { id: 'session-B' }
     const command = harness.commands.get('tower')
@@ -262,7 +262,7 @@ test('mode.workspaceLock: the second Tower session is refused until the first le
     assert.equal(fs.existsSync(lockFile), false, 'tower_init must not acquire the workspace lock')
 
     // The first repository-scoped tool call lazily acquires it.
-    const statusA = await call('tower_status', { repoRoot: repo }, agentA)
+    const statusA = await call('tower_inspect', { view: 'status', repoRoot: repo }, agentA)
     assert.equal(statusA.revision, 0)
     assert.ok(fs.existsSync(lockFile), 'tower_status must acquire the lazy workspace lock')
     const lockA = JSON.parse(fs.readFileSync(lockFile, 'utf8'))
@@ -277,7 +277,7 @@ test('mode.workspaceLock: the second Tower session is refused until the first le
     assert.equal(modeB.workspaceLock.enabled, true)
     assert.equal(modeB.workspaceLock.held, false)
     await assert.rejects(
-      () => call('tower_status', { repoRoot: repo }, agentB),
+      () => call('tower_inspect', { view: 'status', repoRoot: repo }, agentB),
       (error) => {
         assert.equal(error.code, 'workspace-busy', error.message)
         assert.match(error.message, /locked by session session-A/)
@@ -288,7 +288,7 @@ test('mode.workspaceLock: the second Tower session is refused until the first le
     // A leaves the mode, which releases the lock; B can now take it.
     assert.match((await runCommand(agentA, 'off')).text, /Tower mode OFF/)
     assert.equal(fs.existsSync(lockFile), false, '/tower off must release the workspace lock')
-    await call('tower_status', { repoRoot: repo }, agentB)
+    await call('tower_inspect', { view: 'status', repoRoot: repo }, agentB)
     const lockB = JSON.parse(fs.readFileSync(lockFile, 'utf8'))
     assert.equal(lockB.sessionId, 'session-B')
     assert.notEqual(lockB.token, lockA.token, 'the new owner gets a fresh token')

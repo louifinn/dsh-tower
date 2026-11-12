@@ -102,7 +102,7 @@ test('types coverage: every root entry point and host module is in the shipped r
   // W5-A: the tool-registry split added host/tool-runtime.js, host/tool-capabilities.js
   // and host/tool-observers.js; the Host-entry split added host/mode-state.js,
   // host/mode-command.js and host/session-tools.js.
-  assert.equal(hostModules.length, 29)
+  assert.equal(hostModules.length, 31)
   for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
 })
 
@@ -257,7 +257,7 @@ test('strict ratchet: both configs typecheck and the real gate passes', () => {
   assert.equal(strict.status, 0, strict.stdout || strict.stderr)
   const result = runStrict([])
   assert.equal(result.status, 0, result.stderr || result.stdout)
-  assert.match(result.stdout, /10 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
+  assert.match(result.stdout, /11 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
 })
 
 test('strict ratchet: the pinned list matches the explicit include list', () => {

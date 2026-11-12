@@ -56,7 +56,7 @@ control on the plugin page, not three mutually exclusive rows.
 ### 1.5 Evidence over assertion
 
 "Done" is a claim; a commit, a diff, a passing test receipt, and an independent review are evidence.
-Tower records all of them. `tower_doctor` checks the environment, `tower_test` records discovery,
+Tower records all of them. `tower_inspect` with `view: "doctor"` checks the environment, `tower_test` records discovery,
 `tower_complete` records checks, `tower_review` binds a verdict to a commit, and `tower_batch` can
 close a finite set of missions only when their required evidence exists.
 
@@ -71,7 +71,7 @@ cleanup; the benefit is that state never lies about what was integrated.
 
 Tower mode changes the session's stance: it narrows the tool surface and injects the mission protocol.
 The user can always change it with `/tower`; by default the model can also enter or leave with
-`tower_control`, provided it states a concrete reason. Every change records the actor and reason. The
+`tower_mode`, provided it states a concrete reason. Every change records the actor and reason. The
 design point is not that one side owns the switch, but that toggling is deliberate and visible; set
 `mode.allowAgentControl:false` if a deployment wants human-only control. Entering pauses an active goal
 and clears plan mode; leaving does not silently resume either. Tower intentionally refuses `goal`,
@@ -112,7 +112,7 @@ gated once, not improvised per slice.
 
 Example: rename a package, update imports, regenerate snapshots, then update documentation. Some work
 can proceed in parallel, but later missions depend on earlier merges. Tower records `deps`, refuses to
-merge a mission whose dependency is not merged, and lets the tower check `tower_status`/preflight
+merge a mission whose dependency is not merged, and lets the tower check `tower_inspect` with `view: "status"`/preflight
 instead of remembering the graph in chat.
 
 **Why Tower:** the dependency graph and branch freshness are enforced, not advisory.
@@ -140,8 +140,8 @@ bound to the tip.
 ### 2.5 Long-running work that spans context compaction or restarts
 
 Example: a multi-day refactor interrupted by restarts, new sessions, or a context reset. The mission
-state, roster, inbox, reviews, and worktrees are durable; `tower_adopt` reconciles a lost roster;
-`tower_doctor` reports what is broken; `tower_merge` reconciles an already-landed merge.
+state, roster, inbox, reviews, and worktrees are durable; `tower_init({op:"adopt"})` reconciles a lost roster;
+`tower_inspect` with `view: "doctor"` reports what is broken; `tower_merge` reconciles an already-landed merge.
 
 **Why Tower:** the protocol is reconstructable from local state and Git, not from a conversation
 window.
@@ -318,7 +318,7 @@ A team wants "organization invitations": token model, email delivery, accept/dec
 3. Each worker commits on its branch, completes with checks.
 4. With `review.mode:required`, spawn reviewers and require a clean+merge verdict; otherwise review
    is optional or off.
-5. `tower_preflight` and `tower_merge` each mission; resolve scope/base/review blockers.
+5. `tower_inspect` with `view: "preflight"` and `tower_merge` each mission; resolve scope/base/review blockers.
 6. `tower_teardown`; `MISSIONS.md` is the human-readable record.
 
 **Why not Team/Workflow?** The work is a known set of repository changes that must land in a specific

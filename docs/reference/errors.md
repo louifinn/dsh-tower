@@ -23,12 +23,12 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | Code | Meaning | Retryable | Next action | Typical trigger |
 |---|---|---|---|---|
 | `invalid-argument` | A tool argument is missing, malformed, or not allowed. | no | — | `missionId`/`id` omitted; unknown status; empty report; bad scope glob; `timeoutMs < 1000`; `status: "all"` on an update. |
-| `repo-invalid` | repoRoot is missing, relative, or not inside a Git repository. | no | pass an absolute path to a directory inside a Git repository | passing a path in a directory that is not a repo |
+| `repo-invalid` | The target repository could not be resolved, or the resolved path is not inside a Git repository. | no | bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot` | a repository-scoped tool called with no workspace binding, outside a Git repository, and without an explicit `repoRoot` |
 | `not-initialized` | Tower is not initialized for this repository; run tower_init. | no | run tower_init for this repository | a read tool before `tower_init` |
-| `mission-not-found` | No mission with that id exists. | no | list missions with tower_status | a stale or mistyped `M9` |
-| `finding-not-found` | No finding with that id exists. | no | list findings with tower_findings | `tower_findings({id:"F99"})` |
+| `mission-not-found` | No mission with that id exists. | no | list missions with tower_inspect (view: status) | a stale or mistyped `M9` |
+| `finding-not-found` | No finding with that id exists. | no | list findings with tower_finding | `tower_finding({op:"list", id:"F99"})` |
 | `invalid-transition` | The requested state transition is not allowed. | no | — | a blocked→merged attempt; a finding transition not in the graph; a reviewer mutating findings; completing a mission with open tasks, blockers, no commits, or unread inbox messages. |
-| `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_preflight and inspect tower_status | two-phase mutation revalidation |
+| `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status | two-phase mutation revalidation |
 | `state-locked` | Another Tower writer holds the state lock. | yes | wait for the other Tower writer to finish, then retry | concurrent mutation after the lock timeout |
 | `state-corrupt` | The Tower state file is unreadable or invalid. | no | restore state.json from a backup, or re-initialize after filing the corruption | hand-edited `state.json`; invalid JSON; no usable `schemaVersion` |
 | `state-version-unsupported` | The Tower state file uses a schema version this build cannot read or downgrade. | no | upgrade dsh-tower to a release that supports this state schemaVersion | opening a repository written by a newer plugin; an unknown older version; this build refuses to downgrade |
@@ -47,13 +47,13 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to | a worker calling a tower-only tool or changing mission status/scope; a reviewer mutating findings |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale | `mode.workspaceLock:true` and a second session calls a repo-scoped tool |
 | `mode-store-corrupt` | The persisted Tower mode store is unreadable or corrupt, so the owner's mode cannot be determined. | no | repair or move aside the mode store file, then re-enter Tower mode in the owning session and retry | a takeover or mode read while `modes.json` is truncated, invalid JSON, or not a `{version,modes}` document |
-| `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change | `/tower on\|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock) |
+| `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change | `/tower on\|off`, `tower_mode` writes, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock) |
 | `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover | takeover while the previous owner still has Tower mode on and a live workspace lock |
 | `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover | takeover while live roster agents exist or another session holds the workspace lock |
-| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available | `tower_control({action:"takeover"})` in a profile without the userQuestions service |
+| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available | `tower_mode({active:"takeover"})` in a profile without the userQuestions service |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers | spawning a fifth worker with the default limit |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute | `send.maxPerMinute` exceeded |
-| `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({takeover:true})` before `tower_interrupt` |
+| `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({op:"takeover"})` before `tower_interrupt` |
 | `reload-unavailable` | The DSH HMR service is not available in this profile. | no | restart DSH instead of reloading | `tower_reload` / `/tower reload` on a profile without HMR |
 | `reload-failed` | The HMR reload failed; check the DSH log and restart if needed. | no | check the DSH log and restart DSH | `reconcileProfile` threw |
 | `tests-failed` | Declared test discovery failed or did not meet its admission requirements. | no | fix the failing tests, then retry tower_complete | nonzero command, malformed output, minCount/required shortfall |
@@ -68,11 +68,11 @@ plain `Error` without a structured code is reported as `tool-internal`.
 A git-mutex timeout is a `state-locked` error that names the holder. Its `details` is
 `{ holderPid, holderPhase, heldMs, waitedMs }`, and the message renders the same facts as
 `held by pid 1234 (merge) for 92 s; waited 60 s`. `holderPhase` is the operation that holds the lock
-(`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_status` and `tower_doctor` expose the same
+(`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_inspect` with `view: "status"` and `tower_inspect` with `view: "doctor"` expose the same
 holder as `gitLock: { held, pid, phase, heldMs }` while it is held.
 
 ## Why thrown?
 
 Returned `{ok:false}` shapes are reserved for expected policy outcomes that the tower decides on
-(`tower_merge`/`tower_rebase` gate blockers and `tower_preflight`). Anything that prevents the tool
+(`tower_merge`/`tower_rebase` gate blockers and `tower_inspect` with `view: "preflight"`). Anything that prevents the tool
 from producing a decision is thrown so the model does not mistake it for a normal negative result.

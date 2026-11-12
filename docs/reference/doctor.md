@@ -1,6 +1,6 @@
 # Doctor
 
-`tower_doctor({repoRoot})` is read-only. It never takes the state lock, writes state, or changes Git.
+`tower_inspect({ view: "doctor" })` is read-only. It never takes the state lock, writes state, or changes Git.
 It returns:
 
 ```json
@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 29 (baseline 2026-10-23)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 57 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -17,9 +17,9 @@ It returns:
   "surface": {
     "configKeys": 57,
     "sections": 16,
-    "tools": 29,
-    "baselineDate": "2026-10-23",
-    "line": "config keys: 57 · sections: 16 · tools: 29"
+    "tools": 21,
+    "baselineDate": "2026-11-12",
+    "line": "config keys: 57 · sections: 16 · tools: 21"
   },
   "stateLock": {
     "held": true,
@@ -86,7 +86,7 @@ It returns:
 
 Doctor is the one diagnostic that stays reachable when the configuration cannot be resolved: an unknown
 key, an invalid value, or an unreadable/corrupt repository config. Every other tool opens the Tower
-first, so config resolution runs before the handler and the call fails closed. For `tower_doctor` only,
+first, so config resolution runs before the handler and the call fails closed. For `tower_inspect` with `view: "doctor"` only,
 `config-invalid`/`config-unknown-key` from that open path is not rethrown: the call continues with an
 anonymous actor, the handler opens the repository without the layer that failed, and it returns a
 degraded report instead:
@@ -116,7 +116,7 @@ lazy workspace-lock hook, which would resolve the config it just reported and co
 read-only diagnostic must not write.
 
 The exception is opt-in per authorization-matrix row (`configDiagnostic: true`, set only on the public
-`tower_doctor` row). `tower_status`, `tower_plan`, every writer and every other read-only tool still fail
+`tower_inspect` with `view: "doctor"` row). `tower_inspect` with `view: "status"`, `tower_plan`, every writer and every other read-only tool still fail
 closed with `[tower:config-invalid]`/`[tower:config-unknown-key]`, so a broken config is never reported
 as a healthy repository.
 
@@ -124,12 +124,21 @@ as a healthy repository.
 as the generated references: `config keys: N · sections: N · tools: N`, plus the
 committed baseline date from `scripts/surface-baseline.json`. The counts are live:
 the config schema and every tool the build ships — `define()`-registered tools,
-the `tower_mode`/`tower_control` pair the Host entry registers directly (#118),
+the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (29 in 2.4.0), even though the shipped profile mounts 28 because
-`tower-hmr` ships off; the `components` check names the mounted subset and every
-disabled row. `npm run surface:check` is what fails when a count grew without an
+build surface (21 in 2.8.0, 16 default), even though the shipped profile mounts 16 because the
+five subsystem rows ship off; the `components` check names the mounted subset and every
+disabled row.
+
+`subsystems` lists the five default-off rows (`tower-batch`, `tower-import`,
+`tower-leases`, `tower-tests`, `tower-hmr`) as `{id, enabled, tool, enable}`; each
+row's tool stays in the 21 all-on surface. The `components` check detail names each
+row as off, not deleted, with its enable step. A `deprecated-tool-names` check scans
+`mode.denyTools` for names that #163 merged or removed (`tower_control`, `tower_adopt`,
+`tower_findings`, `tower_import_legacy`, `tower_legacy_map`, `tower_status`,
+`tower_roster`, `tower_diff`, `tower_preflight`, `tower_doctor`) and reports
+`<old> -> <replacement>` instead of silently ignoring them. `npm run surface:check` is what fails when a count grew without an
 ADR, a matching deletion or a recorded measurement correction. See
 [surface-budget.md](surface-budget.md) for the classification table.
 
@@ -153,7 +162,7 @@ lock record to a backup instead of deleting it. This makes a recycled PID diagno
 reading `state.lock` by hand.
 
 `ownership` (and the `tower-owner`/`workspace-lock` checks) is the same read-only ownership snapshot
-`tower_status` returns, or `null` when the state or ownership facts could not be read. It contains
+`tower_inspect` with `view: "status"` returns, or `null` when the state or ownership facts could not be read. It contains
 `owner`, `caller`, `sameOwner`, `ownerMode`, `modeStoreStatus`, `modeStoreFile`, `modeStoreError`,
 `ownerLock`, `foreignLock`, `liveRoster`, `unreadMessages`, `orphanLock`, `blockers` and
 `takeoverAvailable`. `modeStoreStatus` is `missing`, `ok`, or `corrupt`. When it is `corrupt`,
@@ -165,7 +174,7 @@ consistent with each other.
 `gitLock` (and the `git-lock` check) reports the repo-scoped git mutex: `{held, pid, phase, heldMs}`
 while a merge/rebase/init/teardown/provision holds it, and `{held: false}` when free. A merge may hold
 it for the configured merge timeout (15 minutes by default), so a held lock is a `warn` rather than a
-failure; the holder's phase and age make a stalled tower diagnosable. `tower_status` returns the same
+failure; the holder's phase and age make a stalled tower diagnosable. `tower_inspect` with `view: "status"` returns the same
 `gitLock` object.
 
 `board` names the `MISSIONS.md` location (`docs.boardLocation`) and whether the `tower-board` component

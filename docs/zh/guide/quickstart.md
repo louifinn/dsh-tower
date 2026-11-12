@@ -17,20 +17,21 @@
 
 ```
 tower_init repoRoot=D:\work\repo
-tower_plan repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
+tower_plan missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
 ```
 
+`tower_init` 是唯一接受 `repoRoot` 的工具；后续调用都从会话解析仓库（workspace 绑定 → 工作目录）。
 `tower_plan` 返回 mission id（`M1`）。每个 mission 在 spawn 时获得独立分支和 worktree。
 Tower 工具同时接受 `missionId` 与 `id` 两种写法（见[输入别名](../reference/tools.md#输入别名)）。
 
 ## 3. 运行 worker
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
+tower_spawn missionId=M1 role=worker
 ```
 
 调用立即返回子代理 id。worker 在 mission worktree 内工作、提交、把任务标记完成，并调用
-`tower_complete`；它的最终报告会送回本会话。用 `tower_roster` 观察活动，不要循环轮询。
+`tower_complete`；它的最终报告会送回本会话。用 `tower_inspect` 的 `view: "roster"` 视图 观察活动，不要循环轮询。
 
 ## 4. 可选：审查
 
@@ -39,10 +40,10 @@ tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
 流程时设为 `required`，然后：
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
+tower_spawn missionId=M1 role=reviewer
 ```
 
-reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交 `tower_review`。设为
+reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_inspect` 的 `view: "diff"` 视图 并提交 `tower_review`。设为
 `review.mode:required` 后，只有 `clean` + `merge` 的结论才允许合并。`optional` 会记录审查但从不
 阻塞合并；`off` 是受支持的模式，不会注册 `tower_review`。
 
@@ -54,12 +55,12 @@ reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_diff` 并提交
 ## 5. 门禁、合并与清理
 
 ```
-tower_preflight repoRoot=D:\work\repo missionId=M1
-tower_merge     repoRoot=D:\work\repo missionId=M1
-tower_teardown  repoRoot=D:\work\repo
+tower_preflight missionId=M1
+tower_merge     missionId=M1
+tower_teardown
 ```
 
-策略为 `review.mode:required` 时，审查前运行 `tower_preflight` 会报告 `no-review`；干净审查之后应为
+策略为 `review.mode:required` 时，审查前运行 `tower_inspect` 的 `view: "preflight"` 视图 会报告 `no-review`；干净审查之后应为
 `ok:true`。默认 `optional` 时没有审查 blocker。存在其他 blocker 时 `tower_merge` 拒绝合并。
 `tower_teardown` 移除已 merged/abandoned 的 worktree 与分支。
 
@@ -98,8 +99,8 @@ tower_teardown  repoRoot=D:\work\repo
 scope 之外的观察用 `tower_finding` 记录。之后可以列出或关闭它们，而不必改代码：
 
 ```
-tower_findings repoRoot=D:\work\repo
-tower_findings repoRoot=D:\work\repo id=F1 status=fixed note="fixed in M2"
+tower_finding({op: "list"})
+tower_finding({op: "update", id: "F1", status: "fixed", note: "fixed in M2"})
 ```
 
 状态为 `open → triaged → fixed` / `wontfix`，且 `fixed`/`wontfix` 可重新打开为 `open`。只有控制塔

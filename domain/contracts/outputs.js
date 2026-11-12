@@ -49,6 +49,7 @@ const findingSummarySchema = S.obj({
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
 // additive; `required` lists only fields every successful path returns.
+/** @type {Record<string, any>} */
 const SCHEMAS = {
   init: S.obj(
     {
@@ -273,6 +274,7 @@ const SCHEMAS = {
       surface: S.any,
       activityLog: S.any,
       review: S.any,
+      subsystems: S.arr(S.obj()),
       archive: S.obj({
         missions: S.any,
         archivedMissions: S.int,
@@ -314,7 +316,16 @@ const SCHEMAS = {
   ),
   importLegacy: S.obj({ ok: S.bool, summary: S.obj(), snapshot: S.obj() }, ['ok', 'summary']),
   legacyMap: S.obj({ ok: S.bool, map: S.obj(), maps: S.arr(S.obj()) }, ['ok']),
+  // #163 Phase 3: one schema for five views; `view` identifies which shape the
+  // value carries and the view-specific fields stay additive.
+  inspect: S.obj({ view: S.str }, ['view']),
 }
+
+// #163 Phase 4: dispatchers carry one of several documented shapes, so no
+// field is required by every path; the union keeps each shape visible.
+SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties }, [])
+SCHEMAS.findingOps = S.obj({ ...SCHEMAS.finding.properties, ...SCHEMAS.findings.properties }, [])
+SCHEMAS.importOps = S.obj({ ...SCHEMAS.importLegacy.properties, ...SCHEMAS.legacyMap.properties }, [])
 
 /**
  * @param {any} _args

@@ -112,7 +112,7 @@ test('CJK title round-trips plan -> state -> status -> MISSIONS.md -> briefing',
     assert.match(planned.missions[0].id, /^M\d+$/, 'mission ids stay ASCII')
     assert.match(planned.missions[1].id, /^M\d+$/, 'mission ids stay ASCII')
 
-    const status = await call(tools, 'tower_status', { repoRoot: repo, format: 'markdown' })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, format: 'markdown' })
     assert.equal(status.missions[0].title, CJK_TITLE)
     assert.equal(status.missions[1].title, 'Café lineup', 'the persisted title is NFC')
     assert.ok(status.markdown.includes(CJK_TITLE), 'the markdown board carries the title')
@@ -183,7 +183,7 @@ test('tower_plan rejects invisible and over-long titles with distinct stable cod
         },
       )
     }
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(status.total, 0, 'no mission is created when a title is rejected')
   } finally {
     removeTemp(root)

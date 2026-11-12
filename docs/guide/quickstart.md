@@ -16,20 +16,22 @@ reserved for normal mode.
 
 ```
 tower_init repoRoot=D:\work\repo
-tower_plan repoRoot=D:\work\repo missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
+tower_plan missions=[{"title":"Feature A","scope":["src/a/**"],"tasks":["implement the feature","commit the change"],"kind":"build"}]
 ```
 
-`tower_plan` returns mission ids (`M1`). Each mission gets a branch and a worktree when spawned.
+`tower_init` is the only tool that takes `repoRoot`; every later call resolves the repository from
+the session (workspace binding, then working directory). `tower_plan` returns mission ids (`M1`).
+Each mission gets a branch and a worktree when spawned.
 
 ## 3. Run the worker
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=worker
+tower_spawn missionId=M1 role=worker
 ```
 
 The call returns immediately with the child agent id. The worker works inside the mission worktree,
 commits, marks tasks done, and calls `tower_complete`; its final report is delivered back to this
-session. Use `tower_roster` to observe activity; do not poll in a loop.
+session. Use `tower_inspect` with `view: "roster"` to observe activity; do not poll in a loop.
 
 ## 4. Optional: review
 
@@ -39,10 +41,10 @@ config. It is one control, not a component row and not three rows. Set it to `re
 workflow, then:
 
 ```
-tower_spawn repoRoot=D:\work\repo missionId=M1 role=reviewer
+tower_spawn missionId=M1 role=reviewer
 ```
 
-Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_diff` and submit
+Reviewers use the read-only `tower-reviewer` preset. They inspect `tower_inspect` with `view: "diff"` and submit
 `tower_review`; with `review.mode:required`, a `clean` + `merge` verdict is required to merge.
 `optional` records reviews but never blocks a merge, and `off` is a supported mode that does not
 register `tower_review`.
@@ -56,12 +58,12 @@ migration.
 ## 5. Gate, merge, clean up
 
 ```
-tower_preflight repoRoot=D:\work\repo missionId=M1
-tower_merge     repoRoot=D:\work\repo missionId=M1
-tower_teardown  repoRoot=D:\work\repo
+tower_preflight missionId=M1
+tower_merge     missionId=M1
+tower_teardown
 ```
 
-With `review.mode:required`, `tower_preflight` before review reports `no-review`, and after a clean
+With `review.mode:required`, `tower_inspect` with `view: "preflight"` before review reports `no-review`, and after a clean
 review it should be `ok:true`. With the default (`optional`), no review blocker is required.
 `tower_merge` refuses while blockers remain. `tower_teardown` removes merged/abandoned worktrees and
 branches.
@@ -102,8 +104,8 @@ The repository layer overrides the profile config; per-call tool arguments overr
 Out-of-scope observations go to `tower_finding`. Later, list or close them without editing code:
 
 ```
-tower_findings repoRoot=D:\work\repo
-tower_findings repoRoot=D:\work\repo id=F1 status=fixed note="fixed in M2"
+tower_finding({op: "list"})
+tower_finding({op: "update", id: "F1", status: "fixed", note: "fixed in M2"})
 ```
 
 Statuses are `open → triaged → fixed` / `wontfix`, and `fixed`/`wontfix` can reopen to `open`. Only the
@@ -162,8 +164,8 @@ mode first.
 
 Machine-facing output is **English only**, regardless of the request locale:
 
-- tool errors (`[tower:<code>] ...`), `nextAction`, blocker `detail` strings, `tower_status` /
-  `tower_doctor` detail lines, and completion reports;
+- tool errors (`[tower:<code>] ...`), `nextAction`, blocker `detail` strings, `tower_inspect` with `view: "status"` /
+  `tower_inspect` with `view: "doctor"` detail lines, and completion reports;
 - anything that a script, a log search or another agent is expected to pattern-match.
 
 Localized, human-facing copy lives in `locale/*.json` (component descriptions, UI labels) and is the
@@ -175,9 +177,9 @@ only translated surface. Two rules keep the split honest:
    English remedy phrase stay verbatim inside the message, so a grep for
    `disabled by component tower-tests` works in every locale.
 
-`tower_status` and `tower_doctor` follow this policy but are not textually identical: `tower_status`
+`tower_inspect` with `view: "status"` and `tower_inspect` with `view: "doctor"` follow this policy but are not textually identical: `tower_inspect` with `view: "status"`
 returns the cause only — `components.disabled` is `[{id, reason}]` with `reason` set to
-`disabled by component <id>` — while `tower_doctor` repeats that reason and adds the English remedy
+`disabled by component <id>` — while `tower_inspect` with `view: "doctor"` repeats that reason and adds the English remedy
 (`enable the reported row in the plugin page and restart DSH` for the `components` check; a
 capability-specific check names the row directly, e.g. `enable the tower-tests row and restart DSH`).
 Neither interpolates a translated label.

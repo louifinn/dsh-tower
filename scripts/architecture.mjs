@@ -607,7 +607,12 @@ function evaluator(root, options = {}) {
         }
       }
     }
-    if (file.startsWith('tools/')) {
+    if (file.startsWith('tools/views/')) {
+      // #163 Phase 3: read-only view implementations live under tools/views/.
+      // They are not tool registrations (tools/inspect.js is), so the 40-200
+      // module band and the tools-thin node import rule do not apply; the
+      // public shape is still generated from the tool module and contracts.
+    } else if (file.startsWith('tools/')) {
       if (imports.some((spec) => spec.startsWith('node:') && spec !== 'node:path')) {
         record('tools-thin', file, 'tools/** may import only node:path', 'error')
       }

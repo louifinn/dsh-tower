@@ -1,24 +1,12 @@
 // tower-worker preset policy: narrow the visible tool surface and state the protocol.
+// The allow list lives in `host/tool-profiles.js` so the profile the surface gate
+// measures is the same list this preset mounts (#163).
+import { WORKER_ALLOW } from './host/tool-profiles.js'
+
 export const name = 'dsh-tower/worker'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
-  'read',
-  'write',
-  'edit',
-  'glob',
-  'grep',
-  'pwsh',
-  'tower_mission',
-  'tower_status',
-  'tower_diff',
-  'tower_send',
-  'tower_inbox',
-  'tower_complete',
-  'tower_finding',
-  'tower_findings',
-  'skill',
-]
+export const ALLOW = WORKER_ALLOW
 
 const PROTOCOL = [
   'You are a Tower worker in a DeepSeek Harness Tower workspace.',

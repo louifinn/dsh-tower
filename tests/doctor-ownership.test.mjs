@@ -103,14 +103,26 @@ test('doctor and status agree: the owner mode is off and takeover is available',
   const { tools } = makeCtx()
   try {
     await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(status.ownership.owner, OWNER)
     assert.equal(status.ownership.ownerMode, 'off')
     assert.equal(status.ownership.modeStoreStatus, 'missing')
     assert.equal(status.ownership.takeoverAvailable, true)
     assert.equal(doctor.ownership.takeoverAvailable, status.ownership.takeoverAvailable)
     assert.equal(doctor.ownership.modeStoreStatus, status.ownership.modeStoreStatus)
+    // #163 Phase 5: default-off subsystems are reported by name and enable step.
+    assert.equal(doctor.subsystems.length, 5)
+    for (const row of doctor.subsystems) {
+      assert.ok(row.tool, `${row.id} names its tool`)
+      assert.equal(typeof row.enabled, 'boolean')
+      assert.match(row.enable, /disabled: true/)
+      assert.match(row.enable, /cordis\.patch\.yml/)
+    }
+    assert.deepEqual(
+      doctor.subsystems.map((row) => row.id),
+      ['tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-hmr'],
+    )
     const owner = doctor.checks.find((entry) => entry.id === 'tower-owner')
     assert.equal(owner.status, 'warn')
     assert.match(owner.detail, /appears inactive/)
@@ -125,8 +137,8 @@ test('doctor and status agree: an active owner blocks takeover with owner-live',
   try {
     await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
     writeModeStore(home, { [OWNER]: { on: true, at: Date.now() } })
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(status.ownership.ownerMode, 'on')
     assert.equal(status.ownership.takeoverAvailable, false)
     assert.equal(status.ownership.blockers[0].code, 'owner-live')
@@ -151,8 +163,8 @@ test('doctor and status agree: a corrupt mode store fails closed, not inactive',
     const modeFile = path.join(home, 'tower-mode', 'modes.json')
     fs.mkdirSync(path.dirname(modeFile), { recursive: true })
     fs.writeFileSync(modeFile, '{ "version": 1, ')
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(status.ownership.modeStoreStatus, 'corrupt')
     assert.equal(status.ownership.ownerMode, 'unknown')
     assert.equal(status.ownership.takeoverAvailable, false)
@@ -176,8 +188,8 @@ test('doctor and status agree: an unreadable mode store is corrupt, not missing'
   try {
     await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
     fs.mkdirSync(path.join(home, 'tower-mode', 'modes.json'), { recursive: true })
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(status.ownership.modeStoreStatus, 'corrupt')
     assert.equal(doctor.ownership.modeStoreStatus, 'corrupt')
     assert.equal(doctor.checks.find((entry) => entry.id === 'tower-owner').status, 'fail')
@@ -198,8 +210,8 @@ test('doctor reuses the same lock facts as status: foreign workspace lock blocks
       lockFile,
       JSON.stringify({ token: 'tok-owner-c', sessionId: 'owner-c', agentId: 'owner-c', pid: process.pid, at: Date.now() }),
     )
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(status.ownership.foreignLock, true)
     assert.equal(status.ownership.takeoverAvailable, false)
     assert.equal(status.ownership.blockers[0].code, 'owner-busy')
@@ -227,7 +239,7 @@ test('doctor: a live-but-silent state lock is never called reclaimable (F32)', a
     const at = Date.now() - 10000
     fs.mkdirSync(path.dirname(stateLockFile), { recursive: true })
     fs.writeFileSync(stateLockFile, JSON.stringify({ token: 'silent-holder', pid: process.pid, since: at, at }))
-    const doctor = await call(tools, 'tower_doctor', { repoRoot: repo })
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const lockCheck = doctor.checks.find((entry) => entry.id === 'state-lock')
     assert.equal(lockCheck.status, 'warn')
     assert.match(lockCheck.detail, /alive but silent/)

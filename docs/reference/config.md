@@ -22,7 +22,7 @@ Lowest precedence first:
 The repository layer is read every time a Tower tool opens a repository, so a repository can tune
 review, merge, worktree and spawn policy without editing the profile. It uses the same JSON shape as
 the profile config (the same groups and the legacy aliases) and is merged group by group: repo keys
-win, profile keys survive when the repo does not set them. `tower_status` reports
+win, profile keys survive when the repo does not set them. `tower_inspect` with `view: "status"` reports
 `config.path` and `config.repoConfigPresent`.
 
 ```json

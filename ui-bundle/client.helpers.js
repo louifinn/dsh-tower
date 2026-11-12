@@ -10,17 +10,14 @@ window.__ModuleLoader__.load({
   factory() {
     const MAX_TEXT = 150
     const TOOL_NAMES = [
-      'tower_status',
-      'tower_roster',
+      'tower_inspect',
       'tower_spawn',
       'tower_mission',
       'tower_complete',
       'tower_review',
-      'tower_preflight',
       'tower_merge',
       'tower_teardown',
       'tower_interrupt',
-      'tower_doctor',
       'tower_batch',
     ]
     const TOOL_SET = new Set(TOOL_NAMES)

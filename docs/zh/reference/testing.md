@@ -55,7 +55,7 @@ stdout/stderr 文件、SHA-256 哈希、退出码、计数、required 名称、w
 `state.missions[].testRuns` 保留最近的 50 条回执。失败时工具返回带诊断的 `ok:false`；自动发现失败时
 `tower_complete` 会抛出 `[tower:tests-failed]`。
 
-- `tower_test({repoRoot,missionId})` 按需运行发现并记录回执。
+- `tower_test({missionId})` 按需运行发现并记录回执。
 - `testRuns` 中的回执是唯一的证据形态；`tower_complete` 不再向完成报告复制 `tests` 检查，完成检查、批次关闭
   与 `gates.requireChecks` 读取同一份回执。
 - `gates.requireChecks` 要求任意已记录检查或回执；`gates.requireTests` 要求针对当前 mission 分支 tip 的

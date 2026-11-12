@@ -28,7 +28,7 @@ const SKILLS = [
   {
     name: 'tower-recovery',
     description:
-      'Recover a Tower mission from a merge hook failure, an already-landed merge, a stale branch, a stuck state lock, or a missing worktree. Use when tower_merge, tower_rebase, or tower_preflight reports a blocker.',
+      'Recover a Tower mission from a merge hook failure, an already-landed merge, a stale branch, a stuck state lock, or a missing worktree. Use when tower_merge, tower_rebase, or tower_inspect with view: preflight reports a blocker.',
     file: 'tower-recovery.md',
   },
 ]

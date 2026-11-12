@@ -62,10 +62,10 @@ export const ERROR_CODES = {
     nextAction: null,
   },
   'repo-invalid': {
-    description: 'repoRoot is missing, relative, or not inside a Git repository.',
-    trigger: 'passing a path in a directory that is not a repo',
+    description: 'The target repository could not be resolved, or the resolved path is not inside a Git repository.',
+    trigger: 'a repository-scoped tool called with no workspace binding, outside a Git repository, and without an explicit `repoRoot`',
     retryable: false,
-    nextAction: 'pass an absolute path to a directory inside a Git repository',
+    nextAction: 'bind a Tower workspace, call from inside a Git repository, or pass an absolute `repoRoot`',
   },
   'not-initialized': {
     description: 'Tower is not initialized for this repository; run tower_init.',
@@ -77,13 +77,13 @@ export const ERROR_CODES = {
     description: 'No mission with that id exists.',
     trigger: 'a stale or mistyped `M9`',
     retryable: false,
-    nextAction: 'list missions with tower_status',
+    nextAction: 'list missions with tower_inspect (view: status)',
   },
   'finding-not-found': {
     description: 'No finding with that id exists.',
-    trigger: '`tower_findings({id:"F99"})`',
+    trigger: '`tower_finding({op:"list", id:"F99"})`',
     retryable: false,
-    nextAction: 'list findings with tower_findings',
+    nextAction: 'list findings with tower_finding',
   },
   'invalid-transition': {
     description: 'The requested state transition is not allowed.',
@@ -95,7 +95,7 @@ export const ERROR_CODES = {
     description: 'The repository state changed while the operation was being prepared; retry.',
     trigger: 'two-phase mutation revalidation',
     retryable: true,
-    nextAction: 'retry the tool; if it keeps failing, run tower_preflight and inspect tower_status',
+    nextAction: 'retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status',
   },
   'state-locked': {
     description: 'Another Tower writer holds the state lock.',
@@ -207,7 +207,7 @@ export const ERROR_CODES = {
   },
   'mode-persist-failed': {
     description: 'A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records.',
-    trigger: '`/tower on|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock)',
+    trigger: '`/tower on|off`, `tower_mode` writes, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock)',
     retryable: true,
     nextAction: 'fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change',
   },
@@ -225,7 +225,7 @@ export const ERROR_CODES = {
   },
   'approval-unavailable': {
     description: 'The human approval channel is unavailable for an ownership transfer.',
-    trigger: '`tower_control({action:"takeover"})` in a profile without the userQuestions service',
+    trigger: '`tower_mode({active:"takeover"})` in a profile without the userQuestions service',
     retryable: false,
     nextAction: 'use the human /tower takeover <reason> command, or restart this session with the user-questions service available',
   },
@@ -243,7 +243,7 @@ export const ERROR_CODES = {
   },
   'takeover-refused': {
     description: 'The mission already has a live worker that was not stopped first.',
-    trigger: '`tower_spawn({takeover:true})` before `tower_interrupt`',
+    trigger: '`tower_spawn({op:"takeover"})` before `tower_interrupt`',
     retryable: false,
     nextAction: 'run tower_interrupt for the live worker, then retry the takeover',
   },

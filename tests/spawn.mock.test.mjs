@@ -222,7 +222,7 @@ test('worker spawn: tower-worker preset, roster entry, worktree and briefing', a
     assert.ok(report.briefingChars > 0)
 
     // Roster: the tool recorded the worker through the real state store.
-    const roster = await callTool(harness.tools, 'tower_roster', { repoRoot: repo })
+    const roster = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
     const entry = roster.roster.find((candidate) => candidate.agentId === 'child-1')
     assert.ok(entry, 'roster must contain the spawned agent')
     assert.equal(entry.name, 'worker-m1')
@@ -233,7 +233,7 @@ test('worker spawn: tower-worker preset, roster entry, worktree and briefing', a
     assert.equal(entry.branch, report.worktree.branch)
 
     // Spawning a worker moves the mission from planned to active and sets owner.
-    const status = await callTool(harness.tools, 'tower_status', { repoRoot: repo })
+    const status = await callTool(harness.tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     const mission = status.missions.find((candidate) => candidate.id === 'M1')
     assert.equal(mission.status, 'active')
     assert.equal(mission.owner, 'worker-m1')

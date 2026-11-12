@@ -2,7 +2,7 @@
 
 [English](../../reference/doctor.md) | **简体中文**
 
-`tower_doctor({repoRoot})` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
+`tower_inspect({ view: "doctor" })` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
 
 ```json
 {
@@ -75,7 +75,7 @@ PID 存活并不等于写者存活：停止心跳的持有者会报告 `stale: t
 `tower_recover clear-stale-lock force:true` 且提供 `confirm:"CLEAR_STALE_LOCK"`；该操作会把锁记录
 移到备份，而不是删除它。这样无需手工读取 `state.lock` 就能诊断 PID 被复用的情况。
 
-`ownership`（以及 `tower-owner`/`workspace-lock` 检查）与 `tower_status` 返回同一个只读所有权快照；
+`ownership`（以及 `tower-owner`/`workspace-lock` 检查）与 `tower_inspect` 的 `view: "status"` 视图 返回同一个只读所有权快照；
 state 或所有权事实无法读取时为 `null`。字段包括 `owner`、`caller`、`sameOwner`、`ownerMode`、
 `modeStoreStatus`、`modeStoreFile`、`modeStoreError`、`ownerLock`、`foreignLock`、`liveRoster`、
 `unreadMessages`、`orphanLock`、`blockers` 与 `takeoverAvailable`。`modeStoreStatus` 为
@@ -86,7 +86,7 @@ takeover 会 fail closed，而不会把不可读的模式存储误判为属主�
 
 `gitLock`（以及 `git-lock` 检查）报告仓库级 git 互斥锁：被 merge/rebase/init/teardown/provision 持有时为
 `{held, pid, phase, heldMs}`，空闲时为 `{held: false}`。merge 可以合法持有到配置的 merge 超时（默认 15 分钟），
-因此“被持有”是 `warn` 而不是失败；持有者的阶段与时长让卡住的控制塔可被诊断。`tower_status` 返回同一个
+因此“被持有”是 `warn` 而不是失败；持有者的阶段与时长让卡住的控制塔可被诊断。`tower_inspect` 的 `view: "status"` 视图 返回同一个
 `gitLock` 对象。
 
 `board` 报告 `MISSIONS.md` 位置（`docs.boardLocation`）以及 `tower-board` 组件行是否挂载。该行关闭时
@@ -123,3 +123,10 @@ worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、
 
 环境契约仅供参考；它不是身份或授权证明。`tower_init` 仍要求控制塔角色，`tower_spawn` 仍会检查
 实时子代理目录。
+
+`subsystems` 逐个列出五个默认关闭的组件行（`tower-batch`、`tower-import`、`tower-leases`、
+`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 21 个之中。
+`components` 检查会写明该行是关闭而非删除，并给出开启步骤。`deprecated-tool-names` 检查扫描
+`mode.denyTools` 中 #163 合并或移除的旧名（`tower_control`、`tower_adopt`、`tower_findings`、
+`tower_import_legacy`、`tower_legacy_map`、`tower_status`、`tower_roster`、`tower_diff`、
+`tower_preflight`、`tower_doctor`），报告 `<old> -> <replacement>`，不会静默忽略。

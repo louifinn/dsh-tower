@@ -1,7 +1,7 @@
 // Tower mode state and transitions (W5-A).
 //
 // Owns the per-agent mode entries, the persisted mode-store view, the deny list,
-// and the transitions the `/tower` command, `tower_control`, and the host
+// and the transitions the `/tower` command, `tower_mode` writes, and the host
 // effects share. `index.js` builds the Cordis workspace hook from
 // `createWorkspaceHook()`; `host/mode-command.js` owns the `/tower` command and
 // `host/session-tools.js` owns the two tool handler bodies. Behavior, output
@@ -46,22 +46,21 @@ export function isDeniedTool(name) {
 }
 
 const READ_ONLY_TOOL_NAMES = new Set([
-  'tower_status',
-  'tower_roster',
-  'tower_diff',
-  'tower_preflight',
-  'tower_doctor',
+  'tower_inspect',
 ])
 
 const BASE_REMINDER = [
   'Tower mode is active for this session. You are the control tower: plan missions, spawn workers and reviewers, and integrate only through the Tower tools.',
-  'Mission tracking lives in tower_plan / tower_mission / tower_status, not todo_write or the Team task board.',
-  'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_preflight.',
+  'Mission tracking lives in tower_plan / tower_mission / tower_inspect with view: status, not todo_write or the Team task board.',
+  'Do not create or resume goals, do not spawn teammates, and never merge without a green tower_inspect with view: preflight.',
   'Tower mode changes are explicit and recorded; the user can always use /tower on|off.',
 ].join(' ')
 
+const ROLE_NOTE =
+  'tower_complete belongs to worker and survey role sessions and tower_review to reviewer sessions; spawn the role with tower_spawn instead of calling those tools from the tower.'
+
 const AGENT_CONTROL_NOTE =
-  'You may also enter or leave Tower mode with tower_control when the user intent or task state clearly calls for it; always state a concrete reason.'
+  'You may also enter or leave Tower mode with tower_mode (active true/false) when the user intent or task state clearly calls for it; always state a concrete reason.'
 
 export function modeOn(key) {
   const entry = key ? modeState.get(key) : undefined
@@ -108,7 +107,7 @@ export function configSection(config, allowAgentControl) {
     ? ` ${config.mode.sectionAppend.trim()}`
     : ''
   const control = allowAgentControl ? ` ${AGENT_CONTROL_NOTE}` : ''
-  return `${configured}${appended}${control}`
+  return `${configured}${appended}${control} ${ROLE_NOTE}`
 }
 
 export function persistModes() {

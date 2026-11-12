@@ -162,12 +162,12 @@ test('tower_interrupt: interrupts the running child, records the roster and is i
     assert.equal(subagents.interrupts[0].options.kind, 'ancestor')
     assert.equal(subagents.interrupts[0].options.agent.id, 'tower-agent')
 
-    const roster = await call(tools, 'tower_roster', { repoRoot: repo })
+    const roster = await call(tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
     const entry = roster.roster.find((candidate) => candidate.agentId === childId)
     assert.equal(entry.state, 'interrupted')
     assert.equal(entry.outcome, 'runaway loop')
 
-    const status = await call(tools, 'tower_status', { repoRoot: repo })
+    const status = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.ok(status.activity.some((line) => /interrupted: runaway loop/.test(line.text ?? '')))
 
     // Second call: the child is no longer running, so nothing is interrupted.

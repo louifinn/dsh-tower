@@ -24,33 +24,26 @@ import { readStateLock } from '../adapters/store.js'
 import { lockTiming } from '../adapters/persistence.js'
 import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js'
 import { importLegacySnapshot, validateLegacyMap } from '../adapters/legacy.js'
-import { registerDoctorTool } from '../tools/doctor.js'
+import { registerInspectTool } from '../tools/inspect.js'
 import { registerRecoverTool } from '../tools/recover.js'
 import { registerTestTool } from '../tools/test.js'
 import { registerBatchTool } from '../tools/batch.js'
 import { registerResourceTool } from '../tools/resource.js'
-import { registerImportLegacyTool } from '../tools/import-legacy.js'
-import { registerLegacyMapTool } from '../tools/legacy-map.js'
+import { registerImportTool } from '../tools/import.js'
 import { registerReloadTool } from '../tools/reload.js'
 import { registerInitTool } from '../tools/init.js'
 import { registerPlanTool } from '../tools/plan.js'
 import { registerMissionTool } from '../tools/mission.js'
-import { registerStatusTool } from '../tools/status.js'
-import { registerRosterTool } from '../tools/roster.js'
 import { registerInterruptTool } from '../tools/interrupt.js'
-import { registerDiffTool } from '../tools/diff.js'
-import { registerAdoptTool } from '../tools/adopt.js'
 import { registerSendTool } from '../tools/send.js'
 import { registerInboxTool } from '../tools/inbox.js'
 import { registerReviewTool } from '../tools/review.js'
-import { registerPreflightTool } from '../tools/preflight.js'
 import { registerMergeTool } from '../tools/merge.js'
 import { registerRebaseTool } from '../tools/rebase.js'
 import { registerTeardownTool } from '../tools/teardown.js'
 import { registerSpawnTool } from '../tools/spawn.js'
 import { registerCompleteTool } from '../tools/complete.js'
 import { registerFindingTool } from '../tools/finding.js'
-import { registerFindingsTool } from '../tools/findings.js'
 import { summarize as summarizeBatch } from '../domain/batch.js'
 import { assertPorts } from '../ports/index.js'
 import {
@@ -185,21 +178,33 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerStatusTool(ctx, { openTower, define, workspaceHook: runtimeState.workspaceHook, spawnBackoffView, observeActivity, componentReport, ownershipView })
+  // #163 Phase 3: the five read-only views share one state and three arguments;
+  // one tool with a view enum replaces five descriptions and five schemas.
+  registerInspectTool(ctx, {
+    define,
+    openTower,
+    workspaceHook: runtimeState.workspaceHook,
+    spawnBackoffView,
+    observeActivity,
+    componentReport,
+    ownershipView,
+    createTower,
+    resolveRepo,
+    runtimeConfig,
+    resolveTowerConfig,
+    isConfigResolutionError,
+    runDoctor,
+    // #84/#122: the doctor view reports the full registered surface. It is always
+    // registered itself, and it is the reporter that names a disabled component.
+    surface: () => ({ tools: definedToolCount() }),
+  })
 
   // #131: the lease precondition needs the row state, and the app layer may not
   // import the registry, so the probe travels with the other spawn deps.
   registerSpawnTool(ctx, { openTower, define, actorFor, requireTowerActor, enqueueSpawn, observeActivity, spawnBackoffState, recordSpawnThrottle, recordSpawnSuccess, runMissionDiscovery, textOf, inspectLeases, leaseComponent: () => ({ enabled: componentEnabled('tower-leases'), reason: disabledReason('tower-leases') }) })
 
-  registerRosterTool(ctx, { openTower, define })
-
   registerInterruptTool(ctx, { openTower, define, actorFor, requireTowerActor, interruptRosterAgent })
 
-  // The diff handler receives the kernel-resolved actor and never re-resolves
-  // it, so a reviewer binding and the mission-visibility check cannot disagree.
-  registerDiffTool(ctx, { openTower, define })
-
-  registerAdoptTool(ctx, { openTower, define, actorFor, requireTowerActor })
 
   registerSendTool(ctx, { openTower, define, actorFor, checkSendRate })
 
@@ -209,7 +214,6 @@ export function registerCoreTowerTools(ctx, options = {}) {
 
   registerFindingTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
-  registerFindingsTool(ctx, { openTower, define, actorFor, requireKnownActor })
 
   // #M39: `review.mode:off` is the one configuration that removes tower_review
   // from the mounted surface. The name is still recorded before the decision so
@@ -220,25 +224,11 @@ export function registerCoreTowerTools(ctx, options = {}) {
   recordToolRegistration('tower_review')
   if (!reviewUnavailable(runtimeConfig())) registerReviewTool(ctx, { openTower, define, actorFor })
 
-  registerPreflightTool(ctx, { openTower, define, observeActivity })
-
   registerMergeTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
   registerRebaseTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
 
   registerTeardownTool(ctx, { openTower, define, actorFor, requireTowerActor, observeActivity })
-
-  registerDoctorTool(ctx, {
-    openTower,
-    define,
-    createTower,
-    resolveRepo,
-    runtimeConfig, resolveTowerConfig, isConfigResolutionError,
-    runDoctor,
-    // #84/#122: the doctor reports the full registered surface. It is always
-    // registered itself, and it is the reporter that names a disabled component.
-    surface: () => ({ tools: definedToolCount() }),
-  })
 
   // #122: the recovery escape is registered for every configuration. The lock it
   // repairs can be left behind by any crashed mutation, so an off state would be
@@ -258,8 +248,7 @@ export function registerLeasesCapability(ctx) {
 
 /** Legacy import and its audit map — the `tower-import` component. */
 export function registerImportCapability(ctx) {
-  registerImportLegacyTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot })
-  registerLegacyMapTool(ctx, { openTower, define, actorFor, requireTowerActor, validateLegacyMap })
+  registerImportTool(ctx, { openTower, define, actorFor, requireTowerActor, importLegacySnapshot, validateLegacyMap })
 }
 
 /** Declared test discovery — the `tower-tests` component. */

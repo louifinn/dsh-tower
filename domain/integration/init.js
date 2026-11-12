@@ -255,13 +255,14 @@ export function ownerClaimActivityText(caller) {
 
 /**
  * Activity line for an explicit, audited ownership transfer.
- * @param {{ from: string | null, to: string, reason: string }} input
+ * @param {{ from: string | null, to: string, reason: string, authorization?: string | null }} input
  * @returns {string}
  */
-export function takeoverActivityText({ from, to, reason }) {
+export function takeoverActivityText({ from, to, reason, authorization }) {
+  const audit = typeof authorization === 'string' && authorization.trim() ? ` [authorization: ${authorization.trim()}]` : ''
   return from
-    ? `tower owner transferred from ${from} to ${to}: ${reason}`
-    : `tower owner claimed by ${to} (takeover): ${reason}`
+    ? `tower owner transferred from ${from} to ${to}: ${reason}${audit}`
+    : `tower owner claimed by ${to} (takeover): ${reason}${audit}`
 }
 
 /**

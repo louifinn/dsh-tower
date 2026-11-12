@@ -58,6 +58,15 @@ window.__ModuleLoader__.load({
         if (toolName === 'tower_mode') {
           const payload = parsePayload(node)
           if (!isPlainObject(payload) || payload.__error === true) continue
+          if (typeof payload.action === 'string') {
+            if (payload.mode === 'on' || payload.mode === 'off') {
+              model.known = true; model.on = payload.mode === 'on'
+              model.source = 'tower_mode'
+            }
+            if (typeof payload.changedBy === 'string') model.lastBy = payload.changedBy
+            if (typeof payload.reason === 'string' && payload.reason.trim() !== '') model.lastReason = payload.reason.trim()
+            continue
+          }
           if (payload.mode === 'on' || payload.mode === 'off') {
             model.known = true
             model.on = payload.mode === 'on'
@@ -86,6 +95,7 @@ window.__ModuleLoader__.load({
           }
           continue
         }
+        // Older sessions recorded `tower_control`; keep re-deriving their stance.
         if (toolName === 'tower_control') {
           const payload = parsePayload(node)
           if (!isPlainObject(payload) || payload.__error === true || payload.ok === false) continue
@@ -105,9 +115,9 @@ window.__ModuleLoader__.load({
           if (typeof payload.reason === 'string' && payload.reason.trim() !== '') model.lastReason = payload.reason.trim()
           continue
         }
-        if (toolName === 'tower_status') {
+        if (toolName === 'tower_inspect') {
           const payload = parsePayload(node)
-          if (isPlainObject(payload)) {
+          if (isPlainObject(payload) && payload.view === 'status') {
             const name = repoNameOf(payload.repoRoot)
             if (name !== null) model.repo = name
           }

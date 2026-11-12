@@ -2,8 +2,8 @@
 
 ## Daily checks
 
-- `tower_status` — counts, open tasks, roster, unread messages, recent activity.
-- `tower_roster` — live activity; retired agents are recorded but never resumed.
+- `tower_inspect` with `view: "status"` — counts, open tasks, roster, unread messages, recent activity.
+- `tower_inspect` with `view: "roster"` — live activity; retired agents are recorded but never resumed.
 - `tower_preflight missionId` before every merge.
 
 ## Recover from a failed merge
@@ -26,8 +26,8 @@ leaves the branch untouched — then call `tower_merge` to record it. A conflict
 ## Interrupt, stale roster and takeover
 
 A runaway agent: `tower_interrupt({to:"worker-m1",reason:"..."})` interrupts the host subagent turn and
-records `state:"interrupted"`. `tower_roster` shows `stale:true` when an active entry has no catalog
-activity beyond `spawn.staleMs`; `tower_adopt` retires such entries (`retireMissing:false` marks them
+records `state:"interrupted"`. `tower_inspect` with `view: "roster"` shows `stale:true` when an active entry has no catalog
+activity beyond `spawn.staleMs`; `tower_init({op:"adopt"})` retires such entries (`retire_missing:false` marks them
 `missing` instead). After the old owner is interrupted/failed/missing, spawn a replacement with
 `takeover:true`; a still-running owner returns `takeover-refused`.
 
@@ -56,7 +56,7 @@ record whose PID is provably dead (ESRCH) is reclaimed, atomically and after byt
 the next mutation.
 
 If a lock never clears, `tower_recover({action:"status"})` reports the owner's `pid`, `startedAt`,
-`ageMs` and `heartbeatAgeMs`, and `tower_doctor` reports the same. `tower_recover
+`ageMs` and `heartbeatAgeMs`, and `tower_inspect` with `view: "doctor"` reports the same. `tower_recover
 clear-stale-lock` with `confirm:"CLEAR_STALE_LOCK"` moves a provably dead lock to
 `state.lock.recovered-<ts>`; add `force: true` to clear a live-but-silent PID (the recycled-PID case)
 after confirming no writer is active. The repair always renames, never deletes, so the bytes stay
@@ -74,12 +74,12 @@ is active without updating the roster.
 State is bound to the session that initialized it (`state.towerAgentId`). When that session is gone,
 the new session runs `/tower takeover <reason>`; the human command is always available, even with
 `mode.allowAgentControl:false`. A model can request the same transfer through
-`tower_control({action:"takeover"})`, but only from Tower mode and only after an explicit human
+`tower_mode({active:"takeover", authorization:"<audit ref>"})`, but only from Tower mode and only after an explicit human
 approval dialog. Both paths refuse while the previous owner still has Tower mode on with a live
 workspace lock ([tower:owner-live]), while live roster agents or a foreign workspace lock exist
 ([tower:owner-busy]). The transfer keeps all missions, reviews, findings and unread messages, writes
 one `takeover` activity line, and releases an orphaned previous-owner lock. There is no automatic
-release of ownership. See `tower_doctor`'s `tower-owner` check for the current facts.
+release of ownership. See `tower_inspect` with `view: "doctor"`'s `tower-owner` check for the current facts.
 
 ## Stale or corrupt state
 
