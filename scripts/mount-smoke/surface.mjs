@@ -10,8 +10,8 @@
 // rows and presets come from `cordis.patch.yml` and are stated here as the
 // contract the component policy protects: one mandatory host group plus
 // individually switchable optional top-level rows (#121). Tools owned by a row
-// that ships off (today only `tower-hmr` -> `tower_reload`) are trimmed from the
-// expected surface using the same ownership table the runtime reports, so the
+// that ships off (#163 Phase 5: tower-batch, tower-import, tower-leases,
+// tower-tests and tower-hmr) are trimmed from the expected surface using the same ownership table the runtime reports, so the
 // shipped default profile (16 tools) and the all-rows-on build surface (21)
 // cannot be confused again. The five `tower_inspect` view modules live under
 // tools/views/ and are internal code, not top-level tool modules (#163 Phase 3).
@@ -42,7 +42,7 @@ export const OPTIONAL_ROW_IDS = [
 ]
 
 /** Rows shipped off: the mount smoke must not expect them to be active. */
-export const DEFAULT_OFF_ROW_IDS = ['tower-hmr']
+export const DEFAULT_OFF_ROW_IDS = ['tower-batch', 'tower-hmr', 'tower-import', 'tower-leases', 'tower-tests']
 
 /**
  * Tool ids owned by the rows in {@link DEFAULT_OFF_ROW_IDS}. The ownership table

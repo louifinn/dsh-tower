@@ -94,6 +94,18 @@ audit reference, which is larger than the old read-only schema it absorbed.
 The tool count still falls by three there; that is a dated decision, not an
 exemption from the two-way rule.
 
+#163 Phase 5 keeps the build surface at 21 but narrows what the tower profile
+mounts: `tower_complete` and `tower_review` are registered with a role
+predicate and belong to the worker/survey and reviewer presets, so the tower
+profile advertises 16 → 14 tools and 12,921 → 10,582 input bytes (both dated
+decisions). The five subsystem rows (`tower-batch`, `tower-import`,
+`tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
+shipped profile mounts 16 of the 21 and the all-on build surface is unchanged
+at 21. Closing a row is not a surface reduction: the tools stay in the build
+and `tower_doctor` reports each one as off with its enable step. The default
+tool list and the all-on list are documented in
+[tools.md](tools.md#tool-sets).
+
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
 sections 15 → 14. Sections keep the ADR 0004 cheap-shrink rule. #136 shrank the
@@ -273,7 +285,7 @@ them mandatory for every configuration.
 | `tower_resource` | optional | Advisory leases; component `tower-leases`. |
 | `tower_review` | core | Independent review verdicts. |
 | `tower_send` | core | Durable messages to agents. |
-| `tower_spawn` | core | Starts workers and reviewers. |
+| `tower_spawn` | core | Starts workers and reviewers; the takeover case is `op:"takeover"` and the wait bound is `spawn.maxWaitMs` (#163 Phase 5). |
 | `tower_teardown` | core | Worktree cleanup and archiving. |
 | `tower_test` | optional | Explicit discovery; component `tower-tests`. |
 

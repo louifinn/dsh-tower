@@ -8,19 +8,46 @@
 checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission worktree。
 `tower_mode` 与 `tower_reload` 不需要仓库；`tower_reload` 是仓库可选的逃生通道（可在没有
 仓库时重载损坏的 profile）。
-本构建最多 21 个工具：下列 15 个核心工具（含 `tower_interrupt` 与 `tower_inspect`）、会话语义
-工具 `tower_mode`（设 `mode.allowAgentControl:false` 可禁用写操作）、始终注册的 `tower_recover`
-（#122），以及由组件行拥有的五个工具 `tower_reload`（`tower-hmr`）、`tower_test`（`tower-tests`）、
-`tower_batch`（`tower-batch`）、`tower_resource`（`tower-leases`）和 `tower_import`
-（`tower-import`）。`tower_inspect` 把 status、roster、diff、preflight、doctor 五个只读视图收进
-一个工具，用 `view` 选择，共享参数不再重复；`tower_init`、`tower_finding` 和 `tower_import`
-则把同一资源的动作收进各自的 `op`。关闭某个组件行只会移除它的工具。
+## 工具集
+
+本构建最多 21 个工具（全开）；默认 profile 注册 **16 个工具**：`tower_init`（`op:"init"`/`"adopt"`）、`tower_plan`、
+`tower_spawn`、`tower_mission`、`tower_interrupt`、`tower_merge`、`tower_rebase`、
+`tower_teardown`、`tower_send`、`tower_inbox`、`tower_finding`、`tower_inspect`（五个只读视图）、
+`tower_complete`、`tower_review`、`tower_mode` 与 `tower_recover`。全部开启的构建面为
+**21 个工具**：16 个默认工具加 `tower_batch`（`tower-batch`）、`tower_import`（`tower-import`）、
+`tower_resource`（`tower-leases`）、`tower_test`（`tower-tests`）和 `tower_reload`
+（`tower-hmr`）。`tower_inspect` 把 status、roster、diff、preflight、doctor 五个只读视图收进
+一个工具，用 `view` 选择；`tower_init`、`tower_finding` 和 `tower_import` 把同一资源的动作
+收进各自的 `op`。
+
+每个 profile **实际挂载**的工具比构建面更窄。控制塔会话不挂载 `tower_complete` 与
+`tower_review`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5）。从控制塔
+会话强行调用会得到可执行的 `not-authorized` 提示（指出 `tower_spawn({role:"worker"})` 入口），
+而不是 unknown tool。实测 profile：tower 14 个工具 / 10,582 B 输入 schema，worker 6 / 6,175 B，
+reviewer 5 / 4,371 B；基线记录在 `docs/reference/surface-budget.md`。
+
+## 默认关闭的子系统
+
+下表的五个组件行在随附的 `cordis.patch.yml` 中带 `disabled: true`。关闭一行只会移除它的工具；
+`tower_doctor` 会逐行列出工具与开启步骤，`tower_inspect` 的 `doctor` 视图报告
+“disabled by component <id>”。开启方法是把该行的 `disabled` 设为 `false`（或删掉该标记）并
+重启 DSH。
+
+| 组件行 | 工具 | 开启方式 |
+|---|---|---|
+| `tower-batch` | `tower_batch` | 删除 `tower-batch` 行的 `disabled: true` 并重启 DSH |
+| `tower-import` | `tower_import` | 删除 `tower-import` 行的 `disabled: true` 并重启 DSH |
+| `tower-leases` | `tower_resource` | 删除 `tower-leases` 行的 `disabled: true` 并重启 DSH |
+| `tower-tests` | `tower_test` | 删除 `tower-tests` 行的 `disabled: true` 并重启 DSH |
+| `tower-hmr` | `tower_reload` | 删除 `tower-hmr` 行的 `disabled: true` 并重启 DSH |
+
+工具仍然存在并留在全开 21 个之中：它们是关闭，不是删除。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、
 `task_drop_reason`/`taskDropReason`、`clear_blockers`/`clearBlockers`、
 `include_read`/`includeRead`、`dry_run`/`dryRun`、`timeoutMs`/`timeout_ms`、
-`waitMs`/`wait_ms`、`tower_finding` 上的 `mission_id`/`missionId`、interrupt 上的
+`tower_finding` 上的 `mission_id`/`missionId`、interrupt 上的
 `agent_id`/`agentId`、`tower_inspect` status 视图上的 `include_gate`/`includeGate` 与
 `include_archived`/`includeArchived`、`tower_init({op:"adopt"})` 上的
 `retire_missing`/`retireMissing`。
@@ -31,7 +58,7 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 
 roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tower_interrupt`、
 `tower_init`、`tower_plan`、`tower_spawn`、`tower_merge`、`tower_rebase`、`tower_teardown`）
-**仅限控制塔**，`tower_init({op:"adopt"})` 与 `tower_mode` 的写操作也一样。`tower_reload`
+**仅限控制塔**，`tower_init({op:"adopt"})` 与 `tower_mode` 的写操作也一样。`tower_complete` 与 `tower_review` 分别由 worker/survey 与 reviewer 角色会话挂载；控制塔会话不挂载它们，误用会得到 `not-authorized` 提示并给出 `tower_spawn` 角色入口或切换模式的替代路径。`tower_reload`
 仅限控制塔，并且是 `host/tool-profiles.js` 中唯一登记为仓库可选的工具：它可以在没有仓库时
 运行以重载损坏的 profile；传入 `repoRoot` 不会改变这一行（仍受 `tower-hmr` 组件行控制）。
 `tower_batch` 的 create/close/abandon、`tower_resource` 的 acquire/release、`tower_import`
@@ -48,7 +75,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。 |
 | `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings）、`doctor`（环境与 state/git 锁健康）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
-| `tower_spawn` | `missionId`（别名 `id`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`waitMs?`、`takeover?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`takeover:true` 替换已不再运行的 worker 条目（ownerGeneration 递增）。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。 |
+| `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息；对运行中的 agent 会即时投递。`interrupt:true` 先中断运行中的回合（Kimi 风格）再投递；`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
 | `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，可进入 preflight 与可选审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息。`report` 受 `gates.maxReportBytes`（默认 32768 UTF-8 字节）硬上限约束：超限会以 `invalid-argument` 拒绝并给出 `nextAction`（把全文写进 mission worktree 的文件），绝不截断；存储时会记录 `reportBytes`。`checks` 记录 `{name, command?, exitCode?, evidence?}` 证据；`gates.requireChecks` 可以强制要求。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。 |

@@ -16,6 +16,10 @@ export function registerReviewTool(ctx, deps) {
       'Submit a review verdict bound to the current tip: status clean|p1-N|p2-N, merge merge|fix-then-merge|hold. Non-clean returns the mission to active; only clean + merge approves. Reviewers are capped per branch; breakGlassReason is tower-only. Unregistered when review.mode is off.',
     parameters: ReviewInput,
     aliases: {"missionId":["id"]},
+    roles: ['reviewer'],
+    // Tower break-glass: review submissions from the tower stay possible, but the
+    // tool is not mounted into the tower transcript (#163 Phase 5).
+    allowTowerExecution: true,
     requiresMissionId: true,
     board: true,
     output: output(SCHEMAS.review),

@@ -127,9 +127,18 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (21 in 2.8.0), even though the shipped profile mounts 20 because
-`tower-hmr` ships off; the `components` check names the mounted subset and every
-disabled row. `npm run surface:check` is what fails when a count grew without an
+build surface (21 in 2.8.0, 16 default), even though the shipped profile mounts 16 because the
+five subsystem rows ship off; the `components` check names the mounted subset and every
+disabled row.
+
+`subsystems` lists the five default-off rows (`tower-batch`, `tower-import`,
+`tower-leases`, `tower-tests`, `tower-hmr`) as `{id, enabled, tool, enable}`; each
+row's tool stays in the 21 all-on surface. The `components` check detail names each
+row as off, not deleted, with its enable step. A `deprecated-tool-names` check scans
+`mode.denyTools` for names that #163 merged or removed (`tower_control`, `tower_adopt`,
+`tower_findings`, `tower_import_legacy`, `tower_legacy_map`, `tower_status`,
+`tower_roster`, `tower_diff`, `tower_preflight`, `tower_doctor`) and reports
+`<old> -> <replacement>` instead of silently ignoring them. `npm run surface:check` is what fails when a count grew without an
 ADR, a matching deletion or a recorded measurement correction. See
 [surface-budget.md](surface-budget.md) for the classification table.
 

@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components. The default profile mounts 16.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -108,7 +108,7 @@ Host plugin (index.js — Cordis apply/effect glue)
  ├─ host/tool-capabilities.js -> registration aggregators
  │                    (+ 20 define()-registered tools)
  │                    (+ tower_mode registered by the Host entry, 21 total
- │                       once every optional capability row is on)
+ │                       once every optional capability row is on; 16 default)
  │                    (tower_inspect/tower_recover are host tools, never switches)
  ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
  ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)
@@ -176,9 +176,15 @@ Host plugin (index.js — Cordis apply/effect glue)
  tools layer:
        tools/index.js           thin public wiring (re-exports only)
        tools/*.js               one module per tool, handler + imported input schema
+       tools/views/*.js         internal implementations behind tower_inspect/tower_init/
+                                 tower_finding/tower_import (they register nothing)
  Subagents
- ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + findings
- └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_inspect view diff + review/finding (read-only)
+ ├─ tower-worker   (dsh-tower/worker)   read/write/edit/pwsh + mission tools + tower_complete + findings
+ └─ tower-reviewer (dsh-tower/reviewer) read/glob/grep + tower_inspect view diff + tower_review/finding (read-only)
+
+ Role contract (#163 Phase 5): the tower profile does not mount tower_complete or tower_review;
+ those tools are registered with a role predicate and belong to the worker/survey and reviewer
+ presets. The tower prompt and the role-denial hint point at tower_spawn({ role: "worker" }).
 ```
 
 

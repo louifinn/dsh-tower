@@ -274,6 +274,7 @@ const SCHEMAS = {
       surface: S.any,
       activityLog: S.any,
       review: S.any,
+      subsystems: S.arr(S.obj()),
       archive: S.obj({
         missions: S.any,
         archivedMissions: S.int,

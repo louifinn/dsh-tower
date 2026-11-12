@@ -197,7 +197,7 @@ export const Config = Schema.object({
       .min(1000)
       .max(600000)
       .default(90000)
-      .description('Upper bound for tower_spawn waitMs (default 90s, Kimi-compatible).'),
+      .description('Upper bound for a blocking tower_spawn wait (default 90s, Kimi-compatible).'),
     requireLease: Schema.string().description('Optional lease name tower_spawn must hold before starting a worker.'),
   })
     .default({})

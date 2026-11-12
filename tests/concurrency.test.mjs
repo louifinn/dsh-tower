@@ -225,7 +225,7 @@ test('a live survey worker does not consume the build worker budget (#148)', asy
       (error) => error.code === 'invalid-transition' && /already has a live worker/.test(error.message),
     )
     await assert.rejects(
-      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker', takeover: true }, exec),
+      () => tools.get('tower_spawn').execute({ repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' }, exec),
       (error) => error.code === 'takeover-refused' && /not in the live catalog/.test(error.message),
     )
   } finally {

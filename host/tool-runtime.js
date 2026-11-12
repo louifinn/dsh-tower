@@ -14,8 +14,9 @@ import {
   authorize,
   resolveActor,
 } from './authorization.js'
+import { isTowerRole } from '../domain/vocabulary.js'
 import { resolveToolRepoRoot } from './tool-repo.js'
-import { isRepositoryOptionalTool } from './tool-profiles.js'
+import { isRepositoryOptionalTool, roleAllowsTool, roleDenialHint } from './tool-profiles.js'
 import { git, resolveRepo, hasAnyCommit } from '../adapters/git.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import path from 'node:path'
@@ -272,6 +273,21 @@ export function plainSchema(value) {
 }
 
 /**
+ * Step admission for a role-owned tool (#163 Phase 5). The tool stays in the
+ * build surface so the all-on profile and the baseline can count it, but a
+ * normal tower session does not advertise it: DSH resolves the registration's
+ * `when` against the calling agent, whose preset id names the role.
+ *
+ * @param {string} name
+ * @param {readonly string[] | undefined} roles
+ * @returns {{ when: (context: { agent?: any }) => boolean } | undefined}
+ */
+function roleToolRegistration(name, roles) {
+  if (!Array.isArray(roles) || roles.length === 0) return undefined
+  return { when: (context) => roleAllowsTool(context?.agent, name) }
+}
+
+/**
  * Register one tool. The TypeBox schema is the single source of truth for the
  * runtime JSON Schema and the handler's argument type. The runtime injects the
  * resolved `repoRoot` after normalization (#163), so the handler type carries it
@@ -287,12 +303,14 @@ export function plainSchema(value) {
  *   aliases?: any,
  *   requiresMissionId?: any,
  *   validateArgs?: (args: any) => void,
+ *   roles?: readonly string[],
+ *   allowTowerExecution?: boolean,
  *   board?: any,
  *   output?: any,
  * }} definition
  */
 export function define(ctx, definition) {
-  const { aliases, requiresMissionId, validateArgs, board, execute, ...rest } = definition
+  const { aliases, requiresMissionId, validateArgs, board, roles, allowTowerExecution, execute, ...rest } = definition
   // Record the definition for the concept budget. The capability that owns the
   // tool decides whether it is registered at all (#121): the component row is
   // the switch, so `define()` no longer consults a `tools.expose*` boolean.
@@ -325,6 +343,11 @@ export function define(ctx, definition) {
           // Default-deny authorization runs before any side effect: a denied
           // call must not take the workspace lock, write state, or spawn.
           const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
+          // #163 Phase 5: a role-owned tool reached from the wrong profile gets
+          // the replacement path, not a bare unknown-tool or access denial.
+          if (Array.isArray(roles) && !roles.includes(actor?.role) && !(allowTowerExecution === true && isTowerRole(actor?.role))) {
+            throw new TowerToolError('not-authorized', roleDenialHint(rest.name))
+          }
           if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
             await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
           }
@@ -355,7 +378,7 @@ export function define(ctx, definition) {
         }
         return value
       },
-    }),
+    }, roleToolRegistration(rest.name, roles)),
   )
 }
 

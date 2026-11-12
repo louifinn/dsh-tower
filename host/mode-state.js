@@ -56,6 +56,9 @@ const BASE_REMINDER = [
   'Tower mode changes are explicit and recorded; the user can always use /tower on|off.',
 ].join(' ')
 
+const ROLE_NOTE =
+  'tower_complete belongs to worker and survey role sessions and tower_review to reviewer sessions; spawn the role with tower_spawn instead of calling those tools from the tower.'
+
 const AGENT_CONTROL_NOTE =
   'You may also enter or leave Tower mode with tower_mode (active true/false) when the user intent or task state clearly calls for it; always state a concrete reason.'
 
@@ -104,7 +107,7 @@ export function configSection(config, allowAgentControl) {
     ? ` ${config.mode.sectionAppend.trim()}`
     : ''
   const control = allowAgentControl ? ` ${AGENT_CONTROL_NOTE}` : ''
-  return `${configured}${appended}${control}`
+  return `${configured}${appended}${control} ${ROLE_NOTE}`
 }
 
 export function persistModes() {

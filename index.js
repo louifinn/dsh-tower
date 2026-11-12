@@ -34,6 +34,7 @@ import {
 } from './host/mode-state.js'
 import { registerTowerCommand } from './host/mode-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
+import { isRoleOwnedTool, roleAllowsTool, roleDenialHint } from './host/tool-profiles.js'
 import { TowerToolError } from './domain/errors.js'
 import { inspectWorkspaceLockSync, touchWorkspaceLock } from './adapters/workspaceLock.js'
 import { resolveCommonDirSync } from './adapters/git.js'
@@ -125,6 +126,16 @@ export function apply(ctx, rawConfig) {
         return `tower mode: ${execution.name} is disabled because this repository is under Tower mode (${who}); run /tower off in that session first, or /tower takeover <reason> here once it is gone`
       }
       return undefined
+    }),
+  )
+
+  // #163 Phase 5: a role-owned tool called from the wrong profile is a role
+  // error with a concrete next step, never a bare unknown-tool failure.
+  ctx.effect(() =>
+    ctx.tools.guard((execution) => {
+      if (!isRoleOwnedTool(execution.name)) return undefined
+      if (roleAllowsTool(execution.agent, execution.name)) return undefined
+      return roleDenialHint(execution.name)
     }),
   )
 

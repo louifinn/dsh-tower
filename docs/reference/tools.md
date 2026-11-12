@@ -8,19 +8,46 @@ A session working directory inside a linked worktree resolves to the main checko
 never writes Tower state or the board into its mission worktree.
 `tower_mode` and `tower_reload` need no repository; `tower_reload` is the repository-optional
 escape hatch (it may run without one to reload a broken profile).
-The build exposes up to 21 tools: 15 core repository tools below (including `tower_interrupt`),
-the session tool `tower_mode` (writes disabled with `mode.allowAgentControl:false`), the
-always-registered `tower_recover` (#122), and the five component-owned tools `tower_reload`
-(`tower-hmr`), `tower_test` (`tower-tests`), `tower_batch` (`tower-batch`), `tower_resource`
-(`tower-leases`) and `tower_import` (`tower-import`).
-A component row that is off removes exactly its tools; `tower_inspect`'s `status` and `doctor`
-views report it as "disabled by component <id>".
+## Tool sets
+
+The default profile registers **16 tools**: `tower_init` (`op:"init"`/`"adopt"`), `tower_plan`,
+`tower_spawn`, `tower_mission`, `tower_interrupt`, `tower_merge`, `tower_rebase`,
+`tower_teardown`, `tower_send`, `tower_inbox`, `tower_finding`, `tower_inspect`
+(five read-only views), `tower_complete`, `tower_review`, `tower_mode` and `tower_recover`.
+The build still exposes up to 21 tools when every optional row is on: the 16 default tools plus `tower_batch`
+(`tower-batch`), `tower_import` (`tower-import`), `tower_resource` (`tower-leases`),
+`tower_test` (`tower-tests`) and `tower_reload` (`tower-hmr`).
+
+What each profile **advertises** is narrower than what ships. The tower session does not mount
+`tower_complete` or `tower_review` — they are owned by the worker/survey and reviewer role
+sessions (#163 Phase 5). Calling one from a tower session anyway fails with an actionable
+`not-authorized` hint naming the role entry (`tower_spawn({role:"worker"})`) instead of an
+unknown-tool error. The measured profile surfaces are tower 14 tools / 10,582 B of input schema,
+worker 6 / 6,175 B, and reviewer 5 / 4,371 B; `docs/reference/surface-budget.md` records the
+baseline and every change.
+
+## Default-off subsystems
+
+The five component rows below ship `disabled: true` in the bundled `cordis.patch.yml`. Closing a
+row removes exactly its tools; `tower_doctor` lists each row with its tool and the enable step, and
+`tower_inspect`'s `doctor` view reports it as "disabled by component <id>". To enable one, set its
+`disabled` flag to `false` in `cordis.patch.yml` (or omit the flag) and restart DSH.
+
+| Component row | Tool(s) | Enable |
+|---|---|---|
+| `tower-batch` | `tower_batch` | remove `disabled: true` from the `tower-batch` row and restart DSH |
+| `tower-import` | `tower_import` | remove `disabled: true` from the `tower-import` row and restart DSH |
+| `tower-leases` | `tower_resource` | remove `disabled: true` from the `tower-leases` row and restart DSH |
+| `tower-tests` | `tower_test` | remove `disabled: true` from the `tower-tests` row and restart DSH |
+| `tower-hmr` | `tower_reload` | remove `disabled: true` from the `tower-hmr` row and restart DSH |
+
+The tools still exist and stay in the all-on 21; they are off, not deleted.
 
 `tower_mission` uses `id` (alias `missionId`); every other mission-scoped tool uses `missionId`
 (alias `id`). Other input aliases: `task_done`/`taskDone`, `task_drop`/`taskDrop`,
 `task_drop_reason`/`taskDropReason`, `clear_blockers`/`clearBlockers`,
 `include_read`/`includeRead`, `dry_run`/`dryRun`, `timeoutMs`/`timeout_ms`,
-`waitMs`/`wait_ms`, `mission_id`/`missionId` on `tower_finding`, `agent_id`/`agentId` on
+`mission_id`/`missionId` on `tower_finding`, `agent_id`/`agentId` on
 interrupt, `include_gate`/`includeGate`, `include_archived`/`includeArchived` on the `inspect`
 status view, and `retire_missing`/`retireMissing` on `tower_init({op:"adopt"})`. Aliases are
 accepted by the server but are no longer advertised in the tool schemas (#163 Phase 2), so they
@@ -50,7 +77,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_plan` | `missions[]` (`title` — printable Unicode, NFC-normalized, ≤120 characters, `scope[]`, `tasks[]?`, `deps[]?`, `kind?`, `context?`, `references[]?` ≤20, `reviewPolicy?`, `reviewExemptionReason?`) | Create missions `M1..`; overlapping build scopes auto-add a dependency; rejects unknown deps and cycles. Mission ids stay ASCII (`M1`, `M2`); invisible characters and over-long titles are rejected with `invalid-argument`. `reviewPolicy:"none"` requires a non-empty reason; when the review gate is on, preflight also requires `gates.allowReviewExemption`. |
 | `tower_mission` | `id` (alias `missionId`), `status?`, `task_done?`, `task_drop?`+`task_drop_reason?`, `blocker?`, `clear_blockers?`, `note?`, `scope?`, `pause_cause?`, `authorization?` | Update one mission. Worker-safe fields are task/blocker/note; `merged` cannot be set here. `blocked` is derived from an open blocker (record `blocker`, never `status:"blocked"`); `clear_blockers` resumes it to `active`. Paused missions record `pause_cause` (user/failure/resource/dependency); resuming a user-paused mission honors `mode.requireResumeAuthorization`. |
 | `tower_inspect` | `view` (`status`/`roster`/`diff`/`preflight`/`doctor`), `missionId?`, `maxBytes?`, `offset?`, `limit?`, `includeGate?`, `includeArchived?`, `format?` | One read-only tool for five views of the same state (#163 Phase 3). `status`: dashboard by default; `missionId` returns full detail; `offset`/`limit` page active missions (default 20, max 100); `includeGate` adds gate digests; `includeArchived` appends archived summaries; `format:"markdown"` returns the board; a newer/corrupt `state.json` degrades to a read-only on-disk diagnostic instead of failing. `roster`: roster with live activity (`running`/`inactive`/`missing`/`unknown`) and `stale` flags. `diff` (requires `missionId`): merge-base diff, files, commits, capped patch (`maxBytes`); safe for reviewers. `preflight` (requires `missionId`): `{ok, blockers[], branchTip, baseTip, changedFiles, review}`; review blockers only with `review.mode:required`; it rethrows state errors because no gate can be computed from unreadable state. `doctor`: concept-budget surface, git, state schema, config, presets/subagents/HMR, locks, workspace lock, roster, worktree realpath/ownership, test config, leases and the terminal-mission archive; returns `{ok, checks[], surface, stateLock, gitLock, stateSchema, archive, environmentContract}` and never writes. `roster`/`diff` require a known actor, `diff` also requires mission participation; `status`/`preflight`/`doctor` stay public so a broken repository can be diagnosed. |
-| `tower_spawn` | `missionId` (alias `id`), `role` (`worker`/`reviewer`), `name?`, `instructions?`, `worktreeRoot?`, `wait?`, `waitMs?`, `takeover?`, `includeDirtyBase?` | Provision/reuse the worktree and start a subagent. Worker uses `tower-worker`; reviewer requires a `completed` mission and uses the read-only `tower-reviewer`; with `review.mode:off` the reviewer role is refused with `[tower:review-disabled]`. `takeover:true` replaces a live worker entry that is no longer running (increments ownerGeneration). Only one live worker per mission; `spawn.maxLiveWorkers` caps the repository. |
+| `tower_spawn` | `missionId` (alias `id`), `op?` (`spawn` default / `takeover`), `role` (`worker`/`reviewer`), `name?`, `instructions?`, `worktreeRoot?`, `wait?`, `includeDirtyBase?` | Provision/reuse the worktree and start a subagent. Worker uses `tower-worker`; reviewer requires a `completed` mission and uses the read-only `tower-reviewer`; with `review.mode:off` the reviewer role is refused with `[tower:review-disabled]`. `op:"takeover"` replaces a live worker entry that is no longer running (increments ownerGeneration); the old `takeover:true` field is rejected with the replacement path. `wait:true` waits for the result, bounded by `spawn.maxWaitMs` (default 90000); the old `waitMs` field is rejected with that config path. Only one live worker per mission; `spawn.maxLiveWorkers` caps the repository. |
 | `tower_send` | `to`, `subject`, `body`, `scope?`, `interrupt?`, `consentRef?` | Durable message to a roster name, `tower`, or `all`; delivers live to a running agent. `interrupt:true` interrupts the running turn first (Kimi-style), then delivers; `consentRef` is recorded for audit. Rate-limited by `send.maxPerMinute`. |
 | `tower_inbox` | `limit?`, `include_read?` | Read/ack messages addressed to the caller; unread messages block `tower_complete`. |
 | `tower_complete` | `missionId` (alias `id`), `report`, `checks?` | Worker reports completion (mission becomes `completed`, ready for preflight and optional review). Requires current owner, no open tasks/blockers, ≥1 commit, no unread inbox. `report` is capped at `gates.maxReportBytes` (default 32768 UTF-8 bytes): a larger report is rejected with `invalid-argument` and a `nextAction` to file the full text in the mission worktree, never truncated; the stored report records `reportBytes`. `checks` records `{name, command?, exitCode?, evidence?}` evidence; `gates.requireChecks` can demand it. When configured, test discovery runs automatically and adds a `tests` check; failure throws `[tower:tests-failed]`. |

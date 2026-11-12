@@ -193,11 +193,11 @@ enforced by `npm run docs:check:components`.
 
 ## Tools (21: 15 core + 6 optional)
 
-up to 21 tools: 15 core + 6 optional.
+up to 21 tools: 15 core + 6 optional. The default profile registers 16 of them; the five subsystem rows ship off, and the tower session mounts 14 (not `tower_complete` or `tower_review`).
 
 `tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_import` · `tower_test` · `tower_batch` · `tower_resource` · `tower_reload`
 
-The list above is the 15 core tools plus 6 component-owned optional tools (`tower_import`, `tower_test`, `tower_batch`, `tower_resource`, `tower_reload`, the last owned by the shipped-off `tower-hmr` row). `tower_mode` is the session tool: omitting `active` only reads, while passing `active` writes; set `mode.allowAgentControl:false` to disable writes. `tower_recover` is core (registered for every configuration, #122); the doctor is the read-only `tower_inspect` `view: "doctor"` view. `tower_init({op:"adopt"})` is the former roster reconciliation, and `tower_finding({op:"report"/"list"/"update"})` and `tower_import({op:"snapshot"/"map"})` follow the same pattern (#163 Phase 4). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
+The list above is the 15 core tools plus 6 component-owned optional tools (`tower_import`, `tower_test`, `tower_batch`, `tower_resource`, `tower_reload`, the last owned by the shipped-off `tower-hmr` row). `tower_mode` is the session tool: omitting `active` only reads, while passing `active` writes; set `mode.allowAgentControl:false` to disable writes. `tower_recover` is core (registered for every configuration, #122); the doctor is the read-only `tower_inspect` `view: "doctor"` view. `tower_complete` and `tower_review` are mounted by the worker/survey and reviewer role sessions; misuse from the tower returns an actionable `not-authorized` hint naming the `tower_spawn` role entry instead of an unknown-tool error. `tower_init({op:"adopt"})` is the former roster reconciliation, and `tower_finding({op:"report"/"list"/"update"})` and `tower_import({op:"snapshot"/"map"})` follow the same pattern (#163 Phase 4). Mission-scoped tools also accept `id` as an alias for `missionId`; snake/camel spellings such as `task_done`/`taskDone` are both accepted.
 
 ## Safety and guardrails
 
@@ -207,7 +207,17 @@ The list above is the 15 core tools plus 6 component-owned optional tools (`towe
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components.
+Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components. The default profile registers 16 of those tools.
+
+Five subsystem rows ship off; `tower_doctor` lists each one as disabled plus how to enable it, and the same table lives in [docs/reference/tools.md](docs/reference/tools.md) under “Default-off subsystems”:
+
+| Component row | Tool | Enable |
+|---|---|---|
+| `tower-batch` | `tower_batch` | remove `disabled: true` from the row in `cordis.patch.yml` and restart DSH |
+| `tower-import` | `tower_import` | same |
+| `tower-leases` | `tower_resource` | same |
+| `tower-tests` | `tower_test` | same |
+| `tower-hmr` | `tower_reload` | same |
 
 Stable blocker/failure codes (including gate guards, `no-check-evidence`, `worker-stale`, test gates, and merge/rebase operation failures) — the complete list with triggers and fixes is in [docs/reference/blockers.md](docs/reference/blockers.md). Tool-level error codes are in [docs/reference/errors.md](docs/reference/errors.md); events are in [docs/reference/events.md](docs/reference/events.md).
 
@@ -278,7 +288,7 @@ The live suite downloads a browser and boots a real host, so it is out of push/P
 
 `tests/platform.test.mjs` injects `platform`/`rename`/`unlink` so both the win32 and POSIX branches are asserted on any OS; the only case that needs a real Windows filesystem (renaming over an open destination) is counted as `# SKIP` on Linux (`tests 11`, `skipped 1`), never silently absent. There is no macOS runner: macOS follows the same POSIX branch as Linux, which is a #86 non-goal.
 
-`mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 20 `tower_*` tools in the shipped profile (20 `tools/*.js` modules plus `tower_mode`, minus `tower_reload` because `tower-hmr` ships off; 21 with every optional capability row on), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, one top-level `tower` host group, and the optional top-level rows (`tower-hmr` is shipped off). It calls no model and opens no browser. Measured on the maintainer's Windows machine: about 100 seconds on a cold host (install included) and about 85 seconds with a cached host; the CI step allows 3 minutes (`timeout-minutes: 3`) inside the 5-minute `mount` job. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
+`mount` asserts the throwaway profile's **loaded surface**, never the text of `cordis.patch.yml`: 16 `tower_*` tools in the shipped profile (20 `tools/*.js` modules plus `tower_mode`, minus the `tower_batch`/`tower_import`/`tower_resource`/`tower_test`/`tower_reload` tools of the five default-off subsystem rows; 21 with every optional capability row on), the 3 bundled skills, both the `tower-worker` and `tower-reviewer` presets, the `/tower` command, one top-level `tower` host group, and the optional top-level rows (`tower-hmr` is shipped off). It calls no model and opens no browser. Measured on the maintainer's Windows machine: about 100 seconds on a cold host (install included) and about 85 seconds with a cached host; the CI step allows 3 minutes (`timeout-minutes: 3`) inside the 5-minute `mount` job. A red run prints the resolved profile path, the host build, the loaded counts, and every unmet claim.
 
 The host build is pinned in `scripts/mount-smoke/host.json`; `scripts/support.json` records the published floor, and `npm run support:check` keeps the package engines, the host pin, the live matrix and the newest `COMPATIBILITY.md` row in agreement, while a unit test keeps that row equal to the pin, so a release never retypes it. `npm run smoke:fixtures` proves the smoke still fails for the right seeded reasons (a renamed tool id, a removed skills section). CI runs it as the non-required `mount-fixtures` job, where the control and both seeds share one cached host install through `--host-dir` (about 2 minutes warm here).
 

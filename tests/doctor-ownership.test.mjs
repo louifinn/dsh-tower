@@ -111,6 +111,18 @@ test('doctor and status agree: the owner mode is off and takeover is available',
     assert.equal(status.ownership.takeoverAvailable, true)
     assert.equal(doctor.ownership.takeoverAvailable, status.ownership.takeoverAvailable)
     assert.equal(doctor.ownership.modeStoreStatus, status.ownership.modeStoreStatus)
+    // #163 Phase 5: default-off subsystems are reported by name and enable step.
+    assert.equal(doctor.subsystems.length, 5)
+    for (const row of doctor.subsystems) {
+      assert.ok(row.tool, `${row.id} names its tool`)
+      assert.equal(typeof row.enabled, 'boolean')
+      assert.match(row.enable, /disabled: true/)
+      assert.match(row.enable, /cordis\.patch\.yml/)
+    }
+    assert.deepEqual(
+      doctor.subsystems.map((row) => row.id),
+      ['tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-hmr'],
+    )
     const owner = doctor.checks.find((entry) => entry.id === 'tower-owner')
     assert.equal(owner.status, 'warn')
     assert.match(owner.detail, /appears inactive/)

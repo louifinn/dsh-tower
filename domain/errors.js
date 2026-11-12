@@ -243,7 +243,7 @@ export const ERROR_CODES = {
   },
   'takeover-refused': {
     description: 'The mission already has a live worker that was not stopped first.',
-    trigger: '`tower_spawn({takeover:true})` before `tower_interrupt`',
+    trigger: '`tower_spawn({op:"takeover"})` before `tower_interrupt`',
     retryable: false,
     nextAction: 'run tower_interrupt for the live worker, then retry the takeover',
   },

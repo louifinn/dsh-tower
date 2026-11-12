@@ -216,7 +216,7 @@ test('regression: rework rounds can spawn again with unique default names and ta
     const view = await tower.rosterView()
     const workers = view.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker')
     assert.equal(workers.filter((entry) => entry.state !== 'retired').length, 1)
-    const takeover = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker', takeover: true })
+    const takeover = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker', op: 'takeover' })
     assert.equal(takeover.name, 'worker-m1-3')
     const after = await (await Tower.open(repo)).rosterView()
     assert.equal(after.roster.filter((entry) => entry.missionId === missionId && entry.role === 'worker' && entry.state !== 'retired').length, 1)

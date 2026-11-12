@@ -53,7 +53,7 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available | `tower_mode({active:"takeover"})` in a profile without the userQuestions service |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers | spawning a fifth worker with the default limit |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute | `send.maxPerMinute` exceeded |
-| `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({takeover:true})` before `tower_interrupt` |
+| `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({op:"takeover"})` before `tower_interrupt` |
 | `reload-unavailable` | The DSH HMR service is not available in this profile. | no | restart DSH instead of reloading | `tower_reload` / `/tower reload` on a profile without HMR |
 | `reload-failed` | The HMR reload failed; check the DSH log and restart if needed. | no | check the DSH log and restart DSH | `reconcileProfile` threw |
 | `tests-failed` | Declared test discovery failed or did not meet its admission requirements. | no | fix the failing tests, then retry tower_complete | nonzero command, malformed output, minCount/required shortfall |

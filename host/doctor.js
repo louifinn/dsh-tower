@@ -20,6 +20,7 @@ import { assessHostVersion, detectHostVersion, readCompatibility } from './compa
 import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
+import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
 
 const execFileAsync = promisify(execFile)
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -408,10 +409,37 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   // reported with the exact "disabled by component <id>" reason rather than
   // disappearing silently from the tool surface.
   const components = await componentReport(ctx)
+  // #163 Phase 5: a default-off subsystem is reported per row with the exact
+  // enable step, so "off" never reads as "deleted". The same table is in
+  // docs/reference/tools.md and docs/reference/component-surface.md.
+  const subsystemRows = components.disabled
+    .filter((entry) => isSubsystemRow(entry.id))
+    .map((entry) => ({ id: entry.id, tool: COMPONENT_ENABLE_HINTS[entry.id]?.tool ?? null, enable: COMPONENT_ENABLE_HINTS[entry.id]?.enable ?? ('remove `disabled: true` from the ' + entry.id + ' row in cordis.patch.yml and restart DSH') }))
   checks.push(
     components.disabled.length > 0
-      ? check('components', 'warn', componentSummary(components), 'enable the reported row in the plugin page and restart DSH')
+      ? check(
+          'components',
+          'warn',
+          componentSummary(components) + (subsystemRows.length > 0 ? '; ' + subsystemRows.map((entry) => entry.id + ' (' + (entry.tool ?? 'no tool') + ') is off, not deleted: ' + entry.enable).join('; ') : ''),
+          'enable the row named in the detail in cordis.patch.yml (remove `disabled: true`) and restart DSH',
+        )
       : check('components', 'pass', componentSummary(components)),
+  )
+
+  // #163 Phase 5: an old tool name in mode.denyTools is not silently ignored.
+  // The alias/deprecation path names the merged tool instead; a config that
+  // still denies a removed name is reported here and by resolution warnings.
+  const deniedTools = Array.isArray(config.mode?.denyTools) ? config.mode.denyTools.map(String) : []
+  const legacyDenied = deniedTools.filter((name) => Object.hasOwn(LEGACY_TOOL_REPLACEMENTS, name))
+  checks.push(
+    legacyDenied.length > 0
+      ? check(
+          'deprecated-tool-names',
+          'warn',
+          'mode.denyTools names removed tools: ' + legacyDenied.map((name) => name + ' -> ' + LEGACY_TOOL_REPLACEMENTS[name]).join(', '),
+          'replace each removed name with its merged tool in the config; the removed tool no longer exists, so the entry denies nothing',
+        )
+      : check('deprecated-tool-names', 'pass', 'mode.denyTools names no removed tool'),
   )
 
   // #131: `spawn.requireLease` is acquired through `tower_resource`, which belongs
@@ -714,6 +742,14 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     activityLog,
     review: reviewPolicy,
     components,
+    // Every default-off subsystem, with the tool it owns and the exact enable
+    // step, so a client can render "off, and here is how to turn it on".
+    subsystems: Object.keys(COMPONENT_ENABLE_HINTS).map((id) => ({
+      id,
+      enabled: components.enabled.includes(id),
+      tool: COMPONENT_ENABLE_HINTS[id].tool,
+      enable: COMPONENT_ENABLE_HINTS[id].enable,
+    })),
     archive: {
       missions: state ? state.missions.length : null,
       archivedMissions: archiveInventory.missions,

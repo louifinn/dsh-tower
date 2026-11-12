@@ -104,6 +104,10 @@ export const FINDING_OP = Object.freeze({ report: 'report', list: 'list', update
 /** @type {readonly string[]} */
 export const FINDING_OPS = Object.freeze(Object.values(FINDING_OP))
 export const IMPORT_OP = Object.freeze({ snapshot: 'snapshot', map: 'map' })
+/** @type {{ spawn: string, takeover: string }} */
+export const SPAWN_OP = Object.freeze({ spawn: 'spawn', takeover: 'takeover' })
+/** @type {readonly string[]} */
+export const SPAWN_OPS = Object.freeze(Object.values(SPAWN_OP))
 /** @type {readonly string[]} */
 export const IMPORT_OPS = Object.freeze(Object.values(IMPORT_OP))
 

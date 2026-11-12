@@ -185,7 +185,7 @@
     "tower": {
       "tools": {
         "seed": 23,
-        "value": 16,
+        "value": 14,
         "decisions": [
           {
             "from": 23,
@@ -198,12 +198,18 @@
             "to": 16,
             "date": "2026-11-12",
             "note": "#163 Phase 4: init+adopt, finding+findings and mode+control collapse; tower_mode now also carries the write parameters."
+          },
+          {
+            "from": 16,
+            "to": 14,
+            "date": "2026-11-12",
+            "note": "#163 Phase 5: the tower profile no longer advertises tower_complete or tower_review; completing a mission and auditing a branch belong to the worker/survey and reviewer role presets. They stay in the default registered set (16) and the all-on build surface (21)."
           }
         ]
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12921,
+        "value": 10582,
         "decisions": [
           {
             "from": 17008,
@@ -222,6 +228,12 @@
             "to": 12921,
             "date": "2026-11-12",
             "note": "#163 Phase 4: three merges remove two schemas each but tower_mode now advertises read plus write plus the takeover authorization reference, so the net byte change is +26."
+          },
+          {
+            "from": 12921,
+            "to": 10582,
+            "date": "2026-11-12",
+            "note": "#163 Phase 5: the tower profile drops the tower_complete and tower_review input schemas with those two role-owned tools."
           }
         ]
       }

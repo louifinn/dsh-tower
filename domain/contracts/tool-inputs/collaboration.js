@@ -4,18 +4,17 @@
 // #163: no schema advertises `repoRoot` (the runtime resolves the calling
 // session's repository) and alias fields are no longer advertised; the server
 // still accepts them through the tool definitions' `aliases` maps.
-import { ROLES } from '../../vocabulary.js'
+import { ROLES, SPAWN_OPS } from '../../vocabulary.js'
 import { Type, enumOf } from './shared.js'
 
 export const SpawnInput = Type.Object({
+  op: Type.Optional(enumOf(SPAWN_OPS, { description: 'spawn starts a new child (default); takeover replaces a live worker entry that is no longer running and increments ownerGeneration.' })),
   missionId: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: id).' })),
   role: Type.Optional(enumOf(ROLES, { description: 'worker executes; reviewer audits the mission branch.' })),
   name: Type.Optional(Type.String({ description: 'Unique roster name; defaults to <role>-<missionId>.' })),
   instructions: Type.Optional(Type.String({ description: 'Extra tower instructions appended to the briefing.' })),
   worktreeRoot: Type.Optional(Type.String({ description: 'Optional absolute parent directory for the worktree.' })),
   wait: Type.Optional(Type.Boolean({ description: 'Wait for the child result instead of returning immediately (testing/debug).' })),
-  waitMs: Type.Optional(Type.Number({ description: 'Max wait with wait=true, default 180000; clamped to spawn.maxWaitMs (default 90000).' })),
-  takeover: Type.Optional(Type.Boolean({ description: 'Replace a live worker entry that is no longer running (increments ownerGeneration).' })),
   includeDirtyBase: Type.Optional(Type.Boolean({ description: 'Use the recorded snapshotCommit baseline when true (default true).' })),
 }, { additionalProperties: false })
 

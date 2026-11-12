@@ -37,7 +37,7 @@ import {
   TOOL_DESCRIPTION_BUDGET,
   surfaceLine,
 } from '../domain/surface.js'
-import { REVIEWER_ALLOW, WORKER_ALLOW } from '../host/tool-profiles.js'
+import { REVIEWER_ALLOW, ROLE_TOOLS, WORKER_ALLOW } from '../host/tool-profiles.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
@@ -90,7 +90,11 @@ function profileCounts(definitions) {
       inputBytes: selected.reduce((total, definition) => total + schemaBytes(definition), 0),
     }
   }
-  return { tower: measure(null), worker: measure(WORKER_ALLOW), reviewer: measure(REVIEWER_ALLOW) }
+  // #163 Phase 5: the tower profile does not advertise the role-owned tools
+  // (complete/review belong to worker/survey/reviewer sessions), though they
+  // stay in the default registered set and the all-on build surface.
+  const towerAllow = all.filter((definition) => !Object.hasOwn(ROLE_TOOLS, definition.name)).map((definition) => definition.name)
+  return { tower: measure(towerAllow), worker: measure(WORKER_ALLOW), reviewer: measure(REVIEWER_ALLOW) }
 }
 
 /**

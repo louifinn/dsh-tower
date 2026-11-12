@@ -463,6 +463,9 @@ export type DefineTool = <S extends TSchema>(
     execute(args: Static<S> & { repoRoot?: string }, exec: any): Promise<unknown>
     aliases?: any
     requiresMissionId?: any
+    // #163 Phase 5: role-owned tools register a role predicate and denial hint.
+    roles?: readonly string[]
+    allowTowerExecution?: boolean
     // #163 Phase 3: a dispatcher (tower_inspect) can validate operation-specific
     // arguments before authorization, so bad input is invalid-argument.
     validateArgs?: (args: Static<S> & { repoRoot?: string }) => void

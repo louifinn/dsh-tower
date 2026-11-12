@@ -123,3 +123,10 @@ worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、
 
 环境契约仅供参考；它不是身份或授权证明。`tower_init` 仍要求控制塔角色，`tower_spawn` 仍会检查
 实时子代理目录。
+
+`subsystems` 逐个列出五个默认关闭的组件行（`tower-batch`、`tower-import`、`tower-leases`、
+`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 21 个之中。
+`components` 检查会写明该行是关闭而非删除，并给出开启步骤。`deprecated-tool-names` 检查扫描
+`mode.denyTools` 中 #163 合并或移除的旧名（`tower_control`、`tower_adopt`、`tower_findings`、
+`tower_import_legacy`、`tower_legacy_map`、`tower_status`、`tower_roster`、`tower_diff`、
+`tower_preflight`、`tower_doctor`），报告 `<old> -> <replacement>`，不会静默忽略。
