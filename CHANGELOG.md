@@ -8,6 +8,12 @@
 
 ### 新增
 
+- **只读 `/tasks` 实时 roster 面板（#160）**：新增 `/tasks` 命令与 `/tower tasks` 子命令，供人类零模型回合查看
+  存活 roster agent（mission、角色、名称、短分支、状态、自最近记录事件起的静默时长、该事件），最静默者在前，
+  上限 20 行，页脚给出存活/过期计数与 `tower_interrupt` 处置提示。读取完全只读（不写 `state.json`、activity
+  日志或 modes store）；过期判定抽取为 `rosterEntryStale`，由 `tower_roster`、看板与合并门禁共享同一条
+  `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时才注册 `/tasks`；`/tower tasks` 始终可用，
+  命令描述注明当前 profile 采用哪个面（#160）。
 - **单一契约与阻塞码注册表**：`domain/shapes/blockers.js` 成为全部 33 个门禁/合并/rebase 阻塞码的唯一定义，
   生成中英双语 `docs/reference/blockers.md`，`blockers:check` 保证发射点与注册表一致；配置参考、错误目录与
   生成文档改为从 schema/注册表派生，不再维护手写副本。

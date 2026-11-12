@@ -4,8 +4,28 @@
 // transitions below mutate only the in-memory roster rows they are given.
 // @ts-check
 import { ROSTER_INACTIVE } from '../roster.js'
+import { ROSTER_GONE_STATES } from '../vocabulary.js'
 
 /** @typedef {import('../../types/index.js').RosterEntry} RosterEntry */
+
+/**
+ * The one spawn.staleMs staleness rule (#160): a roster row is stale when the
+ * window is enabled, the authoritative catalog does not know the agent, the
+ * parent session was reachable, the row is not already terminal, and it was
+ * spawned longer than the window ago. tower_roster, the watchdog sweep and
+ * the /tasks panel all ask this function instead of restating the arithmetic.
+ * @param {RosterEntry} entry
+ * @param {{ observed?: string, parentKnown?: boolean, staleMs?: unknown, now?: number }} input
+ * @returns {boolean}
+ */
+export function rosterEntryStale(entry, input = {}) {
+  const staleMs = Number(input.staleMs) || 0
+  if (staleMs <= 0) return false
+  if (input.observed !== undefined) return false
+  if (input.parentKnown !== true) return false
+  if (ROSTER_GONE_STATES.some((state) => state === entry.state)) return false
+  return Number(input.now ?? 0) - Number(entry.spawnedAt ?? 0) > staleMs
+}
 
 /**
  * @param {RosterEntry} entry
@@ -146,8 +166,7 @@ export function sweepRosterState(roster, input = {}, now) {
     }
     if (observed === 'running') continue
     if (observed !== undefined) continue
-    const age = now - Number(entry.spawnedAt ?? now)
-    if (age > staleMs) {
+    if (rosterEntryStale(entry, { parentKnown: true, staleMs, now })) {
       entry.state = 'stale'
       entry.stale = true
       entry.staleAt = now

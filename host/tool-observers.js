@@ -131,10 +131,18 @@ export async function ownershipView(_ctx, tower, exec) {
   }
 }
 
+/**
+ * Observe catalog activity for every roster parent; read-only.
+ * @param {any} ctx
+ * @param {any} tower
+ * @returns {Promise<{ activity: Record<string, string>, parentStatus: Record<string, string> }>}
+ */
 export async function observeActivity(ctx, tower) {
   const view = await tower.rosterView()
   const subagents = ctx.get('subagents')
+  /** @type {Record<string, string>} */
   const activity = {}
+  /** @type {Record<string, string>} */
   const parentStatus = {}
   if (!subagents) return { activity, parentStatus }
   const parents = [...new Set(view.roster.map((entry) => entry.parentSessionId).filter(Boolean))]

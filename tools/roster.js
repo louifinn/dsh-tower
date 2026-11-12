@@ -2,7 +2,8 @@
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { RosterInput } from '../domain/contracts/tool-inputs/index.js'
-import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_GONE_STATES } from '../domain/vocabulary.js'
+import { rosterEntryStale } from '../domain/collab/roster.js'
+import { PARENT_STATUS_OK, ROSTER_ACTIVITY } from '../domain/vocabulary.js'
 
 /**
  * @param {any} ctx
@@ -40,12 +41,9 @@ export function registerRosterTool(ctx, deps) {
       const roster = view.roster.map((entry) => {
         const observed = activity.get(entry.agentId)
         const known = parentStatus[entry.parentSessionId] === PARENT_STATUS_OK
-        const stale =
-          staleMs > 0 &&
-          observed === undefined &&
-          known &&
-          !ROSTER_GONE_STATES.includes(entry.state) &&
-          now - Number(entry.spawnedAt ?? 0) > staleMs
+        // #160: the one shared spawn.staleMs rule (domain/collab/roster.js);
+        // the /tasks panel renders the same verdict.
+        const stale = rosterEntryStale(entry, { observed, parentKnown: known, staleMs, now })
         return {
           ...entry,
           activity: observed ?? (known ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),

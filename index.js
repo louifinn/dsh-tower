@@ -33,6 +33,7 @@ import {
   setDenyTools,
 } from './host/mode-state.js'
 import { registerTowerCommand } from './host/mode-command.js'
+import { registerTasksCommand } from './host/tasks-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
 import { touchWorkspaceLock } from './adapters/workspaceLock.js'
 
@@ -239,4 +240,7 @@ export function apply(ctx, rawConfig) {
   }
 
   registerTowerCommand(ctx, { config, allowAgentControl })
+  // #160: the read-only `/tasks` panel registers only when the host profile
+  // has no other `tasks` command; `/tower tasks` always carries the same view.
+  registerTasksCommand(ctx)
 }

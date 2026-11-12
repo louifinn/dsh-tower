@@ -152,6 +152,7 @@ domain/missions/review.js
 domain/planning.js
 domain/read/enrichedMissions.js
 domain/read/missionContext.js
+domain/read/tasksView.js
 domain/read/views.js
 domain/report.js
 domain/roles.js
@@ -194,6 +195,7 @@ host/preset-survey.js
 host/preset-worker.js
 host/presets.js
 host/session-tools.js
+host/tasks-command.js
 host/tool-capabilities.js
 host/tool-observers.js
 host/tool-registry.js

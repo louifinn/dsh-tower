@@ -6,6 +6,7 @@
 import { currentHmrBridge } from './capability-registry.js'
 import { performTakeover } from './ownership.js'
 import { assertRuntimePreconditions } from './presets.js'
+import { runTasksCommand } from './tasks-command.js'
 import {
   agentKey,
   describeChange,
@@ -23,8 +24,9 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
       name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
-      input: { hint: '[on|off|reload|ack|takeover <reason>|base <branch>] [message]', attachments: true },
+      description:
+        'Enter or leave Tower mode, optionally carrying a user instruction; /tower tasks always lists the live roster read-only (it is the alias when a host command owns the /tasks name); /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
+      input: { hint: '[on|off|reload|ack|tasks|takeover <reason>|base <branch>] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
@@ -56,6 +58,12 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
           return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }
         }
         const parsed = parseTowerInput(rawInput)
+        if (parsed.action === 'tasks') {
+          // #160: the tower-scoped alias of the read-only roster panel. It is
+          // a read, never a mode transition, so it skips the preconditions and
+          // the steer/persist paths below.
+          return runTasksCommand(ctx, agent)
+        }
         if (parsed.action === 'reload') {
           // #121: /tower reload is the tower-hmr component. The row is shipped
           // off, so the error names the component instead of an invisible key.
