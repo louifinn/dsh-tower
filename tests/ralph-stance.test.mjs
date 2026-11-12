@@ -1,6 +1,6 @@
 // Tower / Ralph mutual exclusion (#162): the command surface, entry
-// reconciliation with a live loop, the round-agent refusal, the stance-owner
-// deny table and tower_doctor's environment fact.
+// reconciliation with a live loop, the round-agent refusal, the command-owner
+// table and tower_doctor's environment fact.
 //
 // These run the real `apply()` against a minimal mock Cordis context and a
 // throwaway git repository, and drive the sensor through the same listeners
@@ -20,7 +20,8 @@ test.after(() => removeTemp(home))
 
 const { apply } = await import('../index.js')
 const { DEFAULT_DENY_TOOLS } = await import('../domain/config/schema.js')
-const { STANCE_OWNERS, stanceDenyCommands, stanceDenyTools } = await import('../domain/config/stance-owners.js')
+const { defaultDenyTools } = await import('../domain/deny-owners.js')
+const { COMMAND_OWNERS, stanceDenyCommands } = await import('../domain/config/command-owners.js')
 const { __testResetRalphSensor } = await import('../host/ralph-stance.js')
 
 function makeCtx() {
@@ -123,21 +124,21 @@ function seedStubLoop(listeners, repo, { label = 'ralph #1 implement-login', chi
 
 test.beforeEach(() => __testResetRalphSensor())
 
-test('stance owners: the deny set is derived from the owner table, not a literal', () => {
-  assert.deepEqual(DEFAULT_DENY_TOOLS, stanceDenyTools())
-  for (const owner of STANCE_OWNERS) {
+test('stance owners: tools stay #161-owned, commands come from the command table', () => {
+  // #162 keeps no second tool list: the guard's default is #161's owner-derived
+  // union (re-exported by the config schema), including the first-party ralph
+  // tool. A renamed tool is covered by the loop sensor, not by this table.
+  assert.deepEqual(DEFAULT_DENY_TOOLS, defaultDenyTools())
+  assert.ok(DEFAULT_DENY_TOOLS.includes('ralph'))
+  for (const owner of COMMAND_OWNERS) {
     assert.ok(owner.owner.length > 0, 'every row names its owning package')
     assert.ok(owner.stance.length > 0, 'every row names its stance')
-    assert.ok(owner.tools.length > 0, `owner ${owner.owner} registers at least one tool`)
-    for (const name of owner.tools) assert.ok(typeof name === 'string' && name.length > 0)
+    assert.ok(owner.commands.length > 0, `owner ${owner.owner} registers at least one command`)
+    for (const name of owner.commands) assert.ok(typeof name === 'string' && name.length > 0)
   }
-  // The pre-#162 literal plus the community fallback; renaming an entry point
-  // is covered by the loop sensor, not by growing this list by hand.
-  assert.ok(DEFAULT_DENY_TOOLS.includes('ralph'))
-  assert.ok(DEFAULT_DENY_TOOLS.includes('ralph_prd'), 'the dsh-ralph fallback tool name is denied')
   assert.deepEqual(stanceDenyCommands(), ['ralph'])
-  const ralphOwners = STANCE_OWNERS.filter((owner) => owner.stance === 'ralph-loop')
-  assert.equal(ralphOwners.length, 2, 'both Ralph implementations are one stance with two owners')
+  assert.equal(COMMAND_OWNERS.filter((owner) => owner.stance === 'ralph-loop').length, 1, 'the command surface of the Ralph stance has one owner')
+  assert.equal('tools' in COMMAND_OWNERS[0], false, 'this table never duplicates the tool deny surface')
 })
 
 test('guard: the Ralph tool names are denied while Tower mode is active (D4)', async () => {
@@ -147,7 +148,9 @@ test('guard: the Ralph tool names are denied while Tower mode is active (D4)', a
   assert.ok(guard, 'the guard must be installed')
   const { agent } = makeAgent('agent-ralph-guard')
   await callCommand(commands, agent, 'on')
-  for (const name of ['ralph', 'ralph_prd', 'workflow']) {
+  // Tool denial itself is #161's contract (tests/deny-surface.test.mjs); this
+  // asserts the #162 layers sit on top of the same live guard.
+  for (const name of ['ralph', 'workflow']) {
     assert.match(guard({ agent, name, arguments: {} }), new RegExp(`tower mode: ${name} is disabled`))
   }
   await callCommand(commands, agent, 'off')
@@ -160,7 +163,7 @@ test('commands: /ralph is refused with an actionable message while Tower mode is
   const { agent, scopedCommands } = makeAgent('agent-ralph-command')
   await callCommand(commands, agent, 'on')
   const shadow = scopedCommands.get('ralph')
-  assert.ok(shadow, 'the stance-owner command is shadowed for the towered agent')
+  assert.ok(shadow, 'the command-owner name is shadowed for the towered agent')
   const reply = shadow.handler({ agent, rawInput: '5', attachments: [] })
   assert.equal(reply.kind, 'error')
   assert.match(reply.text, /Tower mode is active/)

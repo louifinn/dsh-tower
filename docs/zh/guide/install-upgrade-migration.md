@@ -32,8 +32,8 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 ## 迁移说明
 
 - **未发布（#162）—— Tower 与 Ralph 循环按仓库互斥**：进入 Tower 模式现在会对活跃的 Ralph 循环进行
-  对账，而不再只过滤未来的工具调用。Tower 模式激活期间 `/ralph` 命令会被拒绝并给出可执行的提示；
-  `mode.denyTools` 改为从姿态属主表派生（新增社区版回退名 `ralph_prd`）；仓库处于 Tower 模式期间
+  对账，而不再只过滤未来的工具调用。Tower 模式激活期间 `/ralph` 命令会被遮蔽并给出可执行的提示
+  （命令不是工具，#161 的属主派生 `mode.denyTools` 覆盖不到）；仓库处于 Tower 模式期间
   round agent 会被拒绝；新增 `mode.ralphPolicy`（默认 `stop`，或 `refuse`）决定进入时是停止并记录
   该循环，还是给出原因拒绝进入。`tower_doctor` 把活跃循环报告为环境事实。无 state 迁移；配置键从
   57 增至 58。见 [ADR 0009](../../adr/0009-tower-ralph-mutual-exclusion.md)。

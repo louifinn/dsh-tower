@@ -23,8 +23,8 @@ status 上的 `include_gate`/`includeGate`、adopt 上的 `retire_missing`/`reti
 ## 每个仓库只有一个姿态
 
 Tower 模式与 Ralph 循环（`@deepseek-ai/dsh-tool-ralph`、社区版 `dsh-ralph`，或同一姿态的任何其他实现）
-在每个仓库上互斥：Tower 模式激活期间 `/ralph` 命令会被拒绝、其工具名来自姿态属主表被拒绝
-（`mode.denyTools`，含社区版回退名 `ralph_prd`）、带活跃循环进入 Tower 模式会停止并记录该循环或拒绝进入
+在每个仓库上互斥：Tower 模式激活期间 `/ralph` 命令会被遮蔽（命令不是工具，由命令属主表覆盖）、
+其工具名由 #161 的属主派生 `mode.denyTools` 默认值拒绝、带活跃循环进入 Tower 模式会停止并记录该循环或拒绝进入
 （`mode.ralphPolicy`，默认 `stop`），且仓库处于 Tower 模式期间 round agent 会被拒绝——因此改名的入口
 无法在活跃控制塔下重启循环。`tower_doctor` 把活跃循环报告为环境事实。Tower worker **内部**的
 Ralph 循环不是冲突：worker 在自己的隔离 worktree 里拥有一个 mission，并通过 `tower_complete` 汇报。

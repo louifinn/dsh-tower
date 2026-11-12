@@ -27,17 +27,19 @@ Tower side alone.
 
 ## Decision
 
-Tower enforces the exclusivity at three layers, all owned by
-`domain/config/stance-owners.js` and `host/ralph-stance.js`:
+Tool denial is already owned by #161: `mode.denyTools` derives from
+`domain/deny-owners.js` and its generated upstream inventory, so a renamed or
+newly shipped orchestration tool cannot hide from it. #162 builds on that table
+instead of adding a second one, and covers the surfaces the tool list cannot
+see:
 
-1. **Names, by owner.** The deny set is derived from a stance-owner table: one
-   row per component that owns an orchestration stance, naming the tools and
-   commands that component registers. `mode.denyTools` defaults to the union of
-   the tool rows (the community fallback name `ralph_prd` is included), and
-   while Tower mode is active the stance-owner **commands** are shadowed for
-   the towered agent by an actionable refusal ("Tower mode is active;
-   /tower off first"). #161 extends the same table for Agent Teams instead of
-   adding a parallel list.
+1. **Commands, by owner.** `domain/config/command-owners.js` names the command
+   surface of each stance owner (today: the community `dsh-ralph` package's
+   `/ralph`; the first-party Ralph tool registers no command). While Tower mode
+   is active those names are shadowed for the towered agent by an actionable
+   refusal ("Tower mode is active; /tower off first"). This module keeps no tool
+   rows — duplicating `deny-owners.js` would recreate exactly the drift #161
+   removed.
 2. **Entry reconciliation.** Entering Tower mode consults a process-local
    sensor built from observe-only seams (the first-party loop's
    `ralph-loop` workflow meta, and the `ralph #…` / `Ralph round N` labels
@@ -69,8 +71,12 @@ Tower enforces the exclusivity at three layers, all owned by
   label and the workflow meta name are fixed in both known implementations
   (renaming the tool or command does not change them), but a hypothetical
   implementation that also relabels its rounds would be invisible to the
-  sensor; the stance-owner table and doctor's rule statement are the boundary
+  sensor; the command-owner table and doctor's rule statement are the boundary
   of what Tower can promise without upstream cooperation.
+- Tool names stay #161's contract: this record adds no tool to
+  `mode.denyTools` and does not relax #161's exact-union test. The community
+  `ralph_prd` fallback name is covered by the loop sensor and the command
+  guard instead of becoming a ghost entry in the generated inventory.
 - A round recorded at entry is refused minutes after it settles (a five-minute
   liveness window, pruned by agent disposal), so `mode.ralphPolicy:"refuse"`
   can reject an entry for a loop that just finished. The refusal says to wait
@@ -93,12 +99,17 @@ Tower enforces the exclusivity at three layers, all owned by
   sessions. This record refuses only agents the sensor positively identified
   as Ralph rounds.
 - **A second deny list for commands** — the same hand-maintained drift the
-  issue reports, one layer over. The stance-owner table is the one source for
-  both surfaces.
+  issue reports, one layer over. The command-owner table is the one source for
+  the command surface, and tool denial stays in #161's owner table.
+- **Add the community `ralph_prd` name to `mode.denyTools`** — the name is not
+  in any pinned upstream package, so it would be a ghost in the generated
+  inventory and would break #161's exact-union contract. The sensor and the
+  command guard are the layers that have to catch an entry point no inventory
+  can enumerate.
 
 ## Surface budget
 
 One config key, `mode.ralphPolicy` (`stop`/`refuse`, default `stop`), recorded
 in [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json):
-config keys 57 → 58. `mode.denyTools` gains the derived `ralph_prd` default
-without a key change; no tool, section or component moves.
+config keys 57 → 58. `mode.denyTools` is unchanged (it remains #161's derived
+owner union); no tool, section or component moves.

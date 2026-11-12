@@ -366,7 +366,7 @@ export async function enterMode(ctx, key, agent, by, reason, options = {}) {
     lastChange: { by, action: 'on', reason: reason ?? null, at: now },
     at: now,
   })
-  // #162 D1: shadow the stance-owner commands (for example /ralph) for this
+  // #162 D1: shadow the command-owner names (for example /ralph) for this
   // agent with an actionable refusal while the mode is on.
   ensureStanceCommands(agent, key)
   const saved = persistModes()

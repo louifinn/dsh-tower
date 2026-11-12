@@ -24,11 +24,12 @@ canonical camelCase names.
 
 Tower mode and a Ralph loop (`@deepseek-ai/dsh-tool-ralph`, the community `dsh-ralph`, or any other
 implementation of the same stance) are mutually exclusive per repository: the loop's `/ralph` command
-is refused while Tower mode is active, its tool names are denied from the stance-owner table
-(`mode.denyTools`, including the community fallback `ralph_prd`), entering Tower mode with a live loop
-either stops and records it or refuses the entry (`mode.ralphPolicy`, default `stop`), and round
-agents are refused while the repository is under Tower mode — which is why a renamed entry point
-cannot restart a loop under a live tower. `tower_doctor` reports a live loop as an environment fact.
+is shadowed while Tower mode is active (commands are not tools, so the command-owner table covers
+them), its tool names are denied by #161's owner-derived `mode.denyTools` default, entering Tower mode
+with a live loop either stops and records it or refuses the entry (`mode.ralphPolicy`, default
+`stop`), and round agents are refused while the repository is under Tower mode — which is why a
+renamed entry point cannot restart a loop under a live tower. `tower_doctor` reports a live loop as an
+environment fact.
 A Ralph loop *inside* a Tower worker is not a conflict: the worker owns one mission in its isolated
 worktree and reports through `tower_complete`. See
 [ADR 0009](../adr/0009-tower-ralph-mutual-exclusion.md).

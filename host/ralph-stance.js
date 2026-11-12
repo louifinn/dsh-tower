@@ -5,9 +5,11 @@
 // community dsh-ralph), so Tower enforces the exclusivity from its own side at
 // three layers:
 //
-//   names    — the stance-owner table denies the tools (renames included for
-//              the documented fallback) and shadows the commands for the
-//              towered agent (an actionable refusal, see mountStanceCommands)
+//   names    — tool denial is owned by #161 (domain/deny-owners.js derives
+//              mode.denyTools from the owners' generated surface); this file
+//              adds the surface that list cannot see, the slash commands, and
+//              shadows each command-owner name for the towered agent (an
+//              actionable refusal, see ensureStanceCommands)
 //   entry    — entering Tower mode with a live loop either stops it (default,
 //              `mode.ralphPolicy:"stop"`) or refuses entry with the reason
 //              (`mode.ralphPolicy:"refuse"`), and the release is recorded
@@ -29,7 +31,7 @@
 // mission); the round refusal is scoped to the towered workspace, so a
 // worker's loop in its isolated worktree keeps running untouched.
 import path from 'node:path'
-import { stanceDenyCommands } from '../domain/config/stance-owners.js'
+import { stanceDenyCommands } from '../domain/config/command-owners.js'
 import { runtimeConfig } from './config.js'
 
 /** First-party Ralph workflow runs carry this meta name. */
@@ -176,7 +178,7 @@ export function liveRalphIn(workspace) {
 }
 
 /**
- * Shadow every stance-owner command for one agent while Tower mode is active
+ * Shadow every command-owner name for one agent while Tower mode is active
  * (#162 D1: commands are not tools; the dsh-ralph handler would start a loop
  * directly). Registration goes through the agent's own scoped context, which
  * is the documented way a per-agent command shadows the global one. Idempotent
