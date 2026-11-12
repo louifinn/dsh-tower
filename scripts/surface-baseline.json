@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 57,
+      "value": 58,
       "decisions": [
         {
           "from": 64,
@@ -67,6 +67,13 @@
           "date": "2026-11-12",
           "adr": "docs/adr/0007-bounded-activity-log-rotation.md",
           "note": "#M76 (W5-B) bounds the append-only activity log: activity.maxBytes (default 4 MiB, 0 disables) and activity.retention (default 5) are tuning keys for adapter-enforced rotation. They are not a component row: rotation is always on by default and no capability disappears when it is tuned. The two keys are the only surface growth in this wave."
+        },
+        {
+          "from": 57,
+          "to": 58,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0010-tower-ralph-mutual-exclusion.md",
+          "note": "#162 adds one mode policy key, ralphPolicy (stop/refuse, default stop), mirroring planModePolicy for the Ralph stance: entering Tower mode with a live Ralph loop either stops and records it or refuses the entry. Tool denial stays #161's owner-derived default (no name is added to mode.denyTools); #162 adds only the command-owner surface and the loop sensor, so no tool, section or component moves."
         }
       ]
     },
@@ -134,7 +141,7 @@
     },
     "components": {
       "seed": 4,
-      "value": 12,
+      "value": 13,
       "decisions": [
         {
           "from": 4,
@@ -177,6 +184,13 @@
           "date": "2026-11-10",
           "adr": "docs/adr/0006-mission-shapes.md",
           "note": "#148/#149: tower-survey is a visible optional row: off means surveys cannot be planned and no survey agent is dispatched; build missions are unaffected."
+        },
+        {
+          "from": 12,
+          "to": 13,
+          "date": "2026-11-12",
+          "adr": "docs/adr/0006-mission-shapes.md",
+          "note": "#159: tower-artifact is a visible optional row for the third mission shape: off means artifact missions cannot be planned (tower_plan refuses kind:\"artifact\" with an actionable code) and no artifact mission exists to accept or merge; build and survey missions are unaffected. The row owns no tool and no preset — an artifact worker uses the mandatory worker preset — so it gates the shape, strictly better than all-off."
         }
       ]
     }
@@ -209,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 10582,
+        "value": 11585,
         "decisions": [
           {
             "from": 17008,
@@ -234,6 +248,12 @@
             "to": 10582,
             "date": "2026-11-12",
             "note": "#163 Phase 5: the tower profile drops the tower_complete and tower_review input schemas with those two role-owned tools."
+          },
+          {
+            "from": 10582,
+            "to": 11585,
+            "date": "2026-11-12",
+            "note": "#159: the artifact shape adds two dimensions to two advertised schemas already in this profile — tower_plan's kind enum grows build|survey|artifact and gains artifacts[], and tower_mission gains accept plus accept_note. Both are optional properties inside existing schemas, so the tool count does not move; the schema text is the contract the worker briefing references."
           }
         ]
       }
@@ -265,7 +285,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6175,
+        "value": 6654,
         "decisions": [
           {
             "from": 8159,
@@ -290,6 +310,12 @@
             "to": 6175,
             "date": "2026-11-12",
             "note": "#163 Phase 4: the worker profile loses the tower_findings schema."
+          },
+          {
+            "from": 6175,
+            "to": 6654,
+            "date": "2026-11-12",
+            "note": "#159: the worker profile mounts tower_mission, whose MissionInput gains the artifact acceptance fields (accept/accept_note). The artifact worker uses the mandatory worker preset, so its tower_complete schema also advertises the declared-deliverable admission in the description."
           }
         ]
       }
@@ -350,5 +376,55 @@
         ]
       }
     }
+  },
+  "profileBytes": {
+    "date": "2026-11-12",
+    "profiles": {
+      "host:mode-off": {
+        "tools": 1,
+        "bytes": 846
+      },
+      "host:idle": {
+        "tools": 2,
+        "bytes": 2185
+      },
+      "host:active": {
+        "tools": 14,
+        "bytes": 16017
+      },
+      "preset:worker": {
+        "tools": 6,
+        "bytes": 8646
+      },
+      "preset:reviewer": {
+        "tools": 5,
+        "bytes": 6000
+      },
+      "preset:survey": {
+        "tools": 5,
+        "bytes": 7586
+      },
+      "preset:survey-sandbox": {
+        "tools": 5,
+        "bytes": 7586
+      }
+    },
+    "decisions": [
+      {
+        "date": "2026-11-12",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "#164: the role × phase gate lands on the #163 surface. Mode-off advertises tower_mode alone (1 tool, 846 B), idle adds tower_init (2/2,185), active is the default host-admitted union (14 tools, 14,977 B: the 16 mounted tools minus tower_complete/tower_review, which the #163 role predicate keeps on worker/survey and reviewer sessions); the worker/reviewer/survey presets advertise their #163 allow-lists (6/8,127, 5/6,000, 5/7,067 each)."
+      },
+      {
+        "date": "2026-11-12",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "Measurement correction (review R103), not a surface change: host:active was measured over the all-on build surface (21 tools / 22,061 B), which applies every optional capability row and counts the two role-owned tools no non-role host session admits. A session advertises the default host-admitted set instead — the 16 mounted tools minus tower_complete and tower_review — so host:active is 14 tools / 14,977 B. The 21-tool / 22,061 B figure stays documented as the build surface (tools.md) and is not a profile baseline."
+      },
+      {
+        "date": "2026-11-12",
+        "adr": "docs/adr/0006-mission-shapes.md",
+        "note": "#159: the artifact shape lands on the #163 surface. The plan/mission/complete input schemas grow to advertise the artifact deliverables and the human acceptance, so every profile that mounts those tools grows with them: host:active 14 tools / 16,017 B (was 14/14,977), preset:worker 6/8,646 (was 6/8,127), preset:survey and preset:survey-sandbox 5/7,586 each (were 5/7,067). The artifact worker reuses the mandatory worker preset, so no separate preset row appears. Mode-off, idle and reviewer are unchanged."
+      }
+    ]
   }
 }

@@ -66,6 +66,8 @@ docs/adr/0005-component-surface.md
 docs/adr/0006-mission-shapes.md
 docs/adr/0007-bounded-activity-log-rotation.md
 docs/adr/0008-process-local-advisory-budgets.md
+docs/adr/0009-role-phase-exposure.md
+docs/adr/0010-tower-ralph-mutual-exclusion.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -121,6 +123,7 @@ domain/component-locale.js
 domain/component-rules.js
 domain/component-surface.js
 domain/components.js
+domain/config/command-owners.js
 domain/config/schema.js
 domain/contracts/outputs.js
 domain/contracts/tool-inputs/collaboration.js
@@ -135,6 +138,7 @@ domain/deny-owners.js
 domain/errors.js
 domain/events.js
 domain/evidence.js
+domain/exposure.js
 domain/gate.js
 domain/generated/deny-surface.js
 domain/integration/gate.js
@@ -155,11 +159,13 @@ domain/missions/review.js
 domain/planning.js
 domain/read/enrichedMissions.js
 domain/read/missionContext.js
+domain/read/tasksView.js
 domain/read/views.js
 domain/report.js
 domain/roles.js
 domain/roster.js
 domain/scope.js
+domain/shapes/artifact.js
 domain/shapes/blockers.js
 domain/shapes/build.js
 domain/shapes/completion.js
@@ -173,8 +179,10 @@ domain/state/semantics.js
 domain/summary.js
 domain/surface.js
 domain/vocabulary.js
+host/acceptance.js
 host/authorization.js
 host/capability-archive.js
+host/capability-artifact.js
 host/capability-batch.js
 host/capability-board.js
 host/capability-hmr.js
@@ -184,7 +192,9 @@ host/capability-registry.js
 host/capability-tests.js
 host/compatibility.js
 host/config.js
+host/doctor-acceptance.js
 host/doctor.js
+host/exposure.js
 host/hmr.js
 host/mode-command.js
 host/mode-state.js
@@ -196,7 +206,10 @@ host/preset-survey-sandbox.js
 host/preset-survey.js
 host/preset-worker.js
 host/presets.js
+host/ralph-release.js
+host/ralph-stance.js
 host/session-tools.js
+host/tasks-command.js
 host/tool-capabilities.js
 host/tool-observers.js
 host/tool-profiles.js
@@ -208,6 +221,8 @@ icon.svg
 index.js
 locale/archive/en.json
 locale/archive/zh.json
+locale/artifact/en.json
+locale/artifact/zh.json
 locale/batch/en.json
 locale/batch/zh.json
 locale/board/en.json
@@ -268,6 +283,7 @@ scripts/generate-tools-reference.mjs
 scripts/generate-types.mjs
 scripts/issue-audit.mjs
 scripts/lib/cli.mjs
+scripts/lib/profile-surface.mjs
 scripts/lib/surface.mjs
 scripts/lib/tmp.mjs
 scripts/lib/tool-surface.mjs

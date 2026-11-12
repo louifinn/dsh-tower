@@ -4,6 +4,54 @@
 
 ## Unreleased（未发布）
 
+### 新增
+
+- **只读 `/tasks` 实时 roster 面板（#160）**：新增 `/tasks` 命令与 `/tower tasks` 子命令，供人类零模型回合查看
+  存活 roster agent（mission、角色、名称、短分支、状态、自最近记录事件起的静默时长、该事件），最静默者在前，
+  上限 20 行，页脚给出存活/过期计数与 `tower_interrupt` 处置提示。读取完全只读（不写 `state.json`、activity
+  日志或 modes store）；过期判定抽取为 `rosterEntryStale`，由 `tower_inspect` 的 `roster` 视图、看门狗扫掠与
+  合并门禁共享同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时才注册 `/tasks`；
+  `/tower tasks` 始终可用，命令描述注明当前 profile 采用哪个面（#160）。新增 `tests/tasks-view.test.mjs` 与
+  `tests/tasks-command.test.mjs`，锁定排序/静默标签/行数上限、只读零写入、宿主命令名冲突回退与别名一致性。
+- **角色 × 阶段工具暴露门禁（#164）**：宿主塔会话不再一次暴露全部构建工具，而是按会话阶段做步时投影：
+  Tower 模式关闭时只暴露 `tower_mode`（846 B），模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B），
+  状态存在后暴露默认宿主准入的 14 个工具（14,977 B；随包挂载 16 个，减去 `tower_complete`/`tower_review`），
+  全部可选行开启时的 21 工具 / 22,061 B 构建表面不是任何会话的基线。阶段表与四个角色 preset 的 allow-list
+  统一放在 `domain/exposure.js`，`host/tool-profiles.js` 转出同一份列表，`host/exposure.js` 把阶段表变成
+  `register(definition, { when })` 的步时条件：允许集合每个模型步解析一次并冻结，被隐藏的工具与不存在的工具
+  一样解析为 `UNKNOWN_TOOL`，门禁只做减法且任何探测失败时放开。`tower_complete`/`tower_review` 的阶段条件与
+  #163 的角色条件合取，二者都通过才暴露。新增 `tests/exposure.test.mjs`（减法、活性、单调、稳定性与
+  “无隐式全量”表检查）；`surface:check` 新增 `profileBytes` 逐 profile 字节基线（模式关闭/空闲/活跃与四个
+  角色 preset，任何漂移需带日期的 decision，增长还需 ADR），设计记录见 ADR 0009，参考文档同步更新
+  [表面预算](docs/reference/surface-budget.md)。
+- **Tower 与 Ralph 循环按仓库互斥（#162）**：Ralph 姿态从工具名清单升级为可检查的三层契约（ADR 0010）。新增只读
+  姿态传感器 `host/ralph-stance.js`，从 workflow `meta.name:"ralph-loop"` 与 `subagent/catalog` 的 `ralph #…` /
+  `Ralph round N` 标签识别活跃循环（5 分钟存活窗口、上限 200 条，进程内状态）；命令属主表
+  `domain/config/command-owners.js` 覆盖命令面：Tower 模式激活期间 `/ralph` 被可操作的拒绝遮蔽（以 scoped
+  `commands` 注入），`/tower off` 恢复，重启后由 pre-step 重新挂载。新增 `mode.ralphPolicy`（`stop` 默认 /
+  `refuse`；配置键 57→58，无 state 迁移）：`stop` 照常进入并把活跃循环记为 `ralphReleased`（其 round 从此被拒绝），
+  同时写入一条 `mode` 活动记录；`refuse` 以 `invalid-transition` 拒绝进入，并说明循环结束后再次 `/tower on` 的
+  时机。仓库处于 Tower 模式期间，该仓库的 Ralph round agent 在 `agent/pre-step` 被拒绝（隔离 worktree 中的 Tower
+  worker 不受影响），因此改名入口也无法重启循环；`tower_mode` 报告 `ralph {policy, runs, rounds, liveRounds,
+  detail}`。`tower_inspect` 的 `doctor` 视图新增 `ralph-stance` 检查与 `environmentContract.ralphLoop`，把活跃轮次
+  作为环境事实报告；工具拒绝仍完全由 #161 的属主派生 `mode.denyTools` 默认值负责。新增
+  `tests/ralph-stance.test.mjs`（10 例）。
+- **第三种 mission 形状 `artifact`：交付物由人类接受（#159）**：新增 `domain/shapes/artifact.js` 并在形状注册表登记
+  `kind:"artifact"`；它像 build 一样拥有分支/worktree、状态图与合并/rebase 能力，但把“审查”换成“人类接受”。规划时
+  `artifacts[]` 必须声明具体交付物路径（非 glob、不含 `..`、必须位于 scope 内、≤20 条）；`tower_complete` 要求每个
+  交付物都已提交在 mission 分支末端（`git cat-file -e <tip>:<path>`），未提交、缺失或 worktree 不干净都会被拒绝。
+  合并门禁对 artifact mission 报告 `acceptance-missing` / `acceptance-stale`（后者同时列出已接受与当前末端的短
+  sha），即使 `review.mode:required`，审查阻塞码在结构上也不适用。接受记录 `{at, by:"human", tip, artifacts,
+  note?}` 只能由人类经 `tower_mission({accept:true, accept_note?})` 在 DSH 审批通道（`userQuestions`）产生并绑定
+  整个已提交 tip；通道缺失时以 `approval-unavailable` 拒绝，取消或拒绝不写记录，worker 调用报
+  `acceptance-human-only`，reviewer spawn 与 `tower_review`（含 break-glass）被拒绝，`tower_doctor` 的
+  `artifact-acceptance` 检查对未接受只告警。`tower-artifact` 是新的可见可选组件行（组件 12→13，行本身不拥有工具或
+  preset）：关闭时 `tower_plan({kind:"artifact"})` 以可操作的 `invalid-argument` 拒绝，build/survey 不受影响。并入
+  #163 之后的表面时，验收阻塞码由 `tower_inspect` 的 `preflight` 视图呈现，不再新增独立预检工具（PR 分支自带的
+  `tools/preflight.js` 被删除），工具总数保持 21；state schema 仍为 v5，错误目录增至 42（新增
+  `acceptance-human-only`，`approval-unavailable` 拓宽到接受），阻塞码增至 35。新增
+  `tests/artifact-lifecycle.test.mjs` 与 `tests/property/artifact-acceptance.prop.mjs`，ADR 0006 增补该形状。
+
 ### 修复
 
 - **Tower 模式按组件属主拒绝外部编排工具（#161）**：`mode.denyTools` 的默认值不再是手写清单，而是

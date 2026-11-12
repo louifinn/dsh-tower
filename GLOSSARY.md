@@ -30,6 +30,8 @@ off-state sentence.
 | review | review | 审查 | The review contract and the act of reviewing. Do not use 评审 in plugin-page copy. |
 | review policy | review policy | 审查策略 | The one tri-state control on the plugin-page configuration form: off, optional (default) or required. It is not a component row and never three mutually exclusive rows. |
 | lease | lease | 租约 | Advisory resource coordination. Never 咨询式租约: the lease coordinates, it does not consult. |
+| deliverable | deliverable | 交付物 | A committed file an artifact mission must land (a rendered report, a dataset). Not 成果 or 产物. |
+| acceptance | acceptance | 接受 | The human decision that lands an artifact mission: one record, bound to one committed tip. Never 验收 (that is the reviewer's word). |
 | worker | worker | 执行代理 | The role that executes a mission. "Tower Worker" is a product name and stays as-is. |
 | reviewer | reviewer | 审查代理 | The role that independently reviews a mission. "Tower Reviewer" is a product name and stays as-is. |
 

@@ -13,7 +13,7 @@ export function registerCompleteTool(ctx, deps) {
   define(ctx, {
     name: 'tower_complete',
     description:
-      'Worker-only: report mission completion. Requires every task done or dropped, no blockers, the current owner, at least one commit (survey/sandbox use their recorded commit), and no unread inbox. checks records evidence; result is survey-only. The report is capped by gates.maxReportBytes.',
+      'Worker-only: report mission completion: all tasks done or dropped, no blockers, the current owner, a commit (survey/sandbox use their recorded commit), no unread inbox; an artifact mission also needs its declared deliverables committed at the tip. checks records evidence; result is survey-only.',
     parameters: CompleteInput,
     aliases: {"missionId":["id"]},
     roles: ['worker', 'survey'],

@@ -6,24 +6,13 @@
 //
 // The shared-checkout survey preset (`dsh-tower/survey`) stays strictly
 // read-only; this module is mounted only for a detached sandbox.
+// #164: the allow-list lives in domain/exposure.js (see worker.js).
+import { PRESET_ALLOWS } from './domain/exposure.js'
+
 export const name = 'dsh-tower/survey-sandbox'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
-  'read',
-  'write',
-  'edit',
-  'glob',
-  'grep',
-  'pwsh',
-  'tower_mission',
-  'tower_inspect',
-  'tower_finding',
-  'tower_finding',
-  'tower_inbox',
-  'tower_complete',
-  'skill',
-]
+const ALLOW = PRESET_ALLOWS['tower-survey-sandbox']
 
 const PROTOCOL = [
   'You are a Tower survey worker reading one recorded commit in a disposable detached sandbox.',

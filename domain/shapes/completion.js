@@ -31,6 +31,7 @@ export const COMPLETION_INVARIANT_KEYS = Object.freeze([
   'requiresClean',
   'requiresHeadMatch',
   'requiresTrackedStatus',
+  'requiresArtifacts',
 ])
 
 /**
@@ -41,6 +42,7 @@ export const COMPLETION_INVARIANT_KEYS = Object.freeze([
  * @property {boolean} requiresClean
  * @property {boolean} requiresHeadMatch
  * @property {boolean} requiresTrackedStatus
+ * @property {boolean} requiresArtifacts the declared deliverables must be inside the scope and committed at the branch tip (#159)
  * @property {(context: any) => { commits: number }} check
  */
 

@@ -1,11 +1,13 @@
 // `/tower` command registration (W5-A).
 //
-// Bare `/tower`, `on|off`, `ack`, `takeover <reason>`, `reload` and `base
-// <branch>` are unchanged; the host entry calls `registerTowerCommand` from its
-// `ctx.inject(['commands'])` effect after the mode state is loaded.
+// Bare `/tower`, `on|off`, `ack`, `takeover <reason>`, `reload`, `base <branch>`
+// and the read-only `tasks` alias (#160) are handled here; the host entry calls
+// `registerTowerCommand` from its `ctx.inject(['commands'])` effect after the
+// mode state is loaded.
 import { currentHmrBridge } from './capability-registry.js'
 import { performTakeover } from './ownership.js'
 import { assertRuntimePreconditions } from './presets.js'
+import { runTasksCommand } from './tasks-command.js'
 import {
   agentKey,
   describeChange,
@@ -17,14 +19,17 @@ import {
   openTowerFor,
   parseTowerInput,
   persistModes,
+  resolveEntryWorkspace,
 } from './mode-state.js'
+import { recordRalphRelease } from './ralph-release.js'
 
 export function registerTowerCommand(ctx, { config, allowAgentControl }) {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
       name: 'tower',
-      description: 'Enter or leave Tower mode, optionally carrying a user instruction; /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
-      input: { hint: '[on|off|reload|ack|takeover <reason>|base <branch>] [message]', attachments: true },
+      description:
+        'Enter or leave Tower mode, optionally carrying a user instruction; /tower tasks always lists the live roster read-only (it is the alias when a host command owns the /tasks name); /tower takeover <reason> transfers repository ownership from an inactive owner; /tower reload reloads via HMR; /tower base <branch> sets the next init base',
+      input: { hint: '[on|off|reload|ack|tasks|takeover <reason>|base <branch>] [message]', attachments: true },
       handler: async ({ agent, rawInput, attachments }) => {
         const key = agentKey(agent)
         if (!key) return { kind: 'error', text: 'Tower mode requires a live agent.' }
@@ -56,6 +61,12 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
           return { kind: 'success', text: `Tower base preference set to "${entry.baseBranch}"; tower_init without an explicit base will use it.` }
         }
         const parsed = parseTowerInput(rawInput)
+        if (parsed.action === 'tasks') {
+          // #160: the tower-scoped alias of the read-only roster panel. It is
+          // a read, never a mode transition, so it skips the preconditions and
+          // the steer/persist paths below.
+          return runTasksCommand(ctx, agent)
+        }
         if (parsed.action === 'reload') {
           // #121: /tower reload is the tower-hmr component. The row is shipped
           // off, so the error names the component instead of an invisible key.
@@ -99,9 +110,16 @@ export function registerTowerCommand(ctx, { config, allowAgentControl }) {
         // guards, so the capability checks still run before any real work.
         const transition = active && !modeOn(key)
         if (transition) await assertRuntimePreconditions(ctx, config)
+        // #162: the workspace identity (repo root when resolvable) is resolved
+        // once per transition so entry reconciliation can scope Ralph rounds
+        // to this repository; a failed resolution degrades to the cwd.
+        const entryWorkspace = transition ? await resolveEntryWorkspace(agent) : undefined
         const outcome = active
-          ? await enterMode(ctx, key, agent, 'user', message || null)
+          ? await enterMode(ctx, key, agent, 'user', message || null, { workspace: entryWorkspace })
           : await exitMode(key, 'user', message || null)
+        // D2: what Tower released is recorded in the repository's activity
+        // log; the record is best-effort and never fails the mode change.
+        if (active && outcome.ralphReleased) await recordRalphRelease(agent, outcome.ralphReleased)
         const persisted = outcome.persisted !== false
         let forwarded = false
         try {

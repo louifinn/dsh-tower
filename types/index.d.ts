@@ -15,7 +15,7 @@
 // edit the block by hand.
 // generated:vocabulary:start
 export type MissionStatus = 'planned' | 'active' | 'completed' | 'blocked' | 'paused' | 'merged' | 'abandoned'
-export type MissionKind = 'build' | 'survey'
+export type MissionKind = 'build' | 'survey' | 'artifact'
 export type ReviewStatus =
   | 'clean'
   | 'p1-1items'
@@ -65,6 +65,7 @@ export type ErrorCode =
   | 'owner-live'
   | 'owner-busy'
   | 'approval-unavailable'
+  | 'acceptance-human-only'
   | 'worker-limit'
   | 'rate-limited'
   | 'takeover-refused'
@@ -166,6 +167,21 @@ export interface SurveyResult {
 }
 
 /**
+ * The human acceptance of an artifact mission's committed tip (#159). `by` is
+ * always `human` — no tool argument can record an agent acceptance — and the
+ * record binds exactly one tip: any new commit or rebase makes it stale at the
+ * merge gate (`acceptance-stale`). The listed artifacts are disclosure; the
+ * acceptance covers the whole tip.
+ */
+export interface MissionAcceptance {
+  at: number
+  by: 'human'
+  tip: string
+  artifacts: string[]
+  note?: string
+}
+
+/**
  * Fields every mission carries regardless of shape. The per-shape arms below
  * declare which document dimensions a kind owns; the state schema v4 union and
  * `domain/state/semantics.js` enforce the same split at runtime.
@@ -212,6 +228,8 @@ export interface BuildMission extends MissionBase {
   readCommit?: never
   readDirty?: never
   sandbox?: never
+  artifacts?: never
+  acceptance?: never
 }
 
 /** A survey reads one commit in the shared checkout; it never merges. */
@@ -234,9 +252,30 @@ export interface SurveyMission extends MissionBase {
   baseCommit?: never
   mergedCommit?: never
   mergedAt?: never
+  artifacts?: never
+  acceptance?: never
 }
 
-export type Mission = BuildMission | SurveyMission
+/**
+ * An artifact mission writes deliverables a code review cannot judge (#159).
+ * It owns a branch/worktree like a build, declares its deliverables, and lands
+ * on a human acceptance of the whole committed tip instead of a review.
+ */
+export interface ArtifactMission extends MissionBase {
+  kind: 'artifact'
+  worktree?: MissionWorktree | null
+  mergedCommit?: string | null
+  mergedAt?: number | null
+  /** Declared deliverables: concrete paths inside the scope, committed at the tip. */
+  artifacts: string[]
+  /** The human acceptance record; absent until a human accepts the committed tip. */
+  acceptance?: MissionAcceptance | null
+  readCommit?: never
+  readDirty?: never
+  sandbox?: never
+}
+
+export type Mission = BuildMission | SurveyMission | ArtifactMission
 
 /**
  * Compact archived-mission entry (`archive/index.json`). It keeps enough of the
@@ -393,6 +432,10 @@ export interface MissionSummary {
   readDirty?: string[]
   /** Survey projection: the disposable detached sandbox path (null otherwise). */
   sandbox?: string | null
+  /** Artifact projection: the declared deliverable paths (empty otherwise). */
+  artifacts?: string[]
+  /** Artifact projection: the human acceptance record (null until accepted). */
+  acceptance?: MissionAcceptance | null
   /** Size of the completion report without loading its body; null when absent. */
   reportBytes: number | null
   updatedAt?: number

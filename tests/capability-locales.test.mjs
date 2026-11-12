@@ -70,6 +70,7 @@ const ROW_DISPLAY_SOURCE = {
   'tower-hmr': 'hmr subpath locale',
   'preset-tower-reviewer': 'preset-reviewer subpath locale',
   'tower-survey': 'preset-survey subpath locale',
+  'tower-artifact': 'artifact subpath locale',
   'tower-ui': 'ui-bundle package locale meta',
 }
 
@@ -300,7 +301,7 @@ test('the generated row locale files are in sync with the generator', () => {
     cwd: root,
     encoding: 'utf8',
   })
-  assert.match(output, /24 files in sync/)
+  assert.match(output, /26 files in sync/)
   // And the committed files are byte-for-byte the rendering, not a hand edit.
   const expected = renderRowLocaleFiles(root)
   assert.deepEqual([...expected.keys()].sort(), rowPaths.slice().sort())
@@ -326,7 +327,7 @@ test('the generator --check fails when a committed row locale file drifts (fixtu
     assert.equal(result.status, 0, result.stderr)
     result = run('--check')
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /24 files in sync/)
+    assert.match(result.stdout, /26 files in sync/)
 
     fs.writeFileSync(
       path.join(fixture, 'locale', 'batch', 'en.json'),

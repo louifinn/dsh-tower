@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components. The default profile mounts 16.
+Surface counts (live, checked by `npm run docs:check`): 21 tools, 42 tool error codes, 26 process-local events, 58 config keys, 35 stable blocker/failure codes, 13 visible components. The default profile mounts 16. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 16 mounted tools minus the #163 role-owned `tower_complete`/`tower_review`) — while spawned role presets keep their explicit allow-lists. The 21-tool figure is the all-on build surface, not a session baseline.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -267,13 +267,16 @@ blocker, `clear_blockers` resumes it to `active`, and `tower_mission` refuses to
 1. Mission status must be `completed`; tasks and blockers are checked.
 2. The worktree exists; the base tip is an ancestor of the branch tip; changed files are computed
    against the merge base.
-3. Survey missions must not change files; build missions must stay inside `scope`.
+3. Survey missions must not change files; build and artifact missions must stay inside `scope`, and an
+   artifact mission must have every declared deliverable committed at the tip.
 4. The main checkout must be clean for the files this merge would overwrite and on the base branch.
 5. Dependency missions must be merged/abandoned, except a completed survey dependency which is its terminal success state (#107).
 6. If the review policy is `required` (`review.mode:required`; the default is `optional`), a review
    must exist, belong to this mission, be clean, approve merge, and be bound to the tip (unless a clean
-   rebase waived it). With `off`, review is intentionally unavailable and the gate ignores it. No
-   worker may be running.
+   rebase waived it). With `off`, review is intentionally unavailable and the gate ignores it. Artifact
+   missions are accepted instead of reviewed: the gate requires a `by:"human"` acceptance record bound
+   to the branch tip (`acceptance-missing` / `acceptance-stale`), and a review is refused for that shape.
+   No worker may be running.
 
 ## Merge
 

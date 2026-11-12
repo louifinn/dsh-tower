@@ -19,6 +19,7 @@ import { isConfigResolutionError } from './authorization.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
 import { runDoctor } from './doctor.js'
 import { createHmrBridge } from './hmr.js'
+import { requestHumanAcceptance } from './acceptance.js'
 import { assertRuntimePreconditions } from './presets.js'
 import { readStateLock } from '../adapters/store.js'
 import { lockTiming } from '../adapters/persistence.js'
@@ -176,7 +177,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
   // so a review gate without its reviewer row is refused before work starts.
   registerPlanTool(ctx, { openTower, define, actorFor, requireTowerActor, assertPresetsAvailable: assertRuntimePreconditions })
 
-  registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor })
+  registerMissionTool(ctx, { openTower, define, actorFor, requireKnownActor, requestHumanAcceptance })
 
   // #163 Phase 3: the five read-only views share one state and three arguments;
   // one tool with a view enum replaces five descriptions and five schemas.

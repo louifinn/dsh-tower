@@ -1,21 +1,13 @@
 // tower-survey preset policy: a read-only inspection surface. The allow-list is
 // the structural read-only guarantee (#148): a survey cannot write, edit, run a
 // shell, commit, or merge because the tools do not exist in its session.
+// #164: the allow-list lives in domain/exposure.js (see worker.js).
+import { PRESET_ALLOWS } from './domain/exposure.js'
+
 export const name = 'dsh-tower/survey'
 export const inject = ['tools', 'systemPrompt']
 
-const ALLOW = [
-  'read',
-  'glob',
-  'grep',
-  'tower_mission',
-  'tower_inspect',
-  'tower_finding',
-  'tower_finding',
-  'tower_inbox',
-  'tower_complete',
-  'skill',
-]
+const ALLOW = PRESET_ALLOWS['tower-survey']
 
 const PROTOCOL = [
   'You are a Tower survey worker in a DeepSeek Harness Tower workspace.',

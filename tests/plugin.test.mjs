@@ -163,7 +163,7 @@ test('config surface: tools, command descriptor and unknown-key rejection', () =
   assert.ok(plain.tools.has('tower_mode'), 'the read/write session tool is mounted')
   assert.ok(AUTHORIZATION_MATRIX.tower_mode, 'the matrix pins the session row')
   const command = plain.commands.get('tower')
-  assert.equal(command.input.hint, '[on|off|reload|ack|takeover <reason>|base <branch>] [message]')
+  assert.equal(command.input.hint, '[on|off|reload|ack|tasks|takeover <reason>|base <branch>] [message]')
   assert.equal(command.input.attachments, true)
 
   const disabled = makeCtx()
@@ -747,7 +747,7 @@ test('#148: survey row availability comes from the real agent-presets service', 
           .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row absent', kind: 'survey' }] }, { agent }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: surveys cannot be planned; build missions are unaffected/.test(error.message),
+        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message),
     )
     presets.push({ id: 'tower-survey' })
     const planned = await profile.tools

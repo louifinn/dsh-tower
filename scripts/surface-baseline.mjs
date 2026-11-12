@@ -15,6 +15,14 @@
 //                 input-schema bytes for the tower/worker/reviewer presets:
 //                 consolidation work is judged by these numbers, so moving one
 //                 needs a dated decision in the same baseline
+//   profileBytes  (#164) per-profile advertised schema bytes for the host
+//                 exposure ladder (mode-off/idle/active) and the four role
+//                 presets: the role × phase gate is judged by these bytes, so
+//                 any drift needs a dated decision and growth needs an ADR.
+//                 The host ladder is measured over the default host-admitted
+//                 session surface (the mounted tools minus the #163 role-owned
+//                 tools), never the all-on build surface, so `active` is what a
+//                 session actually advertises.
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
@@ -30,6 +38,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configSurface } from '../domain/config/schema.js'
 import { COMPONENT_PATCH_FILES, mergeCordisPatches, parseCordisPatch } from '../domain/components.js'
+import { PRESET_ALLOWS } from '../domain/exposure.js'
 import {
   SURFACE_BASELINE_FILE,
   SURFACE_CLASSIFICATION_FILE,
@@ -37,9 +46,10 @@ import {
   TOOL_DESCRIPTION_BUDGET,
   surfaceLine,
 } from '../domain/surface.js'
-import { REVIEWER_ALLOW, ROLE_TOOLS, WORKER_ALLOW } from '../host/tool-profiles.js'
+import { ROLE_TOOLS } from '../host/tool-profiles.js'
 import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { checkSurfaceBudget } from './lib/surface.mjs'
+import { collectProfileSurface, validateProfileBytes } from './lib/profile-surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -53,9 +63,12 @@ Growth is refused by default. To grow a count, update ${SURFACE_BASELINE_FILE}
 with a decision that names an existing docs/adr/ ADR, deletions that are no
 longer in the live surface, or a measurement-correction record with a reason and
 date. The per-profile tool counts and advertised input-schema bytes (tower,
-worker, reviewer) are two-way and need a dated decision for any change. Every
-advertised tool description must stay within ${TOOL_DESCRIPTION_BUDGET} characters.
-The classification table in
+worker, reviewer) are two-way and need a dated decision for any change. The
+per-profile byte baseline (#164: the host exposure ladder and the four role
+presets) is two-way too: the host ladder measures the default host-admitted
+session surface, and growth additionally needs a decision naming an ADR.
+Every advertised tool description must stay within ${TOOL_DESCRIPTION_BUDGET}
+characters. The classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
 the component count comes from the visible rows in every shipped
 cordis.patch.yml.`
@@ -75,9 +88,9 @@ function schemaBytes(definition) {
  *
  * The tower profile is the default Host surface (`defaultDefinitions`, before
  * the optional capability rows are applied). The worker and reviewer profiles
- * are the very allow-lists their presets install (`worker.js` / `reviewer.js`),
- * intersected with the tools this build registers — so a rename cannot leave
- * the budget measuring a stale list.
+ * are the very allow-lists their presets install (`worker.js` / `reviewer.js`,
+ * both sourced from `domain/exposure.js`), intersected with the tools this
+ * build registers — so a rename cannot leave the budget measuring a stale list.
  *
  * @param {Map<string, any>} definitions the default-profile definitions
  */
@@ -94,32 +107,49 @@ function profileCounts(definitions) {
   // (complete/review belong to worker/survey/reviewer sessions), though they
   // stay in the default registered set and the all-on build surface.
   const towerAllow = all.filter((definition) => !Object.hasOwn(ROLE_TOOLS, definition.name)).map((definition) => definition.name)
-  return { tower: measure(towerAllow), worker: measure(WORKER_ALLOW), reviewer: measure(REVIEWER_ALLOW) }
+  return {
+    tower: measure(towerAllow),
+    worker: measure(PRESET_ALLOWS['tower-worker']),
+    reviewer: measure(PRESET_ALLOWS['tower-reviewer']),
+  }
+}
+
+/**
+ * The live tool surface: apply the shipped Host entry once so every
+ * registration path is included, then release the mock context's timers. The
+ * returned names/definitions stay usable after dispose (they are plain data).
+ * @returns {{ names: string[], definitions: Map<string, any>, defaultDefinitions: Map<string, any> }}
+ */
+function liveToolSurface() {
+  const surface = loadShippedToolSurface()
+  try {
+    return {
+      names: surface.names,
+      definitions: surface.definitions,
+      defaultDefinitions: surface.defaultDefinitions,
+    }
+  } finally {
+    surface.dispose()
+  }
 }
 
 /**
  * The live surface used by the gate. Exported so tests can compare the counts
  * with the generated references without spawning the CLI.
  * @param {string} [root] repository root (defaults to this package)
+ * @param {{ names: string[], definitions: Map<string, any>, defaultDefinitions: Map<string, any> }} [surface]
+ *   already-measured surface, so the CLI loads the shipped entry once
  */
-export function liveSurface(root = PACKAGE_ROOT) {
+export function liveSurface(root = PACKAGE_ROOT, surface = liveToolSurface()) {
   const config = configSurface()
-  const surface = loadShippedToolSurface()
-  let tools
-  let profiles
-  let descriptions
-  try {
-    tools = surface.names
-    profiles = profileCounts(surface.defaultDefinitions)
-    // #163: the 300-char advertised-description budget is checked for every
-    // shipped tool, including the optional capability rows.
-    descriptions = [...surface.definitions.values()].map((definition) => ({
-      name: definition.name,
-      length: String(definition.description ?? '').length,
-    }))
-  } finally {
-    surface.dispose()
-  }
+  const tools = surface.names
+  const profiles = profileCounts(surface.defaultDefinitions)
+  // #163: the 300-char advertised-description budget is checked for every
+  // shipped tool, including the optional capability rows.
+  const descriptions = [...surface.definitions.values()].map((definition) => ({
+    name: definition.name,
+    length: String(definition.description ?? '').length,
+  }))
   // #134: the counted component surface is every shipped patch, not only the
   // root one; `ui-bundle/cordis.patch.yml` ships the tower-ui row.
   const patches = {}
@@ -160,18 +190,39 @@ function main(argv) {
     console.error(`surface: ${SURFACE_BASELINE_FILE} is missing under ${root}`)
     return 2
   }
-  const current = liveSurface()
+  // #163/#164: measure the shipped entry once and reuse the same surface for
+  // the name counts, the description budget and the per-profile byte ladder.
+  const surface = liveToolSurface()
+  const current = liveSurface(root, surface)
   const result = checkSurfaceBudget({ root, current })
+  // #164: the per-profile byte baseline over the same shipped surface. Any
+  // drift is a finding, so the ladder's savings and any later regrowth are
+  // both gated here.
+  let profileEntry = null
+  try {
+    profileEntry = JSON.parse(fs.readFileSync(path.join(root, SURFACE_BASELINE_FILE), 'utf8')).profileBytes
+  } catch (error) {
+    profileEntry = { error: String(error?.message ?? error) }
+  }
+  const profileCurrent = collectProfileSurface(surface)
+  const profileFindings = validateProfileBytes(profileEntry, profileCurrent, {
+    exists: (relative) => fs.existsSync(path.join(root, relative)),
+  })
+  const profileOk = profileFindings.length === 0
   if (options.json) {
-    console.log(JSON.stringify({ root, current, ...result }, null, 2))
-    return result.ok ? 0 : 1
+    console.log(JSON.stringify({ root, current, ...result, profileBytes: { current: profileCurrent, findings: profileFindings } }, null, 2))
+    return result.ok && profileOk ? 0 : 1
   }
   console.log(`surface: ${surfaceLine(current)}`)
   console.log(`surface: components: ${current.components} visible (${current.liveNames.components.join(', ')})`)
-  const profileLine = SURFACE_PROFILES.map(
+  const nameProfileLine = SURFACE_PROFILES.map(
     (profile) => `${profile} ${current.profiles[profile].tools} tools / ${current.profiles[profile].inputBytes} B input schema`,
   ).join(' · ')
-  console.log(`surface: profiles: ${profileLine}`)
+  console.log(`surface: profiles: ${nameProfileLine}`)
+  const byteProfileLine = Object.entries(profileCurrent)
+    .map(([profile, value]) => `${profile} ${value.bytes} B/${value.tools}`)
+    .join(' · ')
+  console.log(`surface: profile bytes: ${byteProfileLine}`)
   const longest = [...current.descriptions].sort((left, right) => right.length - left.length)[0]
   console.log(
     `surface: descriptions: ${current.descriptions.length} tools, longest ${longest ? `${longest.length} chars (${longest.name})` : '0 chars'} · budget ${TOOL_DESCRIPTION_BUDGET}`,
@@ -183,9 +234,10 @@ function main(argv) {
     console.log(`surface: classified ${configRows} config keys and ${toolRows} tools (${SURFACE_CLASSIFICATION_FILE})`)
   }
   for (const finding of result.findings) console.log(`surface: ${finding.level} [${finding.code}] ${finding.message}`)
-  if (result.ok) console.log('surface: ok — counts match the committed baseline and every entry is classified')
-  else console.log(`surface: ${result.findings.length} problem(s); growth needs an ADR or a matching deletion`)
-  return result.ok ? 0 : 1
+  for (const finding of profileFindings) console.log(`surface: ${finding.level} [${finding.code}] ${finding.message}`)
+  if (result.ok && profileOk) console.log('surface: ok — counts match the committed baseline and every entry is classified')
+  else console.log(`surface: ${result.findings.length + profileFindings.length} problem(s); growth needs an ADR or a matching deletion`)
+  return result.ok && profileOk ? 0 : 1
 }
 
 await runMain(import.meta.url, () => main(process.argv.slice(2)), { errorPrefix: 'surface', usage: USAGE })

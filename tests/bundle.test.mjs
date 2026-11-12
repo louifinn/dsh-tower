@@ -25,6 +25,7 @@ test('the bundle patch ships a mandatory host group and optional top-level rows'
     'tower-hmr',
     'preset-tower-reviewer',
     'tower-survey',
+    'tower-artifact',
   ])
   const host = parsed.rows.find((row) => row.id === 'tower')
   assert.equal(host.kind, 'group')
@@ -37,7 +38,7 @@ test('the bundle patch ships a mandatory host group and optional top-level rows'
 test('the dev reload row ships off; every optional capability owns one row', () => {
   const block = patch.slice(patch.indexOf('- id: tower-hmr'), patch.indexOf('- id: preset-tower-reviewer'))
   assert.match(block, /^\s*disabled: true\s*$/m, 'tower-hmr ships disabled')
-  for (const id of ['tower-skills', 'tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-board', 'tower-archive', 'tower-survey']) {
+  for (const id of ['tower-skills', 'tower-batch', 'tower-import', 'tower-leases', 'tower-tests', 'tower-board', 'tower-archive', 'tower-survey', 'tower-artifact']) {
     assert.match(patch, new RegExp(`^\\s*- id: ${id}\\s*$`, 'm'), `${id} row is shipped`)
   }
   // The old all-or-nothing group and the safety-net switches are gone.
@@ -47,7 +48,7 @@ test('the dev reload row ships off; every optional capability owns one row', () 
 
 test('the package exports each capability as its own entry point', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-  for (const capability of ['worker', 'reviewer', 'skills', 'batch', 'import', 'leases', 'tests', 'board', 'archive']) {
+  for (const capability of ['worker', 'reviewer', 'skills', 'batch', 'import', 'leases', 'tests', 'board', 'archive', 'artifact']) {
     assert.equal(typeof pkg.exports[`./${capability}`], 'string', `exports ./${capability}`)
   }
   // The HMR row needs its own entry point; it is shipped off.

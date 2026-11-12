@@ -7,6 +7,7 @@
 // and `tool-registry.js` re-exports the stable public names.
 import { Tower } from '../app/tower.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
+import { exposureWhen, resetExposureMemo } from './exposure.js'
 import {
   allowsAnonymous,
   openForAuthorization,
@@ -288,6 +289,32 @@ function roleToolRegistration(name, roles) {
 }
 
 /**
+ * Combine the two step-time conditions one registration can carry (#164):
+ * the exposure ladder (an async predicate once the host entry installs the
+ * gate) and the role contract (#163, synchronous). An absent exposure gate
+ * leaves the role-only condition untouched — that keeps the compatibility
+ * floor for tests/embedders and keeps `role-contracts.test.mjs` synchronous.
+ *
+ * @param {string} name
+ * @param {readonly string[] | undefined} roles
+ * @returns {{ when: (context: { agent?: any }) => boolean | Promise<boolean> } | undefined}
+ */
+function admissionFor(name, roles) {
+  const roleGate = roleToolRegistration(name, roles)
+  const exposure = exposureWhen(name)
+  if (!exposure) return roleGate
+  if (!roleGate) return { when: exposure }
+  return {
+    when: async (context) => {
+      // Both gates must admit: exposure only subtracts, the role contract
+      // stays the authority. Short-circuit the synchronous rejection first.
+      if (!roleGate.when(context)) return false
+      return exposure(context)
+    },
+  }
+}
+
+/**
  * Register one tool. The TypeBox schema is the single source of truth for the
  * runtime JSON Schema and the handler's argument type. The runtime injects the
  * resolved `repoRoot` after normalization (#163), so the handler type carries it
@@ -315,6 +342,12 @@ export function define(ctx, definition) {
   // tool decides whether it is registered at all (#121): the component row is
   // the switch, so `define()` no longer consults a `tools.expose*` boolean.
   recordToolRegistration(rest.name)
+  // #164: when the host entry installed the exposure gate, every registration
+  // carries the step-time condition, composed with the #163 role contract. The
+  // set that built request N is the set that validates calls in N (the host
+  // resolves `when` once per model step); a hidden tool resolves as
+  // UNKNOWN_TOOL. No gate installed (tests, embedders) keeps the
+  // unconditional registration.
   ctx.effect(() =>
     ctx.tools.register({
       ...rest,
@@ -332,53 +365,60 @@ export function define(ctx, definition) {
         // selected operation; validating them before authorization keeps a
         // malformed call `invalid-argument` rather than a role denial.
         if (typeof validateArgs === 'function') validateArgs(normalized)
-        let value
         try {
-          // #163: resolve the repository here, once, before authorization, so the
-          // kernel, the workspace lock, the handler and the board all share one
-          // value and no tool schema has to advertise `repoRoot` again.
-          const repoRoot = await resolveToolRepoRoot(rest.name, normalized, exec)
-          if (typeof repoRoot === 'string') normalized.repoRoot = repoRoot
-          else delete normalized.repoRoot
-          // Default-deny authorization runs before any side effect: a denied
-          // call must not take the workspace lock, write state, or spawn.
-          const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
-          // #163 Phase 5: a role-owned tool reached from the wrong profile gets
-          // the replacement path, not a bare unknown-tool or access denial.
-          if (Array.isArray(roles) && !roles.includes(actor?.role) && !(allowTowerExecution === true && isTowerRole(actor?.role))) {
-            throw new TowerToolError('not-authorized', roleDenialHint(rest.name, actor?.role))
-          }
-          if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
-            await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
-          }
-          value = await execute(normalized, exec, actor)
-        } catch (error) {
-          throw classifyError(error)
-        }
-        if (typeof normalized.repoRoot === 'string') watchRepo(normalized.repoRoot)
-        const event = rest.name.startsWith('tower_') ? rest.name.slice('tower_'.length) : null
-        if (event) {
+          let value
           try {
-            ctx.emit?.(`tower/${event}`, {
-              tool: rest.name,
-              repoRoot: typeof normalized.repoRoot === 'string' ? normalized.repoRoot : null,
-              value: value ?? null,
-            })
-          } catch {
-            // events are an optional side channel; never fail a tool for them
+            // #163: resolve the repository here, once, before authorization, so the
+            // kernel, the workspace lock, the handler and the board all share one
+            // value and no tool schema has to advertise `repoRoot` again.
+            const repoRoot = await resolveToolRepoRoot(rest.name, normalized, exec)
+            if (typeof repoRoot === 'string') normalized.repoRoot = repoRoot
+            else delete normalized.repoRoot
+            // Default-deny authorization runs before any side effect: a denied
+            // call must not take the workspace lock, write state, or spawn.
+            const { actor, degraded } = await authorizeCall(rest.name, normalized, exec)
+            // #163 Phase 5: a role-owned tool reached from the wrong profile gets
+            // the replacement path, not a bare unknown-tool or access denial.
+            if (Array.isArray(roles) && !roles.includes(actor?.role) && !(allowTowerExecution === true && isTowerRole(actor?.role))) {
+              throw new TowerToolError('not-authorized', roleDenialHint(rest.name, actor?.role))
+            }
+            if (!degraded && runtimeState.workspaceHook && typeof normalized.repoRoot === 'string' && rest.name !== 'tower_init') { // F48: only a degraded config-diagnostic open skips the lock
+              await runtimeState.workspaceHook.ensure(normalized.repoRoot, exec, rest.name)
+            }
+            value = await execute(normalized, exec, actor)
+          } catch (error) {
+            throw classifyError(error)
           }
-        }
-        if (board === true && typeof normalized.repoRoot === 'string') {
-          try {
-            const opened = await openTower(normalized.repoRoot)
-            await opened.writeBoard()
-          } catch {
-            // board output is best effort
+          if (typeof normalized.repoRoot === 'string') watchRepo(normalized.repoRoot)
+          const event = rest.name.startsWith('tower_') ? rest.name.slice('tower_'.length) : null
+          if (event) {
+            try {
+              ctx.emit?.(`tower/${event}`, {
+                tool: rest.name,
+                repoRoot: typeof normalized.repoRoot === 'string' ? normalized.repoRoot : null,
+                value: value ?? null,
+              })
+            } catch {
+              // events are an optional side channel; never fail a tool for them
+            }
           }
+          if (board === true && typeof normalized.repoRoot === 'string') {
+            try {
+              const opened = await openTower(normalized.repoRoot)
+              await opened.writeBoard()
+            } catch {
+              // board output is best effort
+            }
+          }
+          return value
+        } finally {
+          // #164: the phase facts are memoized per agent until the next tower
+          // tool call; tower_init/tower_teardown are the state-existence
+          // transitions and both run through here.
+          resetExposureMemo()
         }
-        return value
       },
-    }, roleToolRegistration(rest.name, roles)),
+    }, admissionFor(rest.name, roles) ?? {}),
   )
 }
 

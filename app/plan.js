@@ -28,7 +28,8 @@ async function assertShapeComponents(tower, input) {
   const components = tower.deps?.components
   if (!components) return
   for (const mission of input?.missions ?? []) {
-    const required = shapeFor(mission?.kind).requiredComponent
+    const shape = shapeFor(mission?.kind)
+    const required = shape.requiredComponent
     if (!required) continue
     if (typeof components.available === 'function') {
       // null means "cannot tell" (no agent-presets service): let the plan pass,
@@ -37,8 +38,8 @@ async function assertShapeComponents(tower, input) {
     } else if (components.enabled(required) === true) continue
     throw new TowerToolError(
       'invalid-argument',
-      `the ${required} component is off: surveys cannot be planned; build missions are unaffected`,
-      { nextAction: `enable the ${required} component and plan the survey again` },
+      `the ${required} component is off: ${shape.kind} missions cannot be planned; the other kinds are unaffected`,
+      { nextAction: `enable the ${required} component and plan the ${shape.kind} mission again` },
     )
   }
 }

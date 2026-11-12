@@ -16,8 +16,11 @@
 // `host/mode-command.js`, and the two session-tool bodies in
 // `host/session-tools.js`.
 import fs from 'node:fs'
+import path from 'node:path'
 import { authorizeSessionCall, registerCoreTowerTools, recordToolRegistration } from './host/tool-registry.js'
 import { createDefaultDeps } from './adapters/default.js'
+import { exists } from './adapters/store.js'
+import { installExposureGate } from './host/exposure.js'
 import { Config as ConfigSchema, configureRuntime } from './host/config.js'
 import {
   agentCwd,
@@ -28,16 +31,26 @@ import {
   loadModes,
   modeOn,
   modeState,
+  openTowerFor,
   planModeState,
   releaseOwnedLocks,
   setDenyTools,
 } from './host/mode-state.js'
 import { registerTowerCommand } from './host/mode-command.js'
+import { registerTasksCommand } from './host/tasks-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
 import { isRoleOwnedTool, roleAllowsTool, roleDenialHint } from './host/tool-profiles.js'
 import { TowerToolError } from './domain/errors.js'
 import { inspectWorkspaceLockSync, touchWorkspaceLock } from './adapters/workspaceLock.js'
 import { resolveCommonDirSync } from './adapters/git.js'
+import {
+  RALPH_ROUND_REFUSAL,
+  ensureStanceCommands,
+  normalizeWorkspace,
+  observeRalphStance,
+  ralphRoundRejection,
+  workspaceContains,
+} from './host/ralph-stance.js'
 
 export const name = 'dsh-tower'
 export const inject = ['tools', 'systemPrompt']
@@ -70,6 +83,34 @@ export function apply(ctx, rawConfig) {
   }
   if (typeof ctx.provide === 'function') ctx.provide('tower', modeState)
   setDenyTools(config.mode.denyTools)
+
+  // #164 stage 2/4: install the step-time exposure gate before any tower
+  // registration, so every `define()` call captures its `when` condition. The
+  // gate subtracts only for host sessions: agents composed with a Tower role
+  // preset keep their preset allow-list as L0, and every probe failure fails
+  // open (exposure only subtracts, so the fallback is yesterday's surface,
+  // never a hidden way out). tower_mode is registered below without a
+  // condition: after #163 Phase 4 it is the single mode-off entry affordance
+  // (read, enter/leave and takeover share one schema; ADR 0009).
+  ctx.effect(() =>
+    installExposureGate({
+      modeOn,
+      presetOf: (agent) => {
+        const presets = ctx.get('agentPresets')
+        return presets && typeof presets.composedPreset === 'function'
+          ? (presets.composedPreset(agent?.ctx) ?? null)
+          : null
+      },
+      stateExists: async (agent) => {
+        try {
+          const tower = await openTowerFor(agent)
+          return await exists(tower.paths.state)
+        } catch {
+          return true
+        }
+      },
+    }),
+  )
 
   const workspace = createWorkspaceHook()
 
@@ -112,6 +153,11 @@ export function apply(ctx, rawConfig) {
       return null
     }
   }
+
+  // #162: the Ralph-stance sensor is observe-only (workflow meta, round-agent
+  // labels, agent disposal); it feeds entry reconciliation, the round refusal
+  // and tower_doctor's environment fact.
+  ctx.effect(() => observeRalphStance(ctx))
   ctx.effect(() =>
     ctx.tools.guard((execution) => {
       if (!isDeniedTool(execution.name)) return undefined
@@ -142,6 +188,10 @@ export function apply(ctx, rawConfig) {
   // Plan mode and Tower mode are mutually exclusive. Clearing at entry covers
   // the normal path; this pre-step listener also clears a plan activated later
   // in the same session, before the next step can run plan-policy tooling.
+  // #162: the same listener refuses steps of Ralph round agents while their
+  // workspace is under Tower mode (a fresh round agent has a new key, so the
+  // per-agent mode entries can never see it), and re-mounts the command
+  // shadows after a restart restored an on entry.
   ctx.effect(() =>
     typeof ctx.on === 'function'
       ? ctx.on('agent/pre-step', (payload, next) => {
@@ -151,6 +201,27 @@ export function apply(ctx, rawConfig) {
             // any plan state so the two policies cannot coexist.
             const state = planModeState(ctx, payload.agent)
             if (state.available && (state.active || state.pending)) state.service.set(payload.agent, false)
+            ensureStanceCommands(payload.agent, key)
+          }
+          const rejection = ralphRoundRejection(payload?.agent, (workspace) => {
+            for (const entry of modeState.values()) {
+              if (!entry || entry.on !== true) continue
+              // The entry's workspace is the repository root when resolvable;
+              // entries persisted before #162 may only have the workspace
+              // lock's common git dir, whose parent is the main checkout.
+              const owned = normalizeWorkspace(
+                entry.workspace ?? (entry.lock ? path.dirname(entry.lock.commonDir) : null),
+              )
+              if (workspaceContains(owned, workspace)) return true
+            }
+            return false
+          })
+          if (rejection) {
+            // A rejected PreStepDecision carries no reason, so the cause is
+            // logged here — a rejected first step ends the round's turn, so in
+            // practice this fires once per round agent.
+            console.warn(`[dsh-tower] ${RALPH_ROUND_REFUSAL} (agent ${String(key ?? 'unknown')})`)
+            return rejection
           }
           return next()
         })
@@ -222,6 +293,7 @@ export function apply(ctx, rawConfig) {
             pluginVersion: {},
             hotReload: {},
             workspaceLock: {},
+            ralph: {},
             ok: { type: 'boolean' },
             action: { type: 'string', enum: ['enter', 'exit', 'takeover'] },
             changed: { type: 'boolean' },
@@ -236,6 +308,7 @@ export function apply(ctx, rawConfig) {
             unreadMessages: { type: 'number' },
             goalNote: {},
             teamNote: {},
+            ralphReleased: {},
             error: { type: 'string' },
           },
           required: ['mode'],
@@ -256,6 +329,8 @@ export function apply(ctx, rawConfig) {
     }),
   )
 
-
   registerTowerCommand(ctx, { config, allowAgentControl })
+  // #160: the read-only `/tasks` panel registers only when the host profile
+  // has no other `tasks` command; `/tower tasks` always carries the same view.
+  registerTasksCommand(ctx)
 }

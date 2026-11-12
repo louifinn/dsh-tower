@@ -131,6 +131,7 @@ out, without changing the default or the shared path:
   remedy in the activity log; the transition itself is not rolled back. Archival
   defers a mission whose sandbox is still present instead of moving the only
   record of the path out of hot state.
+
 - `gates.requireFreshSurvey` (default `false`) controls dependency freshness. A
   build depending on a survey whose `readCommit` is not ancestor-or-equal of the
   build base gets a `survey-stale` warning in plan/preflight with
@@ -304,3 +305,31 @@ per-kind conditional and no second shape table was added.
   (#149)` lists every audited dimension with its verdict, owner module and
   fitness rule; `scripts/generate-shapes-reference.mjs` still refuses to emit a
   rule id the audit does not run.
+
+## Addendum: the artifact shape (#159)
+
+The registry gains its third kind the way this ADR promised: a shape module
+(`domain/shapes/artifact.js`) plus registration, with no generic layer edited
+for a kind. An artifact mission writes deliverables a code review cannot judge,
+so:
+
+- It is not a flag on `build`. `reviewPolicy:"none"` and a boolean
+  `requiresAcceptance` were both rejected: the first produces a mission that
+  looks reviewed with an optional acceptance, the second puts two contracts
+  behind one flag.
+- The mission declares `artifacts` (concrete deliverable paths inside the
+  scope) at plan time; completion refuses an uncommitted or out-of-scope
+  deliverable at the branch tip, not at merge.
+- A human acceptance record (`{at, by:"human", tip, artifacts, note?}`)
+  replaces the review: it is recorded only through the DSH approval channel,
+  binds one tip, and any new commit or rebase makes it stale at the merge gate
+  (`acceptance-stale`). No agent may self-accept and no run auto-accepts.
+- The review exemption is structural: `mergeGateBlockers` produces no review
+  blocker for the shape whatever `review.mode` says, reviewer spawn and
+  `tower_review` are refused for it, and `tower_doctor` reports a missing
+  acceptance as a warning, never a review failure.
+- `tower-artifact` is a visible optional row (components 12 → 13, recorded in
+  `scripts/surface-baseline.json`): off refuses `tower_plan({kind:"artifact"})`
+  with an actionable code while build and survey missions are unaffected. The
+  row owns no tool and no preset — an artifact worker uses the mandatory worker
+  preset in a branch worktree like a build.

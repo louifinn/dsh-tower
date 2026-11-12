@@ -21,6 +21,8 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
+import { artifactAcceptanceCheck } from './doctor-acceptance.js'
+import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -597,6 +599,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           : `admission=${config.tests?.admission ?? 'complete'} timeoutMs=${config.tests?.timeoutMs ?? 60000}${testConfigured ? '; receipts present' : ''}`,
       ),
     )
+
+    checks.push(artifactAcceptanceCheck(state))
     checks.push(check('legacy', 'pass', `${state.legacySnapshots?.length ?? 0} legacy snapshot(s)`))
     checks.push(check('batches', 'pass', `${state.batches?.length ?? 0} batch(es)`))
 
@@ -726,6 +730,14 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     )
   }
 
+  // #162 D5: a live Ralph loop is an environment fact — this repository has a
+  // loop in progress, and Tower cannot co-own it. Rounds are matched to this
+  // checkout by their parent session's cwd; workflow runs carry no cwd, so a
+  // run without scoped rounds is reported as process-wide rather than hidden.
+  const ralphStance = ralphStanceDoctorFact(tower.root)
+  const ralphLoop = ralphStance.ralphLoop
+  checks.push(check('ralph-stance', ralphStance.row.status, ralphStance.row.detail, ralphStance.row.action))
+
   const failed = checks.filter((item) => item.status === 'fail').length
   return {
     ok: failed === 0,
@@ -779,6 +791,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       hostVersion: detectedHost,
       hostCompatibility: hostAssessment.verdict,
       hostCompatibilityDetail: hostAssessment.detail,
+      ralphLoop,
     },
     mode: agent ? 'ready' : 'unknown',
   }
