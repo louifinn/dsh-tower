@@ -17,7 +17,7 @@ import {
 import { SHAPES, SHAPE_KINDS } from '../domain/shapes/index.js'
 import { createExposureGate, installExposureGate } from '../host/exposure.js'
 import { loadShippedToolSurface } from '../scripts/lib/tool-surface.mjs'
-import { collectProfileSurface, profileToolNames, toolBytes, validateProfileBytes } from '../scripts/lib/profile-surface.mjs'
+import { collectProfileSurface, hostAdmittedNames, profileToolNames, toolBytes, validateProfileBytes } from '../scripts/lib/profile-surface.mjs'
 import { __testResetToolSurface, define } from '../host/tool-runtime.js'
 
 // #163 Phase 4 merged tower_control into tower_mode, so the mode-off
@@ -28,7 +28,11 @@ const IDLE_TOOLS = ['tower_init', 'tower_mode']
 function shippedSurface() {
   const surface = loadShippedToolSurface()
   try {
-    return { names: [...surface.names], definitions: surface.definitions }
+    return {
+      names: [...surface.names],
+      definitions: surface.definitions,
+      defaultDefinitions: surface.defaultDefinitions,
+    }
   } finally {
     surface.dispose()
   }
@@ -374,12 +378,26 @@ test('preset policy modules apply the shared allow-lists', async () => {
 
 test('per-profile byte baseline: measurement is deterministic and the gate catches drift', () => {
   const surface = shippedSurface()
-  const first = collectProfileSurface({ names: surface.names, definitions: surface.definitions })
+  const first = collectProfileSurface(surface)
   const second = collectProfileSurface({
     names: [...surface.names].reverse(),
     definitions: new Map([...surface.definitions].reverse()),
+    defaultDefinitions: new Map([...surface.defaultDefinitions].reverse()),
   })
   assert.deepEqual(first, second, 'profile bytes depend on iteration order')
+  // The host ladder is measured over the default host-admitted surface: the 16
+  // mounted tools minus the two #163 role-owned tools, not the 21-tool all-on
+  // build surface (R103).
+  assert.deepEqual(first['host:mode-off'], { tools: 1, bytes: 846 })
+  assert.deepEqual(first['host:idle'], { tools: 2, bytes: 2185 })
+  assert.deepEqual(first['host:active'], { tools: 14, bytes: 14977 })
+  const hostNames = hostAdmittedNames(surface)
+  assert.equal(hostNames.length, 14)
+  assert.equal(hostNames.includes('tower_complete'), false, 'role tools never enter the host ladder')
+  assert.equal(hostNames.includes('tower_review'), false, 'role tools never enter the host ladder')
+  // The all-on build surface is bigger by exactly the role tools and the five
+  // optional rows; it is a build-surface figure, not a session profile.
+  assert.equal(exposedNames('active', surface.names).length, 21)
   assert.ok(first['host:mode-off'].bytes < first['host:active'].bytes)
   // Drift and growth findings.
   const stale = validateProfileBytes(
@@ -387,10 +405,11 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
     first,
   )
   assert.ok(stale.some((f) => f.code === 'profile-bytes-stale'))
+  const grownActive = { tools: first['host:active'].tools, bytes: first['host:active'].bytes - 1 }
   const grown = validateProfileBytes(
     {
       date: '2026-11-12',
-      profiles: { 'host:active': { tools: 21, bytes: 1 } },
+      profiles: { ...first, 'host:active': grownActive },
       decisions: [{ date: '2026-11-12', adr: 'docs/adr/0009-role-phase-exposure.md' }],
     },
     first,
@@ -403,7 +422,7 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   const adrOk = validateProfileBytes(
     {
       date: '2026-11-12',
-      profiles: { 'host:active': { tools: 21, bytes: 1 } },
+      profiles: { ...first, 'host:active': grownActive },
       decisions: [{ date: '2026-11-12', adr: 'docs/adr/0009-role-phase-exposure.md' }],
     },
     first,

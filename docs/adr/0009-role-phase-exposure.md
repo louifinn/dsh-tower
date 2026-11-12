@@ -7,15 +7,23 @@
 
 ## Context
 
-Issue #164: the host plugin registers all 21 tools into the profile, so a
-session with Tower mode **off** still advertises every schema (~22.1 KB ≈ 5.5k
-tokens measured on 2.8.0) in every request, for tools that session must not
-use. Role contracts are enforced at call time (`guard`, the authorization
-kernel) and, since #163, also by a step-time role predicate on the two
-role-owned tools; there is no phase distinction at all. #163 decides what
-exists (21-tool consolidated surface, `tower_inspect`, op-level enums, role
-contracts); this decision is the other half — *what is broadcast right now* —
-and lands on top of the surface #163 leaves in the build.
+Issue #164: the host plugin registers the build's tool surface (21 tools with
+every optional capability row on; the shipped profile mounts 16), and there is
+no phase distinction at all — a session with Tower mode **off** is advertised
+the same schemas as one that is actively coordinating. Role contracts are
+enforced at call time (`guard`, the authorization kernel) and, since #163,
+also by a step-time role predicate on the two role-owned tools. #163 decides
+what exists (21-tool consolidated build surface, `tower_inspect`, op-level
+enums, role contracts); this decision is the other half — *what is broadcast
+right now* — and lands on top of the surface #163 leaves in the build.
+
+The numbers that matter are the session's, not the build's. A shipped default
+profile mounts 16 tools and #163's role predicate withholds
+`tower_complete`/`tower_review` from a non-role session, so the default
+host-admitted surface is **14 tools / 14,977 B** (~3.7k tokens measured on
+2.8.0 post-#163). The 21-tool / 22,061 B all-on build surface applies every
+optional capability row and is a build figure, never a session baseline; the
+profile byte gate below measures the surface each session can actually see.
 
 The issue demanded a host-capability spike before any mechanism choice, with
 the answers recorded here (§7): can `ctx.tools.restrict({ allow })` be
@@ -86,7 +94,7 @@ The ladder is deliberately **two rungs**, not three:
 - `off → idle` costs nothing extra — entering Tower mode already changes the
   prompt (the reminder section turns on), and `idle` is the entry affordance
   plus `tower_init` only: a mode-off or freshly-entered session pays 0.8–2.2 KB
-  instead of 22.1 KB.
+  instead of ~15.0 KB.
 - `idle → active` happens at `tower_init`, early in a session when the prefix
   is small, and is the *only* switch in a tower session's lifetime.
 - **running and integrating are merged into `active` (the stable union).**
@@ -100,16 +108,18 @@ The ladder is deliberately **two rungs**, not three:
   union stays and the bytes are accepted. `recover`, `teardown` and `mode`
   stay exposed across the whole rung for the same reason.
 
-**The mode-off affordance.** Stage 2's target is "non-Tower sessions: 5.5k →
-0". We keep exactly one schema instead: `tower_mode` (846 B). Since #163
+**The mode-off affordance.** Stage 2's target, stated against the all-on build
+surface, is "non-Tower sessions: 5.5k → 0"; measured over the default
+host-admitted surface a mode-off session avoids 14,977 B (~3.7k tokens). We
+keep exactly one schema instead: `tower_mode` (846 B). Since #163
 Phase 4 it carries the read-only "where am I" pointer (principle 5's fallback)
 and the enter/leave/takeover writes in one schema, so hiding it would remove
 the model's only way to act on "use Tower mode for this" — a dead end the
 issue's goal statement forbids ("without ever creating a dead end"); the
 user's `/tower` command remains the other entry, and
 `mode.allowAgentControl:false` still refuses the writes. The residual is
-846 B (−96.2%); the byte baseline below keeps it visible rather than
-pretending it is zero.
+846 B (−94.3% against the 14,977 B active rung); the byte baseline below keeps
+it visible rather than pretending it is zero.
 
 **Role agents bypass the ladder.** A worker calls `tower_mission` with Tower
 mode off (mode is the tower session's stance), so the gate exempts agents
@@ -127,16 +137,21 @@ mode exit and state teardown) and stability (identical inputs serialize
 byte-identically). "No implicit all": every registered name must appear in
 the exposure table — a new tool without a phase row fails the suite. And
 `surface:check` now measures **per-profile schema bytes** (`profileBytes` in
-`scripts/surface-baseline.json`): mode-off 846 B / 1 tool, idle 2,185 B / 2,
-active 22,061 B / 21, worker 8,127 B / 6, reviewer 6,000 B / 5, survey and
-survey-sandbox 7,067 B / 5 each (2.8.0 post-#163 surface). Any drift requires
-a dated decision; growth additionally requires an ADR.
+`scripts/surface-baseline.json`) over the surface each profile actually sees:
+the host ladder over the default host-admitted session surface (the 16 mounted
+tools minus the two #163 role tools), the presets over their allow-lists.
+Mode-off 846 B / 1 tool, idle 2,185 B / 2, active **14,977 B / 14**, worker
+8,127 B / 6, reviewer 6,000 B / 5, survey and survey-sandbox 7,067 B / 5 each
+(2.8.0 post-#163 surface). The 21-tool / 22,061 B all-on build surface is
+documented in `docs/reference/tools.md` and is not a profile baseline. Any
+drift requires a dated decision; growth additionally requires an ADR.
 
 ## Consequences
 
-- A mode-off session's requests stop carrying 20 orchestration schemas; a
-  mode-on session carries the full union from `tower_init` on, unchanged for
-  its lifetime (stable prefix).
+- A mode-off session's requests stop carrying 13 of the 14 host-admitted
+  schemas; a mode-on host session carries all 14 from `tower_init` on, unchanged
+  for its lifetime (stable prefix). Role presets keep their own allow-lists,
+  which include the role-owned tools their session owns.
 - A hidden tool behaves exactly like an unknown one; the store, the guard and
   the authorization kernel remain the authority, so nothing here is
   authorization. Mid-turn mode flips take effect at the next step boundary —

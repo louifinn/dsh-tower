@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components. The default profile mounts 16. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the full union — while spawned role presets keep their explicit allow-lists.
+Surface counts (live, checked by `npm run docs:check`): 21 tools, 41 tool error codes, 26 process-local events, 57 config keys, 33 stable blocker/failure codes, 12 visible components. The default profile mounts 16. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 16 mounted tools minus the #163 role-owned `tower_complete`/`tower_review`) — while spawned role presets keep their explicit allow-lists. The 21-tool figure is the all-on build surface, not a session baseline.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for

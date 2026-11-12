@@ -122,12 +122,19 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the stable union, **22,061 B / 21 tools**.
+- `active` — mode on, state exists: the default host-admitted set, **14,977 B /
+  14 tools** (the 16 mounted tools minus the #163 role-owned
+  `tower_complete`/`tower_review`, which a non-role session never sees).
+
+The host ladder therefore measures the surface a session actually admits, not
+the all-on build surface: with every optional capability row on the build is
+**22,061 B / 21 tools**, and that figure is a build-surface statement, never a
+session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
-mode-off session stops paying for 20 orchestration schemas and a mode-on
-session pays a prefix that stays stable for its lifetime (the arithmetic is in
-[ADR 0009](../adr/0009-role-phase-exposure.md)).
+mode-off session stops paying for 13 of the 14 host-admitted schemas and a
+mode-on session pays a prefix that stays stable for its lifetime (the
+arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
@@ -141,13 +148,19 @@ modules import directly — one table, not a copy per consumer.
 
 `scripts/surface-baseline.json` carries these as a top-level `profileBytes`
 block, measured as the UTF-8 bytes of the advertised `name`, `description` and
-`parameters` fields in fixed key order, over the same shipped-surface load
+`parameters` fields in fixed key order, over the surface each profile actually
+sees: the host ladder over the default host-admitted session surface (the 16
+mounted tools minus the #163 role tools), the presets over their allow-lists
+intersected with the mounted surface, all from the same shipped-surface load
 `surface:check` already uses, and printed as the `surface: profile bytes:`
-line. Any drift needs a dated decision in the same block; growth additionally
-needs one that names an existing ADR under `docs/adr/`
-(`profile-bytes-growth`). `tests/exposure.test.mjs` also enforces that every
-registered tool has a phase row ("no implicit all"), and that every legal
-mission transition's driving tool is exposed to the profile that owns it.
+line. The all-on build surface is not a profile and is not measured here. Any
+drift needs a dated decision in the same block; growth additionally needs one
+that names an existing ADR under `docs/adr/` (`profile-bytes-growth`).
+`tests/exposure.test.mjs` also enforces that every registered tool has a phase
+row ("no implicit all"), that every legal mission transition's driving tool is
+exposed to the profile that owns it, and that the host ladder stays on the
+default host-admitted surface (14 tools / 14,977 B) rather than the 21-tool
+build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and

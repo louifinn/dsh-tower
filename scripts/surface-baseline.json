@@ -363,8 +363,8 @@
         "bytes": 2185
       },
       "host:active": {
-        "tools": 21,
-        "bytes": 22061
+        "tools": 14,
+        "bytes": 14977
       },
       "preset:worker": {
         "tools": 6,
@@ -387,7 +387,12 @@
       {
         "date": "2026-11-12",
         "adr": "docs/adr/0009-role-phase-exposure.md",
-        "note": "#164: the role × phase gate lands on the #163 21-tool surface. Mode-off advertises tower_mode alone (1 tool, 846 B), idle adds tower_init (2/2,185), active is the stable 21-tool union (22,061); the worker/reviewer/survey presets advertise their #163 allow-lists (6/8,127, 5/6,000, 5/7,067 each)."
+        "note": "#164: the role × phase gate lands on the #163 surface. Mode-off advertises tower_mode alone (1 tool, 846 B), idle adds tower_init (2/2,185), active is the default host-admitted union (14 tools, 14,977 B: the 16 mounted tools minus tower_complete/tower_review, which the #163 role predicate keeps on worker/survey and reviewer sessions); the worker/reviewer/survey presets advertise their #163 allow-lists (6/8,127, 5/6,000, 5/7,067 each)."
+      },
+      {
+        "date": "2026-11-12",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "Measurement correction (review R103), not a surface change: host:active was measured over the all-on build surface (21 tools / 22,061 B), which applies every optional capability row and counts the two role-owned tools no non-role host session admits. A session advertises the default host-admitted set instead — the 16 mounted tools minus tower_complete and tower_review — so host:active is 14 tools / 14,977 B. The 21-tool / 22,061 B figure stays documented as the build surface (tools.md) and is not a profile baseline."
       }
     ]
   }

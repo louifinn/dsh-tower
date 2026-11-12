@@ -9,11 +9,21 @@
 // without a decision that names an ADR, and any drift requires the baseline
 // to be updated with a dated decision, so the bytes cannot creep back quietly.
 //
+// A host phase is measured over the *default host-admitted* surface, not the
+// all-on build surface: the shipped profile mounts the 16 mandatory tools (the
+// five optional subsystem rows ship off), and the #163 role predicate withholds
+// `tower_complete`/`tower_review` from a non-role session, leaving 14 tools at
+// `active`. Measuring every registered tool instead reports a 21-tool union no
+// session can see (#164 R103). A preset profile is measured over its allow-list
+// intersected with the same mounted surface; the role tools stay in that
+// surface because the preset is the role session that owns them.
+//
 // The measurement is deterministic: it serializes exactly the three fields a
 // provider advertises (`name`, `description`, `parameters`) in that key order,
 // over the same shipped-surface load `surface:check` already uses.
 import { Buffer } from 'node:buffer'
 import { exposedNames, PRESET_ALLOWS, SESSION_PHASES } from '../../domain/exposure.js'
+import { isRoleOwnedTool } from '../../host/tool-profiles.js'
 
 /** The host-session phases measured as profiles, in ladder order. */
 export const HOST_PHASE_PROFILES = Object.freeze(['host:mode-off', 'host:idle', 'host:active'])
@@ -60,9 +70,12 @@ export function toolBytes(definition) {
 }
 
 /**
- * The tower-owned tool names one profile advertises.
+ * The tower-owned tool names one profile advertises from the names registered
+ * to it: a host phase applies the L1 ladder to the default host-admitted
+ * names, and a preset applies its allow-list to the mounted names (the preset
+ * owns its role tools). Pure — L0 composition happens at the caller.
  * @param {string} profile one of PROFILE_IDS
- * @param {readonly string[]} registeredNames the shipped tool surface
+ * @param {readonly string[]} registeredNames the names registered to that profile
  * @returns {string[]}
  */
 export function profileToolNames(profile, registeredNames) {
@@ -78,14 +91,34 @@ export function profileToolNames(profile, registeredNames) {
 }
 
 /**
+ * The names the default (non-role) host session can be advertised with: what
+ * the shipped profile mounts (`defaultDefinitions`; the five optional rows ship
+ * off) minus the #163 role-owned tools. The role predicate also admits those
+ * tools to a worker/survey or reviewer session, but a plain tower session never
+ * sees them. Exported so the tests can assert the role tools never enter the
+ * host ladder.
+ * @param {{ defaultDefinitions: Map<string, any> }} surface
+ * @returns {string[]} sorted names
+ */
+export function hostAdmittedNames(surface) {
+  const mounted = surface.defaultDefinitions
+  if (!mounted) throw new Error('hostAdmittedNames needs the shipped default (mounted) definitions')
+  return [...mounted.keys()].filter((name) => !isRoleOwnedTool(name)).sort()
+}
+
+/**
  * Measure every profile against the shipped surface.
- * @param {{ names: readonly string[], definitions: Map<string, any> }} surface
+ * @param {{ definitions: Map<string, any>, defaultDefinitions: Map<string, any> }} surface
+ *   the shipped surface; `defaultDefinitions` is the mounted (default-profile)
+ *   half captured before the optional capability rows register
  * @returns {Record<string, { tools: number, bytes: number }>}
  */
 export function collectProfileSurface(surface) {
+  const hostNames = hostAdmittedNames(surface)
+  const mountedNames = [...surface.defaultDefinitions.keys()]
   const out = {}
   for (const profile of PROFILE_IDS) {
-    const names = profileToolNames(profile, surface.names)
+    const names = profileToolNames(profile, PHASE_BY_PROFILE[profile] ? hostNames : mountedNames)
     let bytes = 0
     for (const name of names) {
       const definition = surface.definitions.get(name)

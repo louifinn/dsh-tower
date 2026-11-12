@@ -18,7 +18,11 @@
 //   profileBytes  (#164) per-profile advertised schema bytes for the host
 //                 exposure ladder (mode-off/idle/active) and the four role
 //                 presets: the role × phase gate is judged by these bytes, so
-//                 any drift needs a dated decision and growth needs an ADR
+//                 any drift needs a dated decision and growth needs an ADR.
+//                 The host ladder is measured over the default host-admitted
+//                 session surface (the mounted tools minus the #163 role-owned
+//                 tools), never the all-on build surface, so `active` is what a
+//                 session actually advertises.
 //
 // `scripts/surface-baseline.json` freezes those counts. A PR that grows a count
 // fails here until the baseline carries a decision with either an ADR under
@@ -61,7 +65,8 @@ longer in the live surface, or a measurement-correction record with a reason and
 date. The per-profile tool counts and advertised input-schema bytes (tower,
 worker, reviewer) are two-way and need a dated decision for any change. The
 per-profile byte baseline (#164: the host exposure ladder and the four role
-presets) is two-way too; growth additionally needs a decision naming an ADR.
+presets) is two-way too: the host ladder measures the default host-admitted
+session surface, and growth additionally needs a decision naming an ADR.
 Every advertised tool description must stay within ${TOOL_DESCRIPTION_BUDGET}
 characters. The classification table in
 ${SURFACE_CLASSIFICATION_FILE} must cover every key and tool exactly once, and
