@@ -4,7 +4,7 @@
 
 `tower_preflight` returns `{ok:false, blockers:[{code, detail}], warnings:[...]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
-tables below define 33 stable blocker/failure codes.
+tables below define 35 stable blocker/failure codes.
 
 `survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and
 becomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries
@@ -14,7 +14,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 `required`. With `off` or `optional` no review blocker is produced; `off` additionally removes
 `tower_review` and refuses reviewer spawn.
 
-## Gate blockers (26)
+## Gate blockers (28)
 
 | Code | Meaning / next action |
 |---|---|
@@ -35,6 +35,8 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `review-hold` | `review.mode:required` and latest review recommends hold; a later clean review must supersede it. |
 | `review-not-approved` | `review.mode:required` and latest clean review says `fix-then-merge` or `hold`; only `merge` approves. |
 | `tip-moved` | `review.mode:required` and the branch changed after review; review again (or use a clean rebase waiver). |
+| `acceptance-missing` | An artifact mission merges only after a human accepted the whole committed tip. Record the acceptance (tower_mission accept); no agent may self-accept and no run auto-accepts. |
+| `acceptance-stale` | The human acceptance binds an older tip: new commits or a rebase moved the branch. The human must accept the new tip; the gate names the accepted sha and the current one. |
 | `worker-busy` | A roster agent for this mission is running; wait or retire it. |
 | `worker-status-unknown` | The parent catalog is unavailable, so a live roster agent cannot be proven stopped; retry after the catalog recovers or adopt it. |
 | `base-wrong-branch` | The main checkout is not on the recorded base branch. |

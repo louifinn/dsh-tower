@@ -17,6 +17,7 @@ conflation).
 |---|---|---|---|---|---|---|---|---|
 | `build` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true / `scope` | — | false |
 | `survey` | `planned`, `active`, `completed`, `blocked`, `paused`, `abandoned` | yes | `shared` / `detached` | false | false | false / `read-only` | tower-survey | true |
+| `artifact` | `planned`, `active`, `completed`, `blocked`, `paused`, `merged`, `abandoned` | yes | `branch-worktree` | true | true | true / `scope` | tower-artifact | false |
 
 ## Transitions
 
@@ -43,6 +44,18 @@ conflation).
 | `paused` | `active`, `blocked`, `abandoned` |
 | `abandoned` | terminal |
 
+### artifact
+
+| From | To |
+|---|---|
+| `planned` | `active`, `blocked`, `abandoned` |
+| `active` | `completed`, `blocked`, `paused`, `abandoned` |
+| `completed` | `active`, `blocked`, `abandoned` |
+| `blocked` | `active`, `abandoned` |
+| `paused` | `active`, `blocked`, `abandoned` |
+| `merged` | terminal |
+| `abandoned` | terminal |
+
 ## Survey placement (#148 W2)
 
 `survey.sandbox` is tuning, not a component: the `tower-survey` row stays the
@@ -64,8 +77,9 @@ that never got a sandbox keeps the shared invariants for the same reason.
 
 | Kind | Invariants | Check |
 |---|---|---|
-| `build` | requiresWorktree=true, requiresSandbox=false, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false | `checkCompletion` |
-| `survey` | requiresWorktree=false, requiresSandbox=false, requiresCommits=false, requiresClean=false, requiresHeadMatch=true, requiresTrackedStatus=true | `checkCompletion` |
+| `build` | requiresWorktree=true, requiresSandbox=false, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false, requiresArtifacts=false | `checkCompletion` |
+| `survey` | requiresWorktree=false, requiresSandbox=false, requiresCommits=false, requiresClean=false, requiresHeadMatch=true, requiresTrackedStatus=true, requiresArtifacts=false | `checkCompletion` |
+| `artifact` | requiresWorktree=true, requiresSandbox=false, requiresCommits=true, requiresClean=true, requiresHeadMatch=false, requiresTrackedStatus=false, requiresArtifacts=true | `checkCompletion` |
 
 ## Role
 

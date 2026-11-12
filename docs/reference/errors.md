@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 41 tool error codes.
+release defines 42 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -50,7 +50,8 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `mode-persist-failed` | A Tower mode change could not be saved to the mode store; for `/tower off` the change is rolled back so the session keeps the mode the disk records. | yes | fix the mode store path/permissions or remove the stale mode-store lock, then retry the mode change | `/tower on\|off`, `tower_control`, or workspace-lock persistence cannot write the mode store (corrupt bytes, unwritable path, or a held mode-store lock) |
 | `owner-live` | The current Tower owner is still active, so ownership cannot be transferred. | yes | run /tower off in the owning session, wait for its workspace lock to go stale, then retry the takeover | takeover while the previous owner still has Tower mode on and a live workspace lock |
 | `owner-busy` | Another live Tower participant or a foreign workspace lock blocks ownership transfer. | yes | stop live workers, release the foreign workspace lock, then retry the takeover | takeover while live roster agents exist or another session holds the workspace lock |
-| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer. | no | use the human /tower takeover <reason> command, or restart this session with the user-questions service available | `tower_control({action:"takeover"})` in a profile without the userQuestions service |
+| `approval-unavailable` | The human approval channel is unavailable for an ownership transfer or an artifact acceptance. | no | use the human /tower takeover <reason> command (or accept in a session with the user-questions service available); an artifact acceptance is never auto-recorded | `tower_control({action:"takeover"})` or `tower_mission({accept:true})` in a profile without the userQuestions service |
+| `acceptance-human-only` | An artifact mission merges on a human acceptance of the committed tip; an agent cannot accept. | no | only the tower may ask the human through the approval channel; the recorded acceptance always says by:"human" | a worker calls tower_mission accept for an artifact mission |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers | spawning a fifth worker with the default limit |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute | `send.maxPerMinute` exceeded |
 | `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({takeover:true})` before `tower_interrupt` |
