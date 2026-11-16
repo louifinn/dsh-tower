@@ -25,6 +25,7 @@ import {
 } from '../domain/components.js'
 import { OFF_EFFECT_LABEL, PRESET_LOCALES, ROW_LOCALES, rowLocalePaths } from '../scripts/generate-capability-locale.mjs'
 import { configSurface } from '../domain/config/schema.js'
+import { LEGACY_TOOL_REPLACEMENTS } from '../host/tool-profiles.js'
 import { parseBaseline, validateSurfaceBaselineKey } from '../domain/surface.js'
 import { readBaseline } from '../scripts/lib/surface.mjs'
 import {
@@ -493,6 +494,38 @@ test('every shipped cordis.patch.yml is discovered and accounted for (#138)', ()
       (entry) => entry.code === 'patch-missing' && /ui-bundle/.test(entry.message),
     ),
   )
+})
+
+// F59: a shipped patch is read by users on the plugin page, so its comments are
+// copy, not internal history. #163 folded five read-only view tools into
+// `tower_inspect`, and a stale name teaches the reader to call a tool that no
+// longer exists. The retired-name list is not restated here: it comes from
+// LEGACY_TOOL_REPLACEMENTS, the same table the docs gate (`scripts/check-docs.mjs`)
+// reads, so the two checks cannot drift into two lists.
+const RETIRED_TOOL_NAMES = Object.keys(LEGACY_TOOL_REPLACEMENTS)
+
+/** Retired tool ids in `text`, whole-name matched so comments are covered too. */
+const retiredToolNamesIn = (text) =>
+  RETIRED_TOOL_NAMES.filter((name) => new RegExp(`\\b${name}\\b`).test(text))
+
+test('F59: no shipped cordis.patch.yml names a retired tool, not even in a comment', () => {
+  const shipped = discoverShippedPatches(root)
+  assert.deepEqual(shipped, ['cordis.patch.yml', 'ui-bundle/cordis.patch.yml'])
+  for (const file of shipped) {
+    const names = retiredToolNamesIn(read(file))
+    assert.deepEqual(
+      names.map((name) => `${file} names the retired tool "${name}"; use ${LEGACY_TOOL_REPLACEMENTS[name]}`),
+      [],
+      `${file} ships a retired tool name (F59); the merged tool is the current name`,
+    )
+  }
+
+  // The detector has teeth: a comment that still pairs `tower_status` /
+  // `tower_doctor` with their old roles is reported, so a future edit cannot
+  // quietly reintroduce the F59 stale copy.
+  const stale = `${read('cordis.patch.yml')}# tower_doctor and tower_status list every disabled row.\n`
+  assert.deepEqual(retiredToolNamesIn(stale), ['tower_status', 'tower_doctor'])
+  assert.equal(retiredToolNamesIn('tower_inspect with view: doctor\n').length, 0)
 })
 
 test('a shipped row or a live config key without a classification fails', () => {
