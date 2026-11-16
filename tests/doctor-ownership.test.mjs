@@ -19,12 +19,16 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
+import { compareVersions, detectHostVersion, readCompatibility } from '../host/compatibility.js'
+import { writeJsonAtomic } from '../adapters/store.js'
+import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 const ORIGINAL_DSH_HOME = process.env.DSH_HOME
 const OWNER = 'owner-a'
 const CALLER = 'owner-b'
+const HOST_ENV_KEYS = ['DSH_VERSION', 'DSH_HOST_VERSION', 'npm_config_dsh_version', 'DSH_INSTALL_DIR']
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -62,7 +66,11 @@ function makeCtx() {
       const dispose = fn()
       return typeof dispose === 'function' ? dispose : () => {}
     },
-    get() {
+    get(name) {
+      // Doctor requires the subagent bundle to be mounted for a healthy report.
+      if (name === 'subagents') {
+        return { list: () => [], listDescendants: async () => [], sendMessage: async () => {}, interrupt: () => {} }
+      }
       return undefined
     },
     tools: {
@@ -96,6 +104,66 @@ async function call(tools, name, args, agentId = CALLER) {
   const violations = validateJsonSchema(tool.output.schema, value)
   assert.deepEqual(violations, [], `${name}: ${violations.join('; ')}`)
   return value
+}
+
+function saveHostEnv() {
+  return Object.fromEntries(HOST_ENV_KEYS.map((key) => [key, process.env[key]]))
+}
+
+function clearHostEnv() {
+  for (const key of HOST_ENV_KEYS) delete process.env[key]
+}
+
+function restoreHostEnv(saved) {
+  for (const key of HOST_ENV_KEYS) {
+    if (saved[key] === undefined) delete process.env[key]
+    else process.env[key] = saved[key]
+  }
+}
+
+function writeHostPackage(dir, version) {
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version }))
+  return dir
+}
+
+/** A mission whose worktree record points at a directory the test never creates. */
+function missionFixture(tower, { id, status = 'merged' }) {
+  const now = Date.now()
+  const mission = {
+    id,
+    title: `${status} ${id}`,
+    kind: 'build',
+    status,
+    scope: [`${id.toLowerCase()}/**`],
+    deps: [],
+    tasks: [],
+    blockers: [],
+    notes: [],
+    owner: 'worker-1',
+    reviewPolicy: 'required-clean',
+    updatedAt: now,
+    worktree: {
+      path: path.join(tower.root, '..', 'worktrees', id),
+      branch: `tower/${id.toLowerCase()}-x`,
+      baseCommit: 'b'.repeat(40),
+    },
+  }
+  if (status === 'merged') {
+    mission.mergedCommit = 'a'.repeat(40)
+    mission.mergedAt = now
+  }
+  return mission
+}
+
+/** Append a fixture mission the same way a completed merge would. */
+async function appendMission(tower, mission) {
+  const state = await tower.load()
+  state.missions.push(mission)
+  state.revision += 1
+  state.updatedAt = Date.now()
+  validateState(state, tower.paths.state)
+  await writeJsonAtomic(tower.paths.state, state)
 }
 
 test('doctor and status agree: the owner mode is off and takeover is available', async () => {
@@ -249,6 +317,137 @@ test('doctor: a live-but-silent state lock is never called reclaimable (F32)', a
     assert.match(lockCheck.action, /CLEAR_STALE_LOCK/)
     assert.equal(fs.existsSync(stateLockFile), true, 'doctor must not reclaim or remove the lock record')
   } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a merged mission whose worktree is gone is advisory, not a failure (F61)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await appendMission(tower, missionFixture(tower, { id: 'M45' }))
+    await appendMission(tower, missionFixture(tower, { id: 'M50' }))
+
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const worktrees = doctor.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(doctor.ok, true, JSON.stringify(doctor.checks.filter((entry) => entry.status === 'fail')))
+    assert.equal(worktrees.status, 'warn')
+    assert.match(worktrees.detail, /2 terminal mission worktree\(s\) are no longer on disk/)
+    assert.match(worktrees.action, /tower_teardown/)
+
+    // The status exemption is terminal-only: an active mission still fails.
+    await appendMission(tower, missionFixture(tower, { id: 'M51', status: 'active' }))
+    const broken = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const brokenWorktrees = broken.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(broken.ok, false)
+    assert.equal(brokenWorktrees.status, 'fail')
+    assert.match(brokenWorktrees.detail, /1 mission worktree\(s\) are missing or invalid/)
+    assert.match(brokenWorktrees.action, /restore the worktree/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a merged mission whose checkout is already gone is repaired and recorded (F61)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await appendMission(tower, missionFixture(tower, { id: 'M45' }))
+
+    const torn = await call(tools, 'tower_teardown', { repoRoot: repo }, OWNER)
+    assert.equal(torn.ok, true)
+    assert.deepEqual(torn.removed, ['M45'])
+    const decision = torn.decisions.find((entry) => entry.missionId === 'M45')
+    assert.equal(decision.action, 'removed')
+    assert.equal(decision.repaired, true)
+    assert.match(decision.reason ?? '', /already gone/)
+
+    const mission = (await tower.load()).missions.find((entry) => entry.id === 'M45')
+    assert.equal(typeof mission.worktreeRemovedAt, 'number')
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.equal(doctor.checks.find((entry) => entry.id === 'worktrees').status, 'pass')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: an active mission with a dirty worktree still warns (F61)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await tower.plan({ missions: [{ title: 'Dirty worktree', scope: ['src/**'], tasks: ['write'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    fs.writeFileSync(path.join(provisioned.worktree.path, 'scratch.txt'), 'scratch\n')
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const worktrees = doctor.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(worktrees.status, 'warn')
+    assert.match(worktrees.detail, /uncommitted changes/)
+    assert.equal(doctor.ok, true, JSON.stringify(doctor.checks.filter((entry) => entry.status === 'fail')))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: DSH_INSTALL_DIR/package.json is a fallback source (F62)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-version-'))
+  try {
+    const installDir = writeHostPackage(path.join(root, 'install', 'node_modules', '@deepseek-ai', 'dsh'), '0.2.2-rc.3')
+    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: installDir }), '0.2.2-rc.3')
+
+    // DSH_INSTALL_DIR may name a directory inside the package; its parent is tried.
+    const nested = path.join(installDir, 'dist')
+    fs.mkdirSync(nested)
+    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: nested }), '0.2.2-rc.3')
+
+    // A missing package.json and an unparsable version both stay unknown.
+    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: path.join(root, 'missing') }), null)
+    const broken = writeHostPackage(path.join(root, 'broken'), 'not-a-version')
+    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: broken }), null)
+
+    // An explicit version still wins over the installed package metadata.
+    assert.equal(detectHostVersion(undefined, { DSH_VERSION: '0.2.2-rc.3', DSH_INSTALL_DIR: broken }), '0.2.2-rc.3')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: DSH_INSTALL_DIR identifies the host and unknown names the sources (F62)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  const saved = saveHostEnv()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    clearHostEnv()
+    const rows = readCompatibility()
+    assert.ok(rows.length > 0, 'COMPATIBILITY.md ships version rows')
+    const expected = rows.reduce(
+      (best, row) => (compareVersions(row.hostVersion, best.hostVersion) >= 0 ? row : best),
+      rows[0],
+    ).hostVersion
+    process.env.DSH_INSTALL_DIR = writeHostPackage(path.join(root, 'host-install'), expected)
+
+    const verified = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const verifiedCheck = verified.checks.find((entry) => entry.id === 'host-version')
+    assert.equal(verifiedCheck.status, 'pass')
+    assert.match(verifiedCheck.detail, /verified/)
+    assert.equal(verified.environmentContract.hostVersion, expected)
+    assert.equal(verified.environmentContract.hostCompatibility, 'verified')
+
+    delete process.env.DSH_INSTALL_DIR
+    const unknown = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const unknownCheck = unknown.checks.find((entry) => entry.id === 'host-version')
+    assert.equal(unknownCheck.status, 'warn')
+    assert.match(unknownCheck.action, /DSH_VERSION/)
+    assert.match(unknownCheck.action, /DSH_INSTALL_DIR/)
+    assert.equal(unknown.environmentContract.hostVersion, null)
+  } finally {
+    restoreHostEnv(saved)
     removeTemp(root)
   }
 })
