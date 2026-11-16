@@ -151,7 +151,7 @@ path — remains non-disableable. A row may not own the policy, and the reviewer
 is not mutually exclusive with it.
 
 Refused because of this: a single all-or-nothing switch offered as "simpler"; a
-disableable `tower_doctor`/`tower_recover`; a core feature exposed as a toggle; a
+disableable `tower_inspect`/`tower_recover`; a core feature exposed as a toggle; a
 component whose off state is worse than uninstalling the plugin; a review policy
 exposed as a row or as three mutually exclusive rows.
 

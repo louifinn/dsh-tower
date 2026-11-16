@@ -17,14 +17,14 @@ The offline suites are grouped by concern; each file runs as its own process wit
 
 - `cleanup.test.mjs` — the shared teardown helper: bounded retry/backoff for `EPERM`/`EBUSY`/`EACCES`, the quarantine rename after the first transient failure, the `os.tmpdir()` isolation guard, and a seeded real Windows `FileShare.None` handle that must be released before the tree can be removed (declared with `skip:` off Windows, so Linux reports it as `# SKIP`).
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-Unicode titles (NFC, 120-character bound), glob matching.
-- `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_status` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
+- `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_inspect` with `view: "status"` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
 - `platform.test.mjs` — the platform branches, asserted on every OS: win32 path case folding (`isInside`), the `pwsh`/`bash` discovery shell (`shellSpec`), the transient rename/unlink retry loops via injected syscalls, and worktree path identity (`compareKey`). The one real-Windows case (renaming over an open destination) is declared with `skip:` so Linux reports it as `# SKIP` rather than dropping it.
 - `errors.test.mjs` — the stable `[tower:<code>]` classifier for every documented failure family, and the #74 recovery contract: every catalog `nextAction` renders exactly once, codes without one stay byte-identical, retryable codes mark the suffix, and a message that already contains its action is not suffixed twice.
 - `events.test.mjs` — #75 domain events: transitions return `{ state, events }`, the app persists then emits `tower.mission.planned/completed/reviewed/merged/abandoned` with `{ missionId, revision, at }` (+`commit` for merged), planning emits before the tool returns, failed tools emit nothing, and `tower/<tool>` remains as a tested deprecated alias.
 - `config.repo.test.mjs` — repository config layer: path, precedence, legacy keys, and invalid input codes.
 - `findings.test.mjs` — the finding lifecycle through the domain class.
 - `protocol.e2e.test.mjs` — drives the `Tower` class through a real temporary Git repository: init → plan → worktree → tasks → unread-inbox block → complete → finding → review → preflight → merge → teardown, plus automatic dependency for overlapping scopes and rejection of unknown dependencies.
-- `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_control` gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
+- `plugin.test.mjs` — loads the real `apply()` from the repository-root `index.js` against a minimal mock Cordis context: every `/tower` input form, attachment forwarding, a complete `UserMessage` reaching `agent.steer`, guard denials, the dynamic prompt section, goal pausing, `tower_mode` write gating and reason validation, and mode persistence. It points `$DSH_HOME` at a temp directory and never writes the real store.
 - `state-machine.test.mjs` — the documented mission transition table (allowed and denied) and the completion/merge entry points. The former seeded 200-step fuzz moved to `tests/property/state-machine.prop.mjs`, where fast-check shrinks a failing sequence instead of printing an unshrinkable loop.
 - `no-random.test.mjs` — the #130 PRNG guard: walks `tests/**/*.mjs` / `*.cjs` and fails if test inputs use `Math.random`, an inlined PRNG (mulberry32, xorshift, sfc32, splitmix, seedrandom, LCG, `Math.imul`) or `node:crypto` randomness. The exemption list is explicit (live runtime plumbing, the cleanup helper's quarantine names, and the long-tier seed in the property harness) and a meta-test proves the scanner is not vacuous.
 - `release-gate.test.mjs` — the `release:check` claim over real temporary Git repositories (branch, tag and prepublish modes: annotated/lightweight/unreachable tags, dirty trees, support drift, changelog and version-bump rules) plus the in-scope docs pages that restate the release contract. #M79 adds the tag-push checkout simulation: an annotated origin tag reads as `tag`; the checkout's `+<commit>:refs/tags/<tag>` fetch turns it into `commit` and the CLI fails with `[tag-lightweight]`; the workflow's own restore fetch puts the annotated object back, `git cat-file -t` reports `tag`, and the CLI passes.
@@ -37,7 +37,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `survey-lifecycle.test.mjs` — the survey shape against a real temporary Git repository: planning records `readCommit`/`readDirty` and no worktree/branch/baseCommit, a moved shared checkout refuses planning, provisioning is the shared checkout, completion enforces HEAD and the tracked-status fingerprint with zero commits, merge/rebase/preflight/diff are refused, a completed survey is terminal for archive/reanchor/open work, and the `tower-survey` row off refuses planning with an actionable code.
 - `shape-registry.test.mjs` / `shape-migration.test.mjs` — the shape kernel (per-kind statuses, `isTerminal`/`canTransition` agreement, `dependencySatisfied`, action refusals, `migrateLegacy` fixed point) and the v3 → v4 per-kind schema migration (a branch-shaped survey becomes a read-only record, a build is unchanged, one-way and idempotent).
 - `faults.test.mjs` — corrupt/unsupported state JSON (`state-corrupt`), a held writer lock (`state-locked`), and a vanished worktree reported as `branch-missing` instead of throwing.
-- `status.test.mjs` — `tower_status` pagination, one-mission detail, `includeGate` digests, `format:"markdown"` and the `MISSIONS.md` board written by mutations.
+- `status.test.mjs` — the `tower_inspect` `status` view: pagination, one-mission detail, `includeGate` digests, `format:"markdown"` and the `MISSIONS.md` board written by mutations.
 - `tasks-view.test.mjs` / `tasks-command.test.mjs` — #160 read-only `/tasks` roster panel: the pure projection (silence sort, second/hour/day labels, terminal-state hiding, the 20-row cap, the `(no tool yet)` fallback) and the command end-to-end (host `tasks`-name collision fallback, the `/tower tasks` alias, zero writes to `state.json`/the activity log/the mode store both with Tower mode off and on, the `tower_init` remedy for an uninitialized repo, and stale parity with the `tower_inspect` `roster` view).
 - `report-cap.test.mjs` — `tower_complete.report` is capped in UTF-8 bytes (`gates.maxReportBytes`, 32 KiB default): a 40 KB report is rejected with the worktree `nextAction` and no state write, 30 KB of CJK is accepted, `reportBytes` is persisted, the paged summary omits the body, doctor names the largest report, and pre-cap completions load unchanged.
 - `briefing.test.mjs` — worker/reviewer briefing history injection (previous review rounds, findings, completion report and checks) and truncation bounds, including a real `missionContext` fixture.
@@ -76,7 +76,7 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
 
-Eleven files carry **117 property cases** (the PR tier therefore generates 117 × 3 seeds × 100 runs = **35,100 inputs** per run; the long tier 117 × 2000 = 234,000):
+Twelve files carry **119 property cases** (the PR tier therefore generates 119 × 3 seeds × 100 runs = **35,700 inputs** per run; the long tier 119 × 2000 = 238,000):
 
 - `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
 - `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
@@ -228,7 +228,7 @@ $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live-$(Get-Random)").
 # The tokenized URL printed by the isolated server in step 3:
 $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
 # Optional: the host build under test, named on the first output line:
-$env:DSH_HOST_VERSION='0.2.2-rc.1'
+$env:DSH_HOST_VERSION='0.2.2-rc.3'
 # Optional: the writable documents directory used to seed the first-use
 # Workspace (absolute). Defaults to <DSH_HOME>/documents.
 $env:DSH_LIVE_DOCUMENTS_DIR="$env:DSH_HOME\documents"
@@ -239,11 +239,11 @@ npm run test:live -- --script command   # the /tower command acceptance
 npm run test:live -- --list             # the selectable scripts
 ```
 
-`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.2-rc.1`.
+`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.2-rc.3`.
 
 Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a specific executable. The individual scripts still run with `node tests/live/<name>.cjs` once the same environment is exported.
 
-The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.2-rc.1)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
+The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.2-rc.3)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
 `nightly` also seeds a default Workspace for a first-use CI runner (#47). An Ubuntu runner has no xdg Documents directory, so `@deepseek-ai/dsh-api-workspace-controller` cannot resolve its first-use workspace: the Web shell parks on the Preview Notice / "Choose workspace" state and the composer never renders (a Windows machine resolves Documents, which is why this was CI-only). The orchestrator creates a writable documents directory — `DSH_LIVE_DOCUMENTS_DIR` when set (must be absolute), otherwise `<DSH_HOME>/documents` — and writes a loader overlay at `<DSH_HOME>/workspace-override.patch.yml`:
 
@@ -276,7 +276,7 @@ $env:DSH_TEST_URL='http://127.0.0.1:59002/?token=<token printed in the previous 
 npm run test:live -- --script model
 ```
 
-`model.cjs` asks the model to: `tower_control enter` → read `tower_mode` → call `create_goal` (must be denied by the guard) → `tower_control exit`.
+`model.cjs` asks the model to: `tower_mode` with `active: true` and a reason → read `tower_mode` → call `create_goal` (must be denied by the guard) → `tower_mode` with `active: false` and a reason.
 
 ### Hot reload and UI bundle (dev runtime)
 
@@ -313,7 +313,7 @@ These are read-only diagnostics (except `repair-session.cjs`) against the DSH ho
 
 After installing/restarting desktop (Host plugins load at process start, so a code change requires a DSH restart):
 
-> The desktop Web UI answers plain browsers with 401 (it requires the boot token), so automation cannot type `/tower` for you. Items 1–4 must be typed by a human in the desktop composer. Items 5–8 can be verified by calling `tower_control` / `tower_mode` directly, by a human or by the model.
+> The desktop Web UI answers plain browsers with 401 (it requires the boot token), so automation cannot type `/tower` for you. Items 1–4 must be typed by a human in the desktop composer. Items 5–8 can be verified by calling `tower_mode` directly (`active: true|false` with a non-empty `reason` for a write; omit `active` to read), by a human or by the model.
 
 1. `/tower` → mode on; `tower_mode` reports `mode:"on"`.
 2. `/tower on 继续` → mode on, and “继续” becomes the next user message.
@@ -323,5 +323,5 @@ After installing/restarting desktop (Host plugins load at process start, so a co
 6. With an active goal: after `/tower on`, the goal becomes paused (`tower_mode.pausedGoal` is set).
 7. After `/tower off`, `todo_write` works again and the tower guard no longer blocks `update_goal`.
 8. After a restart, `tower_mode` is still on for the same session id (`$DSH_HOME/tower-mode/modes.json`).
-9. With `allowAgentControl: true`, `tower_control` exists; with the default `false` it does not.
+9. With `allowAgentControl: true`, a `tower_mode` write (`active: true|false` plus a reason) changes the mode; with the default `false` the write is refused with `not-authorized` while the read still works.
 10. Full chain: `tower_init → plan → spawn(worker) → inbox → complete → spawn(reviewer) → review → preflight → merge → teardown`, exercising the blocker/failure codes listed in [docs/reference/blockers.md](../docs/reference/blockers.md) (the repository `README.md` states the live surface).

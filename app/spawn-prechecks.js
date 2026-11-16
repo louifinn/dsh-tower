@@ -1,6 +1,7 @@
 // tower_spawn prechecks (#56 P3c): roster naming, mission preconditions, and
 // service/provider/lease validation. Split out of tools/spawn.js; no I/O.
 import { TowerToolError } from '../domain/errors.js'
+import { resolveSpawnProvider } from './host-contract.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
 import { shapeFor } from '../domain/shapes/index.js'
@@ -151,9 +152,9 @@ export async function precheckWorkerOwnership({
 export async function precheckSpawnServices({ tower, ctx, config, preset, actor, exec, inspectLeases, leaseComponent }) {
   const subagents = ctx.get('subagents')
   if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot spawn')
-  const providers = subagents.list()
-  const provider = config.spawn.provider || (providers.includes('spawn') ? 'spawn' : providers[0])
-  if (!provider) throw new TowerToolError('provider-missing', 'no subagent provider is registered')
+  // The host adapter owns both the old list() surface and the rc.3 getProvider
+  // surface; see app/host-contract.js.
+  const provider = resolveSpawnProvider(subagents, config)
   const presets = ctx.get('agentPresets')
   if (presets && typeof presets.list === 'function') {
     const available = await presets.list()

@@ -37,7 +37,7 @@ function configFailureChecks(checks, detail) {
     id: 'config',
     status: DOCTOR_STATUS.fail,
     detail,
-    action: 'repair the config named in the detail (profile config or <git-common-dir>/dsh-tower/config.json), then re-run tower_doctor',
+    action: 'repair the config named in the detail (profile config or <git-common-dir>/dsh-tower/config.json), then re-run tower_inspect with view: "doctor"',
   }
   const list = Array.isArray(checks) ? checks.slice() : []
   const at = list.findIndex((entry) => entry?.id === 'config')

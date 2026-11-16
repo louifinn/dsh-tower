@@ -15,6 +15,7 @@ import { enumerateDenyOwnerTools } from '../scripts/lib/owner-surface.mjs'
 import {
   DEFAULT_DENY_TOOLS,
   FOREIGN_ORCHESTRATION_OWNERS,
+  DENY_OWNER_PACKAGE_BUILD,
   uncoveredDenyTools,
 } from '../domain/deny-owners.js'
 import { DENY_OWNER_TOOLS } from '../domain/generated/deny-surface.js'
@@ -72,16 +73,15 @@ test('a seeded upstream addition fails the coverage contract, naming owner and t
   assert.deepEqual(uncovered, ['tool-agent-team:team_task_new'])
 })
 
-test('the owner pins track the pinned DSH host, so a host bump re-enumerates', () => {
-  const pin = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'mount-smoke', 'host.json'), 'utf8'))
+test('every deny owner is pinned to the complete build the inventory was enumerated from', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
   for (const owner of FOREIGN_ORCHESTRATION_OWNERS) {
     const version = pkg.devDependencies?.[owner.package]
     assert.ok(version, `${owner.package} must be a devDependency for the enumeration`)
     assert.equal(
       version,
-      pin.dsh,
-      `${owner.package} is pinned to ${version} but the host pin is ${pin.dsh}; bump the owner pins and run \`npm run deny:generate\``,
+      DENY_OWNER_PACKAGE_BUILD,
+      `${owner.package} is pinned to ${version} but the deny inventory build is ${DENY_OWNER_PACKAGE_BUILD}; bump every owner pin together and run \`npm run deny:generate\``,
     )
   }
 })

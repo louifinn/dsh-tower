@@ -4,7 +4,8 @@
 
 ## 环境要求
 
-- DSH `0.2.2-rc.1`；每个版本实际验证过的 host 构建见 [COMPATIBILITY.md](../../../COMPATIBILITY.md)
+- DSH `0.2.2-rc.3`（rc.1/rc.2 仍通过旧 spawn 契约可用）；每个版本实际验证过的 host 构建见
+  [COMPATIBILITY.md](../../../COMPATIBILITY.md)
 - Node.js 24.9+
 - Git（本地 worktree；不需要网络访问）
 
@@ -31,12 +32,29 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
-- **未发布（#162）—— Tower 与 Ralph 循环按仓库互斥**：进入 Tower 模式现在会对活跃的 Ralph 循环进行
-  对账，而不再只过滤未来的工具调用。Tower 模式激活期间 `/ralph` 命令会被遮蔽并给出可执行的提示
-  （命令不是工具，#161 的属主派生 `mode.denyTools` 覆盖不到）；仓库处于 Tower 模式期间
-  round agent 会被拒绝；新增 `mode.ralphPolicy`（默认 `stop`，或 `refuse`）决定进入时是停止并记录
-  该循环，还是给出原因拒绝进入。`tower_inspect` 的 `view: "doctor"` 视图会把活跃循环报告为环境事实。
-  无 state 迁移；配置键从 57 增至 58。见 [ADR 0010](../../adr/0010-tower-ralph-mutual-exclusion.md)。
+<!-- tower-retired-names:begin 2.9.0-migration -->
+- **2.8.0 → 2.9.0（#163、#176、#160、#164、#162、#159、#161）—— 工具表面收敛**：构建表面从 29 个工具
+  降到 21 个（默认 profile 注册 16 个）。五个只读工具（`tower_status`、`tower_roster`、`tower_diff`、
+  `tower_preflight`、`tower_doctor`）现在是 `tower_inspect` 的 `status`、`roster`、`diff`、`preflight`
+  与 `doctor` 视图；`tower_control`、`tower_adopt`、`tower_findings`、`tower_import_legacy` 与
+  `tower_legacy_map` 分别并入 `tower_mode`、`tower_init({op:"adopt"})`、`tower_finding`、
+  `tower_import({op:"snapshot"})` 与 `tower_import({op:"map"})`。写入 `mode.denyTools` 的旧名仍会被
+  接受并改写为替代项，直接调用则返回可操作的 unknown-tool 错误。塔会话现在按角色与阶段暴露工具
+  （模式关闭仅 `tower_mode`；空闲时加上 `tower_init`；活跃时为 14 个默认准入工具），
+  worker/reviewer/survey preset 各有 allow-list，`tower_complete`/`tower_review` 不再向塔会话广告。
+  `/tasks` 新增只读 roster 面板。Tower 与活跃 Ralph 循环按仓库互斥：Tower 模式期间 `/ralph` 被遮蔽，
+  Ralph round agent 被拒绝，`mode.ralphPolicy`（默认 `stop`，或 `refuse`）决定进入时是停止并记录循环
+  还是给出原因拒绝。第三种 mission 形状 `artifact` 用人类接受替代审查，并经 DSH 审批通道记录。state
+  schema 保持 v5，配置表面从 57 增至 58 个键、16 个 section，错误目录增至 42 个（35 个阻塞码）。
+<!-- tower-retired-names:end 2.9.0-migration -->
+
+- **2.8.0 → 2.9.0 —— DSH 0.2.2-rc.3 主机契约**：rc.3 移除了 `subagents.list()` 并把
+  `startActivation` 改为扁平字段，2.8.0 在升级后的 host 上无法 spawn（`subagents.list is not a
+  function`；旧嵌套 request 还会让 `spec.parent` 为 undefined）。2.9.0 在 `app/host-contract.js`
+  运行时探测契约：rc.1/rc.2 保留嵌套 request，rc.3 收到带存活 parent agent、prompt 数组与调用方
+  signal 的扁平 spec。provider 解析依次尝试 `spawn.provider`、`getProvider("spawn")`、旧 `list()`，
+  否则以点名 `spawn.provider` 的可操作消息失败。无需 state 或配置迁移；更新插件并**重启 DSH**。
+  rc.3 为实际验证的构建。
 - **2.7.1 → 2.8.0（#M71）—— 支持基线提升到 Node.js 24.9+ 与 DSH 0.2.2-rc.1**：DSH 0.2.2-rc.1
   声明 `engines.node >=24.9.0`，因此 Tower 在 package engines 与 package-lock 根节点发布同一条基线。
   `scripts/support.json` 是唯一的清单：mount-smoke host pin、live CI 矩阵与 COMPATIBILITY 最新行
@@ -109,8 +127,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   mission 的 scope——请使用 `tower_complete`。新工具：`tower_interrupt`，以及 HMR 可用时的
   `tower_reload`。升级后重启一次 DSH；见[热重载](hot-reload.md)。
 - **1.3 → 1.4**：不需要迁移状态。新增：仓库级配置（`<git-common-dir>/dsh-tower/config.json`）、
-  稳定的 `[tower:<code>]` 工具错误、`tower_findings`，以及 `id`/`missionId` 与 snake/camel 输入
-  别名。既有调用保持可用；重启 DSH 以加载新工具面（`tower_findings` 与更新的 output schema）。
+  稳定的 `[tower:<code>]` 工具错误、findings 台账（现为 `tower_finding`），以及 `id`/`missionId`
+  与 snake/camel 输入别名。既有调用保持可用；重启 DSH 以加载新工具面（findings 台账与更新的
+  output schema）。
 - **1.2 → 1.3**：reviewer 从共享的 `tower-worker` preset 迁移到新的只读 `tower-reviewer` preset。
   重新安装/重启，确保两个 preset 行都存在。`tower_spawn role=reviewer` 现在要求 mission 为
   `completed`。

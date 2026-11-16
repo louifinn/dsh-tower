@@ -10,6 +10,7 @@ import { ERROR_CODES } from '../domain/errors.js'
 import { BLOCKER_CODE_VALUES } from '../domain/shapes/blockers.js'
 import { configSurface } from '../domain/config/schema.js'
 import { COMPONENT_SURFACE_FILE, parseComponentSurface } from '../domain/components.js'
+import { LEGACY_TOOL_REPLACEMENTS } from '../host/tool-profiles.js'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -62,6 +63,297 @@ export function linkProblems(root = packageRoot) {
       const resolved = path.resolve(path.dirname(page), withoutAnchor)
       if (!fs.existsSync(resolved)) {
         problems.push(`${path.relative(root, page)} links to missing ${target}`)
+      }
+    }
+  }
+  return problems
+}
+
+// F56: #163 folded five view tools and four same-resource pairs into
+// `tower_inspect`, `tower_init`, `tower_finding`, `tower_mode` and
+// `tower_import`. A retired name left in a current page teaches the reader to
+// call a tool that does not exist, which the count checks above cannot see.
+// History stays history, but an exemption must be as narrow as the history it
+// protects:
+//  - ADRs and the CHANGELOG are not current pages at all (the walk skips them);
+//  - doctor.md keeps one paragraph that deliberately lists the old names, and
+//    `withoutRetiredNameParagraph` removes exactly that paragraph;
+//  - the marked 2.9.0 migration block may pair an old name with its replacement,
+//    and only when the same list item also names the replacement tool;
+//  - any other allowance is a file + fragment entry that carries its reason.
+const RETIRED_TOOL_NAMES = Object.keys(LEGACY_TOOL_REPLACEMENTS)
+
+/** The live tool a retired name folded into: `tower_status` -> `tower_inspect`. */
+const REPLACEMENT_TOOL = Object.fromEntries(
+  Object.entries(LEGACY_TOOL_REPLACEMENTS).map(([retired, replacement]) => [
+    retired,
+    replacement.match(/tower_[a-z_]+/)[0],
+  ]),
+)
+
+/**
+ * Deliberate history that must keep naming a retired tool. Each entry is scoped
+ * to one file plus one fragment of the enclosing paragraph; `reason` records why
+ * the current-tense rule must not apply there.
+ */
+const RETIRED_NAME_EXEMPTIONS = Object.freeze([
+  {
+    file: 'docs/reference/surface-budget.md',
+    fragment: 'registrations that were uncounted at 2.3.0',
+    reason: 'the 2.3.0 measurement correction must name the second uncounted registration, and the same paragraph says which tool it folded into',
+  },
+  {
+    file: 'ui-bundle/README.md',
+    fragment: 'is still read from older history',
+    reason: 'the dock still derives the stance from a pre-2.9.0 history entry; client.mode.js owns that reader',
+  },
+])
+
+/**
+ * Marked migration blocks: a retired name is allowed only between the begin/end
+ * markers of its own file, and with `pairsWithReplacement` only when the
+ * enclosing list item names the replacement. A missing marker fails the check
+ * instead of silently widening it.
+ */
+const RETIRED_NAME_BLOCKS = Object.freeze([
+  {
+    file: 'docs/guide/install-upgrade-migration.md',
+    begin: '<!-- tower-retired-names:begin 2.9.0-migration -->',
+    end: '<!-- tower-retired-names:end 2.9.0-migration -->',
+    pairsWithReplacement: true,
+  },
+  {
+    file: 'docs/zh/guide/install-upgrade-migration.md',
+    begin: '<!-- tower-retired-names:begin 2.9.0-migration -->',
+    end: '<!-- tower-retired-names:end 2.9.0-migration -->',
+    pairsWithReplacement: true,
+  },
+])
+
+/** Markdown the tarball ships that is release history rather than a current page. */
+const HISTORY_PAGES = new Set(['CHANGELOG.md'])
+
+/** Match a package.json `files` pattern (`*`, `**`) against a slash path. */
+function filesPatternMatches(pattern, relative) {
+  const parts = pattern.split('/')
+  const target = relative.split('/')
+  const segmentMatches = (segment, value) => {
+    if (!segment.includes('*')) return segment === value
+    const escaped = segment.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')
+    return new RegExp(`^${escaped}$`).test(value)
+  }
+  const matchFrom = (patternIndex, valueIndex) => {
+    if (patternIndex === parts.length) return valueIndex === target.length
+    if (parts[patternIndex] === '**') {
+      for (let next = valueIndex; next <= target.length; next += 1) {
+        if (matchFrom(patternIndex + 1, next)) return true
+      }
+      return false
+    }
+    return (
+      valueIndex < target.length &&
+      segmentMatches(parts[patternIndex], target[valueIndex]) &&
+      matchFrom(patternIndex + 1, valueIndex + 1)
+    )
+  }
+  return matchFrom(0, 0)
+}
+
+/** Markdown under a shipped directory, repo-relative; ADR history stays out. */
+function markdownUnder(root, directory) {
+  const base = path.join(root, directory)
+  const pages = []
+  if (!fs.existsSync(base)) return pages
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== 'adr') walk(full)
+      } else if (entry.name.endsWith('.md')) {
+        pages.push(path.relative(root, full).split(path.sep).join('/'))
+      }
+    }
+  }
+  walk(base)
+  return pages.sort()
+}
+
+/**
+ * The markdown pages the package ships, read from package.json `files` so a
+ * newly shipped page cannot be forgotten: a positive file entry is taken as-is,
+ * a positive directory entry is walked recursively for `*.md` (so `skills/` and
+ * `ui-bundle/` are covered, not only a README), and `!` exclusions apply to both.
+ * Plus the contributor test guide (`tests/` is not in the tarball but is
+ * current-facing documentation).
+ */
+function shippedMarkdown(root) {
+  let entries = []
+  try {
+    entries = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).files ?? []
+  } catch {
+    entries = []
+  }
+  const excludes = entries
+    .filter((entry) => entry.startsWith('!'))
+    .map((entry) => entry.slice(1))
+  const excluded = (page) => excludes.some((pattern) => filesPatternMatches(pattern, page))
+  const pages = new Set()
+  for (const entry of entries) {
+    if (entry.startsWith('!')) continue
+    const candidates = entry.endsWith('.md')
+      ? [entry]
+      : entry.endsWith('/')
+        ? markdownUnder(root, entry.slice(0, -1))
+        : []
+    for (const page of candidates) {
+      if (HISTORY_PAGES.has(page) || excluded(page)) continue
+      pages.add(page)
+    }
+  }
+  pages.add('tests/README.md')
+  return [...pages].sort()
+}
+
+/**
+ * Every current-facing markdown page: the docs tree except ADRs, the shipped
+ * markdown from package.json `files` (READMEs, COMPATIBILITY, GLOSSARY, SECURITY,
+ * CONTRIBUTING, PRINCIPLES, ui-bundle/README.md, skills/*.md) and tests/README.md.
+ * Exported so a test can assert a shipped page was not dropped from the scan.
+ */
+export function currentDocPages(root) {
+  const pages = new Set()
+  const docs = path.join(root, 'docs')
+  if (fs.existsSync(docs)) {
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name !== 'adr') walk(full)
+        } else if (entry.name.endsWith('.md')) {
+          pages.add(full)
+        }
+      }
+    }
+    walk(docs)
+  }
+  for (const name of shippedMarkdown(root)) {
+    const full = path.join(root, name)
+    if (fs.existsSync(full)) pages.add(full)
+  }
+  return [...pages].sort()
+}
+
+/**
+ * Remove the deliberately historical paragraph that documents retired names
+ * (doctor.md's `deprecated-tool-names` check). The paragraph ends at the next
+ * blank line.
+ */
+function withoutRetiredNameParagraph(text) {
+  const kept = []
+  let skipping = false
+  for (const line of text.split('\n')) {
+    if (skipping) {
+      if (line.trim() === '') {
+        skipping = false
+        kept.push(line)
+      }
+      continue
+    }
+    if (line.includes('deprecated-tool-names')) {
+      skipping = true
+      continue
+    }
+    kept.push(line)
+  }
+  return kept.join('\n')
+}
+
+/** Contiguous non-blank lines around `index`: the enclosing paragraph. */
+function paragraphBounds(lines, index) {
+  let start = index
+  while (start > 0 && lines[start - 1].trim() !== '') start -= 1
+  let end = index
+  while (end < lines.length - 1 && lines[end + 1].trim() !== '') end += 1
+  return [start, end]
+}
+
+const BULLET = /^\s*(?:[-*+]|\d+\.)\s/
+
+/** The enclosing markdown list item: its bullet line through the next bullet or blank line. */
+function listItemBounds(lines, index) {
+  let start = index
+  if (!BULLET.test(lines[index])) {
+    while (start > 0) {
+      const previous = lines[start - 1]
+      if (previous.trim() === '') break
+      start -= 1
+      if (BULLET.test(previous)) break
+    }
+  }
+  let end = start
+  while (end < lines.length - 1) {
+    const next = lines[end + 1]
+    if (next.trim() === '' || BULLET.test(next)) break
+    end += 1
+  }
+  return [start, end]
+}
+
+/** Line range of a marked block, or null when either marker is gone. */
+function blockBounds(lines, block) {
+  const begin = lines.findIndex((line) => line.trim() === block.begin)
+  if (begin < 0) return null
+  const end = lines.findIndex((line, index) => index > begin && line.trim() === block.end)
+  return end < 0 ? null : [begin, end]
+}
+
+/** A paragraph that carries one of this file's exempt fragments may name retired tools. */
+function exemptParagraph(exemptions, lines, index) {
+  if (exemptions.length === 0) return false
+  const [start, end] = paragraphBounds(lines, index)
+  const paragraph = lines.slice(start, end + 1).join('\n')
+  return exemptions.some((entry) => paragraph.includes(entry.fragment))
+}
+
+/** Inside a pairing block, the same list item must also name the replacement tool. */
+function pairsWithReplacement(block, lines, index, name) {
+  if (block.pairsWithReplacement !== true) return true
+  const [start, end] = listItemBounds(lines, index)
+  const item = lines.slice(start, end + 1).join('\n')
+  return new RegExp(`\\b${REPLACEMENT_TOOL[name]}\\b`).test(item)
+}
+
+/**
+ * @param {string} root repository root
+ * @returns {string[]} one problem per retired tool name on a current page
+ */
+export function retiredToolNameProblems(root = packageRoot) {
+  const problems = []
+  for (const page of currentDocPages(root)) {
+    const relative = path.relative(root, page).split(path.sep).join('/')
+    const lines = withoutRetiredNameParagraph(fs.readFileSync(page, 'utf8')).split('\n')
+    const blocks = []
+    for (const block of RETIRED_NAME_BLOCKS) {
+      if (block.file !== relative) continue
+      const bounds = blockBounds(lines, block)
+      if (bounds === null) {
+        problems.push(`${relative} must keep its "${block.begin}" / "${block.end}" marker pair for the 2.9.0 migration note`)
+        continue
+      }
+      blocks.push({ ...block, bounds })
+    }
+    const exemptions = RETIRED_NAME_EXEMPTIONS.filter((entry) => entry.file === relative)
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
+      if (line.trim() === '') continue
+      for (const name of RETIRED_TOOL_NAMES) {
+        if (!new RegExp(`\\b${name}\\b`).test(line)) continue
+        if (exemptParagraph(exemptions, lines, index)) continue
+        const block = blocks.find((entry) => index >= entry.bounds[0] && index <= entry.bounds[1])
+        if (block && pairsWithReplacement(block, lines, index, name)) continue
+        problems.push(
+          `${relative}:${index + 1} mentions the retired tool name "${name}"; use ${LEGACY_TOOL_REPLACEMENTS[name]}`,
+        )
       }
     }
   }
@@ -255,6 +547,7 @@ export function checkDocs(root = packageRoot) {
     }
   }
 
+  problems.push(...retiredToolNameProblems(root))
   problems.push(...linkProblems(root))
   return {
     problems,

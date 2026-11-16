@@ -48,7 +48,7 @@ Tower 提供的是**协作层面的保证**，不是沙箱。需要理解哪些�
 `mode.allowAgentControl:true` 意味着仓库文件、issue 文本或抓取页面中的提示注入可以让模型“进入
 Tower 模式并修复它”。Tower **不认证**这句话背后的人类意图。它提供的是：
 
-- 进入会记录操作者、动作、理由与时间；`tower_status.mode.history` 直接展示最近的模式切换，
+- 进入会记录操作者、动作、理由与时间；`tower_inspect` 的 `status` 视图直接展示最近的模式切换，
   不必手工 grep 活动日志；
 - 模型不能绕过 preflight 门禁、review policy、scope、测试与 clean-base 检查；自己写 plan 也不会
   自动获得合并权；

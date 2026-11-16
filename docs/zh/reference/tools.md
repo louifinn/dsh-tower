@@ -23,13 +23,13 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 每个 profile **实际挂载**的工具比构建面更窄。控制塔会话不挂载 `tower_complete` 与
 `tower_review`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5）。从控制塔
 会话强行调用会得到可执行的 `not-authorized` 提示（指出 `tower_spawn({role:"worker"})` 入口），
-而不是 unknown tool。实测 profile：tower 14 个工具 / 10,582 B 输入 schema，worker 6 / 6,175 B，
-reviewer 5 / 4,371 B；基线记录在 `docs/reference/surface-budget.md`。
+而不是 unknown tool。实测 profile：tower 14 个工具 / 16,017 B 输入 schema，worker 6 / 8,646 B，
+reviewer 5 / 6,000 B；基线记录在 `docs/reference/surface-budget.md`。
 
 ## 默认关闭的子系统
 
 下表的五个组件行在随附的 `cordis.patch.yml` 中带 `disabled: true`。关闭一行只会移除它的工具；
-`tower_doctor` 会逐行列出工具与开启步骤，`tower_inspect` 的 `doctor` 视图报告
+`tower_inspect` 的 `doctor` 视图会逐行列出工具与开启步骤，并报告
 “disabled by component <id>”。开启方法是把该行的 `disabled` 设为 `false`（或删掉该标记）并
 重启 DSH。
 

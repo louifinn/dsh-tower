@@ -1,5 +1,5 @@
 // Model-driven live acceptance on the isolated authed towertest server
-// (port 59002): tower_control, guard denial, and mode reporting through real
+// (port 59002): tower_mode writes, guard denial, and mode reporting through real
 // tool calls. Requires the account overlay patch and a signed-in account.
 const fs = require('node:fs')
 
@@ -79,7 +79,7 @@ async function submit(page, line) {
     {
       id: 't1-control-enter',
       prompt:
-        "Use the tower_control tool with action 'enter' and reason 'isolated live test'. Then use the tower_mode tool with empty arguments. Then report the exact tool results.",
+        "Use the tower_mode tool with active:true and reason 'isolated live test'. Then use the tower_mode tool with no arguments to read the mode. Then report the exact tool results.",
       shot: '10-tower-control-enter.png',
     },
     {
@@ -91,7 +91,7 @@ async function submit(page, line) {
     {
       id: 't3-control-exit',
       prompt:
-        "Use the tower_control tool with action 'exit' and reason 'live test finished'. Then use the tower_mode tool and report its mode field.",
+        "Use the tower_mode tool with active:false and reason 'live test finished'. Then use the tower_mode tool with no arguments and report its mode field.",
       shot: '12-tower-control-exit.png',
     },
   ]

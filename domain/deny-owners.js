@@ -15,11 +15,25 @@
 // loader entry id plus the package specifier and the row config the shipped
 // base profile passes (tool names are configurable in some owners, so the row
 // config — not the package default — is what a deployment actually registers).
-// The devDependency pins keep both honest; tests keep them equal to the
-// mount-smoke host pin.
+// The devDependency pins keep both honest; tests keep every owner on the same
+// complete published build (DENY_OWNER_PACKAGE_BUILD). That build deliberately
+// trails the host support pin: 0.2.2-rc.3 republishes the six tool-* owners but
+// not `dsh-experimental-tool-agent-team`, and that package's last build imports
+// `dsh-subagent/internal`, which rc.3 removed. Mixed pins cannot be installed,
+// so the inventory is enumerated from the complete rc.1 owner set instead of
+// dropping the agent-team tools from the deny surface.
 //
 // This module is pure: no fs, no adapters, no top-level mutable state.
 import { DENY_OWNER_TOOLS } from './generated/deny-surface.js'
+
+/**
+ * The complete published owner build the deny inventory is enumerated from.
+ * Every foreign-orchestration owner package is pinned to exactly this version
+ * in devDependencies; tests assert the pins and the generated inventory agree.
+ *
+ * @type {string}
+ */
+export const DENY_OWNER_PACKAGE_BUILD = '0.2.2-rc.1'
 
 /**
  * The foreign orchestration components whose tools Tower mode denies.

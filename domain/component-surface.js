@@ -393,9 +393,9 @@ ${forbiddenRows}
 The allowlist of boolean routes in \`host/tool-registry.js\`. Every shipped
 \`tools.expose*\` route must match this table. A route to a tool that is not listed
 here is refused, so no boolean key can quietly remove a review, merge or host
-tool. Since #122 the shipped table is empty: \`tower_doctor\` and \`tower_recover\`
-are registered for every configuration and no other capability may become a
-boolean switch.
+tool. Since #122 the shipped table is empty: \`tower_inspect\` (including its
+\`doctor\` view) and \`tower_recover\` are registered for every configuration and
+no other capability may become a boolean switch.
 
 | Tool | Switch key |
 |---|---|

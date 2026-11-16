@@ -2,7 +2,7 @@
 
 [English](../../guide/quickstart.md) | **简体中文**
 
-前置要求：DSH `0.2.2-rc.1`+、Node.js 24.9+、Git。安装 `dsh-tower` 并重启 DSH（见
+前置要求：DSH `0.2.2-rc.3`+、Node.js 24.9+、Git。安装 `dsh-tower` 并重启 DSH（见
 [安装](install-upgrade-migration.md)）。
 
 ## 1. 进入 Tower 模式
@@ -55,7 +55,7 @@ reviewer 使用只读的 `tower-reviewer` preset，查看 `tower_inspect` 的 `v
 ## 5. 门禁、合并与清理
 
 ```
-tower_preflight missionId=M1
+tower_inspect   view=preflight missionId=M1
 tower_merge     missionId=M1
 tower_teardown
 ```
