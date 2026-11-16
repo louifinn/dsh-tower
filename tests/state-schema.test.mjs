@@ -122,6 +122,31 @@ test('schema tolerance: minimal legacy rows, reserved roster rows and extra fiel
   assert.equal(validateState(e2e, 'state.json'), e2e)
 })
 
+test('a terminal roster row may record a null agent id; a live row may not', () => {
+  // F57: a dispatch that failed before activation truthfully records "no agent"
+  // on a terminal row. That is a legal state, not corruption — it is the only
+  // way the failed-spawn cleanup can persist the outcome (its write used to fail
+  // validation, which left the reservation `reserved` and wedged the mission).
+  // A live row still has to name its child, and an *absent* agentId stays
+  // invalid everywhere but `reserved` (the property suite pins both cases).
+  for (const state of ['retired', 'failed', 'interrupted', 'missing', 'stale', 'inactive']) {
+    const candidate = validState()
+    candidate.roster[0] = { ...candidate.roster[0], state, agentId: null }
+    assert.equal(stateShapeError(candidate), null, `${state} must pass the shape schema`)
+    assert.equal(validateState(candidate, 'state.json'), candidate, `${state} must pass the semantics`)
+  }
+
+  const live = validState()
+  live.roster[0] = { ...live.roster[0], state: 'active', agentId: null }
+  assert.equal(stateError(live).code, 'state-corrupt')
+  assert.match(stateError(live).message, /invalid roster entry/)
+
+  const absent = validState()
+  absent.roster[0] = { ...absent.roster[0], state: 'failed' }
+  delete absent.roster[0].agentId
+  assert.match(stateError(absent).message, /invalid roster entry/)
+})
+
 test('key structural and semantic failures keep historical state-corrupt messages', () => {
   const base = validState()
   const cases = [

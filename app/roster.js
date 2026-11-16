@@ -49,6 +49,46 @@ export async function recordRosterObservations(tower, { present = [], absent = [
     })
   }
 
+  /** Reap roster reservations that never received an agent id.
+   *
+   * A reservation is only a name claim bridging `reserveRoster` and
+   * `recordSpawn`: `recordSpawn` binds the child id and flips the row to
+   * `active`. A row still `reserved` with no agent id therefore records a spawn
+   * that never got activation back (dispatch failed, process died); there is no
+   * child to interrupt, adopt or observe, so the row can never converge on its
+   * own and would wedge every later spawn for the mission. Delete it instead of
+   * retiring it: no session or worktree ever existed, the activity log keeps the
+   * name, and deleting leaves the name free so a spawn racing the reap can still
+   * record. A reserved row that already carries an agent id is past activation
+   * and is never touched. */
+  export async function reapStalledReservations(tower) {
+    return tower.withStateLock(async (_paths, held) => {
+      const state = await tower.load()
+      const roster = state.roster ?? []
+      const stalled = roster.filter((entry) => entry.state === 'reserved' && !entry.agentId)
+      if (stalled.length === 0) return { reaped: [] }
+      const reaped = stalled.map((entry) => ({
+        name: entry.name,
+        missionId: entry.missionId ?? null,
+        role: entry.role ?? null,
+      }))
+      state.roster = roster.filter((entry) => !stalled.includes(entry))
+      const now = Date.now()
+      state.revision += 1
+      state.updatedAt = now
+      validateState(state, tower.paths.state)
+      await tower.writeState(state, held)
+      await tower.appendActivity({
+        at: now,
+        type: 'roster',
+        text: `reaped stalled reservations: ${reaped
+          .map((entry) => `${entry.name} (${entry.missionId ?? '-'})`)
+          .join(', ')}`,
+      })
+      return { reaped }
+    })
+  }
+
   export async function markRetired(tower, agentIds) {
     if (!Array.isArray(agentIds) || agentIds.length === 0) return { retired: [] }
     return tower.withStateLock(async (_paths, held) => {
