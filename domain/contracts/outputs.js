@@ -16,6 +16,12 @@ const S = {
 
 const blockerSchema = S.obj({ code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool }, ['code', 'detail'])
 const worktreeSchema = S.obj({ path: S.str, branch: S.str, baseCommit: S.str })
+// A placement is a union, not an object: a build owns a branch worktree
+// (`{path, branch, baseCommit}`), while a survey reads the shared checkout or a
+// detached sandbox and reports `worktree: null` (tools/spawn.js). DSH's output
+// validator supports exact-one `oneOf` but rejects type arrays, so nullability
+// is a branch; the object branch still type-checks every documented member.
+const nullableWorktreeSchema = { oneOf: [worktreeSchema, { type: 'null' }] }
 const missionSummarySchema = S.obj({
   id: S.str,
   title: S.str,
@@ -48,7 +54,9 @@ const findingSummarySchema = S.obj({
 })
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
-// additive; `required` lists only fields every successful path returns.
+// additive; `required` lists the fields a successful value must carry. A
+// placement-dependent field stays out of `required`: spawn's `worktree` is a
+// union and null means "this mission owns no checkout".
 /** @type {Record<string, any>} */
 const SCHEMAS = {
   init: S.obj(
@@ -115,7 +123,7 @@ const SCHEMAS = {
       provider: S.str,
       maxDepth: S.int,
       agentOptions: S.any,
-      worktree: worktreeSchema,
+      worktree: nullableWorktreeSchema,
       created: S.bool,
       briefingChars: S.int,
       rosterEntry: S.obj(),
@@ -124,7 +132,7 @@ const SCHEMAS = {
       output: S.any,
       diagnostic: S.any,
     },
-    ['name', 'agentId', 'role', 'missionId', 'preset', 'provider', 'worktree'],
+    ['name', 'agentId', 'role', 'missionId', 'preset', 'provider'],
   ),
   roster: S.obj(
     { revision: S.int, roster: S.arr(S.obj()), parentStatus: S.obj(), missions: S.arr(S.obj()) },
