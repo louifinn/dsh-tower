@@ -12,6 +12,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { SCHEMAS } from '../domain/contracts/outputs.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {
@@ -50,7 +51,16 @@ function makeCtx() {
     sendMessage: async () => {},
     listDescendants: async () => [],
   }
-  const agentPresets = { list: async () => [{ id: 'tower-worker' }, { id: 'custom-worker' }, { id: 'tower-reviewer' }] }
+  const agentPresets = {
+    list: async () => [
+      { id: 'tower-worker' },
+      { id: 'custom-worker' },
+      { id: 'tower-reviewer' },
+      // F60: a survey mission is spawned with the survey shape's own preset.
+      { id: 'tower-survey' },
+      { id: 'tower-survey-sandbox' },
+    ],
+  }
   const ctx = {
     effect(fn) {
       const dispose = fn()
@@ -165,6 +175,103 @@ test('every tool output satisfies its declared schema across a full mission', as
     const torn = await call('tower_teardown', { repoRoot: repo })
     assert.deepEqual(torn.removed, [missionId])
     await call('tower_init', { repoRoot: repo, op: 'adopt' })
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// F60: a survey runs in the shared checkout (or, with `survey.sandbox:
+// 'detached'`, a disposable detached sandbox) and owns no branch, so
+// `tower_spawn` reports `worktree: null` (tools/spawn.js). The declared schema
+// used to require an object, so every successful survey spawn ended in
+// `tool "tower_spawn" returned invalid output: "value.worktree" must be an
+// object` and the operator retried into "mission already has a live worker".
+// The placement is a union: the branch-worktree object or null.
+test('spawn output schema accepts the survey (null) and build (object) placements', () => {
+  const schema = SCHEMAS.spawn
+  const identity = {
+    name: 'worker-m1',
+    agentId: 'agent-1',
+    role: 'worker',
+    missionId: 'M1',
+    preset: 'tower-survey',
+    provider: 'default',
+  }
+  const survey = { ...identity, worktree: null }
+  const build = {
+    ...identity,
+    preset: 'tower-worker',
+    worktree: { path: 'D:/worktrees/M1', branch: 'tower/m1', baseCommit: 'a'.repeat(40) },
+  }
+  assert.deepEqual(validateJsonSchema(schema, survey), [], 'a survey spawn has no worktree')
+  assert.deepEqual(validateJsonSchema(schema, build), [], 'a build spawn names its branch worktree')
+
+  // Only the placement is nullable: the identity fields every successful spawn
+  // returns stay required and type-checked.
+  for (const field of ['name', 'agentId', 'role', 'missionId', 'preset', 'provider']) {
+    const value = { ...build }
+    delete value[field]
+    const violations = validateJsonSchema(schema, value)
+    assert.ok(
+      violations.some((entry) => entry.includes(`"value.${field}"`) && entry.includes('required')),
+      `a spawn result without ${field} must be rejected: ${violations.join('; ')}`,
+    )
+  }
+  for (const [field, bad] of [['name', 1], ['role', 7], ['missionId', null], ['provider', false]]) {
+    const violations = validateJsonSchema(schema, { ...build, [field]: bad })
+    assert.ok(
+      violations.some((entry) => entry.includes(`"value.${field}"`)),
+      `a spawn result with ${field}=${JSON.stringify(bad)} must be rejected: ${violations.join('; ')}`,
+    )
+  }
+
+  // A build placement must still be the documented object: a string, a scalar,
+  // an array and a wrong-typed member are all rejected (never `S.any`).
+  for (const worktree of ['tower/m1', 42, true, [], { path: 42 }, { path: 'D:/wt', branch: 7 }, { path: 'D:/wt', baseCommit: false }]) {
+    const violations = validateJsonSchema(schema, { ...build, worktree })
+    assert.ok(
+      violations.some((entry) => entry.includes('"value.worktree"')),
+      `worktree ${JSON.stringify(worktree)} must be rejected: ${violations.join('; ')}`,
+    )
+  }
+
+  // The key is invariant even though its value is nullable: tools/spawn.js
+  // always writes `worktree` (`{path, branch, baseCommit}` for a build, `null`
+  // for a survey, which owns no checkout), so a report that drops the key has
+  // lost its placement and must be rejected. Presence is required; null is legal.
+  for (const [label, report] of [['build', build], ['survey', survey]]) {
+    const omitted = { ...report }
+    delete omitted.worktree
+    const missing = validateJsonSchema(schema, omitted)
+    assert.ok(
+      missing.some((entry) => entry.includes('"value.worktree"') && entry.includes('required')),
+      `a ${label} spawn result without worktree must be rejected: ${missing.join('; ')}`,
+    )
+  }
+})
+
+test('a survey spawn reports worktree: null and satisfies the real spawn schema (F60)', async () => {
+  // The end-to-end regression: the value comes from the shipped tower_spawn,
+  // not a hand-written fixture, so this walk fails exactly the way the runtime
+  // did before the schema fix.
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const towerExec = { agent: { id: 'tower-agent' } }
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, towerExec)
+    const planned = await tools.get('tower_plan').execute(
+      { repoRoot: repo, missions: [{ title: 'Read the seed commit', kind: 'survey', tasks: ['read the seed commit'] }] },
+      towerExec,
+    )
+    const missionId = planned.missions[0].id
+    const spawn = tools.get('tower_spawn')
+    const value = await spawn.execute({ repoRoot: repo, missionId, role: 'worker' }, towerExec)
+    assert.equal(value.worktree, null, 'a survey placement owns no worktree')
+    assert.equal(value.missionId, missionId)
+    assert.equal(value.preset, 'tower-survey')
+    const violations = validateJsonSchema(spawn.output.schema, value)
+    assert.deepEqual(violations, [], `survey spawn output violates its schema: ${violations.join('; ')}`)
   } finally {
     removeTemp(root)
   }
