@@ -58,7 +58,6 @@ and the split preserves the pre-split line total within 10%
 Tower mode is a Host-side session stance and there is no Client RPC for it. The dock derives it from the durable session history that the Chat projection exposes in `useChat(snapshot.legacy)`:
 
 - the `/tower on|off` command node (`kind: "command"`, `name: "tower"`, `args`, `outcome.kind`); bare `/tower` and `/tower <message>` mean "ensure on", while `/tower ack`, `/tower takeover [reason]`, `/tower reload` and `/tower base <branch>` operate on other state and leave the stance unchanged; a failed command is ignored;
-- `tower_mode` results (`mode: "on" | "off" | "unknown"`, `deniedWhileActive`, `workspaceLock`, `lastChange`);
 - `tower_mode` results (`mode: "on" | "off" | "unknown"`, `deniedWhileActive`, `workspaceLock`, `lastChange`), including a write acknowledgement (`action: enter|exit|takeover`, `mode`, `changedBy`, `reason`); a `tower_control` result recorded before 2.9.0 is still read from older history.
 
 The last recognized event wins. A page refresh re-derives the same stance from the loaded history; when that history window no longer contains a mode event, the dock falls back to a browser-local last-known value for the same session and labels it as such. An old value expires after seven days and never drives the denied-tool shadowing by itself.

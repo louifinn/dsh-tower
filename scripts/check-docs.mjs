@@ -133,10 +133,58 @@ const RETIRED_NAME_BLOCKS = Object.freeze([
 /** Markdown the tarball ships that is release history rather than a current page. */
 const HISTORY_PAGES = new Set(['CHANGELOG.md'])
 
+/** Match a package.json `files` pattern (`*`, `**`) against a slash path. */
+function filesPatternMatches(pattern, relative) {
+  const parts = pattern.split('/')
+  const target = relative.split('/')
+  const segmentMatches = (segment, value) => {
+    if (!segment.includes('*')) return segment === value
+    const escaped = segment.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')
+    return new RegExp(`^${escaped}$`).test(value)
+  }
+  const matchFrom = (patternIndex, valueIndex) => {
+    if (patternIndex === parts.length) return valueIndex === target.length
+    if (parts[patternIndex] === '**') {
+      for (let next = valueIndex; next <= target.length; next += 1) {
+        if (matchFrom(patternIndex + 1, next)) return true
+      }
+      return false
+    }
+    return (
+      valueIndex < target.length &&
+      segmentMatches(parts[patternIndex], target[valueIndex]) &&
+      matchFrom(patternIndex + 1, valueIndex + 1)
+    )
+  }
+  return matchFrom(0, 0)
+}
+
+/** Markdown under a shipped directory, repo-relative; ADR history stays out. */
+function markdownUnder(root, directory) {
+  const base = path.join(root, directory)
+  const pages = []
+  if (!fs.existsSync(base)) return pages
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== 'adr') walk(full)
+      } else if (entry.name.endsWith('.md')) {
+        pages.push(path.relative(root, full).split(path.sep).join('/'))
+      }
+    }
+  }
+  walk(base)
+  return pages.sort()
+}
+
 /**
  * The markdown pages the package ships, read from package.json `files` so a
- * newly shipped page cannot be forgotten, plus the contributor test guide
- * (`tests/` is not in the tarball but is current-facing documentation).
+ * newly shipped page cannot be forgotten: a positive file entry is taken as-is,
+ * a positive directory entry is walked recursively for `*.md` (so `skills/` and
+ * `ui-bundle/` are covered, not only a README), and `!` exclusions apply to both.
+ * Plus the contributor test guide (`tests/` is not in the tarball but is
+ * current-facing documentation).
  */
 function shippedMarkdown(root) {
   let entries = []
@@ -145,25 +193,32 @@ function shippedMarkdown(root) {
   } catch {
     entries = []
   }
-  const pages = []
+  const excludes = entries
+    .filter((entry) => entry.startsWith('!'))
+    .map((entry) => entry.slice(1))
+  const excluded = (page) => excludes.some((pattern) => filesPatternMatches(pattern, page))
+  const pages = new Set()
   for (const entry of entries) {
-    if (entry.includes('!')) continue
-    if (entry.endsWith('.md')) {
-      if (!HISTORY_PAGES.has(entry)) pages.push(entry)
-    } else if (entry.endsWith('/')) {
-      const readme = `${entry}README.md`
-      if (fs.existsSync(path.join(root, readme))) pages.push(readme)
+    if (entry.startsWith('!')) continue
+    const candidates = entry.endsWith('.md')
+      ? [entry]
+      : entry.endsWith('/')
+        ? markdownUnder(root, entry.slice(0, -1))
+        : []
+    for (const page of candidates) {
+      if (HISTORY_PAGES.has(page) || excluded(page)) continue
+      pages.add(page)
     }
   }
-  pages.push('tests/README.md')
-  return pages
+  pages.add('tests/README.md')
+  return [...pages].sort()
 }
 
 /**
  * Every current-facing markdown page: the docs tree except ADRs, the shipped
  * markdown from package.json `files` (READMEs, COMPATIBILITY, GLOSSARY, SECURITY,
- * CONTRIBUTING, PRINCIPLES, ui-bundle/README.md) and tests/README.md. Exported so
- * a test can assert a shipped page was not dropped from the scan.
+ * CONTRIBUTING, PRINCIPLES, ui-bundle/README.md, skills/*.md) and tests/README.md.
+ * Exported so a test can assert a shipped page was not dropped from the scan.
  */
 export function currentDocPages(root) {
   const pages = new Set()

@@ -91,11 +91,36 @@ test('F56: a retired tool name in a current page fails the docs check', (t) => {
   )
 })
 
-test('F56: every shipped current page is scanned for retired tool names', () => {
-  const pages = currentDocPages(repoRoot).map((page) => path.relative(repoRoot, page).split(path.sep).join('/'))
-  for (const page of ['SECURITY.md', 'CONTRIBUTING.md', 'PRINCIPLES.md', 'ui-bundle/README.md', 'tests/README.md']) {
-    assert.ok(pages.includes(page), `${page} must be a current page (scanned ${pages.length} pages)`)
+test('F56: every markdown page in the shipped manifest is scanned for retired tool names', () => {
+  const pages = new Set(
+    currentDocPages(repoRoot).map((page) => path.relative(repoRoot, page).split(path.sep).join('/')),
+  )
+  // scripts/pack-manifest.txt is the test-side oracle for what the tarball ships;
+  // production still derives the scan from package.json `files`, which pack:check
+  // keeps in agreement with the manifest.
+  const manifest = fs
+    .readFileSync(path.join(repoRoot, 'scripts', 'pack-manifest.txt'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+  const shipped = manifest.filter(
+    (file) => file.endsWith('.md') && file !== 'CHANGELOG.md' && !file.startsWith('docs/adr/'),
+  )
+  assert.ok(shipped.length > 0, 'scripts/pack-manifest.txt must list the shipped markdown')
+  for (const page of shipped) {
+    assert.ok(pages.has(page), `${page} must be a current page (scanned ${pages.size} pages)`)
   }
+  // tests/README.md is contributor-facing but not in the tarball; the three skills
+  // pages come from the shipped `skills/` directory, not a root file entry.
+  for (const page of [
+    'tests/README.md',
+    'skills/tower-recovery.md',
+    'skills/tower-review.md',
+    'skills/tower-worker-protocol.md',
+  ]) {
+    assert.ok(pages.has(page), `${page} must be a current page (scanned ${pages.size} pages)`)
+  }
+  // The ADR tree is history and stays out of the scan.
+  assert.ok(!pages.has('docs/adr/0001-ports-adapters-as-data.md'))
 })
 
 test('F56: a retired name appended to a shipped page fails the scan', (t) => {
