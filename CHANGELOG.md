@@ -2,6 +2,8 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
+## 未发布（Unreleased）
+
 ## 2.9.0（2026-11-17）
 
 ### 新增
@@ -96,7 +98,7 @@
   在测试时重新枚举各属主工具并断言全覆盖，上游新增工具会使 CI 失败而不是静默漏过。
 - **模式入口先处理在场的 Agent Team（#161 D3）**：进入 Tower 模式时，活动团队会被离开——运行中的
   teammate 被挂起（interrupt 保留待处理收件箱），释放名单写入仓库活动日志并记录在模式条目
-  （`tower_mode` / `tower_status` 的 `releasedTeam`）；`/tower off` 明确说明释放了什么，不会静默恢复。
+  （`tower_mode` 的 `releasedTeam`）；`/tower off` 明确说明释放了什么，不会静默恢复。
 - **拒绝范围扩大到工作区（#161 D4）**：guard 现以 `mode.workspaceLock` 同一范围判定——仓库的
   `tower.lock` 被持有时，同一检出的任何会话（含进入前已存在的 teammate、第二个会话）对编排工具的
   调用都被拒绝，且拒绝消息指明可执行的下一步（属主会话 `/tower off`，或 `/tower takeover <reason>`）。

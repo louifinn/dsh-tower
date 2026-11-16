@@ -30,6 +30,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+<!-- tower-retired-names:begin 2.9.0-migration -->
 - **2.8.0 → 2.9.0 (#163, #176, #160, #164, #162, #159, #161) — consolidated tool surface**: the
   build surface drops from 29 tools to 21 (16 tools in the default profile). The five read-only
   tools (`tower_status`, `tower_roster`, `tower_diff`, `tower_preflight`, `tower_doctor`) are now
@@ -48,6 +49,8 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   `artifact` replaces review with human acceptance recorded through the DSH approval channel. The
   state schema stays v5, the config surface grows from 57 to 58 keys in 16 sections, and the error
   catalogue grows to 42 codes (35 blocker codes).
+<!-- tower-retired-names:end 2.9.0-migration -->
+
 - **2.8.0 → 2.9.0 — DSH 0.2.2-rc.3 host contract**: rc.3 removed `subagents.list()` and changed
   `startActivation` to take flat fields, so 2.8.0 failed to spawn on the upgraded host
   (`subagents.list is not a function`; the old nested request also left `spec.parent` undefined).
@@ -204,9 +207,10 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   `tower_complete`. New tools: `tower_interrupt`, and `tower_reload` when HMR is available. Restart DSH
   once after upgrading; see [hot reload](hot-reload.md).
 - **1.3 → 1.4**: no state migration is needed. New: repository-level config
-  (`<git-common-dir>/dsh-tower/config.json`), stable `[tower:<code>]` tool errors, `tower_findings`,
-  and `id`/`missionId` + snake/camel input aliases. Existing calls keep working; restart DSH to load
-  the new tool surface (`tower_findings` and the newer output schemas).
+  (`<git-common-dir>/dsh-tower/config.json`), stable `[tower:<code>]` tool errors, the findings
+  ledger (now `tower_finding`), and `id`/`missionId` + snake/camel input aliases. Existing calls
+  keep working; restart DSH to load the new tool surface (the findings ledger and the newer output
+  schemas).
 - **1.2 → 1.3**: reviewers moved from the shared `tower-worker` preset to the new read-only
   `tower-reviewer` preset. Reinstall/restart so both preset rows exist. `tower_spawn role=reviewer`
   now requires the mission to be `completed`.

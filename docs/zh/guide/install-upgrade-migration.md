@@ -32,6 +32,7 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+<!-- tower-retired-names:begin 2.9.0-migration -->
 - **2.8.0 → 2.9.0（#163、#176、#160、#164、#162、#159、#161）—— 工具表面收敛**：构建表面从 29 个工具
   降到 21 个（默认 profile 注册 16 个）。五个只读工具（`tower_status`、`tower_roster`、`tower_diff`、
   `tower_preflight`、`tower_doctor`）现在是 `tower_inspect` 的 `status`、`roster`、`diff`、`preflight`
@@ -45,6 +46,8 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   Ralph round agent 被拒绝，`mode.ralphPolicy`（默认 `stop`，或 `refuse`）决定进入时是停止并记录循环
   还是给出原因拒绝。第三种 mission 形状 `artifact` 用人类接受替代审查，并经 DSH 审批通道记录。state
   schema 保持 v5，配置表面从 57 增至 58 个键、16 个 section，错误目录增至 42 个（35 个阻塞码）。
+<!-- tower-retired-names:end 2.9.0-migration -->
+
 - **2.8.0 → 2.9.0 —— DSH 0.2.2-rc.3 主机契约**：rc.3 移除了 `subagents.list()` 并把
   `startActivation` 改为扁平字段，2.8.0 在升级后的 host 上无法 spawn（`subagents.list is not a
   function`；旧嵌套 request 还会让 `spec.parent` 为 undefined）。2.9.0 在 `app/host-contract.js`
@@ -124,8 +127,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   mission 的 scope——请使用 `tower_complete`。新工具：`tower_interrupt`，以及 HMR 可用时的
   `tower_reload`。升级后重启一次 DSH；见[热重载](hot-reload.md)。
 - **1.3 → 1.4**：不需要迁移状态。新增：仓库级配置（`<git-common-dir>/dsh-tower/config.json`）、
-  稳定的 `[tower:<code>]` 工具错误、`tower_findings`，以及 `id`/`missionId` 与 snake/camel 输入
-  别名。既有调用保持可用；重启 DSH 以加载新工具面（`tower_findings` 与更新的 output schema）。
+  稳定的 `[tower:<code>]` 工具错误、findings 台账（现为 `tower_finding`），以及 `id`/`missionId`
+  与 snake/camel 输入别名。既有调用保持可用；重启 DSH 以加载新工具面（findings 台账与更新的
+  output schema）。
 - **1.2 → 1.3**：reviewer 从共享的 `tower-worker` preset 迁移到新的只读 `tower-reviewer` preset。
   重新安装/重启，确保两个 preset 行都存在。`tower_spawn role=reviewer` 现在要求 mission 为
   `completed`。
