@@ -1,5 +1,38 @@
 import { TowerToolError } from '../domain/errors.js'
 // Minimal git port: array arguments only, bounded output, no shell.
+//
+// Two rules keep Tower's Git semantics independent of whatever process spawned
+// it. Both are load-bearing:
+//
+//   1. `BLOCKED_GIT_ENV` drops every variable that would redirect a git
+//      invocation to another repository, index, object store, or config file.
+//      `GIT_CONFIG_NOSYSTEM` deliberately stays in that set: letting a caller
+//      hide the machine's system config would make Tower's view of filters,
+//      ignores, hooks and line-ending policy differ from the checkout it was
+//      asked about. Tower must obey the same config as the repository it
+//      operates on, not a caller-chosen subset of it.
+//
+//   2. Because system config stays visible, a machine configured with
+//      `core.autocrlf=true` (the Git for Windows default) would otherwise
+//      materialize *converted* bytes whenever Tower writes a working tree: a
+//      worktree checkout or a merge stores CRLF while the index and the commit
+//      store LF. Such a checkout is clean only to a git configured the same
+//      way. A collaborating git with conversion off — for example a DSH agent
+//      whose environment carries `GIT_CONFIG_NOSYSTEM=1`, the very variable
+//      this adapter strips — sees a line-ending-only modification of every
+//      checked-out text file, and `git add -A` then commits those CRLF copies.
+//      The mission branch diff acquires files nobody edited and the merge gate
+//      reports a false `out-of-scope` (F58). Tower therefore turns conversion
+//      off for exactly the commands that write a working tree (see
+//      `WORKTREE_WRITE_COMMANDS` / `eolNeutralArgs`), so committed bytes are
+//      materialized verbatim. The override has command scope: it wins over
+//      repository/global/system `core.autocrlf` and over `GIT_CONFIG_COUNT`
+//      injections, and it edits no config file.
+//
+//      Read-only commands keep the caller's setting on purpose. A checkout the
+//      user's own `core.autocrlf=true` git created (CRLF worktree, LF index)
+//      must still read as clean; canonical LF bytes are clean under either
+//      setting, so a checkout Tower creates is valid for every reader.
 import { execFile } from './vcs-git.js'
 import path from 'node:path'
 // node:fs reaches this adapter only through the single fs boundary (#50).
@@ -29,6 +62,16 @@ export function configuredGitTimeout() {
   return configuredTimeoutMs
 }
 
+/**
+ * Variables that would redirect a git command away from the repository Tower
+ * resolved. They are stripped, never re-added: the isolation promise is that a
+ * caller cannot swap the repository, index, object store, or config files
+ * underneath Tower. `GIT_CONFIG_NOSYSTEM` is included because hiding system
+ * config is also a redirect (it would change filters, ignores,
+ * `safe.directory` checks and line-ending policy behind Tower's back). The
+ * line-ending consequence of *obeying* system config is neutralized at the
+ * checkout boundary instead — see `eolNeutralArgs`.
+ */
 const BLOCKED_GIT_ENV = new Set([
   'GIT_DIR',
   'GIT_WORK_TREE',
@@ -65,9 +108,52 @@ import { GitError } from '../domain/errors.js'
 export { GitError }
 
 /**
+ * Subcommands that materialize committed content into a working tree: these
+ * are the commands whose byte output depends on `core.autocrlf`, and running
+ * them with conversion off is what keeps a Tower-created checkout valid for
+ * every reader (F58, see the file header). `stash create` is a snapshot of the
+ * worktree, not a checkout, so only `stash apply/pop` are listed below.
+ * `clone` is deliberately absent: `git clone -c key=value` *writes* the value
+ * into the new repository's config instead of scoping it to the command.
+ */
+const WORKTREE_WRITE_COMMANDS = new Set([
+  'merge',
+  'rebase',
+  'checkout',
+  'switch',
+  'restore',
+  'reset',
+  'cherry-pick',
+  'revert',
+  'am',
+  'apply',
+  'pull',
+])
+
+/**
+ * Prefix a working-tree-writing command with the command-scope override that
+ * disables end-of-line translation. Read-only commands (`status`, `diff`,
+ * `rev-parse`, ...) are returned untouched so they keep the caller's
+ * conversion setting and a CRLF checkout made by the user's own git still
+ * reads as clean (F58, see the file header).
+ * @param {string[]} args
+ * @returns {string[]}
+ */
+function eolNeutralArgs(args) {
+  const [command, subcommand] = args
+  const writesWorktree =
+    WORKTREE_WRITE_COMMANDS.has(command) ||
+    (command === 'worktree' && subcommand === 'add') ||
+    (command === 'stash' && (subcommand === 'apply' || subcommand === 'pop'))
+  return writesWorktree ? ['-c', 'core.autocrlf=false', ...args] : args
+}
+
+/**
  * Run one git command with bounded output and no shell, returning stdout
  * byte-for-byte. `-z` readers must never go through the display normalization
  * below: stripping or folding bytes would corrupt path names.
+ * Working-tree writers are invoked with EOL conversion off; `args` itself (the
+ * caller's view) is what errors report, so failure messages stay stable.
  * @param {string} cwd
  * @param {string[]} args
  * @param {GitOptions} [options]
@@ -77,7 +163,7 @@ function gitRaw(cwd, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      args,
+      eolNeutralArgs(args),
       {
         cwd,
         timeout: options.timeoutMs ?? configuredTimeoutMs,
