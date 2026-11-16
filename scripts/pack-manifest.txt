@@ -32,6 +32,7 @@ app/findings.js
 app/freshness.js
 app/gate.js
 app/git-locks.js
+app/host-contract.js
 app/init.js
 app/merge-support.js
 app/merge.js
@@ -327,6 +328,8 @@ tools/resource.js
 tools/review.js
 tools/send.js
 tools/spawn.js
+tools/teardown.js
+tools/test.js
 tools/views/adopt.js
 tools/views/diff.js
 tools/views/doctor.js
@@ -335,8 +338,6 @@ tools/views/import.js
 tools/views/preflight.js
 tools/views/roster.js
 tools/views/status.js
-tools/teardown.js
-tools/test.js
 types/cordis.d.ts
 types/index.d.ts
 ui-bundle/README.md

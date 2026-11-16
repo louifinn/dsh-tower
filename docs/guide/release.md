@@ -51,7 +51,7 @@ Everything an agent can do belongs in one release PR against protected `main`:
   and the **tag in cell 1**:
 
   ```markdown
-  | 0.2.2-rc.1 | v2.8.0 | 2026-11-11 | `npm test`, `npm run support:check`, `npm run docs:check`, mount smoke |
+  | 0.2.2-rc.3 | v2.9.0 | 2026-11-17 | `npm test`, `npm run support:check`, `npm run docs:check`, mount smoke |
   ```
 
   `host/compatibility.js#parseCompatibility` reads cells 0–3 only: never insert a column before the

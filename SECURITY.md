@@ -6,7 +6,7 @@
 
 Areas that matter for security reports:
 
-- The merge gate (`tower_preflight` / `tower_merge`): bypassing scope, review, staleness, or ownership checks.
+- The merge gate (`tower_inspect` with `view: "preflight"` / `tower_merge`): bypassing scope, review, staleness, or ownership checks.
 - The mode guard: reaching a denied tool (`create_goal`, `todo_write`, Team task tools, `spawn_teammate`, `update_goal(resume)`) while Tower mode is active.
 - Command forwarding: injecting content into the model history that the user did not send.
 - Writes outside the declared scope, the mission worktree, or the DSH home directory.

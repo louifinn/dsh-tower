@@ -107,7 +107,7 @@ degraded report instead:
       "id": "config",
       "status": "fail",
       "detail": "[tower:config-unknown-key] Tower config has unknown key(s) ...",
-      "action": "repair the config named in the detail (profile config or <git-common-dir>/dsh-tower/config.json), then re-run tower_doctor"
+      "action": "repair the config named in the detail (profile config or <git-common-dir>/dsh-tower/config.json), then re-run tower_inspect with view: \"doctor\""
     },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" }
   ]
@@ -134,7 +134,7 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (21 in 2.8.0, 16 default), even though the shipped profile mounts 16 because the
+build surface (21 in 2.9.0, 16 default), even though the shipped profile mounts 16 because the
 five subsystem rows ship off; the `components` check names the mounted subset and every
 disabled row.
 

@@ -5,6 +5,7 @@ is shipped in the npm package; doctor reads it locally and never contacts a regi
 
 | dsh version | tag / commit | verified on | what was run |
 |---|---|---|---|
+| 0.2.2-rc.3 | v2.9.0 | 2026-11-17 | mount smoke on Node >=24.9 (16/16 default tools, 3 skills, 4 presets with distinct labels, `/tower` present, 1 top-level bundle row on `@deepseek-ai/dsh@0.2.2-rc.3`), bounded offline suite (1117 tests: 1116 pass / 1 skip; excludes the known-hang Windows `git-mutex-budget` file and the Windows-sensitive isolated files, which passed 8/8 and 11/11), `npm run test:property` (119 cases in 12 files), full static gate chain, `npm run support:check` (package engines, mount host pin, live matrix and this row agree), focused spawn-contract/deny-surface/docs-truth/support-manifest/workflow/release-gate tests |
 | 0.2.2-rc.1 | v2.8.0 | 2026-11-12 | mount smoke on Node >=24.9 (28/28 default tools, 3 skills, 4 presets with distinct labels, 1 bundle row), bounded offline suite (1019 tests: 1018 pass / 1 skip; excludes the known-hang Windows `git-mutex-budget` file and the isolated Windows-sensitive files, which passed 22/22), authoritative offline declaration count 1041 (1040 pass / 1 win32 skip), `npm run test:property` (117), full static gate chain, `npm run support:check` (package engines, mount host pin, live matrix and this row agree), focused live-harness/support/workflow tests, CI `mount`, `test (24.9)`, `test (25)`, `test (24.9, windows)`, `mount-fixtures` (Node 24.9), `live (0.2.2-rc.1)` |
 | 0.2.1-rc.2 | v2.7.1 | 2026-11-11 | mount smoke (28/28 default tools, 3 skills, 4 presets with distinct labels, 1 bundle row), bounded offline suite (905 tests: 904 pass / 1 skip; excludes the known-hang Windows `git-mutex-budget` file), `npm run test:property` (111), full static gate chain, focused W1 lock/authorization/Git/ownership regressions, CI `test (22)`, `test (24)`, `test (22, windows)`, `mount`, `mount-fixtures` |
 | 0.2.1-rc.2 | v2.7.0 | 2026-11-10 | mount smoke (28/28 default tools, 3 skills, 4 presets with distinct labels, 1 bundle row), `npm run test:property` (111), full static gate chain, focused shape/survey/evidence/scope/role/review/batch/leases tests, CI `test (22)`, `test (24)`, `test (22, windows)`, `mount`, `mount-fixtures` |
@@ -30,7 +31,7 @@ is shipped in the npm package; doctor reads it locally and never contacts a regi
 - **untested-older**: older than every row; upgrade the host or expect missing APIs.
 - **unknown**: the host did not expose a parseable version.
 
-`tower_doctor` reports this as a warning only: a newer host is the normal case and must not block
+`tower_inspect` with `view: "doctor"` reports this as a warning only: a newer host is the normal case and must not block
 Tower work. This is provenance, not a feature-detection mechanism.
 
 ## Release process

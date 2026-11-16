@@ -12,7 +12,7 @@ a booted host, a browser) and the nightly failure report.
 | `test (24.9)`, `test (25)`, `test (24.9, windows)` | Ubuntu / Ubuntu / Windows, Node 24.9 / 25 / 24.9 | One canonical `npm run check` per leg. The Ubuntu 24.9 leg also runs the tag-only release check, the coverage table and the live-harness environment check. |
 | `mount` | Ubuntu, Node 24.9 | The packed tarball mounts in a throwaway profile and registers its surface (`npm run smoke:mount`). Required context. |
 | `mount-fixtures` | Ubuntu, Node 24.9 | Seeded mount-smoke failures against one cached host install. Evidence only, never a merge gate. |
-| `live (0.2.2-rc.1)` | Ubuntu, Node 24.9 | Nightly/manual-only real Web runtime pinned by the matrix; never gates a push or PR. |
+| `live (0.2.2-rc.3)` | Ubuntu, Node 24.9 | Nightly/manual-only real Web runtime pinned by the matrix; never gates a push or PR. |
 | `property-long` | Ubuntu, Node 24.9 | Nightly/manual-only 2000-run property tier. Evidence only. |
 | `nightly failure report` | Ubuntu | Schedule-only reporter: opens or updates **one** issue with the failing job names and the run URL. |
 

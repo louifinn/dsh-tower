@@ -22,15 +22,15 @@ What each profile **advertises** is narrower than what ships. The tower session 
 `tower_complete` or `tower_review` — they are owned by the worker/survey and reviewer role
 sessions (#163 Phase 5). Calling one from a tower session anyway fails with an actionable
 `not-authorized` hint naming the role entry (`tower_spawn({role:"worker"})`) instead of an
-unknown-tool error. The measured profile surfaces are tower 14 tools / 10,582 B of input schema,
-worker 6 / 6,175 B, and reviewer 5 / 4,371 B; `docs/reference/surface-budget.md` records the
+unknown-tool error. The measured profile surfaces are tower 14 tools / 16,017 B of input schema,
+worker 6 / 8,646 B, and reviewer 5 / 6,000 B; `docs/reference/surface-budget.md` records the
 baseline and every change.
 
 ## Default-off subsystems
 
 The five component rows below ship `disabled: true` in the bundled `cordis.patch.yml`. Closing a
-row removes exactly its tools; `tower_doctor` lists each row with its tool and the enable step, and
-`tower_inspect`'s `doctor` view reports it as "disabled by component <id>". To enable one, set its
+row removes exactly its tools; `tower_inspect`'s `doctor` view lists each row with its tool and the enable step, and
+reports it as "disabled by component <id>". To enable one, set its
 `disabled` flag to `false` in `cordis.patch.yml` (or omit the flag) and restart DSH.
 
 | Component row | Tool(s) | Enable |

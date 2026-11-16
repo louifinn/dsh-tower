@@ -36,7 +36,7 @@ Tower 模式与 mission/审查工作流的灵感来自 Moonshot AI 的 **Kimi Co
 - **仓库互斥与限流。** 可选 `mode.workspaceLock` 让同一仓库只有一个 Tower 会话；`spawn.maxLiveWorkers`、`send.maxPerMinute`、roster stale 标记约束并发与消息风暴。
 - **可热重载。** 在带 DSH HMR 的 profile 中，`/tower reload`、`tower_reload` 与 `npm run dev:hmr` 让 linked 插件代码改动无需重启即生效；`plugin_manager` 安装/更新本身即时生效。
 - **测试证据门与事件。** worker 可在 `tower_complete` 记录 `checks`，`gates.requireChecks` 可强制；每次 mutation 后发射 `tower/*` 事件并刷新 `MISSIONS.md`。
-- **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_doctor` 只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
+- **2.1 验证与运营。** `tower_test` 执行 worktree 声明的 `tower.testDiscovery`（TAP/json-array，准入可设 spawn/complete），`tower_inspect` 的 `doctor` 视图提供只读健康契约，`tower_batch` 批次证据收口，`tower_resource` advisory lease，`tower_import` 只读旧版导入与审计映射；新增 `worker-stale`、tests 门禁、plan/tower 互斥、`workspaceLockScope`、`docs.boardLocation` 与交付 ack。
 
 ## 何时使用 Tower
 
@@ -62,7 +62,7 @@ Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan m
 
 ## 环境要求
 
-- DeepSeek Harness `0.2.2-rc.1`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
+- DeepSeek Harness `0.2.2-rc.3`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
 - Node.js 24.9+
 - Git（worktree 在本地创建，不需要联网）
 
@@ -99,7 +99,7 @@ Host 插件在 DSH 进程启动时加载，**安装或更新后需重启 DSH**�
 ### 已知冲突
 
 不要同时安装 `dsh-plugins-tower`（第三方包）。它的 loader row 也使用 `name: dsh-tower`，会解析到
-本包，导致本包被加载两次或对方代码不生效。`tower_doctor` 的 `loader-conflicts` 检查会报告该情况；
+本包，导致本包被加载两次或对方代码不生效。`tower_inspect` 的 `doctor` 视图的 `loader-conflicts` 检查会报告该情况；
 卸载冲突包并重启 DSH。
 
 ## 快速开始
@@ -114,7 +114,7 @@ tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # 可选：需要强制独立审查时，先设 review.mode:required
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # reviewer 只读审查并调用 tower_review（clean+merge 或 p1-Nitems/p2-Nitems）
-tower_preflight repoRoot=D:\work\repo missionId=M1    # 默认审查可选（review.mode:optional）；设为 review.mode:required 时审查前预期 no-review，审查后 ok:true
+tower_inspect   view=preflight repoRoot=D:\work\repo missionId=M1    # 默认审查可选（review.mode:optional）；设为 review.mode:required 时审查前预期 no-review，审查后 ok:true
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
@@ -155,7 +155,7 @@ tower_teardown  repoRoot=D:\work\repo
 进入 Tower 模式与 `tower_plan` 前会校验必需的 preset。worker preset 是强制依赖；reviewer
 preset 只在 `review.mode` 为 `required` 时必需，因此策略为 `off` 或 `optional` 时允许关闭
 reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁定。`tower-tests` 关闭且
-`gates.requireTests:true` 时同样拒绝。`tower_doctor` 与 `tower_recover` 不是组件、也没有配置键：
+`gates.requireTests:true` 时同样拒绝。`tower_inspect` 的 `doctor` 视图与 `tower_recover` 不是组件、也没有配置键：
 任何配置都会注册它们（#122）。
 
 原则 11（[PRINCIPLES.md](PRINCIPLES.md)）与
@@ -216,7 +216,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 
 表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、42 个工具错误码、26 个进程内事件、58 个配置键、35 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 16 个。
 
-五个子系统行默认关闭；`tower_doctor` 逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
+五个子系统行默认关闭；`tower_inspect` 的 `doctor` 视图逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
 
 | 组件行 | 工具 | 开启方式 |
 |---|---|---|

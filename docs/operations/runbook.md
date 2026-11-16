@@ -4,7 +4,7 @@
 
 - `tower_inspect` with `view: "status"` — counts, open tasks, roster, unread messages, recent activity.
 - `tower_inspect` with `view: "roster"` — live activity; retired agents are recorded but never resumed.
-- `tower_preflight missionId` before every merge.
+- `tower_inspect` with `view: "preflight"` before every merge.
 
 ## Recover from a failed merge
 

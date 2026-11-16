@@ -13,7 +13,7 @@ already contains its action is not suffixed twice. The table below is generated 
 `domain/errors.js`, the same catalog the runtime uses.
 
 ```
-[tower:mission-not-found] unknown mission "M9" — next: list missions with tower_status
+[tower:mission-not-found] unknown mission "M9" — next: list missions with tower_inspect (view: status)
 ```
 
 Callers can match the prefix instead of the prose. Codes are reserved for the conditions below; a
