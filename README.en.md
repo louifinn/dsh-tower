@@ -28,7 +28,7 @@ The repository root **is** the DSH bundle: `package.json` declares `dsh.bundle.p
 - **Stable error codes.** Tool failures carry a `[tower:<code>]` prefix (for example `mission-not-found`, `preset-missing`, `config-invalid`) so callers can branch deterministically.
 - **Role enforcement and control.** Workers cannot complete/abandon a mission or widen its scope directly (completion goes through the `tower_complete` evidence gate); the tower can stop a runaway agent with `tower_interrupt`, and `tower_send(interrupt:true)` interrupts a running turn.
 - **Workspace exclusivity and limits.** Optional `mode.workspaceLock` allows one Tower session per repository; `spawn.maxLiveWorkers`, `send.maxPerMinute` and roster stale flags bound concurrency and message bursts.
-- **2.1 verification and operations.** `tower_test` runs the worktree's `tower.testDiscovery` (TAP/json-array, admission at spawn or complete), `tower_doctor` is a read-only health contract, `tower_batch` closes finite evidence batches, `tower_resource` manages advisory leases, and `tower_import` imports old snapshots and audit-maps ids. Adds `worker-stale`, test gates, plan/Tower mutual exclusion, `workspaceLockScope`, `docs.boardLocation` and delivery acknowledgements.
+- **2.1 verification and operations.** `tower_test` runs the worktree's `tower.testDiscovery` (TAP/json-array, admission at spawn or complete), the `tower_inspect` `doctor` view is a read-only health contract, `tower_batch` closes finite evidence batches, `tower_resource` manages advisory leases, and `tower_import` imports old snapshots and audit-maps ids. Adds `worker-stale`, test gates, plan/Tower mutual exclusion, `workspaceLockScope`, `docs.boardLocation` and delivery acknowledgements.
 - **Hot reload.** In a profile with DSH HMR, `/tower reload`, `tower_reload` and `npm run dev:hmr` apply linked plugin changes without a restart; `plugin_manager` install/update already applies live.
 - **Evidence gate and events.** Workers can record `checks` in `tower_complete` and `gates.requireChecks` can require them; every mutation emits `tower/*` events and refreshes `MISSIONS.md`.
 
@@ -56,7 +56,7 @@ Tower mode refuses Team/Workflow/Ralph/ordinary subagent tools and clears plan m
 
 ## Requirements
 
-- DeepSeek Harness `0.2.2-rc.1` (see [COMPATIBILITY.md](COMPATIBILITY.md) for the verified host builds)
+- DeepSeek Harness `0.2.2-rc.3` (see [COMPATIBILITY.md](COMPATIBILITY.md) for the verified host builds)
 - Node.js 24.9 or newer
 - Git (worktrees are created locally; no network access is required)
 
@@ -95,7 +95,7 @@ The optional Web UI ships inside the npm package at `ui-bundle/`: for an npm ins
 
 Do not install `dsh-plugins-tower` (third-party) alongside this package. Its loader row also uses
 `name: dsh-tower`, so it resolves to this package: this package may load twice or the other package
-never runs. `tower_doctor` reports this as `loader-conflicts`; uninstall the conflicting package and
+never runs. The `tower_inspect` `doctor` view reports this as `loader-conflicts`; uninstall the conflicting package and
 restart DSH.
 
 ## Quick start
@@ -110,7 +110,7 @@ tower_spawn     repoRoot=D:\work\repo missionId=M1 role=worker
 # Optional: set review.mode:required first if you need mandatory independent review
 tower_spawn     repoRoot=D:\work\repo missionId=M1 role=reviewer
 # the reviewer inspects read-only and calls tower_review (clean+merge, or p1-Nitems/p2-Nitems)
-tower_preflight repoRoot=D:\work\repo missionId=M1    # review optional by default (review.mode:optional); with review.mode:required expect no-review before review and ok:true after
+tower_inspect   view=preflight repoRoot=D:\work\repo missionId=M1    # review optional by default (review.mode:optional); with review.mode:required expect no-review before review and ok:true after
 tower_merge     repoRoot=D:\work\repo missionId=M1
 tower_teardown  repoRoot=D:\work\repo
 
@@ -149,7 +149,7 @@ worker preset is mandatory; the reviewer preset is required only when
 `review.mode` is `required`, so the reviewer row may be off while the policy is
 `off` or `optional` and is locked with an explanatory `preset-missing` error when
 the policy is `required`. `tower-tests` off with `gates.requireTests:true` is
-refused the same way. `tower_doctor` and `tower_recover` are not components and
+refused the same way. The `tower_inspect` `doctor` view and `tower_recover` are not components and
 have no config key: they are registered for every configuration (#122).
 
 [Principle 11](PRINCIPLES.md) and
@@ -212,7 +212,7 @@ The list above is the 15 core tools plus 6 component-owned optional tools (`towe
 
 Surface counts (live, checked by `npm run docs:check`): 21 tools, 42 tool error codes, 26 process-local events, 58 config keys, 35 stable blocker/failure codes, 13 visible components. The default profile registers 16 of those tools.
 
-Five subsystem rows ship off; `tower_doctor` lists each one as disabled plus how to enable it, and the same table lives in [docs/reference/tools.md](docs/reference/tools.md) under “Default-off subsystems”:
+Five subsystem rows ship off; the `tower_inspect` `doctor` view lists each one as disabled plus how to enable it, and the same table lives in [docs/reference/tools.md](docs/reference/tools.md) under “Default-off subsystems”:
 
 | Component row | Tool | Enable |
 |---|---|---|
@@ -235,7 +235,7 @@ A mission moves through `planned → active → completed → merged` (or `block
 | `<checkout parent>/.dsh-tower-worktrees/<hash>/<missionId>` | per-mission worktree |
 | `$DSH_HOME/tower-mode/modes.json` | Tower mode state per agent/session |
 
-Workers use the bundled `tower-worker` preset (writable worktree surface); reviewers use the separate read-only `tower-reviewer` preset and can only inspect (`tower_diff`) and submit `tower_review`. The reviewer records the branch tip at spawn; if the branch moves, the review is rejected. Neither preset can merge or spawn.
+Workers use the bundled `tower-worker` preset (writable worktree surface); reviewers use the separate read-only `tower-reviewer` preset and can only inspect (`tower_inspect` `diff` view) and submit `tower_review`. The reviewer records the branch tip at spawn; if the branch moves, the review is rejected. Neither preset can merge or spawn.
 
 ## Project layout
 

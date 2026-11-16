@@ -7,7 +7,7 @@ worktree 没有 `package.json.tower.testDiscovery` 块时，行为与之前完�
 
 ## 受支持的运行环境
 
-Tower 只发布一条支持基线：Node.js 24.9+ 与 DeepSeek Harness `0.2.2-rc.1`（host 的
+Tower 只发布一条支持基线：Node.js 24.9+ 与 DeepSeek Harness `0.2.2-rc.3`（host 的
 `engines.node` 声明为 `>=24.9.0`）。`scripts/support.json` 是唯一的清单；当 package engines、
 lock 根 engines、mount-smoke host pin、live CI 矩阵或 [COMPATIBILITY.md](../../../COMPATIBILITY.md)
 最新行与它不一致时，`npm run support:check` 会失败。离线套件就是 `node --test`；会启动固定 host

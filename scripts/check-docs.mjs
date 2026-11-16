@@ -10,6 +10,7 @@ import { ERROR_CODES } from '../domain/errors.js'
 import { BLOCKER_CODE_VALUES } from '../domain/shapes/blockers.js'
 import { configSurface } from '../domain/config/schema.js'
 import { COMPONENT_SURFACE_FILE, parseComponentSurface } from '../domain/components.js'
+import { LEGACY_TOOL_REPLACEMENTS } from '../host/tool-profiles.js'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -62,6 +63,93 @@ export function linkProblems(root = packageRoot) {
       const resolved = path.resolve(path.dirname(page), withoutAnchor)
       if (!fs.existsSync(resolved)) {
         problems.push(`${path.relative(root, page)} links to missing ${target}`)
+      }
+    }
+  }
+  return problems
+}
+
+// F56: #163 folded five view tools and four same-resource pairs into
+// `tower_inspect`, `tower_init`, `tower_finding`, `tower_mode` and
+// `tower_import`. A retired name left in a current page teaches the reader to
+// call a tool that does not exist, which the count checks above cannot see.
+// History stays history: ADRs, the CHANGELOG, the migration log and the one
+// paragraph in doctor.md that deliberately lists old names are exempt.
+const RETIRED_TOOL_NAMES = Object.keys(LEGACY_TOOL_REPLACEMENTS)
+const RETIRED_NAME_EXEMPT_PAGES = new Set([
+  'docs/guide/install-upgrade-migration.md',
+  'docs/zh/guide/install-upgrade-migration.md',
+])
+
+/** Every current-facing markdown page: the docs tree except ADRs, plus the shipped root pages. */
+function currentDocPages(root) {
+  const pages = []
+  const docs = path.join(root, 'docs')
+  if (fs.existsSync(docs)) {
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name !== 'adr') walk(full)
+        } else if (entry.name.endsWith('.md')) {
+          pages.push(full)
+        }
+      }
+    }
+    walk(docs)
+  }
+  for (const name of ['README.md', 'README.en.md', 'COMPATIBILITY.md', 'GLOSSARY.md']) {
+    if (fs.existsSync(path.join(root, name))) pages.push(path.join(root, name))
+  }
+  return pages.sort()
+}
+
+/**
+ * Remove the deliberately historical paragraph that documents retired names
+ * (doctor.md's `deprecated-tool-names` check). The paragraph ends at the next
+ * blank line.
+ */
+function withoutRetiredNameParagraph(text) {
+  const kept = []
+  let skipping = false
+  for (const line of text.split('\n')) {
+    if (skipping) {
+      if (line.trim() === '') {
+        skipping = false
+        kept.push(line)
+      }
+      continue
+    }
+    if (line.includes('deprecated-tool-names')) {
+      skipping = true
+      continue
+    }
+    kept.push(line)
+  }
+  return kept.join('\n')
+}
+
+/**
+ * @param {string} root repository root
+ * @returns {string[]} one problem per retired tool name on a current page
+ */
+export function retiredToolNameProblems(root = packageRoot) {
+  const problems = []
+  for (const page of currentDocPages(root)) {
+    const relative = path.relative(root, page).split(path.sep).join('/')
+    if (RETIRED_NAME_EXEMPT_PAGES.has(relative)) continue
+    const text = withoutRetiredNameParagraph(fs.readFileSync(page, 'utf8'))
+    const lines = text.split('\n')
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
+      // The surface-budget page explains the 2.3.0 measurement correction and
+      // must be able to name the registrations it missed.
+      if (line.includes('2.3.0')) continue
+      for (const name of RETIRED_TOOL_NAMES) {
+        if (!new RegExp(`\\b${name}\\b`).test(line)) continue
+        problems.push(
+          `${relative}:${index + 1} mentions the retired tool name "${name}"; use ${LEGACY_TOOL_REPLACEMENTS[name]}`,
+        )
       }
     }
   }
@@ -255,6 +343,7 @@ export function checkDocs(root = packageRoot) {
     }
   }
 
+  problems.push(...retiredToolNameProblems(root))
   problems.push(...linkProblems(root))
   return {
     problems,

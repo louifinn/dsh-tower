@@ -22,6 +22,7 @@ process.env.DSH_HOME = home
 
 const { apply } = await import('../index.js')
 const { Tower } = await import('../host/tower.js')
+const { buildActivationSpec, resolveSpawnProvider, usesNestedActivation } = await import('../app/host-contract.js')
 
 after(() => removeTemp(home))
 
@@ -84,6 +85,37 @@ function fakeSubagents() {
 function fakeAgentPresets(ids = ['tower-worker', 'tower-reviewer']) {
   return {
     list: async () => ids.map((id) => ({ id })),
+  }
+}
+
+/**
+ * DSH 0.2.2-rc.3 `subagents` Service: no `list()`, providers are resolved with
+ * `getProvider(name)`, and `startActivation` takes the child request flat. This
+ * mirrors the live Service closely enough that sending the old nested shape
+ * would leave `parent`/`prompt` undefined, exactly like the real host.
+ */
+function fakeSubagentsRc3(providers = { spawn: {} }) {
+  const activations = []
+  return {
+    activations,
+    getProvider(name) {
+      return providers[name]
+    },
+    async startActivation(input) {
+      activations.push(input)
+      return {
+        childId: 'child-1',
+        result: Promise.resolve({
+          stopReason: 'completed',
+          output: [{ type: 'text', text: 'done' }],
+          diagnostic: null,
+        }),
+      }
+    },
+    async sendMessage() {},
+    async listDescendants() {
+      return []
+    },
   }
 }
 
@@ -391,6 +423,118 @@ test('wait:true returns the child output text and stopReason', async () => {
     const entry = view.roster.find((candidate) => candidate.agentId === 'child-1')
     assert.ok(entry, 'the roster entry must exist')
     assert.equal(entry.state, 'inactive')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('host contract: rc.3 getProvider resolves the spawn provider and the spec is flat', () => {
+  const service = { getProvider: (name) => (name === 'spawn' ? { name } : undefined) }
+  assert.equal(usesNestedActivation(service), false)
+  assert.equal(resolveSpawnProvider(service, { spawn: {} }), 'spawn')
+
+  const parent = { id: 'tower-agent' }
+  const signal = { aborted: false }
+  const request = {
+    cwd: 'C:\\worktrees\\M1',
+    agentPreset: 'tower-worker',
+    prompt: [{ type: 'text', text: 'briefing' }],
+    parent,
+    maxDepth: 1,
+  }
+  const spec = buildActivationSpec(service, {
+    provider: 'spawn',
+    label: 'worker-m1',
+    name: 'worker-m1',
+    request,
+    signal,
+  })
+  assert.equal(spec.provider, 'spawn')
+  assert.equal(spec.label, 'worker-m1')
+  assert.equal(spec.name, 'worker-m1')
+  assert.equal(spec.cwd, request.cwd)
+  assert.equal(spec.agentPreset, 'tower-worker')
+  assert.deepEqual(spec.prompt, request.prompt)
+  assert.equal(spec.parent, parent, 'rc.3 requires the exact live parent Agent')
+  assert.equal(spec.maxDepth, 1)
+  assert.equal(spec.delivery, 'parent')
+  assert.equal(spec.signal, signal)
+  assert.equal('request' in spec, false, 'the flat contract must not nest the request')
+})
+
+test('host contract: rc.1/rc.2 list() still receives the nested request', () => {
+  const legacy = { list: () => ['custom', 'spawn'] }
+  assert.equal(usesNestedActivation(legacy), true)
+  assert.equal(resolveSpawnProvider(legacy, { spawn: {} }), 'spawn')
+  assert.equal(resolveSpawnProvider({ list: () => ['only'] }, { spawn: {} }), 'only')
+  assert.equal(
+    resolveSpawnProvider({ list: () => ['spawn'], getProvider: () => ({}) }, { spawn: { provider: 'explicit' } }),
+    'explicit',
+    'an explicit spawn.provider wins over capability discovery',
+  )
+
+  const signal = { aborted: false }
+  const request = {
+    cwd: 'C:\\worktrees\\M1',
+    agentPreset: 'tower-worker',
+    prompt: [{ type: 'text', text: 'briefing' }],
+    parent: { id: 'tower-agent' },
+    maxDepth: 1,
+  }
+  const spec = buildActivationSpec(legacy, { provider: 'spawn', label: 'worker-m1', request, signal })
+  assert.equal(spec.request, request)
+  assert.equal(spec.delivery, 'parent')
+  assert.equal(spec.signal, signal)
+  assert.equal('prompt' in spec, false, 'the nested contract keeps the request nested')
+})
+
+test('host contract: no provider names spawn.provider and never an unregistered tool', () => {
+  for (const service of [{ getProvider: () => undefined }, { list: () => [] }]) {
+    assert.throws(
+      () => resolveSpawnProvider(service, { spawn: {} }),
+      (error) => {
+        assert.equal(error.code, 'provider-missing')
+        assert.match(error.message, /spawn\.provider/)
+        assert.match(error.message, /registered by your Host bundle/i)
+        return true
+      },
+    )
+  }
+})
+
+test('worker spawn: rc.3 Service without list() starts a flat activation', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-rc3-')
+  const subagents = fakeSubagentsRc3()
+  const harness = makeHarness({ subagents })
+  try {
+    await initAndPlan(repo, [{ title: 'rc.3 case', scope: ['src/**'] }])
+
+    const agent = { id: 'tower-agent' }
+    const signal = { aborted: false }
+    const report = await callTool(
+      harness.tools,
+      'tower_spawn',
+      { repoRoot: repo, missionId: 'M1', role: 'worker' },
+      { agent, signal },
+    )
+
+    assert.equal(report.agentId, 'child-1')
+    assert.equal(report.provider, 'spawn')
+    assert.equal(subagents.activations.length, 1)
+    const activation = subagents.activations[0]
+    assert.equal(activation.provider, 'spawn')
+    assert.equal(activation.label, 'worker-m1')
+    assert.equal(activation.parent, agent, 'the exact live parent Agent must reach the host')
+    assert.equal(activation.cwd, report.worktree.path)
+    assert.equal(activation.agentPreset, 'tower-worker')
+    assert.equal(activation.delivery, 'parent')
+    assert.equal(activation.signal, signal)
+    assert.equal('request' in activation, false, 'rc.3 must receive the request flat')
+    assert.equal(activation.prompt.length, 1)
+    assert.equal(activation.prompt[0].type, 'text')
+    assert.match(activation.prompt[0].text, /Tower mission M1/)
+
+    await settle()
   } finally {
     removeTemp(root)
   }

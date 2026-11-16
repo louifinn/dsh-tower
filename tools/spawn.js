@@ -11,6 +11,7 @@ import {
   precheckWorkerOwnership,
   resolveRosterName,
 } from '../app/spawn-prechecks.js'
+import { buildActivationSpec } from '../app/host-contract.js'
 import { buildAgentOptions, provisionSpawnPlacement, waitForSpawnResult } from '../app/spawn-support.js'
 import { cleanupReviewCheckout } from '../app/reviewCheckout.js'
 /** @param {any} ctx
@@ -98,20 +99,16 @@ export function registerSpawnTool(ctx, deps) {
           reviewCheckout: review?.path,
         })
         try {
-          activation = await subagents.startActivation({
-            provider,
-            label: name,
+          // Flat on DSH 0.2.2-rc.3, nested on rc.1/rc.2; the adapter selects the shape.
+          activation = await subagents.startActivation(buildActivationSpec(subagents, {
+            provider, label: name,
             request: {
-              cwd,
-              agentPreset: preset,
-              prompt: [{ type: 'text', text: briefing }],
-              parent: exec.agent,
-              maxDepth: config.spawn.maxDepth ?? 1,
+              cwd, agentPreset: preset, prompt: [{ type: 'text', text: briefing }],
+              parent: exec.agent, maxDepth: config.spawn.maxDepth ?? 1,
               ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
             },
             signal: exec.signal,
-            delivery: 'parent',
-          })
+          }))
           agentId = String(activation.childId)
           entry = await tower.recordSpawn({
             missionId: mission.id,

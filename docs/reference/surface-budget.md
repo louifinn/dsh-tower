@@ -107,7 +107,7 @@ decisions). The five subsystem rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
 shipped profile mounts 16 of the 21 and the all-on build surface is unchanged
 at 21. Closing a row is not a surface reduction: the tools stay in the build
-and `tower_doctor` reports each one as off with its enable step. The default
+and `tower_inspect`'s `doctor` view reports each one as off with its enable step. The default
 tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
 
@@ -245,9 +245,10 @@ sections 15 → 16, while the visible component count stays 12. The two keys,
 `activity.maxBytes` (default 4 MiB, `0` disables) and `activity.retention`
 (default 5 segments), are adapter policy: rotation is always on by default, the
 live file is renamed to a numbered segment rather than truncated, and the
-activity-tail reads behind `tower_status` (dashboard and mission detail) follow
-the segments; `tower_complete` and `tower_roster` do not read the activity log,
-while `tower_doctor` inspects every segment read-only for its size accounting. No
+activity-tail reads behind `tower_inspect`'s `status` view (dashboard and mission detail)
+follow the segments; `tower_complete` and `tower_inspect`'s `roster` view do not read the
+activity log, while `tower_inspect`'s `doctor` view inspects every segment read-only for its
+size accounting. No
 capability row or tool appears or disappears, so neither the component nor the
 tool count moves.
 
@@ -319,7 +320,7 @@ tool count moves.
 Tools are `core` when the product does not work without them and `optional` when
 a component row (`tower-batch`, `tower-import`, `tower-leases`, `tower-tests`,
 `tower-hmr`), `mode.allowAgentControl`, or the dev mode can legitimately remove
-them from the surface. `tower_doctor` and `tower_recover` are core: #122 made
+them from the surface. `tower_inspect`'s `doctor` view and `tower_recover` are core: #122 made
 them mandatory for every configuration.
 
 | Tool | Class | Note |

@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- DSH `0.2.2-rc.1`; see [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
+- DSH `0.2.2-rc.3` (rc.1/rc.2 keep working through the legacy spawn contract); see
+  [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
 - Node.js 24.9+
 - Git (local worktrees; no network access is required)
 
@@ -29,15 +30,32 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
-- **Unreleased (#162) — Tower and a Ralph loop are mutually exclusive per repository**: entering Tower
-  mode now reconciles a live Ralph loop instead of only filtering future tool calls. The `/ralph`
-  command is shadowed with an actionable refusal while Tower mode is active (commands are not tools,
-  so the owner-derived `mode.denyTools` list from #161 cannot see them), round agents are refused
-  while the repository is under Tower mode, and the new `mode.ralphPolicy` (`stop`, the default, or
-  `refuse`) decides whether entry stops and records the loop or rejects with the reason.
-  `tower_inspect` with `view: "doctor"` reports a live loop as an environment fact. No state
-  migration; the config surface grows from 57 to 58 keys. See
-  [ADR 0010](../adr/0010-tower-ralph-mutual-exclusion.md).
+- **2.8.0 → 2.9.0 (#163, #176, #160, #164, #162, #159, #161) — consolidated tool surface**: the
+  build surface drops from 29 tools to 21 (16 tools in the default profile). The five read-only
+  tools (`tower_status`, `tower_roster`, `tower_diff`, `tower_preflight`, `tower_doctor`) are now
+  the `status`, `roster`, `diff`, `preflight` and `doctor` views of `tower_inspect`;
+  `tower_control`, `tower_adopt`, `tower_findings`, `tower_import_legacy` and `tower_legacy_map`
+  fold into `tower_mode`, `tower_init({op:"adopt"})`, `tower_finding`,
+  `tower_import({op:"snapshot"})` and `tower_import({op:"map"})`. Old names written in
+  `mode.denyTools` are still accepted and rewritten to their replacements, while direct calls
+  return an actionable unknown-tool error. The tower session now exposes tools by role and phase
+  (mode off: `tower_mode` only; idle: plus `tower_init`; active: the 14 default admission tools),
+  the worker/reviewer/survey presets get their own allow-lists, and `tower_complete`/`tower_review`
+  are hidden from the tower session. `/tasks` adds a read-only roster panel. Tower and a live Ralph
+  loop are mutually exclusive per repository: `/ralph` is shadowed while Tower mode is active,
+  Ralph round agents are refused, and `mode.ralphPolicy` (`stop`, the default, or `refuse`) decides
+  whether entry stops and records the loop or rejects with the reason. The third mission shape
+  `artifact` replaces review with human acceptance recorded through the DSH approval channel. The
+  state schema stays v5, the config surface grows from 57 to 58 keys in 16 sections, and the error
+  catalogue grows to 42 codes (35 blocker codes).
+- **2.8.0 → 2.9.0 — DSH 0.2.2-rc.3 host contract**: rc.3 removed `subagents.list()` and changed
+  `startActivation` to take flat fields, so 2.8.0 failed to spawn on the upgraded host
+  (`subagents.list is not a function`; the old nested request also left `spec.parent` undefined).
+  2.9.0 detects the contract at runtime in `app/host-contract.js`: rc.1/rc.2 keep the nested
+  request, rc.3 receives the flat spec with the live parent agent, prompt array and the caller's
+  signal. Provider resolution tries `spawn.provider`, then `getProvider("spawn")`, then the legacy
+  list, and otherwise fails with an actionable message naming `spawn.provider`. No state or config
+  migration is required; update the plugin and **restart DSH**. rc.3 is the verified build.
 - **2.8.0 — bounded activity log**: two optional tuning keys were added under `activity`:
   `activity.maxBytes` (default 4 MiB, `0` disables rotation) and `activity.retention` (default 5
   segments, range 1–100). The defaults preserve the previous unbounded behavior only up to the byte

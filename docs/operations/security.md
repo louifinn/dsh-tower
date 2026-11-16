@@ -90,8 +90,8 @@ remain deployment concerns. The settings, their rationale and a verification com
 page can ask the model to “enter tower mode and fix this”. Tower does **not** authenticate the human
 intent behind that entry. What it does provide:
 
-- the entry is recorded with actor, action, reason, and timestamp; `tower_status.mode.history`
-  surfaces the recent transitions without grepping the activity log;
+- the entry is recorded with actor, action, reason, and timestamp; `tower_inspect` with `view:
+  "status"` surfaces the recent transitions without grepping the activity log;
 - the model cannot merge without the preflight gate, review policy, scope checks, tests, and
   clean-base checks; writing the plan does not bypass them;
 - workers are tool-restricted and instructed to stay in their worktree, but the main-checkout

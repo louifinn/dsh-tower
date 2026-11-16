@@ -74,6 +74,23 @@ test('F43: a tampered architecture tool total fails the docs check', (t) => {
   )
 })
 
+test('F56: a retired tool name in a current page fails the docs check', (t) => {
+  const copy = copyRepo(t)
+  assert.deepEqual(checkDocs(copy).problems, [])
+
+  const tools = path.join(copy, 'docs', 'reference', 'tools.md')
+  fs.appendFileSync(tools, '\nWhen a config row fails, run `tower_doctor` to see the reason.\n')
+
+  const problems = checkDocs(copy).problems
+  assert.ok(
+    problems.some(
+      (problem) =>
+        problem.includes('retired tool name "tower_doctor"') && problem.includes('tower_inspect'),
+    ),
+    problems.join('\n'),
+  )
+})
+
 test('linkProblems reports a broken relative link', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-docs-link-'))
   t.after(() => removeTemp(root))

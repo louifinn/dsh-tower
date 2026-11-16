@@ -2,7 +2,7 @@
 
 > 自 2.0.0 起，每个版本按 **新增 / 变更 / 修复** 三类组织；更早的版本保留原始流水式记录。
 
-## Unreleased（未发布）
+## 2.9.0（2026-11-17）
 
 ### 新增
 
@@ -15,8 +15,8 @@
   `tests/tasks-command.test.mjs`，锁定排序/静默标签/行数上限、只读零写入、宿主命令名冲突回退与别名一致性。
 - **角色 × 阶段工具暴露门禁（#164）**：宿主塔会话不再一次暴露全部构建工具，而是按会话阶段做步时投影：
   Tower 模式关闭时只暴露 `tower_mode`（846 B），模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B），
-  状态存在后暴露默认宿主准入的 14 个工具（14,977 B；随包挂载 16 个，减去 `tower_complete`/`tower_review`），
-  全部可选行开启时的 21 工具 / 22,061 B 构建表面不是任何会话的基线。阶段表与四个角色 preset 的 allow-list
+  状态存在后暴露默认宿主准入的 14 个工具（16,017 B；随包挂载 16 个，减去 `tower_complete`/`tower_review`），
+  全部可选行开启时的 21 工具 / 23,109 B 构建表面不是任何会话的基线。阶段表与四个角色 preset 的 allow-list
   统一放在 `domain/exposure.js`，`host/tool-profiles.js` 转出同一份列表，`host/exposure.js` 把阶段表变成
   `register(definition, { when })` 的步时条件：允许集合每个模型步解析一次并冻结，被隐藏的工具与不存在的工具
   一样解析为 `UNKNOWN_TOOL`，门禁只做减法且任何探测失败时放开。`tower_complete`/`tower_review` 的阶段条件与
@@ -44,16 +44,50 @@
   sha），即使 `review.mode:required`，审查阻塞码在结构上也不适用。接受记录 `{at, by:"human", tip, artifacts,
   note?}` 只能由人类经 `tower_mission({accept:true, accept_note?})` 在 DSH 审批通道（`userQuestions`）产生并绑定
   整个已提交 tip；通道缺失时以 `approval-unavailable` 拒绝，取消或拒绝不写记录，worker 调用报
-  `acceptance-human-only`，reviewer spawn 与 `tower_review`（含 break-glass）被拒绝，`tower_doctor` 的
-  `artifact-acceptance` 检查对未接受只告警。`tower-artifact` 是新的可见可选组件行（组件 12→13，行本身不拥有工具或
+  `acceptance-human-only`，reviewer spawn 与 `tower_review`（含 break-glass）被拒绝，`tower_inspect` 的
+  `doctor` 视图里的 `artifact-acceptance` 检查对未接受只告警。`tower-artifact` 是新的可见可选组件行（组件 12→13，行本身不拥有工具或
   preset）：关闭时 `tower_plan({kind:"artifact"})` 以可操作的 `invalid-argument` 拒绝，build/survey 不受影响。并入
   #163 之后的表面时，验收阻塞码由 `tower_inspect` 的 `preflight` 视图呈现，不再新增独立预检工具（PR 分支自带的
   `tools/preflight.js` 被删除），工具总数保持 21；state schema 仍为 v5，错误目录增至 42（新增
   `acceptance-human-only`，`approval-unavailable` 拓宽到接受），阻塞码增至 35。新增
   `tests/artifact-lifecycle.test.mjs` 与 `tests/property/artifact-acceptance.prop.mjs`，ADR 0006 增补该形状。
 
+### 变更
+
+- **工具表面按资源与角色收敛（#163）**：同一资源的多个工具合并为分派器，构建表面从 29 个降到 21 个
+  （默认 profile 注册 16 个）。五个只读视图（`status`、`roster`、`diff`、`preflight`、`doctor`）并入单一
+  `tower_inspect`（`view` 参数）；`tower_init`（`op:"init"|"adopt"`）、`tower_finding`（`op`）、
+  `tower_mode`（`active` 读写）与 `tower_import`（`op`）各吸收一个同资源工具；`tower_spawn` 的
+  `waitMs`/`takeover` 改为 `spawn.maxWaitMs` 上界与 `op:"takeover"`。仓库目标统一由会话解析
+  （workspace 锁绑定的仓库 → 会话工作目录 → 显式 `repoRoot`），只有 `tower_init` 仍广告 `repoRoot`；
+  25 个重复的 `repoRoot` 字段与 21 个别名字段退出广告 schema，但服务端继续接受旧字段以兼容
+  headless/嵌入调用方。`tower_complete`/`tower_review` 增加角色谓词，控制塔会话不再广告它们
+  （强行调用返回带角色入口的 `not-authorized`）；`tower-batch`/`tower-import`/`tower-leases`/
+  `tower-tests`/`tower-hmr` 五个行默认 `disabled: true`，工具仍留在全开 21 个之中。广告描述限制
+  300 字符，每个 profile 的工具数与输入 schema 字节写入 `scripts/surface-baseline.json` 双向门禁；
+  五个只读视图的事件并入 `tower/inspect`，其余成对工具的事件并入 `tower/init`、`tower/finding`、
+  `tower/mode` 与 `tower/import`，事件目录保持 26 个。EN/ZH 文档、ui-bundle、presets、
+  mount-smoke 与 pack 清单同步更新。
+- **四个功能 PR 在 #163 合并表面上一起落地（#176）**：`/tasks`（#160）、角色 × 阶段暴露（#164）、
+  Tower/Ralph 互斥（#162）与 artifact 形状（#159）在合并后的工具表面上集成，保留 21 个构建工具 /
+  16 个默认工具与 v5 state。集成同时按审查意见把 `host:active` 的测量修正为默认宿主准入表面
+  （14 工具 / 16,017 B，而不是全开 21 工具 / 23,109 B 的构建表面，R103），并把新增的 Ralph 文档
+  重定向到 `tower_inspect` 的 `doctor` 视图（R105）。
+
 ### 修复
 
+- **DSH 0.2.2-rc.3 主机契约下无法 spawn**：rc.3 的 `subagents` 服务移除了 `list()`，并把
+  `startActivation(spec)` 改为扁平字段（`provider`、`parent`、`prompt`、`delivery`、`signal` 等直接
+  位于 spec 上）。2.8.0 在 rc.3 上的首次 spawn 即抛 `subagents.list is not a function`；即使绕过
+  provider 解析，旧的嵌套 `request` 也会让宿主读到 `undefined` 的 `spec.parent`。新增
+  `app/host-contract.js` 按能力探测（`typeof subagents.list === 'function'`）在运行时区分契约：
+  rc.1/rc.2 继续收到嵌套 `request`，rc.3 收到扁平 spec（存活 parent agent 恒等、prompt 文本数组、
+  `delivery:"parent"` 与调用方 signal 透传）。provider 解析依次为显式 `spawn.provider`、
+  `getProvider("spawn")`、旧 `list()`（含 `spawn` 优先），全部不可用时返回点名 `spawn.provider`
+  的可操作 `provider-missing`，不再引用不存在的工具（#131）。`tools/spawn.js` 与
+  `app/spawn-prechecks.js` 共用该适配器，删除对 `subagents.list()` 的直接依赖；
+  `tests/spawn.mock.test.mjs` 用两个假 Service 锁定新旧两条分支，并新增无 `list()` 的端到端 spawn
+  回归。支持清单、mount smoke 宿主 pin、CI live matrix 与 COMPATIBILITY 行同步到 0.2.2-rc.3。
 - **Tower 模式按组件属主拒绝外部编排工具（#161）**：`mode.denyTools` 的默认值不再是手写清单，而是
   `domain/deny-owners.js` 声明的外部编排组件（`tool-agent-team`、goal/todo、ralph、subagent/fork、
   subagent-control、workflow）在固定版本上游包中实际注册的工具全集（`domain/generated/deny-surface.js`，

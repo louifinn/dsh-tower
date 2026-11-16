@@ -57,7 +57,7 @@ and `cordis.patch.yml`; a disabler that is not recorded here fails the gate.
 | Capability | Why it may not be disabled | Recorded disablers | Decision |
 |---|---|---|---|
 | the Tower host | Without the host the plugin registers nothing; there is no off state that leaves the rest working, and no config boolean may remove it. The visible `tower` anchor is the all-off boundary, and the host section nested under it may never become its own switch. | none | none may exist |
-| tower_doctor (read-only health contract) | Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the tool is registered for every configuration. | none | none may exist |
+| the `tower_inspect` doctor view (read-only health contract) | Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the doctor view is registered for every configuration. | none | none may exist |
 | tower_recover (stale state-lock escape) | The escape hatch must exist whenever the lock it repairs can be left behind. #122 removed exposeRecovery and the exposeOperational master switch; the tool is registered for every configuration. | none | none may exist |
 | the review gate in required mode | The policy is one tri-state configuration control on the plugin-page form, not a component row: review.mode is off, optional (default) or required, and off is a documented mode that removes tower_review and makes the merge gate ignore review. What no group, row or boolean key may switch off is the gate once the mode is required: a completed mission still needs a clean review bound to the branch tip, and the exemption path stays explicit. No second review switch exists: review.requireReview was removed in 2.8.0 and is rejected as an unknown key. The reviewer preset row remains a capability the policy may leave unused, never a way to weaken required mode. | none | none may exist |
 | the merge gates | gates.* decides delivery; a component may not bypass it. | none | none may exist |
@@ -67,9 +67,9 @@ and `cordis.patch.yml`; a disabler that is not recorded here fails the gate.
 The allowlist of boolean routes in `host/tool-registry.js`. Every shipped
 `tools.expose*` route must match this table. A route to a tool that is not listed
 here is refused, so no boolean key can quietly remove a review, merge or host
-tool. Since #122 the shipped table is empty: `tower_doctor` and `tower_recover`
-are registered for every configuration and no other capability may become a
-boolean switch.
+tool. Since #122 the shipped table is empty: `tower_inspect` (including its
+`doctor` view) and `tower_recover` are registered for every configuration and
+no other capability may become a boolean switch.
 
 | Tool | Switch key |
 |---|---|

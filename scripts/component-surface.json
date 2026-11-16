@@ -468,14 +468,12 @@
     },
     {
       "id": "health",
-      "capability": "tower_doctor (read-only health contract)",
-      "reason": "Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the tool is registered for every configuration.",
+      "capability": "the `tower_inspect` doctor view (read-only health contract)",
+      "reason": "Diagnosis must always exist so a failure message can point at it. #122 removed exposeDoctor and the exposeOperational master switch; the doctor view is registered for every configuration.",
       "tools": [
-        "tower_doctor"
+        "tower_inspect"
       ],
-      "rowIds": [
-        "tower-doctor"
-      ]
+      "rowIds": []
     },
     {
       "id": "recovery",
