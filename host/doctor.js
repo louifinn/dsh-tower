@@ -12,6 +12,7 @@ import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
 import { DEFAULT_MAX_REPORT_BYTES, completionReportBytes } from '../domain/missions/completion.js'
 import { comparisonMode } from '../domain/scope.js'
+import { isTerminal } from '../domain/shapes/index.js'
 import { hasTestReceipts } from '../domain/evidence.js'
 import { configSurface } from '../domain/config/schema.js'
 import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
@@ -53,6 +54,9 @@ async function gitVersion() {
     return null
   }
 }
+
+/** Terminality without the shape resolver's throw for an unknown kind. */
+function isTerminalMission(mission) { try { return isTerminal(mission.kind, mission.status) } catch { return false } }
 
 function check(id, status, detail, action) {
   return { id, status, detail, ...(action ? { action } : {}) }
@@ -158,8 +162,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       hostAssessment.verdict === 'verified' ? 'pass' : 'warn',
       detectedHost
         ? `${detectedHost}: ${hostAssessment.detail}`
-        : `unknown host version; ${hostAssessment.detail}. Include host version + COMPATIBILITY.md row in bug reports.`,
-      'see COMPATIBILITY.md for verified host builds',
+        : `unknown host version; ${hostAssessment.detail}. Checked DSH_VERSION, DSH_HOST_VERSION, npm_config_dsh_version and DSH_INSTALL_DIR/package.json; include host version + COMPATIBILITY.md row in bug reports.`,
+      'record the running version in DSH_VERSION or DSH_INSTALL_DIR (or add a COMPATIBILITY.md row) and re-run tower_inspect with view: doctor',
     ),
   )
 
@@ -556,35 +560,24 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         : check('roster', 'pass', 'no live workers'),
     )
 
-    let missingWorktrees = 0
-    let dirtyWorktrees = 0
-    let removedWorktrees = 0
+    let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0
     for (const mission of state.missions ?? []) {
       if (!mission.worktree) continue
-      if (mission.worktreeRemovedAt) {
-        removedWorktrees += 1
-        continue
-      }
+      if (mission.worktreeRemovedAt) { removedWorktrees += 1; continue }
+      // #F61: a terminal mission whose checkout is already gone is teardown's job,
+      // not a repository fault; a non-terminal mission still fails.
+      if (!(await exists(mission.worktree.path)) && isTerminalMission(mission)) { terminalMissingWorktrees += 1; continue }
       try {
         await tower.assertWorktree(mission.worktree)
-        if (await exists(mission.worktree.path)) {
-          const dirty = (await git(mission.worktree.path, ['status', '--porcelain'])).trim()
-          if (dirty) dirtyWorktrees += 1
-        } else {
-          missingWorktrees += 1
-        }
-      } catch {
-        missingWorktrees += 1
-      }
+        if ((await git(mission.worktree.path, ['status', '--porcelain'])).trim()) dirtyWorktrees += 1
+      } catch { missingWorktrees += 1 }
     }
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
-    checks.push(
-      missingWorktrees > 0
-        ? check('worktrees', 'fail', `${missingWorktrees} mission worktree(s) are missing or invalid${removedNote}`, 'inspect tower_inspect with view: status, restore the worktree/branch, then re-run tower_inspect with view: doctor')
-        : dirtyWorktrees > 0
-          ? check('worktrees', 'warn', `${dirtyWorktrees} worktree(s) have uncommitted changes${removedNote}`)
-          : check('worktrees', 'pass', `all registered worktrees are valid${removedNote}`),
-    )
+    const terminalSummary = `${terminalMissingWorktrees} terminal mission worktree(s) are no longer on disk; run tower_teardown to record the removal`
+    const terminalNote = terminalMissingWorktrees > 0 ? `; ${terminalSummary}` : ''
+    const problem = missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid${terminalNote}` : terminalMissingWorktrees > 0 ? terminalSummary : dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null
+    const action = missingWorktrees > 0 ? 'inspect tower_inspect with view: status, restore the worktree/branch, then re-run tower_inspect with view: doctor' : terminalMissingWorktrees > 0 ? 'run tower_teardown; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : undefined
+    checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
 
     const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))
     // #136: the `tower-tests` component row is the only switch (there is no
