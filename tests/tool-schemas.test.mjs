@@ -235,11 +235,19 @@ test('spawn output schema accepts the survey (null) and build (object) placement
     )
   }
 
-  // The field itself is not mandatory; `null` is the documented value when the
-  // placement owns no checkout.
-  const omitted = { ...build }
-  delete omitted.worktree
-  assert.deepEqual(validateJsonSchema(schema, omitted), [])
+  // The key is invariant even though its value is nullable: tools/spawn.js
+  // always writes `worktree` (`{path, branch, baseCommit}` for a build, `null`
+  // for a survey, which owns no checkout), so a report that drops the key has
+  // lost its placement and must be rejected. Presence is required; null is legal.
+  for (const [label, report] of [['build', build], ['survey', survey]]) {
+    const omitted = { ...report }
+    delete omitted.worktree
+    const missing = validateJsonSchema(schema, omitted)
+    assert.ok(
+      missing.some((entry) => entry.includes('"value.worktree"') && entry.includes('required')),
+      `a ${label} spawn result without worktree must be rejected: ${missing.join('; ')}`,
+    )
+  }
 })
 
 test('a survey spawn reports worktree: null and satisfies the real spawn schema (F60)', async () => {

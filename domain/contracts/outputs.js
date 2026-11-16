@@ -54,9 +54,13 @@ const findingSummarySchema = S.obj({
 })
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
-// additive; `required` lists the fields a successful value must carry. A
-// placement-dependent field stays out of `required`: spawn's `worktree` is a
-// union and null means "this mission owns no checkout".
+// additive; `required` lists the fields a successful value carries on every
+// path. spawn's `worktree` is required although its value is nullable: the
+// tool always writes the key (an object for a build, null for a survey that
+// owns no checkout), so a report that omits it has dropped the placement and
+// must stay visible to the output validator. Only the object branch's members
+// are individually optional, tolerating legacy worktree records
+// (domain/state/semantics.js assertWorktreeRecord).
 /** @type {Record<string, any>} */
 const SCHEMAS = {
   init: S.obj(
@@ -132,7 +136,7 @@ const SCHEMAS = {
       output: S.any,
       diagnostic: S.any,
     },
-    ['name', 'agentId', 'role', 'missionId', 'preset', 'provider'],
+    ['name', 'agentId', 'role', 'missionId', 'preset', 'provider', 'worktree'],
   ),
   roster: S.obj(
     { revision: S.int, roster: S.arr(S.obj()), parentStatus: S.obj(), missions: S.arr(S.obj()) },
