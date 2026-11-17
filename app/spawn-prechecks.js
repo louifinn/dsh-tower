@@ -67,6 +67,11 @@ export const ERROR_COPY = Object.freeze({
   leaseNotHeld: 'no live lease "{lease}" is held; acquire it with the lease action before starting an agent',
   leaseNotHeldNext: 'acquire the lease with the lease action before starting an agent',
   leaseForeignHolder: 'lease "{lease}" is held by "{holder}", not by this tower',
+  // #F77: the domain role contract states the same refusal in its own words, but
+  // that sentence renders `review.mode`. The spawn precheck owns the operator
+  // copy, so the review posture is described by what it does, not by its key.
+  reviewDisabled:
+    'review before merging is turned off in this project\'s plugin configuration, so a reviewer cannot be started and a review cannot be recorded',
 })
 
 /** Fill the `{name}` placeholders of one copy string (#F69). */
@@ -114,7 +119,12 @@ export function assertSpawnableMission({ role, context, config }) {
     mission: context.mission,
     reviewAvailable: !reviewUnavailable(config),
   })
-  if (blocker) throw new TowerToolError(blocker.code, blocker.message)
+  if (!blocker) return
+  // #F77: the blocker prose belongs to the role contract, except for the review
+  // posture, whose domain sentence names a configuration key. The operator copy
+  // is in ERROR_COPY; the registry supplies the matching visible next step.
+  if (blocker.code === 'review-disabled') throw new TowerToolError('review-disabled', fillCopy(ERROR_COPY.reviewDisabled))
+  throw new TowerToolError(blocker.code, blocker.message)
 }
 
 /** One roster row in an error message: role, state and the agent id if any. */

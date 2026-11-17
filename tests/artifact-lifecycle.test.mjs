@@ -162,10 +162,12 @@ test('planning an artifact mission is refused with an actionable code while the 
         }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-artifact component is off: artifact missions cannot be planned; the other kinds are unaffected/.test(
+        /the capability this mission kind needs is turned off: artifact missions cannot be planned; the other kinds still can/.test(
           error.message,
         ) &&
-        /enable the tower-artifact component/.test(String(error.nextAction)),
+        // #F80: the refusal names the capability, never the plugin-page row id.
+        !/tower-artifact/.test(`${error.message} ${error.nextAction}`) &&
+        /turn that capability back on in the plugin page/.test(String(error.nextAction)),
     )
     assert.deepEqual(probed, ['tower-artifact'], 'the shape row is what the probe gates')
     // Build and survey missions are unaffected by the off row.

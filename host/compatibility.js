@@ -7,6 +7,17 @@ import { fileURLToPath } from 'node:url'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+// #F75: the environment-health remedy a reader acts on. It is copy, so it lives
+// in one table the component gate reads (`scripts/check-components.mjs`): no tool
+// id (`tower_inspect`), no view syntax and no configuration key. The diagnostic
+// facts — the version, its source and the probe detail — stay in `detail`.
+const DOCTOR_ACTION_COPY = Object.freeze({
+  secondaryVersion:
+    'the version came from a profile dependency; record the running version in DSH_VERSION (empty values are ignored) or make the install package readable, then run the environment health check again',
+  unknownVersion:
+    'record the running version in DSH_VERSION or a readable DSH_INSTALL_DIR package.json (a packaged app archive is not readable by ordinary fs), or add a COMPATIBILITY.md row, then run the environment health check again',
+})
+
 export function parseVersion(value) {
   const text = String(value ?? '').trim()
   const match = text.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/)
@@ -580,8 +591,8 @@ export function diagnoseHostVersion(report, assessment) {
     action: passed
       ? undefined
       : secondary
-        ? 'the version came from a profile dependency; record DSH_VERSION (empty values are ignored) or make the app.asar.unpacked install package readable, then re-run tower_inspect with view: "doctor"'
-        : 'record the running version in DSH_VERSION or a readable DSH_INSTALL_DIR package.json (an app.asar container is not readable by ordinary fs), or add a COMPATIBILITY.md row, and re-run tower_inspect with view: "doctor"',
+        ? DOCTOR_ACTION_COPY.secondaryVersion
+        : DOCTOR_ACTION_COPY.unknownVersion,
     contract: {
       hostVersion: detected,
       hostVersionSource: report.source,

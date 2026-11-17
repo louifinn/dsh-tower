@@ -39,6 +39,15 @@ const ERROR_COPY = Object.freeze({
     'Tower cannot start: the Tower Reviewer preset is not loaded and review before merging is set to required, so reviewing and merging are refused with an explanation. Switch the Tower Reviewer preset back on in the plugin page, then restart DSH.{detail}',
   bothPresetsMissing:
     'Tower cannot start: the Tower Worker preset and the Tower Reviewer preset are not loaded, so planning, entering Tower mode, reviewing and merging are refused with an explanation. Switch both presets back on in the plugin page, then restart DSH.{detail}',
+  // #F79: the rendered next step. The error registry is label-agnostic, so this
+  // module owns the copy that names the visible row; the preset ids stay inside
+  // the plugin-page plumbing and never reach the operator.
+  workerPresetMissingNext:
+    'switch the Tower Worker preset row back on in the plugin page and restart DSH, or choose a registered preset on the plugin configuration form',
+  reviewerPresetMissingNext:
+    'switch the Tower Reviewer preset row back on in the plugin page and restart DSH, or choose a registered preset on the plugin configuration form',
+  bothPresetsMissingNext:
+    'switch the Tower Worker preset and the Tower Reviewer preset rows back on in the plugin page, then restart DSH, or choose a registered preset on the plugin configuration form',
   requireTests:
     'Test evidence is required before merging, but the Test evidence capability is switched off, so planning and entering Tower mode are refused with an explanation. Switch the Test evidence capability back on in the plugin page, or stop requiring test evidence on the plugin configuration form.',
   requireLease:
@@ -95,12 +104,18 @@ export async function assertPresetsAvailable(ctx, config = {}) {
   const workerMissing = missing.includes(presets.worker)
   const reviewerMissing = missing.includes(presets.reviewer)
   if (workerMissing && reviewerMissing) {
-    throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.bothPresetsMissing, { detail }))
+    throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.bothPresetsMissing, { detail }), {
+      nextAction: fillCopy(ERROR_COPY.bothPresetsMissingNext),
+    })
   }
   if (reviewerMissing) {
-    throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.reviewerPresetMissing, { detail }))
+    throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.reviewerPresetMissing, { detail }), {
+      nextAction: fillCopy(ERROR_COPY.reviewerPresetMissingNext),
+    })
   }
-  throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.workerPresetMissing, { detail }))
+  throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.workerPresetMissing, { detail }), {
+    nextAction: fillCopy(ERROR_COPY.workerPresetMissingNext),
+  })
 }
 
 /**

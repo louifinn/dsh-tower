@@ -170,10 +170,14 @@ export const ERROR_CODES = {
     nextAction: 'wait for the cooldown to expire, then retry',
   },
   'preset-missing': {
-    description: 'The configured agent preset is not registered.',
-    trigger: 'missing `tower-worker`/`tower-reviewer` preset rows, DSH not restarted',
+    // #F79: the registry is the fallback copy for callers that throw this code
+    // without their own remedy. It cannot know which preset row is missing, so
+    // it stays label-agnostic: the host resolves the visible row title and passes
+    // it as the `nextAction` (host/presets.js).
+    description: 'The agent preset this Tower profile needs is not registered.',
+    trigger: 'the required preset is not registered after a configuration change or an upgrade, or DSH was not restarted after installing it',
     retryable: false,
-    nextAction: 'install the tower-worker and tower-reviewer agent presets and restart DSH',
+    nextAction: 'switch the required preset back on in the plugin page, then restart DSH',
   },
   'reviewer-prerequisite': {
     description: 'The reviewer spawn prerequisite is not met.',
@@ -182,10 +186,12 @@ export const ERROR_CODES = {
     nextAction: 'complete the mission first, then spawn the reviewer',
   },
   'review-disabled': {
-    description: 'Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration.',
-    trigger: '`tower_spawn` with `role:"reviewer"`, or a review submission, while `review.mode` is `off`',
+    // #F77: review turned off is an operator-visible posture, not a key to edit.
+    // The remedy names the plugin-page control and the alternative behaviour.
+    description: 'Review before merging is turned off in this project\'s plugin configuration, so no reviewer, verdict, or review blocker exists.',
+    trigger: 'a reviewer is started, or a review is recorded, while review before merging is turned off',
     retryable: false,
-    nextAction: 'set review.mode to optional or required in the Tower config, then retry',
+    nextAction: 'turn review before merging back on in the plugin page, or start an agent without requiring review',
   },
   'not-authorized': {
     description: 'The calling agent role may not perform this action.',

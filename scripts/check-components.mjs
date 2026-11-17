@@ -81,8 +81,11 @@ scripts/surface-baseline.json decision, an unclassified config key or component
 row, a stale generated reference, (#137) any label copy that names a config key or
 internal tool id, leaves a glossary term untranslated, or diverges between zh and
 en, (#F22) the Web client catalogue or the preset runtime failure copy naming a
-config key, a tool id or a non-glossary term, and (#M42) the review policy
-exposed as a row instead of one tri-state configuration control.
+config key, a tool id or a non-glossary term, (#F69) the spawn-precondition and
+environment-health remedy copy, (#F75) the environment-health actions injected by
+host/ralph-stance.js, host/compatibility.js and host/doctor-acceptance.js, and
+(#M42) the review policy exposed as a row instead of one tri-state configuration
+control.
 Regenerate the table with \`npm run docs:generate:components\` and the row labels
 with \`npm run docs:generate:locale\`.`
 
@@ -410,6 +413,23 @@ export const PRESET_ERROR_FILE = 'host/presets.js'
 export const PRECHECK_ERROR_FILE = 'app/spawn-prechecks.js'
 /** #F69: the module that owns the environment-health remedy copy. */
 export const DOCTOR_ERROR_FILE = 'host/doctor.js'
+/**
+ * #F75: the doctor is assembled from more than `host/doctor.js`. Three sibling
+ * modules inject environment-health actions (`action:` on a row object, or the
+ * action argument of their local `check(...)` helper), and those sentences reach
+ * the operator exactly like the doctor's own table — so they are scanned like it.
+ *
+ * The group is checked only when the root ships at least one of the modules: a
+ * throwaway fixture root (for example the copy-gate fixture in
+ * tests/components.test.mjs) copies just the files a narrow check needs and is
+ * not a package. A root that ships any of them must ship all of them, or the
+ * uncovered module would be a silent blind spot again.
+ */
+export const DOCTOR_ACTION_MODULES = Object.freeze([
+  { file: 'host/ralph-stance.js', table: 'DOCTOR_ACTION_COPY', checks: false },
+  { file: 'host/compatibility.js', table: 'DOCTOR_ACTION_COPY', checks: false },
+  { file: 'host/doctor-acceptance.js', table: 'DOCTOR_ACTION_COPY', checks: true },
+])
 /**
  * Client strings whose job is to quote the composer command the user has to
  * type. The dock chip is a non-interactive status display, so `/tower off` is
@@ -1024,15 +1044,16 @@ export function checkPrecheckErrorCopy(root) {
  * a slash command or a capability row id. Diagnostic details stay in the detail
  * field, where naming a component or a path is the fact being reported.
  *
- * @param {string} source host/doctor.js source
+ * @param {string} source host module source
+ * @param {string} [fileLabel] repository-relative path for findings
  * @returns {Array<{ code: string, level: string, message: string }>}
  */
-export function doctorCopyFindings(source) {
+export function doctorCopyFindings(source, fileLabel = DOCTOR_ERROR_FILE) {
   const findings = []
   const record = (code, message) => findings.push(finding(code, 'error', message))
   const scanned = tokenizeScript(source)
   if (scanned.error) {
-    record('doctor-copy-unreadable', `${DOCTOR_ERROR_FILE} cannot be read: ${scanned.error}`)
+    record('doctor-copy-unreadable', `${fileLabel} cannot be read: ${scanned.error}`)
     return findings
   }
   const tokens = scanned.tokens
@@ -1071,7 +1092,7 @@ export function doctorCopyFindings(source) {
     for (const argument of args[3]) {
       if (argument.type !== 'string') continue
       checkBannedCopy(
-        { file: DOCTOR_ERROR_FILE, path: 'check(..., action)', text: argument.value },
+        { file: fileLabel, path: 'check(..., action)', text: argument.value },
         'en',
         record,
         DOCTOR_COPY_CODES,
@@ -1081,7 +1102,7 @@ export function doctorCopyFindings(source) {
   if (actions === 0) {
     record(
       'doctor-copy-unparsed',
-      `${DOCTOR_ERROR_FILE} declares no check(..., action) remedy; the copy gate cannot read the environment-health remedy copy`,
+      `${fileLabel} declares no check(..., action) remedy; the copy gate cannot read the environment-health remedy copy`,
     )
   }
   return findings
@@ -1095,7 +1116,143 @@ export function checkDoctorCopy(root) {
   if (!fs.existsSync(file)) {
     return [finding('doctor-copy-unreadable', 'error', `${DOCTOR_ERROR_FILE} is missing; the environment-health remedy copy cannot be checked`)]
   }
-  return doctorCopyFindings(fs.readFileSync(file, 'utf8'))
+  return doctorCopyFindings(fs.readFileSync(file, 'utf8'), DOCTOR_ERROR_FILE)
+}
+
+/**
+ * #F75: check the action copy a doctor sibling module injects.
+ *
+ * The module builds its row (or its `check(...)` call) from a
+ * `const DOCTOR_ACTION_COPY = Object.freeze({ key: 'sentence' })` table, so the
+ * gate can read every rendered sentence without executing the module. Every
+ * `action:` property must point at that table: a literal is exactly the blind
+ * spot this rule exists to close, because it bypasses the table and the check.
+ *
+ * @param {string} source module source
+ * @param {string} fileLabel repository-relative path for findings
+ * @param {string} [tableName] copy table name in that module
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function actionCopyFindings(source, fileLabel = DOCTOR_ACTION_MODULES[0].file, tableName = 'DOCTOR_ACTION_COPY') {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const parsed = parseCopyTable(source, tableName, fileLabel)
+  if (parsed.error) {
+    record('doctor-action-copy-unreadable', `${fileLabel} ${tableName} cannot be read: ${parsed.error}`)
+    return findings
+  }
+  if (parsed.entries.length === 0) {
+    record('doctor-action-copy-empty', `${fileLabel} ${tableName} is empty; every injected remedy belongs there`)
+  }
+  const scanned = tokenizeScript(source)
+  if (scanned.error) {
+    record('doctor-action-copy-unreadable', `${fileLabel} cannot be read: ${scanned.error}`)
+    return findings
+  }
+  const tokens = scanned.tokens
+  const used = new Set()
+  let injected = 0
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (!(token.type === 'ident' && token.value === 'action')) continue
+    if (!(tokens[index + 1]?.type === 'punct' && tokens[index + 1].value === ':')) continue
+    injected += 1
+    // Collect the value expression: everything up to the next top-level comma or
+    // the end of the enclosing object. A ternary is fine; the identifiers in both
+    // branches are resolved against the table below.
+    const value = []
+    let depth = 0
+    for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
+      const next = tokens[cursor]
+      if (next.type === 'punct') {
+        if (next.value === '(' || next.value === '[' || next.value === '{') depth += 1
+        else if (next.value === ')' || next.value === ']') depth -= 1
+        else if (next.value === '}') {
+          if (depth === 0) break
+          depth -= 1
+        } else if ((next.value === ',' || next.value === ';') && depth === 0) break
+      }
+      value.push(next)
+    }
+    let literal = false
+    for (const part of value) {
+      if (part.type !== 'string') continue
+      literal = true
+      checkBannedCopy({ file: fileLabel, path: 'action', text: part.value }, 'en', record, DOCTOR_COPY_CODES)
+    }
+    let referenced = 0
+    for (let cursor = 0; cursor < value.length; cursor += 1) {
+      if (!(value[cursor].type === 'ident' && value[cursor].value === tableName && value[cursor + 1]?.value === '.')) continue
+      const name = value[cursor + 2]?.value
+      if (!name) continue
+      referenced += 1
+      used.add(name)
+      if (!parsed.entries.some((entry) => entry.name === name)) {
+        record(
+          'doctor-action-copy-unknown',
+          `${fileLabel} injects ${tableName}.${name}, which the table does not define`,
+        )
+      }
+    }
+    if (literal && referenced === 0) {
+      record(
+        'doctor-action-copy-literal',
+        `${fileLabel} injects an action literal; keep the sentence in ${tableName} so the copy gate can check it`,
+      )
+    } else if (!literal && referenced === 0 && value[0]?.value !== 'undefined') {
+      record(
+        'doctor-action-copy-unparsed',
+        `${fileLabel} has an action the copy gate cannot follow; assign ${tableName}.<name> or undefined`,
+      )
+    }
+  }
+  if (injected === 0) {
+    record(
+      'doctor-action-copy-unparsed',
+      `${fileLabel} declares no action copy; the environment-health remedy would bypass the copy gate`,
+    )
+  }
+  for (const entry of parsed.entries) {
+    if (!used.has(entry.name)) {
+      record('doctor-action-copy-unused', `${fileLabel} ${tableName}.${entry.name} is never injected; remove it or read it from the action`)
+    }
+    checkBannedCopy({ file: fileLabel, path: `${tableName}.${entry.name}`, text: entry.text }, 'en', record, DOCTOR_COPY_CODES)
+    const placeholder = entry.text.match(/\{([A-Za-z][A-Za-z0-9_]*)\}/)
+    if (placeholder) {
+      record(
+        'doctor-action-copy-placeholder',
+        `${fileLabel} ${tableName}.${entry.name} leaves the placeholder "{${placeholder[1]}}" unfilled; the injected action is a literal sentence`,
+      )
+    }
+  }
+  return findings
+}
+
+/**
+ * #F75: scan every module that injects an environment-health action. A root that
+ * ships none of them (a narrow fixture) is skipped; a root that ships one must
+ * ship the rest, so a deleted module cannot quietly drop out of the gate.
+ *
+ * @param {string} root
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function checkDoctorActionCopy(root) {
+  const present = DOCTOR_ACTION_MODULES.filter((module) => fs.existsSync(path.join(root, module.file)))
+  if (present.length === 0) return []
+  const findings = []
+  for (const module of DOCTOR_ACTION_MODULES) {
+    const file = path.join(root, module.file)
+    if (!fs.existsSync(file)) {
+      findings.push(
+        finding('doctor-action-copy-missing', 'error', `${module.file} is missing; the environment-health action copy cannot be checked`),
+      )
+      continue
+    }
+    const source = fs.readFileSync(file, 'utf8')
+    findings.push(...actionCopyFindings(source, module.file, module.table))
+    if (module.checks) findings.push(...doctorCopyFindings(source, module.file))
+  }
+  return findings
 }
 
 /**
@@ -1396,6 +1553,68 @@ export function checkCopyGateSelfTest() {
       ["function doctor() { check('presets', 'fail', 'a preset is missing', 'install dsh-tower/preset-worker and restart DSH') }"].join('\n'),
     ),
     'doctor-copy-module',
+  )
+  // #F75: the doctor is assembled from sibling modules too. Their injected
+  // action copy is scanned with the same codes, and a literal action — the
+  // bypass that made the gate blind — is a failure of its own.
+  const cleanActionModule = [
+    'const DOCTOR_ACTION_COPY = Object.freeze({',
+    "  ralphLoop: 'finish or stop the loop before entering Tower mode',",
+    '})',
+    'export function fact() { return { row: { status: "warn", detail: "a loop is running", action: DOCTOR_ACTION_COPY.ralphLoop } } }',
+  ].join('\n')
+  expectClean('a clean injected environment-health remedy', actionCopyFindings(cleanActionModule, 'host/ralph-stance.js'))
+  expectFinding(
+    'a tool id in an injected environment-health remedy',
+    actionCopyFindings(
+      [
+        'const DOCTOR_ACTION_COPY = Object.freeze({',
+        "  ralphLoop: 'finish the loop, then run tower_recover',",
+        '})',
+        'export const row = { action: DOCTOR_ACTION_COPY.ralphLoop }',
+      ].join('\n'),
+      'host/ralph-stance.js',
+    ),
+    'doctor-copy-tool-id',
+  )
+  expectFinding(
+    'a slash command in an injected environment-health remedy',
+    actionCopyFindings(
+      [
+        'const DOCTOR_ACTION_COPY = Object.freeze({',
+        "  ralphLoop: 'stop the loop with /tower off first',",
+        '})',
+        'export const row = { action: DOCTOR_ACTION_COPY.ralphLoop }',
+      ].join('\n'),
+      'host/ralph-stance.js',
+    ),
+    'doctor-copy-command',
+  )
+  expectFinding(
+    'an injected remedy outside the copy table',
+    actionCopyFindings(
+      [
+        'const DOCTOR_ACTION_COPY = Object.freeze({',
+        "  ralphLoop: 'finish or stop the loop before entering Tower mode',",
+        '})',
+        'export const row = { action: "finish the loop, then run tower_recover" }',
+      ].join('\n'),
+      'host/compatibility.js',
+    ),
+    'doctor-action-copy-literal',
+  )
+  expectFinding(
+    'an injected remedy pointing outside the table',
+    actionCopyFindings(
+      [
+        'const DOCTOR_ACTION_COPY = Object.freeze({',
+        "  ralphLoop: 'finish or stop the loop before entering Tower mode',",
+        '})',
+        'export const row = { action: DOCTOR_ACTION_COPY.missing }',
+      ].join('\n'),
+      'host/ralph-stance.js',
+    ),
+    'doctor-action-copy-unknown',
   )
   return failures
 }
@@ -1931,6 +2150,10 @@ export async function checkComponents(root) {
   // gets a capability and a next step instead of an internal id.
   findings.push(...checkPrecheckErrorCopy(root))
   findings.push(...checkDoctorCopy(root))
+  // #F75: the doctor's sibling modules inject environment-health actions too;
+  // they are scanned with the same codes, and a literal action bypassing their
+  // copy table fails instead of slipping past the gate.
+  findings.push(...checkDoctorActionCopy(root))
   findings.push(...checkGlossaryFile(root))
   // #138.2: the route table is imported, so an absent file, a failed import or a
   // missing/non-Map export fails closed. An empty Map remains the correct

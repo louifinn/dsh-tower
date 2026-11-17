@@ -33,9 +33,9 @@
 | `spawn-unavailable` | subagents 服务不可用。 | 没有 `subagents` 的 Host |
 | `provider-missing` | 没有注册的 subagent provider。 | provider 列表为空 |
 | `provider-cooldown` | 连续可重试的 provider 失败后，spawn 进入短暂冷却。 | 等待 `blockedUntil` 后重试 |
-| `preset-missing` | 配置的 agent preset 未注册。 | 缺少 `tower-worker`/`tower-reviewer` preset 行、DSH 未重启 |
+| `preset-missing` | 该 Tower 配置需要的 agent preset 未注册。 | 配置变更或升级后所需的 preset 未注册，或安装后未重启 DSH |
 | `reviewer-prerequisite` | reviewer spawn 的前置条件未满足。 | mission 尚未 `completed` 或还没有 worktree 就 spawn reviewer |
-| `review-disabled` | 审查被 `review.mode:off` 关闭；该配置下没有 reviewer、审查结论或审查 blocker。 | `review.mode` 为 `off` 时以 `role:"reviewer"` 调用 `tower_spawn`，或提交审查 |
+| `review-disabled` | 本项目的插件配置已将合并前审查关闭，因此没有审查代理、审查结论或审查阻塞项。 | 在合并前审查关闭时启动审查代理，或记录一次审查 |
 | `not-authorized` | 调用方 agent 角色无权执行该操作。 | worker 调用仅限控制塔的工具，或修改 mission 状态/scope；reviewer 修改 finding |
 | `workspace-busy` | 另一个 Tower 会话持有该仓库的 workspace 锁。 | `mode.workspaceLock:true` 时第二个会话调用仓库级工具 |
 | `mode-store-corrupt` | 持久化的 Tower 模式存储不可读或已损坏，无法确定属主的模式。 | takeover 或读取模式时 `modes.json` 被截断、不是合法 JSON，或不是 `{version,modes}` 文档 |

@@ -336,8 +336,12 @@ test('review submission: off refuses before any state read', async () => {
     () => submitReview({ config: { review: { mode: 'off' } } }, { missionId: 'M1' }),
     (error) => {
       assert.equal(error.code, 'review-disabled')
+      // app/review.js still phrases its own message (F77 residual, out of
+      // M107's file scope); the registry fallback appended by
+      // renderErrorMessage must not name the configuration key (#F77).
       assert.match(error.message, /review\.mode is off/)
-      assert.match(String(error.nextAction), /review\.mode/)
+      assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
+      assert.doesNotMatch(String(error.nextAction), /review\.mode/)
       return true
     },
   )
@@ -349,8 +353,11 @@ test('reviewer spawn and preset validation: off refuses, optional/required allow
     () => assertSpawnableMission({ role: 'reviewer', context, config: { review: { mode: 'off' } } }),
     (error) => {
       assert.equal(error.code, 'review-disabled')
-      assert.match(error.message, /review\.mode is off/)
-      assert.match(String(error.nextAction), /review\.mode/)
+      // #F77: the spawn precondition speaks the operator's language; the
+      // configuration key stays out of the refusal and its next step.
+      assert.match(error.message, /review before merging is turned off in this project's plugin configuration/)
+      assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
       return true
     },
   )
@@ -370,7 +377,14 @@ test('reviewer spawn and preset validation: off refuses, optional/required allow
   )
   await assert.rejects(
     () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'required' } }),
-    /review before merging is set to required/,
+    (error) => {
+      assert.match(error.message, /review before merging is set to required/)
+      // #F79: a required reviewer preset that is switched off surfaces the
+      // visible plugin-page row, never the registered preset id.
+      assert.match(String(error.nextAction), /switch the Tower Reviewer preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
+      return true
+    },
   )
 })
 
@@ -567,7 +581,9 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
       () => call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'reviewer' }),
       (error) => {
         assert.equal(error.code, 'review-disabled')
-        assert.match(String(error.nextAction), /review\.mode/)
+        // #F77: the end-to-end refusal is operator copy too — no config key.
+        assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
+        assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
         return true
       },
     )

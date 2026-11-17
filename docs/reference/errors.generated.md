@@ -27,9 +27,9 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `spawn-unavailable` | The subagents service is unavailable. | no | enable the DSH subagents service, then retry |
 | `provider-missing` | No subagent provider is registered. | no | register a subagent provider in the DSH profile, then retry |
 | `provider-cooldown` | The provider is throttled; spawn is in a short cooldown. | yes | wait for the cooldown to expire, then retry |
-| `preset-missing` | The configured agent preset is not registered. | no | install the tower-worker and tower-reviewer agent presets and restart DSH |
+| `preset-missing` | The agent preset this Tower profile needs is not registered. | no | switch the required preset back on in the plugin page, then restart DSH |
 | `reviewer-prerequisite` | The reviewer spawn prerequisite is not met. | no | complete the mission first, then spawn the reviewer |
-| `review-disabled` | Review is disabled by `review.mode:off`; no reviewer, verdict, or review blocker exists in this configuration. | no | set review.mode to optional or required in the Tower config, then retry |
+| `review-disabled` | Review before merging is turned off in this project's plugin configuration, so no reviewer, verdict, or review blocker exists. | no | turn review before merging back on in the plugin page, or start an agent without requiring review |
 | `not-authorized` | The calling agent role may not perform this action. | no | call the tool as the tower, or as the worker/reviewer it is assigned to |
 | `workspace-busy` | Another Tower session owns this repository workspace lock. | yes | run /tower off in the other session or wait for its lock to become stale |
 | `mode-store-corrupt` | The persisted Tower mode store is unreadable or corrupt, so the owner's mode cannot be determined. | no | repair or move aside the mode store file, then re-enter Tower mode in the owning session and retry |
