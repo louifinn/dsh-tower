@@ -13,12 +13,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import * as realStore from '../adapters/store.js'
 import * as realGit from '../adapters/git.js'
 import { Tower } from '../host/tower.js'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { PORTS } from '../ports/index.js'
+import { STORE_OPTIONAL_METHODS } from '../ports/store.js'
 import { VCS_OPTIONAL_METHODS, VCS_PORT } from '../ports/vcs.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -31,7 +34,10 @@ const STORE_EXTRA_SURFACE = ['exists', 'ensureDir']
 const VCS_SURFACE = ['git', 'tryGit', 'revParse', 'isClean', 'isAncestor']
 // Optional capabilities, by deps member: declared for the guard, absent from the
 // required contract so an adapter without a filesystem still passes assertPort.
-const OPTIONAL_PORT_METHODS = new Map([['vcs', VCS_OPTIONAL_METHODS]])
+const OPTIONAL_PORT_METHODS = new Map([
+  ['vcs', VCS_OPTIONAL_METHODS],
+  ['store', STORE_OPTIONAL_METHODS],
+])
 
 function freshStore(options) {
   const store = createMemoryStore(options)
@@ -304,6 +310,66 @@ test('the in-memory doubles implement the store and vcs port contracts', () => {
     for (const method of port.contract.methods) {
       assert.equal(typeof impl[method], 'function', `${port.contract.name}.${method} must exist on the double`)
     }
+  }
+})
+
+test('the store stat result the directory fence reads is declared and implemented (F70)', async () => {
+  // app/tower.js plannedDirectorySet probes a bare scope entry and expands it
+  // only when the store's stat result exposes isDirectory(). The probe must be
+  // a declared capability of StorePort, so both implementations answer it.
+  const memory = createMemoryStore()
+  await memory.ensureDir('/virtual/repo/docs/guide')
+  const memoryDir = await memory.stat('/virtual/repo/docs/guide')
+  assert.equal(typeof memoryDir.mtimeMs, 'number')
+  assert.equal(memoryDir.isDirectory(), true)
+  await assert.rejects(() => memory.stat('/virtual/repo/missing'), /ENOENT/)
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-store-stat-'))
+  try {
+    fs.mkdirSync(path.join(root, 'docs', 'guide'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'README.md'), '# guide\n')
+    const deps = createDefaultDeps()
+    const fsDir = await deps.store.stat(path.join(root, 'docs', 'guide'))
+    assert.equal(typeof fsDir.mtimeMs, 'number')
+    assert.equal(fsDir.isDirectory(), true)
+    const fsFile = await deps.store.stat(path.join(root, 'README.md'))
+    assert.equal(fsFile.isDirectory(), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the commit-mutex recovery capability is optional, never required (F71)', () => {
+  assert.deepEqual([...STORE_OPTIONAL_METHODS].sort(), ['clearStateCommitLock', 'readStateCommitLock'])
+  assert.equal(
+    typeof realStore.readStateCommitLock,
+    'function',
+    'adapters/store.js must export the read-only commit-mutex inspector',
+  )
+  const fsStore = createDefaultDeps().store
+  for (const method of STORE_OPTIONAL_METHODS) {
+    assert.equal(typeof fsStore[method], 'function', `the filesystem store must expose ${method}`)
+    assert.ok(
+      !PORTS.store.contract.methods.includes(method),
+      `store.${method} must not be required: an in-memory store has no second writer to repair`,
+    )
+  }
+  assert.doesNotThrow(
+    () => PORTS.store.assert(createMemoryStore()),
+    'a store without the optional capability must stay a valid StorePort',
+  )
+})
+
+test('the port-call guard sees the optional commit-mutex reads in tools/ (F71)', () => {
+  const { calls, files } = collectPortCalls(new URL('../tools/', import.meta.url))
+  assert.ok(files > 0, 'tools/** must be scanned')
+  for (const method of STORE_OPTIONAL_METHODS) {
+    const entries = calls.get(`store.${method}`)
+    assert.ok(entries && entries.length > 0, `the guard must see deps?.store?.${method} in tools/`)
+    assert.ok(
+      entries.every((entry) => entry.optional),
+      `deps?.store?.${method} must be optional-chained`,
+    )
   }
 })
 
