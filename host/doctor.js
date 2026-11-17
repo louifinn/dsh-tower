@@ -17,7 +17,7 @@ import { hasTestReceipts } from '../domain/evidence.js'
 import { configSurface } from '../domain/config/schema.js'
 import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
-import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
+import { assessHostVersion, diagnoseHostVersion, readCompatibility, resolveHostVersion } from './compatibility.js'
 import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
@@ -153,19 +153,16 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const version = await gitVersion()
   checks.push(version ? check('git', 'pass', version) : check('git', 'fail', 'git is not available', 'install Git and retry'))
 
-  const detectedHost = hostVersion ?? detectHostVersion(ctx)
-  const compatibilityRows = readCompatibility(compatibilityFile)
-  const hostAssessment = assessHostVersion(detectedHost, compatibilityRows)
-  checks.push(
-    check(
-      'host-version',
-      hostAssessment.verdict === 'verified' ? 'pass' : 'warn',
-      detectedHost
-        ? `${detectedHost}: ${hostAssessment.detail}`
-        : `unknown host version; ${hostAssessment.detail}. Checked DSH_VERSION, DSH_HOST_VERSION, npm_config_dsh_version and DSH_INSTALL_DIR/package.json; include host version + COMPATIBILITY.md row in bug reports.`,
-      'record the running version in DSH_VERSION or DSH_INSTALL_DIR (or add a COMPATIBILITY.md row) and re-run tower_inspect with view: doctor',
-    ),
-  )
+  // #F65: an empty DSH_VERSION/DSH_HOST_VERSION is absent, not a version, and a
+  // DSH_INSTALL_DIR inside app.asar is unreadable by ordinary fs. Resolve with
+  // provenance, then let diagnoseHostVersion write the check and contract.
+  const callerHostVersion = typeof hostVersion === 'string' && hostVersion.trim() ? hostVersion.trim() : null
+  const hostReport = callerHostVersion
+    ? { version: callerHostVersion, source: 'caller', authoritative: true, detail: `${callerHostVersion} was supplied to doctor by the caller`, probes: [], asar: null }
+    : resolveHostVersion(ctx)
+  const hostAssessment = assessHostVersion(hostReport.version, readCompatibility(compatibilityFile))
+  const hostDiagnosis = diagnoseHostVersion(hostReport, hostAssessment)
+  checks.push(check('host-version', hostDiagnosis.status, hostDiagnosis.detail, hostDiagnosis.action))
 
   const rows = Array.isArray(loaderRows)
     ? loaderRows
@@ -781,7 +778,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       gitTimeoutMs: Number(tower.config.git?.timeoutMs) || 15000,
       mergeTimeoutMs: Number(tower.config.merge?.timeoutMs) || 900000,
       testsAdmission: tower.config.tests?.admission ?? 'off',
-      hostVersion: detectedHost,
+      ...hostDiagnosis.contract,
       hostCompatibility: hostAssessment.verdict,
       hostCompatibilityDetail: hostAssessment.detail,
       ralphLoop,
