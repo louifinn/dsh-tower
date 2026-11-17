@@ -13,10 +13,13 @@ import { lockRecord } from '../adapters/lock.js'
 import {
   isStateLockHeld,
   pathsFor,
+  readStateCommitLock,
+  stateCommitLockPath,
   stateLockToken,
   withLock,
   writeStateLocked,
 } from '../adapters/store.js'
+import { clearStateCommitLock } from '../adapters/store-fs.js'
 import { loadStateFile } from '../adapters/stateFile.js'
 
 function tempPaths() {
@@ -219,6 +222,101 @@ test('a lock mutated during state serialisation cannot slip a stale write throug
       [],
       'the aborted write must remove its temp file',
     )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F71: the commit mutex is a short-lived fence around one rename. It has no
+// heartbeat, so a leftover record from a dead PID is reclaimed by the next
+// acquisition, and a live-but-silent record is a visible wedge with an audited
+// recovery path instead of a file an operator has to delete by hand.
+
+test('a commit mutex left by a dead PID does not wedge the next state write (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 5000
+    fs.writeFileSync(
+      stateCommitLockPath(paths),
+      JSON.stringify({ token: 'dead-commit', pid: 999999, kind: 'state-commit', since: at, at }),
+    )
+    const inspected = await readStateCommitLock(paths)
+    assert.equal(inspected.record.token, 'dead-commit')
+    assert.equal(inspected.alive, false)
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.deepEqual(JSON.parse(fs.readFileSync(paths.state, 'utf8')), { ok: true, revision: 1 })
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false, 'the dead record must be reclaimed by acquisition')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a live-but-silent commit mutex blocks writes until an explicit force clears it (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 10000
+    const raw = JSON.stringify({ token: 'silent-commit', pid: process.pid, kind: 'state-commit', since: at, at })
+    fs.writeFileSync(stateCommitLockPath(paths), raw)
+
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { ok: true }, held.token, { commitLockTimeoutMs: 120, commitLockPollMs: 10 })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-busy')
+        assert.match(error.message, /commit mutex/)
+        assert.match(error.nextAction, /tower_recover clear-stale-lock/)
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false, 'the blocked write must not create state.json')
+
+    // A live PID is never moved without force, however old the record is.
+    await assert.rejects(() => clearStateCommitLock(paths), /still held by pid/)
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), raw)
+
+    const cleared = await clearStateCommitLock(paths, { force: true })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.equal(cleared.pid, process.pid)
+    assert.match(cleared.backup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false)
+    assert.equal(fs.readFileSync(cleared.backup, 'utf8'), raw, 'the moved record stays auditable')
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('commit-mutex recovery refuses a record that changed after inspection (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 5000
+    fs.writeFileSync(
+      stateCommitLockPath(paths),
+      JSON.stringify({ token: 'inspected', pid: 999999, kind: 'state-commit', since: at, at }),
+    )
+    const inspected = await readStateCommitLock(paths)
+    const newer = JSON.stringify({ token: 'newer', pid: 999999, kind: 'state-commit', since: at, at: at + 1 })
+    fs.writeFileSync(stateCommitLockPath(paths), newer)
+    await assert.rejects(
+      () => clearStateCommitLock(paths, { force: true, expectedRaw: inspected.raw }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-lock-changed')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), newer, 'a changed record must not be moved')
   } finally {
     removeTemp(root)
   }

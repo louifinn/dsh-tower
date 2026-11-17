@@ -8,10 +8,146 @@
 // the port yet.
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import { TowerToolError } from '../domain/errors.js'
 import * as store from './store.js'
+import { lockTiming, readLock } from './lock.js'
 
 const { createWriteStream } = fs
 export { fs, fsp, createWriteStream }
+
+/**
+ * Move a leftover commit mutex aside into an auditable backup (#F71).
+ *
+ * Safety: clearing this mutex alone does not let a second writer corrupt
+ * `state.json`. Every writer still has to hold the state lock, and the commit
+ * path re-verifies that lock, compares the exact document bytes before the
+ * rename, and classifies the landed document by revision
+ * (`classifyLandedState`, see `writeStateLocked`). If a holder is in fact
+ * alive, the `finally` covers its whole commit window and either it has already
+ * released the record (the ENOENT path below) or the recovery moves a record
+ * the holder no longer owns; the next acquisition's token CAS prevents the old
+ * holder from releasing a successor's record. The irreducible risk is the
+ * classic check→rename gap: a holder that acquires *after* this function's
+ * inspection and before its rename could have its record moved. That is why a
+ * live PID is never cleared without `force`, and why the backup is kept: the
+ * operator can see (and restore) exactly what was moved. Time alone is never
+ * used as proof of death.
+ *
+ * @param {{ dir: string, commitLock?: string }} paths
+ * @param {{ force?: boolean, now?: number | (() => number), expectedRaw?: string }} [options]
+ * @returns {Promise<{ held: boolean, cleared: boolean, pid: number | null, alive: boolean | null, backup: string | null, forced: boolean }>}
+ */
+export async function clearStateCommitLock(paths, options = {}) {
+  const lockPath = store.commitLockPath(paths)
+  const force = options.force === true
+  const inspected = await readLock(lockPath, options)
+  const failure = 'error' in inspected ? inspected.error : null
+  if (failure) {
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to recover ${lockPath}: the commit mutex could not be read (${failure})`,
+      {
+        retryable: false,
+        nextAction: `inspect ${lockPath} (it is a plain JSON lock record) and retry the recovery`,
+        details: { reason: 'state-commit-lock-unreadable', lockPath, error: failure },
+      },
+    )
+  }
+  if (!inspected.record) {
+    return { held: false, cleared: false, pid: null, alive: null, backup: null, forced: force }
+  }
+  if (typeof options.expectedRaw === 'string' && inspected.raw !== options.expectedRaw) {
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to recover ${lockPath}: the record changed while the recovery was deciding; no file was moved`,
+      {
+        retryable: true,
+        nextAction: 'run tower_recover with action:"status" again before retrying the clear',
+        details: { reason: 'state-commit-lock-changed', lockPath },
+      },
+    )
+  }
+  if (inspected.alive !== false && !force) {
+    const timing = inspected.timing ?? lockTiming(inspected.record, options)
+    throw new TowerToolError(
+      'state-locked',
+      `the state commit mutex at ${lockPath} is still held by pid ${inspected.record.pid ?? 'unknown'} (token ${inspected.record.token ?? 'missing'}, held for ${timing.ageMs ?? 'unknown'}ms); a live holder is never reclaimed automatically, because it may be between the last document check and its rename; confirm no Tower writer is active, then pass force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup`,
+      {
+        retryable: false,
+        nextAction:
+          'retry after the in-flight commit finishes; if the process is gone or stopped, run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK"',
+        details: {
+          reason: 'state-commit-lock-live',
+          lockPath,
+          holderPid: inspected.record.pid ?? null,
+          holderToken: inspected.record.token ?? null,
+          heldMs: timing.ageMs ?? null,
+        },
+      },
+    )
+  }
+  // Always rename, never unlink: the record stays auditable. The plain rename
+  // is used for the same reason as tools/recover.js: renameWithRetry has
+  // temp-file semantics and would delete the bytes on a terminal failure.
+  const backup = `${lockPath}.recovered-${Date.now()}`
+  try {
+    await fsp.rename(lockPath, backup)
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      // The holder released (or another recovery moved) the record between the
+      // read above and the rename. Nothing is left to clear; do not invent a
+      // backup file.
+      return {
+        held: false,
+        cleared: false,
+        pid: inspected.record.pid ?? null,
+        alive: inspected.alive,
+        backup: null,
+        forced: force,
+      }
+    }
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to recover ${lockPath}: the record could not be moved to ${backup} (${error?.message ?? error})`,
+      {
+        retryable: true,
+        nextAction: `inspect ${lockPath} and ${backup}, then retry tower_recover`,
+        details: { reason: 'state-commit-lock-move-failed', lockPath, backup, error: String(error?.message ?? error) },
+      },
+    )
+  }
+  // Detect a record that replaced the one we inspected between the read and
+  // the rename: put the newer bytes back with an exclusive create (EEXIST means
+  // yet another writer owns the path) and leave the bytes auditable either way.
+  const movedRaw = await fsp.readFile(backup, 'utf8')
+  if (movedRaw !== inspected.raw) {
+    let restored = false
+    try {
+      await fsp.copyFile(backup, lockPath, fs.constants.COPYFILE_EXCL)
+      restored = true
+      await fsp.unlink(backup)
+    } catch {}
+    throw new TowerToolError(
+      'state-locked',
+      `refusing to recover ${lockPath}: the record changed while it was being moved; ${
+        restored ? 'the newer record was restored' : `the moved bytes are preserved at ${backup}`
+      }`,
+      {
+        retryable: true,
+        nextAction: 'run tower_recover with action:"status" and retry; a live writer must not lose its mutex',
+        details: { reason: 'state-commit-lock-changed', lockPath, backup: restored ? null : backup },
+      },
+    )
+  }
+  return {
+    held: true,
+    cleared: true,
+    pid: inspected.record.pid ?? null,
+    alive: inspected.alive,
+    backup,
+    forced: force,
+  }
+}
 
 /**
  * Build the filesystem store port (#69).
@@ -23,6 +159,13 @@ export { fs, fsp, createWriteStream }
 export function createStorePort() {
   return Object.freeze({
     ...store,
+    // Optional StorePort capability (#F71): the fs adapter owns the recovery
+    // rename, while the read-only inspector comes with `...store`.
+    clearStateCommitLock,
+    // fs.Stats satisfies the StorePort stat result ({ mtimeMs, isDirectory() },
+    // plus an optional size app/git-locks.js compares when present), so the
+    // directory probe in app/tower.js reads a declared capability instead of
+    // duck-typing an undeclared method (#F70).
     stat: (file) => fsp.stat(file),
     unlink: (file) => fsp.unlink(file),
     readText: (file) => fsp.readFile(file, 'utf8'),

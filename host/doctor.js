@@ -5,8 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fsp } from '../adapters/store-fs.js'
 import { git } from '../adapters/git.js'
-import { inspectActivityLog, readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
-import { lockTiming } from '../adapters/persistence.js'
+import { inspectActivityLog, readStateLock, readStateCommitLock, readGitLock, gitLockView } from '../adapters/store.js'
 import { inspectArchive } from '../adapters/archive.js'
 import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
@@ -22,7 +21,7 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck } from './doctor-acceptance.js'
+import { artifactAcceptanceCheck, commitLockFacts, stateLockFacts } from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -154,6 +153,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const checks = []
   let reportsReport = null
   let stateLockReport = null
+  let commitLockReport = null
   const version = await gitVersion()
   checks.push(version ? check('git', 'pass', version) : check('git', 'fail', 'git is not available', 'install Git and retry'))
 
@@ -478,48 +478,15 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   checks.push(hmr ? check('hmr', 'pass', 'service mounted') : check('hmr', 'warn', 'HMR is not mounted; /tower reload is unavailable'))
 
   if (state) {
-    const lock = await readStateLock(tower.paths)
-    const timing = lockTiming(lock.record)
-    stateLockReport = {
-      held: Boolean(lock.record),
-      pid: lock.record?.pid ?? null,
-      startedAt: lock.record?.startedAt ?? null,
-      at: lock.record?.at ?? null,
-      alive: lock.alive,
-      ageMs: timing.ageMs,
-      heartbeatAgeMs: timing.heartbeatAgeMs,
-      staleAfterMs: timing.staleAfterMs,
-      stale: timing.stale,
-    }
-    // The PID alone cannot distinguish a live writer from a recycled PID
-    // (#92); report the heartbeat age so a stuck tower is diagnosable without
-    // reading the file.
-    const heartbeatText =
-      timing.heartbeatAgeMs === null
-        ? 'no heartbeat timestamp'
-        : `last heartbeat ${timing.heartbeatAgeMs}ms ago (stale after ${timing.staleAfterMs}ms)`
-    checks.push(
-      !lock.record
-        ? check('state-lock', 'pass', 'no state lock file')
-        : lock.alive === false
-          ? check(
-              'state-lock',
-              'warn',
-              `stale state lock (pid ${lock.record.pid ?? 'unknown'} is gone; ${heartbeatText}); the next mutation reclaims it atomically`,
-            )
-          : timing.stale
-            ? check(
-                'state-lock',
-                'warn',
-                `state lock pid ${lock.record.pid ?? 'unknown'} is alive but silent (${heartbeatText}); a live-but-silent holder is never reclaimed automatically`,
-                'confirm the process is gone (or stop it), then run the clear-stale-lock recovery step with force:true and confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
-              )
-            : check(
-                'state-lock',
-                'warn',
-                `state lock held by pid ${lock.record.pid ?? 'unknown'}; ${heartbeatText}; retry after it finishes`,
-              ),
-    )
+    const stateLock = stateLockFacts(await readStateLock(tower.paths))
+    stateLockReport = stateLock.report
+    checks.push(stateLock.check)
+    // #F71: a leftover commit mutex makes every state write fail with
+    // state-commit-busy; report it next to the state lock so the recovery
+    // command is visible instead of requiring a manual file deletion.
+    const commitLock = commitLockFacts(await readStateCommitLock(tower.paths))
+    commitLockReport = commitLock.report
+    checks.push(commitLock.check)
     const lockDir = path.join(tower.commonDir, 'dsh-tower', 'tower.lock')
     // Same ownership facts as the tower-owner check above: no second lock read
     // with a different rule, and no duplicated roster/mode logic.
@@ -744,6 +711,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     // can compare doctor with tower_status instead of re-deriving the rules.
     ownership: ownershipFacts?.snapshot ?? null,
     stateLock: stateLockReport,
+    commitLock: commitLockReport,
     gitLock,
     stateSchema: schemaReport.stateSchema,
 // reports (from #89) and archive (from #73) are both kept

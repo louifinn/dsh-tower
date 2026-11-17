@@ -184,6 +184,19 @@ run `tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"
 lock record to a backup instead of deleting it. This makes a recycled PID diagnosable without
 reading `state.lock` by hand.
 
+`commitLock` (and the `commit-lock` check) reports the short-lived state-commit mutex
+`state.commit.lock`: `{held, pid, token, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`.
+This mutex fences one serialise→rename→read-back window, so a record that outlives its process is a
+leftover fence and every later state write fails with `state-commit-busy`. A dead holder is
+reclaimed atomically by the next mutation; a live-but-silent holder is never reclaimed
+automatically. After confirming the writer is gone (or stopping it), run
+`tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; the record is renamed
+to a backup (`commitBackup` in the recover output), never deleted. Doctor only reports this record;
+it never clears it. Clearing the mutex does not weaken the writer fence: every commit still
+verifies the state-lock token and the exact `state.json` bytes before the rename and classifies the
+landed revision afterwards, so a stale writer that lost a race fails closed instead of overwriting
+the successor's document.
+
 `ownership` (and the `tower-owner`/`workspace-lock` checks) is the same read-only ownership snapshot
 `tower_inspect` with `view: "status"` returns, or `null` when the state or ownership facts could not be read. It contains
 `owner`, `caller`, `sameOwner`, `ownerMode`, `modeStoreStatus`, `modeStoreFile`, `modeStoreError`,

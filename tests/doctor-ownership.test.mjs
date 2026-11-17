@@ -27,7 +27,7 @@ import {
   readCompatibility,
   resolveHostVersion,
 } from '../host/compatibility.js'
-import { writeJsonAtomic } from '../adapters/store.js'
+import { writeJsonAtomic, stateCommitLockPath } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
 import { validateJsonSchema } from './schema-validator.mjs'
@@ -358,6 +358,74 @@ test('doctor: a live-but-silent state lock is never called reclaimable (F32)', a
     assert.match(lockCheck.action, /CLEAR_STALE_LOCK/)
     assert.doesNotMatch(lockCheck.action, /tower_recover/)
     assert.equal(fs.existsSync(stateLockFile), true, 'doctor must not reclaim or remove the lock record')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor and recover handle a leftover commit mutex without manual deletion (F71)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const commitLockFile = stateCommitLockPath(tower.paths)
+    const at = Date.now() - 10000
+    fs.writeFileSync(
+      commitLockFile,
+      JSON.stringify({ token: 'leftover-commit', pid: process.pid, kind: 'state-commit', since: at, at }),
+    )
+
+    // Doctor reports the record and names the audited recovery command.
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.equal(doctor.commitLock.held, true)
+    assert.equal(doctor.commitLock.pid, process.pid)
+    assert.equal(doctor.commitLock.stale, true)
+    const commitCheck = doctor.checks.find((entry) => entry.id === 'commit-lock')
+    assert.equal(commitCheck.status, 'warn')
+    assert.match(commitCheck.detail, /alive but silent/)
+    assert.match(commitCheck.detail, /never reclaimed automatically/)
+    assert.match(commitCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(commitCheck.action, /CLEAR_STALE_LOCK/)
+    assert.equal(fs.existsSync(commitLockFile), true, 'doctor must never move the record')
+
+    // status sees the same record; an unforced clear refuses the live PID.
+    const status = await call(tools, 'tower_recover', { repoRoot: repo, action: 'status' }, OWNER)
+    assert.equal(status.commitLock.pid, process.pid)
+    assert.equal(status.commitLock.alive, true)
+    assert.equal(status.stateLock, null)
+    await assert.rejects(
+      () =>
+        call(
+          tools,
+          'tower_recover',
+          { repoRoot: repo, action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK' },
+          OWNER,
+        ),
+      /commit mutex/,
+    )
+    assert.equal(fs.existsSync(commitLockFile), true)
+
+    // force moves the record to a backup and the writer is usable again.
+    const cleared = await call(
+      tools,
+      'tower_recover',
+      { repoRoot: repo, action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK', force: true },
+      OWNER,
+    )
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.match(cleared.commitBackup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(commitLockFile), false)
+    assert.equal(fs.existsSync(cleared.commitBackup), true, 'the moved record must remain auditable')
+
+    await tower.withStateLock(async (_paths, held) => {
+      const state = await tower.load()
+      state.revision += 1
+      state.updatedAt = Date.now()
+      await tower.writeState(state, held)
+    })
+    assert.equal(JSON.parse(fs.readFileSync(tower.paths.state, 'utf8')).revision, 1)
   } finally {
     removeTemp(root)
   }
