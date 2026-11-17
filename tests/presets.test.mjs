@@ -144,11 +144,12 @@ test('#131: spawn.requireLease with the tower-leases row off is refused at runti
       () => assertRuntimePreconditions(ctx, { spawn: { requireLease: 'heavy-ci' } }),
       (error) => {
         assert.equal(error.code, 'config-invalid')
-        // The error must name the row *and* both ways out: the config side and the
-        // component side are equally plausible mistakes.
-        assert.match(error.message, /tower-leases/)
-        assert.match(error.message, /tower_resource is not registered/)
-        assert.match(error.message, /Re-enable the tower-leases component or clear spawn\.requireLease/)
+        // The error must name the row *and* both ways out by their user-visible
+        // names: the config side and the component side are equally plausible
+        // mistakes, and neither may be spelled as an internal id.
+        assert.match(error.message, /Lease coordination/)
+        assert.match(error.message, /plugin page/)
+        assert.match(error.message, /clear the lease requirement/)
         return true
       },
     )
@@ -245,9 +246,9 @@ test('preset validation fails closed before work starts (#64)', async () => {
     () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'required' } }),
     (error) => {
       assert.equal(error.code, 'preset-missing')
-      assert.match(error.message, /tower-reviewer/)
-      assert.match(error.message, /preset-tower-reviewer/)
-      assert.match(error.message, /review\.mode is required/)
+      assert.match(error.message, /Tower Reviewer preset/)
+      assert.match(error.message, /plugin page/)
+      assert.match(error.message, /review before merging is set to required/)
       return true
     },
   )
@@ -262,7 +263,7 @@ test('preset validation fails closed before work starts (#64)', async () => {
     await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'optional' } }),
     { checked: true, missing: [] },
   )
-  await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /preset-tower-worker/)
+  await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /Tower Worker preset/)
   assert.deepEqual(await assertPresetsAvailable(ctxWith(['tower-worker', 'tower-reviewer']), {}), { checked: true, missing: [] })
   assert.deepEqual(await assertPresetsAvailable({ get: () => undefined }, {}), { checked: false, missing: [] })
 })
