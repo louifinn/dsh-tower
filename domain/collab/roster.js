@@ -39,14 +39,22 @@ export function clearStale(entry) {
 
 /**
  * Count repeated absence observations and list rows ready to adopt.
+ *
+ * A candidate needs both repeated observations and, when `windowMs` is set, a
+ * span of at least that long between the first and the current observation.
+ * The watchdog passes twice `spawn.staleMs` so one missed sweep can never stale
+ * a live worker (#F73); callers that omit `windowMs` keep the historical
+ * count-only behavior (a single authoritative sweep may still adopt).
  * @param {RosterEntry[]} roster
- * @param {{ present?: unknown[], absent?: unknown[], confirmations?: unknown }} observations
+ * @param {{ present?: unknown[], absent?: unknown[], confirmations?: unknown, windowMs?: unknown }} observations
  * @param {number} now
  * @returns {{ candidates: string[], changed: boolean }}
  */
-export function recordRosterObservations(roster, { present = [], absent = [], confirmations = 2 }, now) {
+export function recordRosterObservations(roster, { present = [], absent = [], confirmations = 2, windowMs = 0 }, now) {
   const presentIds = new Set(present)
   const absentIds = new Set(absent)
+  const required = Math.max(2, Number(confirmations) || 2)
+  const window = Number(windowMs) || 0
   /** @type {string[]} */
   const candidates = []
   let changed = false
@@ -64,9 +72,10 @@ export function recordRosterObservations(roster, { present = [], absent = [], co
     entry.absentSince ??= now
     changed = true
     const observations = /** @type {number} */ (entry.absentObservations)
-    if (observations >= Math.max(2, Number(confirmations) || 2)) {
-      candidates.push(/** @type {string} */ (entry.agentId))
-    }
+    if (observations < required) continue
+    const since = Number(entry.absentSince ?? now)
+    if (window > 0 && now - since < window) continue
+    candidates.push(/** @type {string} */ (entry.agentId))
   }
   return { candidates, changed }
 }

@@ -268,6 +268,14 @@ narrower than `bug` and mutually exclusive with it for a shipped break: a user
 could rely on the old behavior, so the record must say which release broke it and
 which test prevents it from happening again.
 
+Roster truth is the load-bearing incident rule (F73): absence of a catalog
+observation is not death. A live roster row may only become stale after
+consecutive missing observations spanning twice `spawn.staleMs`, never from an
+empty or partial catalog; a row already marked stale that calls
+`tower_complete` itself must be revived, because a stopped worker cannot call
+tools. Keep the default `spawn.staleMs` at least three times the watchdog poll
+interval (10 s); `tests/roster-watchdog.test.mjs` pins all three guards.
+
 A closed `regression` issue carries the six-field record from
 [docs/operations/incident.md](docs/operations/incident.md) (symptom, introduced in,
 blast radius, root cause and fix, regression test, released in). The one checkable

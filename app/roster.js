@@ -8,16 +8,17 @@ import {
   retireEntries,
   markMissingEntries,
   sweepRosterState,
+  clearStale,
 } from '../domain/collab/roster.js'
 import { unreadMessages } from '../domain/collab/messages.js'
 
-export async function recordRosterObservations(tower, { present = [], absent = [], confirmations = 2 }) {
+export async function recordRosterObservations(tower, { present = [], absent = [], confirmations = 2, windowMs = 0 }) {
     return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const now = Date.now()
       const { candidates, changed } = recordObservations(
         state.roster ?? [],
-        { present, absent, confirmations },
+        { present, absent, confirmations, windowMs },
         now,
       )
       if (changed) {
@@ -27,6 +28,90 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         await tower.writeState(state, held)
       }
       return { candidates }
+    })
+  }
+
+  /**
+   * Accept a stale row's own completion report (#F73).
+   *
+   * A worker that calls `tower_complete` is, by that act, alive: a stopped
+   * child cannot call a tool. When the watchdog has mis-marked the row stale
+   * (a transiently empty catalog, one missed observation), refusing the report
+   * strands the mission and leaves a live child that can neither finish nor
+   * re-register. Revive exactly that row — the caller must be the row's own
+   * agent id and mission — and record why in the activity log. Any other
+   * terminal state (failed/interrupted/missing/retired) still refuses in
+   * `assertCompletionRequest`; this cannot resurrect a worker that never
+   * called a tool.
+   * @param {any} tower
+   * @param {{ missionId: string, agentId: string }} input
+   * @returns {Promise<{ revived: boolean, name?: string, priorState?: string }>}
+   */
+  export async function reviveStaleSelfReporter(tower, { missionId, agentId }) {
+    return tower.withStateLock(async (_paths, held) => {
+      const state = await tower.load()
+      const now = Date.now()
+      const entry = (state.roster ?? []).find(
+        (row) => String(row.agentId) === String(agentId) && row.missionId === missionId,
+      )
+      if (!entry || entry.state !== 'stale') return { revived: false }
+      const priorState = entry.state
+      entry.state = 'active'
+      clearStale(entry)
+      // The absence evidence described the old mis-marked state; a revived row
+      // starts observing again from scratch.
+      delete entry.absentObservations
+      delete entry.absentSince
+      entry.revivedAt = now
+      entry.revivedReason = 'self-reported completion (a live worker cannot be judged dead)'
+      state.revision += 1
+      state.updatedAt = now
+      validateState(state, tower.paths.state)
+      await tower.writeState(state, held)
+      await tower.appendActivity({
+        at: now,
+        type: 'roster',
+        missionId,
+        text: `revived ${entry.name} from stale: it called tower_complete itself, so the child is alive (F73)`,
+      })
+      return { revived: true, name: entry.name, priorState }
+    })
+  }
+
+  /**
+   * Close the roster row of a worker whose own completion was just accepted.
+   * The mission is already completed; leaving the row `active` would keep a
+   * dead-or-exiting child in the live budget and let a later miss stale it
+   * again. There is no `completed` roster state (domain/roster.js owns that
+   * vocabulary), so the terminal mapping is `inactive` plus an outcome that
+   * names the self report.
+   * @param {any} tower
+   * @param {{ missionId: string, agentId: string }} input
+   * @returns {Promise<{ marked: boolean }>}
+   */
+  export async function markSelfReportedCompletion(tower, { missionId, agentId }) {
+    return tower.withStateLock(async (_paths, held) => {
+      const state = await tower.load()
+      const now = Date.now()
+      const entry = (state.roster ?? []).find(
+        (row) => String(row.agentId) === String(agentId) && row.missionId === missionId,
+      )
+      if (!entry || entry.state !== 'active') return { marked: false }
+      entry.state = 'inactive'
+      entry.outcome = 'completed (self-report)'
+      entry.outcomeAt = now
+      clearStale(entry)
+      state.revision += 1
+      state.updatedAt = now
+      validateState(state, tower.paths.state)
+      await tower.writeState(state, held)
+      await tower.appendActivity({
+        at: now,
+        type: 'roster',
+        missionId,
+        text: `marked ${entry.name} inactive after self-reported completion (F73)`,
+      })
+      return { marked: true }
     })
   }
 

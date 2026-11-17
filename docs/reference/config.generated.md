@@ -40,7 +40,7 @@
 | `spawn.reviewerModel` | `{}` | Model route for reviewers; omitted inherits the parent session (recommended). |
 | `spawn.surveyModel` | `{}` | Model route for survey workers; omitted inherits the parent session. |
 | `spawn.maxLiveWorkers` | `4` | Maximum live worker entries allowed per repository at once. |
-| `spawn.staleMs` | `15000` | Roster entries with no catalog activity after this age are marked stale and block merge (0 disables). |
+| `spawn.staleMs` | `30000` | Roster entries older than this age that an authoritative catalog has not shown for consecutive misses spanning twice this window are marked stale and block merge (0 disables; an empty/partial catalog never marks). |
 | `spawn.maxWaitMs` | `90000` | Upper bound for a blocking tower_spawn wait (default 90s, Kimi-compatible). |
 | `spawn.requireLease` | `` | Optional lease name tower_spawn must hold before starting a worker. |
 | `send.maxPerMinute` | `120` | Process-local advisory tower_send rate limit per minute (0 disables): an in-memory counter per process and repository, not a cross-process quota. |

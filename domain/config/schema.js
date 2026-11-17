@@ -197,8 +197,10 @@ export const Config = Schema.object({
       .description('Maximum live worker entries allowed per repository at once.'),
     staleMs: Schema.natural()
       .min(0)
-      .default(15000)
-      .description('Roster entries with no catalog activity after this age are marked stale and block merge (0 disables).'),
+      .default(30000)
+      .description(
+        'Roster entries older than this age that an authoritative catalog has not shown for consecutive misses spanning twice this window are marked stale and block merge (0 disables; an empty/partial catalog never marks).',
+      ),
     maxWaitMs: Schema.natural()
       .min(1000)
       .max(600000)
