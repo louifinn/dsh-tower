@@ -182,20 +182,28 @@ automatically**. Only a lock whose PID is provably dead is reclaimed, atomically
 mutation. Recovering a live-but-silent lock requires the operator to confirm the process is gone and
 run `tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; that moves the
 lock record to a backup instead of deleting it. This makes a recycled PID diagnosable without
-reading `state.lock` by hand.
+reading `state.lock` by hand. A lock file that exists but cannot be parsed (a torn write) is reported
+as `unreadable: true` with `path` and the reader `error`; the `state-lock` check is a `warn` (never a
+pass) and names the same force recovery, which renames the unreadable bytes to a unique numeric
+`.recovered-<timestamp><tick>` backup instead of deleting them.
 
 `commitLock` (and the `commit-lock` check) reports the short-lived state-commit mutex
-`state.commit.lock`: `{held, pid, token, at, alive, ageMs, heartbeatAgeMs, staleAfterMs, stale}`.
-This mutex fences one serialise→rename→read-back window, so a record that outlives its process is a
-leftover fence and every later state write fails with `state-commit-busy`. A dead holder is
-reclaimed atomically by the next mutation; a live-but-silent holder is never reclaimed
-automatically. After confirming the writer is gone (or stopping it), run
+`state.commit.lock`: `{held, unreadable, path, error, pid, token, at, alive, ageMs, heartbeatAgeMs,
+staleAfterMs, stale}`. This mutex fences one serialise→rename→read-back window, so a record that
+outlives its process is a leftover fence and every later state write fails with `state-commit-busy`.
+A dead holder is reclaimed atomically by the next mutation; a live-but-silent holder is never
+reclaimed automatically. After confirming the writer is gone (or stopping it), run
 `tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; the record is renamed
-to a backup (`commitBackup` in the recover output), never deleted. Doctor only reports this record;
-it never clears it. Clearing the mutex does not weaken the writer fence: every commit still
-verifies the state-lock token and the exact `state.json` bytes before the rename and classifies the
-landed revision afterwards, so a stale writer that lost a race fails closed instead of overwriting
-the successor's document.
+to a unique numeric `.recovered-<timestamp><tick>` backup (`commitBackup` in the recover output),
+never deleted.
+An unreadable mutex — a prefix of the JSON record left by a crash — is reported with
+`unreadable: true` and its `error`, and its check is a `warn`, not a `pass`: the file is still a
+fence that every write keeps failing on. Without `force` the recovery refuses it with
+`state-commit-lock-unreadable`; with `force` the exact bytes are renamed to the same kind of backup.
+Doctor only reports this record; it never clears it. Clearing the mutex does not weaken the writer
+fence: every commit still verifies the state-lock token and the exact `state.json` bytes before the
+rename and classifies the landed revision afterwards, so a stale writer that lost a race fails
+closed instead of overwriting the successor's document.
 
 `ownership` (and the `tower-owner`/`workspace-lock` checks) is the same read-only ownership snapshot
 `tower_inspect` with `view: "status"` returns, or `null` when the state or ownership facts could not be read. It contains

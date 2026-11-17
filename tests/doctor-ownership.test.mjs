@@ -431,6 +431,85 @@ test('doctor and recover handle a leftover commit mutex without manual deletion 
   }
 })
 
+test('doctor warns on an unreadable commit mutex instead of passing it (F71)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const commitLockFile = stateCommitLockPath(tower.paths)
+    // A torn write: the mutex is created with `wx`, not atomically, so a crash
+    // can leave a prefix of the JSON record behind.
+    const raw = '{"token":"torn",'
+    fs.writeFileSync(commitLockFile, raw)
+
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.equal(doctor.commitLock.unreadable, true)
+    assert.equal(doctor.commitLock.held, false)
+    assert.equal(typeof doctor.commitLock.error, 'string')
+    assert.equal(doctor.commitLock.path, commitLockFile)
+    const commitCheck = doctor.checks.find((entry) => entry.id === 'commit-lock')
+    assert.equal(commitCheck.status, 'warn', 'an unreadable record is a wedge, not a pass')
+    assert.match(commitCheck.detail, /unreadable/i)
+    assert.match(commitCheck.detail, /state-commit-busy/)
+    assert.match(commitCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(commitCheck.action, /CLEAR_STALE_LOCK/)
+    assert.equal(
+      doctor.checks.find((entry) => entry.id === 'state-lock').status,
+      'pass',
+      'the state writer lock itself is fine',
+    )
+    assert.equal(fs.existsSync(commitLockFile), true, 'doctor must never move the record')
+
+    // status used to answer "no commit lock" here; it must report the record.
+    const status = await call(tools, 'tower_recover', { repoRoot: repo, action: 'status' }, OWNER)
+    assert.equal(status.stateLock, null)
+    assert.equal(status.commitLock.unreadable, true)
+    assert.equal(typeof status.commitLock.error, 'string')
+
+    // An unforced clear refuses (never a silent cleared:false) and keeps the file.
+    await assert.rejects(
+      () =>
+        call(
+          tools,
+          'tower_recover',
+          { repoRoot: repo, action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK' },
+          OWNER,
+        ),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-lock-unreadable')
+        assert.match(error.nextAction, /force:true/)
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(commitLockFile, 'utf8'), raw)
+
+    // force moves (never deletes) the bytes and the writer is usable again.
+    const cleared = await call(
+      tools,
+      'tower_recover',
+      { repoRoot: repo, action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK', force: true },
+      OWNER,
+    )
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.match(cleared.commitBackup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(commitLockFile), false)
+    assert.equal(fs.readFileSync(cleared.commitBackup, 'utf8'), raw, 'the unreadable bytes stay auditable')
+
+    await tower.withStateLock(async (_paths, held) => {
+      const state = await tower.load()
+      state.revision += 1
+      state.updatedAt = Date.now()
+      await tower.writeState(state, held)
+    })
+    assert.equal(JSON.parse(fs.readFileSync(tower.paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor: a merged mission whose worktree is gone is advisory, not a failure (F61)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx()

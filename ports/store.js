@@ -22,7 +22,7 @@ import { assertPort, definePort } from './contract.js'
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText
  * @property {(from: string, to: string) => Promise<void>} rename
  * @property {(from: string, to: string) => Promise<void>} renameWithRetry
- * @property {(from: string, to: string) => Promise<void>} copyFileExclusive
+ * @property {(from: string, to: string) => Promise<void>} [copyFileExclusive]
  * @property {(file: string) => Promise<{ mtimeMs: number, size?: number, isDirectory(): boolean }>} stat
  * @property {(file: string) => Promise<void>} unlink
  * @property {(paths: object, options?: object) => Promise<{ record: any, raw: string | null }>} readGitLock
@@ -39,8 +39,9 @@ import { assertPort, definePort } from './contract.js'
 //
 // `copyFileExclusive` is an optional filesystem capability rather than a
 // required method: an in-memory implementation has no filesystem and need not
-// provide it. It is declared here because the only caller,
-// `removeStaleGitLocks` in app/tower.js, must never fall back to the
+// provide it, so it is listed in `STORE_OPTIONAL_METHODS` below like the
+// commit-mutex repair methods. It is declared here because the only caller,
+// `removeStaleGitLocks` in app/git-locks.js, must never fall back to the
 // overwriting `rename` when the capability is absent — it keeps the quarantined
 // lock as evidence instead. The filesystem implementation in
 // adapters/store-fs.js always provides it; its EEXIST outcome is the CAS that
@@ -60,7 +61,11 @@ import { assertPort, definePort } from './contract.js'
 // `tower_recover` feature-detects these two methods and reports no commit lock
 // when the capability is absent, so they are declared optional here rather than
 // widening the required contract (#F71).
-export const STORE_OPTIONAL_METHODS = Object.freeze(['readStateCommitLock', 'clearStateCommitLock'])
+export const STORE_OPTIONAL_METHODS = Object.freeze([
+  'readStateCommitLock',
+  'clearStateCommitLock',
+  'copyFileExclusive',
+])
 export const STORE_PORT = definePort('StorePort', [
   'pathsFor',
   'exists',

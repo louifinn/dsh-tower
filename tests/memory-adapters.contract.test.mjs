@@ -339,8 +339,12 @@ test('the store stat result the directory fence reads is declared and implemente
   }
 })
 
-test('the commit-mutex recovery capability is optional, never required (F71)', () => {
-  assert.deepEqual([...STORE_OPTIONAL_METHODS].sort(), ['clearStateCommitLock', 'readStateCommitLock'])
+test('the commit-mutex and exclusive-copy capabilities are optional, never required (F71)', async () => {
+  assert.deepEqual([...STORE_OPTIONAL_METHODS].sort(), [
+    'clearStateCommitLock',
+    'copyFileExclusive',
+    'readStateCommitLock',
+  ])
   assert.equal(
     typeof realStore.readStateCommitLock,
     'function',
@@ -351,19 +355,37 @@ test('the commit-mutex recovery capability is optional, never required (F71)', (
     assert.equal(typeof fsStore[method], 'function', `the filesystem store must expose ${method}`)
     assert.ok(
       !PORTS.store.contract.methods.includes(method),
-      `store.${method} must not be required: an in-memory store has no second writer to repair`,
+      `store.${method} must not be required: an in-memory store has no second writer or filesystem to repair`,
     )
   }
   assert.doesNotThrow(
     () => PORTS.store.assert(createMemoryStore()),
-    'a store without the optional capability must stay a valid StorePort',
+    'a store without the optional capabilities must stay a valid StorePort',
   )
+  // O_EXCL copy is the CAS that keeps a quarantined Git lock from replacing a
+  // newer record; the memory double omits it, and only the fs store answers.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-store-copy-'))
+  try {
+    const from = path.join(root, 'quarantined')
+    const to = path.join(root, 'live')
+    fs.writeFileSync(from, 'quarantined-lock')
+    await fsStore.copyFileExclusive(from, to)
+    assert.equal(fs.readFileSync(to, 'utf8'), 'quarantined-lock')
+    await assert.rejects(() => fsStore.copyFileExclusive(from, to), { code: 'EEXIST' })
+    assert.equal(fs.readFileSync(to, 'utf8'), 'quarantined-lock', 'an existing record is never replaced')
+    assert.equal(typeof createMemoryStore().copyFileExclusive, 'undefined')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('the port-call guard sees the optional commit-mutex reads in tools/ (F71)', () => {
   const { calls, files } = collectPortCalls(new URL('../tools/', import.meta.url))
   assert.ok(files > 0, 'tools/** must be scanned')
-  for (const method of STORE_OPTIONAL_METHODS) {
+  // copyFileExclusive is declared optional too, but its only caller is
+  // app/git-locks.js (outside this tools/ scan); only the commit-mutex methods
+  // are expected to appear here.
+  for (const method of ['readStateCommitLock', 'clearStateCommitLock']) {
     const entries = calls.get(`store.${method}`)
     assert.ok(entries && entries.length > 0, `the guard must see deps?.store?.${method} in tools/`)
     assert.ok(

@@ -5,12 +5,16 @@ import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
 import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js'
 
 /**
- * The lock fields a caller can act on, without the raw record or token.
- * @param {{ record: any, alive?: boolean | null } | null} lock
+ * The lock fields a caller can act on, without the raw record or token. An
+ * unreadable record is reported, not hidden (#F71 R1): `null` told the operator
+ * there was no lock while every mutation kept failing on it.
+ * @param {{ record: any, alive?: boolean | null, path?: string, error?: string } | null} lock
  * @param {{ ageMs?: number | null, heartbeatAgeMs?: number | null, staleAfterMs?: number | null, stale?: boolean | null }} timing
  */
 function publicLock(lock, timing) {
-  if (!lock?.record) return null
+  if (!lock?.record) {
+    return lock?.error ? { unreadable: true, path: lock.path ?? null, error: lock.error } : null
+  }
   return {
     pid: lock.record.pid ?? null,
     startedAt: lock.record.startedAt ?? lock.record.since ?? null,
@@ -21,6 +25,17 @@ function publicLock(lock, timing) {
     staleAfterMs: timing.staleAfterMs ?? null,
     stale: timing.stale ?? null,
   }
+}
+
+/**
+ * A unique backup name: the timestamp keeps recoveries sortable and the
+ * monotonically increasing process clock makes two recoveries in the same
+ * millisecond distinct (POSIX rename would overwrite, Windows would fail). The
+ * name stays numeric, which is the shape the existing recovery tests pin.
+ * @param {string} file
+ */
+function backupName(file) {
+  return `${file}.recovered-${Date.now()}${process.hrtime.bigint()}`
 }
 
 /**
@@ -43,6 +58,7 @@ export function registerRecoverTool(ctx, deps) {
       const lock = await readStateLock(tower.paths, { now })
       const timing = lockTiming(lock.record, { now })
       const stateLock = publicLock(lock, timing)
+      const stateUnreadable = Boolean(lock.error)
       // #F71: the state-commit mutex is an optional store capability. The
       // durable store exposes it; an in-memory store has no second writer to
       // fence and reports no commit lock. Both reads go through the declared
@@ -53,16 +69,17 @@ export function registerRecoverTool(ctx, deps) {
           ? await tower.deps?.store?.readStateCommitLock(tower.paths, { now })
           : null
       const commitTiming = commit ?? timing
+      const commitUnreadable = Boolean(commit?.error)
       const commitLock = commit?.record
         ? { ...publicLock(commit, commitTiming), token: commit.record.token ?? null, kind: commit.record.kind ?? null }
-        : null
+        : publicLock(commit, commitTiming)
       if (args.action === RECOVERY_ACTION.status) {
         return { ok: true, action: RECOVERY_ACTION.status, stateLock, commitLock, cleared: false }
       }
       if (args.confirm !== RECOVERY_CONFIRM) {
         throw new TowerToolError('invalid-argument', 'clear-stale-lock requires confirm:"CLEAR_STALE_LOCK"')
       }
-      if (!lock.record && !commit?.record) {
+      if (!lock.record && !stateUnreadable && !commit?.record && !commitUnreadable) {
         return {
           ok: true,
           action: RECOVERY_ACTION.clearStaleLock,
@@ -92,36 +109,74 @@ export function registerRecoverTool(ctx, deps) {
           `the state commit mutex is still held by pid ${commit.record.pid ?? ROLE.unknown} (token ${commit.record.token ?? 'missing'}, held for ${commitTiming.ageMs ?? 'unknown'}ms); a live commit holder is never reclaimed automatically because it may be between the last state check and its rename; pass force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup after confirming no writer is active`,
         )
       }
+      // An unreadable state lock is a record too: without force the whole action
+      // refuses before anything has moved; with force it is renamed after the
+      // commit mutex, never deleted.
+      if (stateUnreadable && !forced) {
+        throw new TowerToolError(
+          'state-locked',
+          `the state lock at ${lock.path} exists but could not be read (${lock.error}); every mutation keeps failing on it; pass force:true with confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup after confirming no writer is active`,
+          {
+            retryable: false,
+            nextAction:
+              'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK"; the unreadable record is renamed to a backup, never deleted',
+            details: { reason: 'state-lock-unreadable', lockPath: lock.path, error: lock.error, forced: false },
+          },
+        )
+      }
       // Recover the commit mutex first: if that refuses (the record changed
-      // after inspection) the primary writer fence has not moved yet. A failure
-      // to move the state lock afterwards leaves the commit backup visible and
-      // the state lock in place (still blocking writers), so the next recovery
-      // can finish without a window in which both fences are gone.
+      // after inspection) the writer fence has not moved, and a later failure to
+      // move the state lock leaves both records visible for the next recovery.
+      // Calling the adapter for an unreadable record is deliberate: its
+      // state-commit-lock-unreadable refusal is then reachable from the only
+      // normal caller instead of only in a read→clear race.
       let commitBackup = null
-      if (commit?.record) {
+      if (commit?.record || commitUnreadable) {
         if (typeof tower.deps?.store?.clearStateCommitLock !== 'function') {
           throw new TowerToolError(
             'state-locked',
-            `the store cannot move the commit mutex at ${commit.path}; confirm no writer is active and remove that file by hand`,
+            `the store cannot move the ${commitUnreadable ? 'unreadable ' : ''}commit mutex at ${commit.path}; confirm no writer is active and remove that file by hand`,
           )
         }
-        // expectedRaw closes the read→rename gap: a record that changed after
-        // the inspection above is refused instead of moving a newer holder.
+        // expectedRaw closes the read→rename gap for a parsed record; an
+        // unreadable record has no compare value beyond the bytes the adapter
+        // reads itself.
         const cleared = await tower.deps?.store?.clearStateCommitLock(tower.paths, {
           force: forced,
           now,
-          expectedRaw: commit.raw ?? undefined,
+          ...(typeof commit.raw === 'string' ? { expectedRaw: commit.raw } : {}),
         })
         commitBackup = cleared.backup ?? null
       }
-      // Always rename, never unlink: the recovered bytes stay auditable. Use the
-      // plain port primitive, not `renameWithRetry`: the retrying helper has
-      // temp-file semantics and unlinks its source when the rename finally
-      // fails, which would destroy the record we are trying to preserve.
+      // Always rename, never unlink: the recovered bytes stay auditable. The
+      // plain port primitive is used because `renameWithRetry` has temp-file
+      // semantics and unlinks its source on a terminal failure.
       let backup = null
-      if (lock.record) {
-        backup = `${tower.paths.lock}.recovered-${Date.now()}`
-        await tower.deps.store.rename(tower.paths.lock, backup)
+      if (lock.record || stateUnreadable) {
+        backup = backupName(tower.paths.lock)
+        try {
+          await tower.deps.store.rename(tower.paths.lock, backup)
+        } catch (error) {
+          if (error?.code !== 'ENOENT') {
+            throw new TowerToolError(
+              'state-locked',
+              `the state lock at ${tower.paths.lock} could not be moved to ${backup} (${error?.message ?? error}); the commit mutex may already be cleared`,
+              {
+                retryable: true,
+                nextAction: `inspect ${tower.paths.lock} and ${backup}, then retry tower_recover`,
+                details: {
+                  reason: 'state-lock-move-failed',
+                  lockPath: tower.paths.lock,
+                  backup,
+                  commitBackup,
+                  error: String(error?.message ?? error),
+                },
+              },
+            )
+          }
+          // Released between the read and the rename: nothing is left to move.
+          backup = null
+        }
       }
       return {
         ok: true,

@@ -44,12 +44,19 @@ function check(id, status, detail, action) {
 
 /**
  * Facts and the `state-lock` check for the state writer lock (#F32/#92).
- * @param {{ record: any, alive: boolean | null }} lock
+ *
+ * An unreadable record is a warning, never a pass (#F71 R1): the lock file
+ * exists and every mutation keeps failing on it, so "no state lock" would hide
+ * exactly the state the operator needs to repair.
+ * @param {{ record: any, alive: boolean | null, path?: string, error?: string }} lock
  */
 export function stateLockFacts(lock) {
   const timing = lockTiming(lock.record)
   const report = {
     held: Boolean(lock.record),
+    unreadable: Boolean(lock.error),
+    path: lock.path ?? null,
+    error: lock.error ?? null,
     pid: lock.record?.pid ?? null,
     startedAt: lock.record?.startedAt ?? null,
     at: lock.record?.at ?? null,
@@ -66,9 +73,16 @@ export function stateLockFacts(lock) {
     timing.heartbeatAgeMs === null
       ? 'no heartbeat timestamp'
       : `last heartbeat ${timing.heartbeatAgeMs}ms ago (stale after ${timing.staleAfterMs}ms)`
-  const row = !lock.record
-    ? check('state-lock', 'pass', 'no state lock file')
-    : lock.alive === false
+  const row = lock.error
+    ? check(
+        'state-lock',
+        'warn',
+        `unreadable state lock at ${lock.path ?? 'the state lock file'} (${lock.error}); every mutation retries it and then fails until it is moved aside`,
+        'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
+      )
+    : !lock.record
+      ? check('state-lock', 'pass', 'no state lock file')
+      : lock.alive === false
       ? check(
           'state-lock',
           'warn',
@@ -97,12 +111,18 @@ export function stateLockFacts(lock) {
  * This check is diagnostic only: `tower_recover clear-stale-lock` is the
  * audited way to move the record aside, and the live holder path always keeps
  * the record (a writer may be between its last CAS and the rename).
- * @param {{ record: any, alive: boolean | null } | null} lock
+ *
+ * An unreadable mutex is a warning, never a pass (#F71 R1): the torn record
+ * exists and every state write keeps failing on it with `state-commit-busy`.
+ * @param {{ record: any, alive: boolean | null, path?: string, error?: string } | null} lock
  */
 export function commitLockFacts(lock) {
   const timing = lockTiming(lock?.record ?? null)
   const report = {
     held: Boolean(lock?.record),
+    unreadable: Boolean(lock?.error),
+    path: lock?.path ?? null,
+    error: lock?.error ?? null,
     pid: lock?.record?.pid ?? null,
     token: lock?.record?.token ?? null,
     at: lock?.record?.at ?? null,
@@ -114,9 +134,16 @@ export function commitLockFacts(lock) {
   }
   const heldText =
     timing.ageMs === null ? 'an unknown duration' : `${Math.max(0, Math.round(timing.ageMs))}ms`
-  const row = !lock?.record
-    ? check('commit-lock', 'pass', 'no state commit mutex')
-    : lock.alive === false
+  const row = lock?.error
+    ? check(
+        'commit-lock',
+        'warn',
+        `unreadable state commit mutex at ${lock.path ?? 'the commit lock file'} (${lock.error}); every state write retries it and then fails with state-commit-busy until it is moved aside`,
+        'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
+      )
+    : !lock?.record
+      ? check('commit-lock', 'pass', 'no state commit mutex')
+      : lock.alive === false
       ? check(
           'commit-lock',
           'warn',
