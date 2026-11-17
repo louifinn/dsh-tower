@@ -15,11 +15,14 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { Tower } from '../host/tower.js'
+import { createDefaultDeps } from '../adapters/default.js'
+import { SCHEMA_VERSION } from '../domain/mission.js'
 import { scopeFenceBlocker } from '../domain/scope.js'
 import { outOfScopeBlocker } from '../domain/integration/gate.js'
 import { normalizeMissionInput } from '../domain/missions/plan.js'
 import { addAutoDeps } from '../domain/planning.js'
 import { SHAPES } from '../domain/shapes/index.js'
+import { createMemoryStore } from './support/memory-store.js'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 test('a build fence accepts scope members and rejects everything else', () => {
@@ -223,3 +226,52 @@ test('F18: an already stored literal scope is never rewritten and still rejects 
     removeTemp(root)
   }
 })
+
+// ---------------------------------------------------------------------------
+// F70: the directory probe reads the StorePort stat contract, not a duck type
+// ---------------------------------------------------------------------------
+
+test('F70: the in-memory store expands a bare directory and keeps files/nonexistent paths literal', async () => {
+  // The probe used to duck-type `info.isDirectory()` while StorePort declared
+  // only `{mtimeMs}`. Both shipped implementations already return a
+  // directory-aware stat; this pins the in-memory one to the same planning
+  // behaviour as the filesystem case above, with no disk and no git.
+  const store = createMemoryStore()
+  const root = '/virtual/repo'
+  const commonDir = `${root}/.git`
+  const paths = store.pathsFor(commonDir)
+  await store.ensureDir(paths.dir)
+  await store.writeJsonAtomic(paths.state, {
+    schemaVersion: SCHEMA_VERSION,
+    repoRoot: root,
+    commonDir,
+    base: 'main',
+    revision: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    missions: [],
+  })
+  await store.ensureDir(`${root}/docs/guide`)
+  await store.writeText(`${root}/README.md`, 'seed\n')
+  const tower = new Tower(
+    { root, commonDir, branch: 'main' },
+    { mode: { lockTimeoutMs: 100 } },
+    createDefaultDeps({ store }),
+  )
+  const planned = await tower.plan({
+    missions: [
+      { title: 'Guide', scope: ['docs/guide'] },
+      { title: 'Literal', scope: ['README.md', 'no/such/dir'] },
+    ],
+  })
+  assert.deepEqual(
+    planned.missions.map((mission) => mission.scope),
+    [['docs/guide/**'], ['README.md', 'no/such/dir']],
+  )
+  const stored = JSON.parse(store.inspect.readText(paths.state))
+  assert.deepEqual(
+    stored.missions.map((mission) => mission.scope),
+    [['docs/guide/**'], ['README.md', 'no/such/dir']],
+  )
+})
+

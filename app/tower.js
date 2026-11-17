@@ -67,8 +67,10 @@ export { validateState } from '../domain/state.js'
  * directory in the planning checkout. `plan`/`mission` expand those entries
  * into `dir/**` before planning; a bare path that is not a directory stays
  * literal (an existing file, or a file a mission will create). The probe is
- * best effort: a missing path, an unsupported stat, or any store failure leaves
- * the entry literal instead of failing the plan.
+ * best effort: a missing path or any store failure leaves the entry literal
+ * instead of failing the plan. `stat` is declared on StorePort to return
+ * `{ mtimeMs, isDirectory() }` (#F70), so this reads a capability the port
+ * promises; a store that still returns a foreign shape fails open here.
  * @param {Tower} tower
  * @param {unknown} scope
  * @returns {Promise<Set<string>>}
@@ -84,7 +86,7 @@ async function plannedDirectorySet(tower, scope) {
     probed.add(candidate.value)
     try {
       const info = await tower.deps.store.stat(path.join(tower.root, candidate.value))
-      if (typeof info?.isDirectory === 'function' && info.isDirectory()) directories.add(candidate.value)
+      if (info.isDirectory()) directories.add(candidate.value)
     } catch {
       // Missing or unreadable paths are not directories: keep the entry literal.
     }

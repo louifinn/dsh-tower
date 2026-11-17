@@ -287,7 +287,7 @@ const COMMIT_LOCK_TIMEOUT_MS = 2000
 const COMMIT_LOCK_POLL_MS = 10
 
 /** The commit-mutex path for `paths`; older paths objects may not carry it. */
-function commitLockPath(paths) {
+export function commitLockPath(paths) {
   return paths.commitLock ?? path.join(paths.dir, 'state.commit.lock')
 }
 
@@ -347,7 +347,7 @@ async function acquireCommitLock(paths, options = {}) {
     `refusing to write ${paths.state}: another writer is committing tower state (the commit mutex at ${lockPath} is ${facts}); the commit window is short, so retry`,
     {
       retryable: true,
-      nextAction: `retry the mutation; if it keeps failing, confirm no Tower writer is active (the mutex is reclaimed automatically only for a provably dead PID) and only then remove ${lockPath}`,
+      nextAction: `retry the mutation; if it keeps failing, confirm no Tower writer is active and run tower_recover clear-stale-lock with confirm:"CLEAR_STALE_LOCK" (add force:true only after confirming the holder is gone) to move ${lockPath} to a backup`,
       details: {
         reason: 'state-commit-busy',
         lockPath,
@@ -371,6 +371,21 @@ async function acquireCommitLock(paths, options = {}) {
 async function releaseCommitLock(commit) {
   if (!commit) return
   await releaseLock(commit.lockPath, commit.token)
+}
+
+/**
+ * Inspect the leftover commit mutex without touching it (#F71).
+ *
+ * A normal waiter never needs this: `acquireCommitLock` reclaims a provably
+ * dead PID on EEXIST. The record is reported here so `tower_recover` and
+ * `tower_inspect` can explain why every state write fails with
+ * `state-commit-busy` instead of leaving an operator to delete a file by hand.
+ *
+ * @param {{ dir: string, commitLock?: string }} paths
+ * @param {{ now?: number | (() => number) }} [options]
+ */
+export async function readStateCommitLock(paths, options = {}) {
+  return readLock(commitLockPath(paths), options)
 }
 
 /**

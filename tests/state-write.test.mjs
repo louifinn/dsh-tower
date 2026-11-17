@@ -9,21 +9,49 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { lockRecord } from '../adapters/lock.js'
+import { lockRecord, lockTiming } from '../adapters/lock.js'
 import {
   isStateLockHeld,
   pathsFor,
+  readStateCommitLock,
+  readStateLock,
+  stateCommitLockPath,
   stateLockToken,
   withLock,
   writeStateLocked,
 } from '../adapters/store.js'
+import { clearStateCommitLock, createStorePort } from '../adapters/store-fs.js'
 import { loadStateFile } from '../adapters/stateFile.js'
+import { registerRecoverTool } from '../tools/recover.js'
 
 function tempPaths() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-state-write-'))
   const paths = pathsFor(path.join(root, '.git'))
   fs.mkdirSync(paths.dir, { recursive: true })
   return { root, paths }
+}
+
+// Minimal tower_recover harness: the host injects the read-only lock inspector
+// and the timing helper, while openTower/actorFor only supply the store the
+// recovery needs. That keeps the tool's actual control flow under test without
+// standing up a full Tower session.
+function recoverToolFor(paths) {
+  let definition = null
+  const tower = { paths, deps: { store: createStorePort() } }
+  registerRecoverTool(
+    {},
+    {
+      define: (_ctx, tool) => {
+        definition = tool
+      },
+      openTower: async () => tower,
+      actorFor: async () => ({ role: 'tower' }),
+      requireTowerActor: () => {},
+      readStateLock,
+      lockTiming,
+    },
+  )
+  return { call: (args) => definition.execute(args, {}) }
 }
 
 function v1Fixture() {
@@ -219,6 +247,263 @@ test('a lock mutated during state serialisation cannot slip a stale write throug
       [],
       'the aborted write must remove its temp file',
     )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F71: the commit mutex is a short-lived fence around one rename. It has no
+// heartbeat, so a leftover record from a dead PID is reclaimed by the next
+// acquisition, and a live-but-silent record is a visible wedge with an audited
+// recovery path instead of a file an operator has to delete by hand.
+
+test('a commit mutex left by a dead PID does not wedge the next state write (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 5000
+    fs.writeFileSync(
+      stateCommitLockPath(paths),
+      JSON.stringify({ token: 'dead-commit', pid: 999999, kind: 'state-commit', since: at, at }),
+    )
+    const inspected = await readStateCommitLock(paths)
+    assert.equal(inspected.record.token, 'dead-commit')
+    assert.equal(inspected.alive, false)
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.deepEqual(JSON.parse(fs.readFileSync(paths.state, 'utf8')), { ok: true, revision: 1 })
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false, 'the dead record must be reclaimed by acquisition')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a live-but-silent commit mutex blocks writes until an explicit force clears it (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 10000
+    const raw = JSON.stringify({ token: 'silent-commit', pid: process.pid, kind: 'state-commit', since: at, at })
+    fs.writeFileSync(stateCommitLockPath(paths), raw)
+
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { ok: true }, held.token, { commitLockTimeoutMs: 120, commitLockPollMs: 10 })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-busy')
+        assert.match(error.message, /commit mutex/)
+        assert.match(error.nextAction, /tower_recover clear-stale-lock/)
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false, 'the blocked write must not create state.json')
+
+    // A live PID is never moved without force, however old the record is.
+    await assert.rejects(() => clearStateCommitLock(paths), /still held by pid/)
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), raw)
+
+    const cleared = await clearStateCommitLock(paths, { force: true })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.equal(cleared.pid, process.pid)
+    assert.match(cleared.backup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false)
+    assert.equal(fs.readFileSync(cleared.backup, 'utf8'), raw, 'the moved record stays auditable')
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('commit-mutex recovery refuses a record that changed after inspection (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const at = Date.now() - 5000
+    fs.writeFileSync(
+      stateCommitLockPath(paths),
+      JSON.stringify({ token: 'inspected', pid: 999999, kind: 'state-commit', since: at, at }),
+    )
+    const inspected = await readStateCommitLock(paths)
+    const newer = JSON.stringify({ token: 'newer', pid: 999999, kind: 'state-commit', since: at, at: at + 1 })
+    fs.writeFileSync(stateCommitLockPath(paths), newer)
+    await assert.rejects(
+      () => clearStateCommitLock(paths, { force: true, expectedRaw: inspected.raw }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-lock-changed')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), newer, 'a changed record must not be moved')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F71 R1: a torn write (the record is created with `wx`, not atomically) leaves
+// bytes that are not a lock record. `readLock` reports an error and no record, so
+// before this the recovery path treated the mutex as absent: status said "no
+// lock", clear-stale-lock answered cleared:false, and every write kept failing.
+// The unreadable bytes are a record to move, never a file to delete.
+
+test('an unreadable commit mutex is refused without force and moved to a backup with force (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const raw = '{"token":"torn",'
+    fs.writeFileSync(stateCommitLockPath(paths), raw)
+    const inspected = await readStateCommitLock(paths)
+    assert.equal(inspected.record, null)
+    assert.equal(typeof inspected.error, 'string')
+    assert.equal(inspected.alive, null)
+
+    // Without force the adapter refuses with an actionable message and keeps
+    // the bytes exactly where they are.
+    await assert.rejects(
+      () => clearStateCommitLock(paths),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-lock-unreadable')
+        assert.match(error.message, /could not be read/)
+        assert.match(error.nextAction, /force:true/)
+        assert.match(error.nextAction, /backup/)
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), raw)
+
+    // The wedge is real: acquisition retries the unparseable record and then
+    // gives up with the same state-commit-busy an operator sees in production.
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { ok: true }, held.token, { commitLockTimeoutMs: 120, commitLockPollMs: 10 })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-busy')
+        return true
+      },
+    )
+
+    const cleared = await clearStateCommitLock(paths, { force: true })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.unreadable, true)
+    assert.match(cleared.backup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false)
+    assert.equal(fs.readFileSync(cleared.backup, 'utf8'), raw, 'the unreadable bytes stay auditable')
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('two recoveries in the same millisecond keep distinct numeric backups (F71)', async () => {
+  const { root, paths } = tempPaths()
+  const realNow = Date.now
+  try {
+    // Pin the wall clock so both recoveries would compute the same timestamp;
+    // the appended monotonic tick is what keeps the names apart.
+    Date.now = () => 1_750_000_000_000
+    fs.writeFileSync(stateCommitLockPath(paths), '{"token":"torn",')
+    const first = await clearStateCommitLock(paths, { force: true })
+    fs.writeFileSync(stateCommitLockPath(paths), '{"token":"torn",')
+    const second = await clearStateCommitLock(paths, { force: true })
+    assert.match(first.backup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.match(second.backup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.notEqual(first.backup, second.backup, 'a same-millisecond recovery must not overwrite the earlier backup')
+    assert.equal(fs.existsSync(first.backup), true)
+    assert.equal(fs.existsSync(second.backup), true)
+  } finally {
+    Date.now = realNow
+    removeTemp(root)
+  }
+})
+
+test('tower_recover status surfaces an unreadable commit mutex and force repairs it (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const raw = '{"token":"torn",'
+    fs.writeFileSync(stateCommitLockPath(paths), raw)
+    const recover = recoverToolFor(paths)
+
+    const status = await recover.call({ action: 'status' })
+    assert.equal(status.stateLock, null)
+    assert.equal(status.commitLock.unreadable, true)
+    assert.equal(status.commitLock.path, stateCommitLockPath(paths))
+    assert.equal(typeof status.commitLock.error, 'string')
+
+    await assert.rejects(
+      () => recover.call({ action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK' }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-commit-lock-unreadable')
+        assert.match(error.nextAction, /force:true/)
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(stateCommitLockPath(paths), 'utf8'), raw)
+
+    const cleared = await recover.call({ action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK', force: true })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.match(cleared.commitBackup, /state\.commit\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false)
+    assert.equal(fs.readFileSync(cleared.commitBackup, 'utf8'), raw)
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token, { commitLockTimeoutMs: 250 })
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_recover moves an unreadable state lock aside only with force (F71)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const raw = '{"token":"torn",'
+    fs.writeFileSync(paths.lock, raw)
+    const recover = recoverToolFor(paths)
+
+    const status = await recover.call({ action: 'status' })
+    assert.equal(status.stateLock.unreadable, true)
+    assert.equal(status.stateLock.path, paths.lock)
+    assert.equal(typeof status.stateLock.error, 'string')
+    assert.equal(status.commitLock, null)
+
+    await assert.rejects(
+      () => recover.call({ action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK' }),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.details.reason, 'state-lock-unreadable')
+        assert.match(error.nextAction, /force:true/)
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), raw)
+
+    const cleared = await recover.call({ action: 'clear-stale-lock', confirm: 'CLEAR_STALE_LOCK', force: true })
+    assert.equal(cleared.cleared, true)
+    assert.match(cleared.backup, /state\.lock\.recovered-\d+$/)
+    assert.equal(fs.existsSync(paths.lock), false)
+    assert.equal(fs.readFileSync(cleared.backup, 'utf8'), raw)
+
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { ok: true, revision: 1 }, held.token)
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
   } finally {
     removeTemp(root)
   }
