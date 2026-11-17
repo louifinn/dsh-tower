@@ -191,9 +191,22 @@ test('the gate is wired into npm run check and the canonical CI gate', () => {
 test('the CLI is green on the checkout and fails on a tampered copy', (t) => {
   const ok = spawnSync(process.execPath, [script], { cwd: repoRoot, encoding: 'utf8' })
   assert.equal(ok.status, 0, ok.stderr)
-  assert.match(
-    ok.stdout,
-    /^support ok: Node >=24\.9, DSH 0\.2\.2-rc\.3, package engines\/lock, host pin, live matrix and COMPATIBILITY v2\.9\.0 agree$/m,
+  // The CLI prints the tag of the newest COMPATIBILITY row, so derive it from
+  // that row instead of pinning a release tag the next version bump must edit.
+  const newest = newestCompatibilityRow(read(repoRoot, 'COMPATIBILITY.md'))
+  assert.ok(newest?.commit, 'COMPATIBILITY.md must carry a newest version row')
+  // R120: the printed tag is derived from the row above, so without this
+  // causal equality a stale newest row (say v2.9.0) would satisfy its own
+  // expectation. The row must name the version being released.
+  assert.equal(
+    newest.commit,
+    `v${readJson(repoRoot, 'package.json').version}`,
+    'the newest COMPATIBILITY row must name the version being released',
+  )
+  const agreement = `support ok: Node >=24.9, DSH 0.2.2-rc.3, package engines/lock, host pin, live matrix and COMPATIBILITY ${newest.commit} agree`
+  assert.ok(
+    ok.stdout.split('\n').includes(agreement),
+    `the agreement line must name ${newest.commit}, got:\n${ok.stdout}`,
   )
 
   const json = spawnSync(process.execPath, [script, '--json'], { cwd: repoRoot, encoding: 'utf8' })

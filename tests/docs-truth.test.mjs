@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { checkDocs, currentDocPages, linkProblems, retiredToolNameProblems } from '../scripts/check-docs.mjs'
+import { checkDocs, currentDocPages, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -38,6 +38,51 @@ test('F43: the checked docs state the live registry surface', () => {
 
 test('docs references resolve locally', () => {
   assert.deepEqual(linkProblems(repoRoot), [])
+})
+
+test('F60: the English and Chinese tool tables list the same rows', (t) => {
+  assert.deepEqual(toolTableRowProblems(repoRoot), [])
+
+  const copy = copyRepo(t)
+  const zh = path.join(copy, 'docs', 'zh', 'reference', 'tools.md')
+  const original = fs.readFileSync(zh, 'utf8')
+  const row = original.split('\n').find((line) => line.startsWith('| `tower_inbox` '))
+  assert.ok(row, 'docs/zh/reference/tools.md must carry the tower_inbox row')
+  fs.writeFileSync(zh, original.replace(`${row}\n`, ''))
+
+  const problems = checkDocs(copy).problems
+  assert.ok(
+    problems.includes('docs/zh/reference/tools.md is missing tool rows: tower_inbox'),
+    problems.join('\n'),
+  )
+})
+
+test('F60: both tower_spawn rows must keep the survey null placement', (t) => {
+  // English: the placement sentence is the documented output contract.
+  const english = copyRepo(t)
+  const enPage = path.join(english, 'docs', 'reference', 'tools.md')
+  const enText = fs.readFileSync(enPage, 'utf8')
+  assert.ok(enText.includes('`null` for a survey'), 'the English row must state the survey placement')
+  fs.writeFileSync(enPage, enText.replace('`null` for a survey', '`nil` for a survey'))
+  assert.ok(
+    toolTableRowProblems(english).some((problem) =>
+      problem.includes('must state that a survey placement is null'),
+    ),
+    'an English row without the null placement must be reported',
+  )
+
+  // Chinese: the same shape, translated — a dropped sentence is the drift.
+  const chinese = copyRepo(t)
+  const zhPage = path.join(chinese, 'docs', 'zh', 'reference', 'tools.md')
+  const zhText = fs.readFileSync(zhPage, 'utf8')
+  assert.ok(zhText.includes('为 `null`'), 'the Chinese row must state the survey placement')
+  fs.writeFileSync(zhPage, zhText.replace('为 `null`', '为 `nil`'))
+  assert.ok(
+    toolTableRowProblems(chinese).some((problem) =>
+      problem.includes('must state that a survey placement is null'),
+    ),
+    'a Chinese row without the null placement must be reported',
+  )
 })
 
 test('F43: a tampered README blocker count fails the docs check', (t) => {
