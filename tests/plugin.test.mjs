@@ -883,7 +883,7 @@ test('#121: tower-tests off still rejects gates.requireTests true', async () => 
   apply(ctx, { gates: { requireTests: true } })
   await assert.rejects(
     () => callCommand(commands, makeAgent('agent-tests-off'), ''),
-    /gates\.requireTests is true but disabled by component tower-tests/,
+    /Test evidence capability is switched off/,
   )
 })
 
@@ -895,8 +895,8 @@ test('#121: review.mode required with the reviewer row off is locked with an exp
     () => callCommand(commands, makeAgent('agent-reviewer-off'), ''),
     (error) => {
       assert.equal(error.code, 'preset-missing')
-      assert.match(error.message, /preset-tower-reviewer/)
-      assert.match(error.message, /review\.mode is required/)
+      assert.match(error.message, /Tower Reviewer preset/)
+      assert.match(error.message, /review before merging is set to required/)
       return true
     },
   )
@@ -936,8 +936,8 @@ test('gates.requireTests with the tower-tests row off is refused at mode entry (
     () => callCommand(commands, makeAgent('agent-tests-row-off'), ''),
     (error) => {
       assert.equal(error.code, 'config-invalid')
-      assert.match(error.message, /tower-tests/)
-      assert.match(error.message, /re-enable the tower-tests component or set gates\.requireTests:false/)
+      assert.match(error.message, /Test evidence/)
+      assert.match(error.message, /stop requiring test evidence/)
       return true
     },
   )
@@ -994,7 +994,7 @@ test('/tower re-validates runtime preconditions on mode entry only (#142)', asyn
       () => callCommand(broken.commands, agent, rawInput),
       (error) => {
         assert.equal(error.code, 'config-invalid')
-        assert.match(error.message, /tower-tests/)
+        assert.match(error.message, /Test evidence/)
         return true
       },
       `entering with "${rawInput}" must re-validate`,

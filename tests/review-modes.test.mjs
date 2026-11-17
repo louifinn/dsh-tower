@@ -370,7 +370,7 @@ test('reviewer spawn and preset validation: off refuses, optional/required allow
   )
   await assert.rejects(
     () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'required' } }),
-    /review\.mode is required/,
+    /review before merging is set to required/,
   )
 })
 

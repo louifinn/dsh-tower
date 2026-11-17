@@ -70,11 +70,16 @@ const GATE_FILES = [
   'scripts/surface-baseline.json',
   'docs/reference/component-surface.md',
   'docs/adr/0005-component-surface.md',
+  // The surface decisions cite this ADR as growth evidence.
+  'docs/adr/0006-mission-shapes.md',
   'host/tool-registry.js',
   'locale/en.json',
   'locale/zh.json',
   // #137: the copy gate reads the generated row labels and the glossary.
   ...rowLocalePaths(),
+  // #F22: the Web client string catalogue and the preset runtime failures.
+  'ui-bundle/client.locales.js',
+  'host/presets.js',
   'GLOSSARY.md',
 ]
 
@@ -1113,5 +1118,107 @@ test('integration: a missing GLOSSARY.md fails the copy gate (#137)', async () =
     )
   } finally {
     removeTemp(dir)
+  }
+})
+
+// #F22: the Web client string catalogue and the preset runtime failures are
+// copy-gate surfaces too. The shipped pair passes; one planted leak per surface
+// must turn the gate red with a surface-specific code.
+test('integration: a clean throwaway root passes the copy gate, including the #F22 surfaces', async () => {
+  const dir = gateRoot()
+  try {
+    const report = await checkComponents(dir)
+    assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a config key or tool id in the client catalogue fails the gate (#F22)', async () => {
+  for (const [from, to, code] of [
+    ["'card.title': ['Tower', 'Tower']", "'card.title': ['Gates.requireTests is on', 'Tower']", 'client-copy-config-key'],
+    ["'tool.batch': ['Batch', '批次']", "'tool.batch': ['Batch', 'tower_batch 批次']", 'client-copy-tool-id'],
+  ]) {
+    const dir = gateRoot({
+      'ui-bundle/client.locales.js': (text) => {
+        assert.ok(text.includes(from), from)
+        return text.replace(from, to)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${to} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: glossary drift in the client catalogue fails the gate (#F22)', async () => {
+  const dir = gateRoot({
+    'ui-bundle/client.locales.js': (text) => {
+      const from = "'tool.review': ['Review', '审查']"
+      assert.ok(text.includes(from), from)
+      return text.replace(from, "'tool.review': ['Review', '复核']")
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'client-copy-glossary'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a tool id or config key in a preset failure message fails the gate (#F22)', async () => {
+  for (const [planted, code] of [
+    ['Run tower_resource, then test evidence is required before merging', 'preset-copy-tool-id'],
+    ['gates.requireTests is true, so test evidence is required before merging', 'preset-copy-config-key'],
+  ]) {
+    const dir = gateRoot({
+      'host/presets.js': (text) => {
+        const from = 'Test evidence is required before merging'
+        assert.ok(text.includes(from), from)
+        return text.replace(from, planted)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${planted} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: a missing client catalogue or preset module fails the copy gate (#F22)', async () => {
+  for (const [relative, code] of [
+    ['ui-bundle/client.locales.js', 'client-catalog-unreadable'],
+    ['host/presets.js', 'preset-copy-unreadable'],
+  ]) {
+    const dir = gateRoot()
+    try {
+      fs.rmSync(path.join(dir, relative))
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
   }
 })
