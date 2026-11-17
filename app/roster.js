@@ -1,5 +1,7 @@
 // Roster observation and retirement use cases.
 import { validateState } from '../domain/state.js'
+import { isStalledReservation } from '../domain/collab/spawn.js'
+import { removeReviewCheckout } from './reviewCheckout.js'
 import {
   recordRosterObservations as recordObservations,
   reconcileObservedInactive as reconcileInactive,
@@ -49,6 +51,52 @@ export async function recordRosterObservations(tower, { present = [], absent = [
     })
   }
 
+  /**
+   * How long a reservation may stay `reserved` without an agent id before it is
+   * treated as abandoned. `reserveRoster` -> `startActivation` -> `recordSpawn`
+   * is a fast, serialized sequence, so a younger row may still belong to a
+   * dispatch in flight; the grace window keeps the reap from racing it. Tests
+   * backdate `reservedAt` by this constant instead of waiting.
+   */
+  export const STALLED_RESERVATION_GRACE_MS = 60_000
+
+  /**
+   * The age of a reservation in milliseconds. A row without a numeric
+   * `reservedAt` (older releases wrote only `spawnedAt`) is treated as old.
+   * @param {any} entry
+   * @param {number} now
+   * @returns {number}
+   */
+  function reservationAge(entry, now) {
+    const at = Number(entry.reservedAt ?? entry.spawnedAt)
+    return Number.isFinite(at) ? now - at : Number.POSITIVE_INFINITY
+  }
+
+  /** @param {any} entry @returns {string | null} */
+  function checkoutPathOf(entry) {
+    return typeof entry.reviewCheckout === 'string' && entry.reviewCheckout.length > 0
+      ? entry.reviewCheckout
+      : null
+  }
+
+  /**
+   * True when `current` is still the same stalled reservation observed earlier:
+   * same name, mission, reservedAt and reservation token, and still `reserved`
+   * with no agent id.
+   * @param {any} current
+   * @param {any} candidate
+   * @returns {boolean}
+   */
+  function sameReservation(current, candidate) {
+    return (
+      current !== undefined &&
+      isStalledReservation(current) &&
+      (current.missionId ?? null) === (candidate.missionId ?? null) &&
+      current.reservedAt === candidate.reservedAt &&
+      current.reservationId === candidate.reservationId
+    )
+  }
+
   /** Reap roster reservations that never received an agent id.
    *
    * A reservation is only a name claim bridging `reserveRoster` and
@@ -60,32 +108,105 @@ export async function recordRosterObservations(tower, { present = [], absent = [
    * retiring it: no session or worktree ever existed, the activity log keeps the
    * name, and deleting leaves the name free so a spawn racing the reap can still
    * record. A reserved row that already carries an agent id is past activation
-   * and is never touched. */
-  export async function reapStalledReservations(tower) {
+   * and is never touched.
+   *
+   * A review spawn provisions a disposable detached checkout whose path is
+   * recorded only on the roster row, so deleting the row without removing the
+   * checkout leaks a live worktree registration. Removing a checkout shells out
+   * to git and takes no state lock, so the reap is two-phase: scan and clean
+   * checkouts outside the lock, then re-read under the lock and delete only the
+   * reservations that are still the observed ones. A row whose checkout cannot
+   * be removed is kept, with the path still on it, and reported in `unreaped`
+   * so the caller can surface an actionable error instead of leaking silently.
+   *
+   * @param {any} tower
+   * @param {{ graceMs?: number, now?: number }} [options]
+   * @returns {Promise<{ reaped: any[], unreaped: any[] }>}
+   */
+  export async function reapStalledReservations(tower, options = {}) {
+    const graceMs =
+      Number.isFinite(options.graceMs) && /** @type {number} */ (options.graceMs) >= 0
+        ? /** @type {number} */ (options.graceMs)
+        : STALLED_RESERVATION_GRACE_MS
+    const now = Number.isFinite(options.now) ? /** @type {number} */ (options.now) : Date.now()
+    // Phase 1, outside the state lock: find reservations old enough to be
+    // abandoned and remove their disposable checkouts.
+    const observed = await tower.load()
+    const candidates = (observed.roster ?? []).filter(
+      (entry) => isStalledReservation(entry) && reservationAge(entry, now) >= graceMs,
+    )
+    if (candidates.length === 0) return { reaped: [], unreaped: [] }
+    /** @type {Map<string, { checkout: string, error: string, attempts: number }>} */
+    const failures = new Map()
+    for (const candidate of candidates) {
+      const checkout = checkoutPathOf(candidate)
+      if (!checkout) continue
+      // Re-read just before touching a checkout: another process may have
+      // recorded the child (the reservation is then live) or reaped and
+      // re-reserved the name in the meantime.
+      const current = (await tower.load()).roster ?? []
+      if (!sameReservation(current.find((entry) => entry.name === candidate.name), candidate)) continue
+      const removal = await removeReviewCheckout(tower, checkout)
+      if (!removal.ok) {
+        failures.set(candidate.name, {
+          checkout,
+          error: removal.error ?? 'unknown removal error',
+          attempts: removal.attempts ?? 0,
+        })
+      }
+    }
+    // Phase 2, under the lock: re-read and delete only the reservations that are
+    // still exactly what phase 1 observed. The lock serializes the write, not
+    // the scan, so a row that changed meanwhile must be left alone.
     return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
       const roster = state.roster ?? []
-      const stalled = roster.filter((entry) => entry.state === 'reserved' && !entry.agentId)
-      if (stalled.length === 0) return { reaped: [] }
-      const reaped = stalled.map((entry) => ({
-        name: entry.name,
-        missionId: entry.missionId ?? null,
-        role: entry.role ?? null,
-      }))
-      state.roster = roster.filter((entry) => !stalled.includes(entry))
-      const now = Date.now()
-      state.revision += 1
-      state.updatedAt = now
-      validateState(state, tower.paths.state)
-      await tower.writeState(state, held)
-      await tower.appendActivity({
-        at: now,
-        type: 'roster',
-        text: `reaped stalled reservations: ${reaped
-          .map((entry) => `${entry.name} (${entry.missionId ?? '-'})`)
-          .join(', ')}`,
-      })
-      return { reaped }
+      const reaped = []
+      const unreaped = []
+      const removedCheckouts = []
+      /** @type {Set<any>} */
+      const doomed = new Set()
+      for (const candidate of candidates) {
+        const current = roster.find((entry) => entry.name === candidate.name)
+        if (!sameReservation(current, candidate)) continue
+        const failure = failures.get(candidate.name)
+        if (failure) {
+          unreaped.push({
+            name: current.name,
+            missionId: current.missionId ?? null,
+            role: current.role ?? null,
+            checkout: failure.checkout,
+            error: failure.error,
+            attempts: failure.attempts,
+          })
+          continue
+        }
+        const checkout = checkoutPathOf(current)
+        if (checkout) removedCheckouts.push(checkout)
+        doomed.add(current)
+        reaped.push({
+          name: current.name,
+          missionId: current.missionId ?? null,
+          role: current.role ?? null,
+          ...(checkout ? { checkout } : {}),
+        })
+      }
+      if (reaped.length > 0) {
+        const at = Date.now()
+        state.roster = roster.filter((entry) => !doomed.has(entry))
+        state.revision += 1
+        state.updatedAt = at
+        validateState(state, tower.paths.state)
+        await tower.writeState(state, held)
+        await tower.appendActivity({
+          at,
+          type: 'roster',
+          text: `reaped stalled reservations: ${reaped
+            .map((entry) => `${entry.name} (${entry.missionId ?? '-'})`)
+            .join(', ')}${removedCheckouts.length > 0 ? `; removed review checkouts: ${removedCheckouts.join(', ')}` : ''}`,
+        })
+      }
+      return { reaped, unreaped }
     })
   }
 

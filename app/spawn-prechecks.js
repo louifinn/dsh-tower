@@ -5,6 +5,7 @@
 import { TowerToolError } from '../domain/errors.js'
 import { resolveSpawnProvider } from './host-contract.js'
 import { reapStalledReservations } from './roster.js'
+import { isStalledReservation } from '../domain/collab/spawn.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
 import { shapeFor } from '../domain/shapes/index.js'
@@ -93,7 +94,23 @@ export async function precheckWorkerOwnership({
   // observe or interrupt it, so counting it as a live worker would wedge the
   // mission (spawn, takeover and adopt all refuse). Reap those rows first, then
   // run the normal ownership checks on the remaining roster.
-  const { reaped } = await reapStalledReservations(tower)
+  const { reaped, unreaped } = await reapStalledReservations(tower)
+  // A row whose disposable review checkout could not be removed is kept so the
+  // path is not lost; report it as the actionable roster problem it is rather
+  // than as a live worker that takeover can never resolve.
+  if (unreaped.length > 0) {
+    throw new TowerToolError(
+      'invalid-transition',
+      'stalled spawn reservation(s) hold review checkouts that could not be removed: ' +
+        unreaped
+          .map(
+            (entry) =>
+              `${entry.name} (mission ${entry.missionId ?? 'none'}) still holds ${entry.checkout} after ${entry.attempts} attempt(s): ${entry.error}`,
+          )
+          .join('; ') +
+        '; remove it with "git worktree remove --force <path>" and retry tower_spawn, or run tower_init({op:"adopt"}) or tower_teardown to retry the cleanup',
+    )
+  }
   const reapedNames = new Set(reaped.map((entry) => entry.name))
   const roster = reapedNames.size === 0 ? view.roster : view.roster.filter((entry) => !reapedNames.has(entry.name))
   // #148: a read-only survey worker must not consume a build worker slot, but
@@ -102,7 +119,13 @@ export async function precheckWorkerOwnership({
   const kinds = new Map(state.missions.map((entry) => [entry.id, entry.kind]))
   const budgeted = (entry) => roleCountsTowardBudget(entry.role, shapeFor(kinds.get(entry.missionId)))
   const liveWorkers = roster.filter(
-    (entry) => roleTracksMission(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state),
+    (entry) =>
+      roleTracksMission(entry.role) &&
+      !ROSTER_INACTIVE_STATES.includes(entry.state) &&
+      // A reservation still inside the grace window has no child behind it yet;
+      // it may belong to a concurrent dispatch, so it must not count as a live
+      // worker (that would reject the spawn it belongs to).
+      !isStalledReservation(entry),
   )
   const budgetWorkers = liveWorkers.filter(budgeted)
   const sameMission = liveWorkers.filter((entry) => entry.missionId === missionId)

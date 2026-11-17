@@ -35,6 +35,29 @@ export function liveWorkerLimit(maxLiveWorkers) {
 }
 
 /**
+ * True when the row records no child id at all.
+ *
+ * Explicit null/undefined only: `!entry.agentId` would also treat `''` and `0`
+ * as absent, and those are corrupt values, not a missing child. A reservation
+ * with no agent id is the shell of a dispatch that never got activation back.
+ * @param {{ agentId?: unknown } | null | undefined} entry
+ * @returns {boolean}
+ */
+export function hasNoAgentId(entry) {
+  return entry?.agentId === null || entry?.agentId === undefined
+}
+
+/**
+ * A reservation that never received an agent id: nothing exists behind it yet,
+ * so it can be reaped, and it must never count as a live worker.
+ * @param {{ state?: unknown, agentId?: unknown } | null | undefined} entry
+ * @returns {boolean}
+ */
+export function isStalledReservation(entry) {
+  return entry?.state === 'reserved' && hasNoAgentId(entry)
+}
+
+/**
  * Record that a spawned agent failed or went idle.
  * @param {RosterEntry} entry
  * @param {{ state?: string, detail?: unknown }} input
@@ -104,11 +127,27 @@ export function reservedRosterEntry(input, now) {
     branch: input.branch ?? null,
     ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
     ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
+    // Opaque per-dispatch identity: `recordSpawnOutcome` uses it to verify that
+    // the row it would write is still the reservation it was dispatched for,
+    // never a same-named row that a newer dispatch created after the reap (F64).
+    ...reservationToken(input),
     spawnTip: null,
     state: 'reserved',
     reservedAt: now,
     spawnedAt: now,
   }
+}
+
+/**
+ * The optional reservation token carried from `reserveRoster` to
+ * `recordSpawn`/`recordSpawnOutcome` through the roster row.
+ * @param {any} input
+ * @returns {{ reservationId?: string }}
+ */
+function reservationToken(input) {
+  return typeof input.reservationId === 'string' && input.reservationId.length > 0
+    ? { reservationId: input.reservationId }
+    : {}
 }
 
 /**
@@ -133,7 +172,7 @@ export function reserveRosterEntry({ roster, input, now }) {
  * @returns {RosterEntry}
  */
 export function recordSpawnEntry({ roster, missions = [], mission, input, spawnTip, maxLiveWorkers, now }) {
-  const reserved = roster.find((entry) => entry.name === input.name && entry.state === 'reserved' && !entry.agentId)
+  const reserved = roster.find((entry) => entry.name === input.name && isStalledReservation(entry))
   if (!reserved && roster.some((entry) => entry.name === input.name)) {
     fail(`roster name already used: ${input.name}`)
   }
@@ -154,6 +193,7 @@ export function recordSpawnEntry({ roster, missions = [], mission, input, spawnT
     branch: input.branch ?? null,
     ...(evidence.reviewCommit ? { reviewCommit: evidence.reviewCommit } : {}),
     ...(evidence.reviewCheckout ? { reviewCheckout: evidence.reviewCheckout } : {}),
+    ...reservationToken(input),
     spawnTip,
     state: 'active',
     spawnedAt: now,

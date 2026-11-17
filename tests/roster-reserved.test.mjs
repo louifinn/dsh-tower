@@ -22,6 +22,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
 import { precheckWorkerOwnership } from '../app/spawn-prechecks.js'
+import { STALLED_RESERVATION_GRACE_MS } from '../app/roster.js'
 import { runAdoptView } from '../tools/views/adopt.js'
 import { validateState } from '../domain/state.js'
 import { stateShapeError } from '../domain/state/schema.js'
@@ -52,14 +53,34 @@ async function seeded() {
   return { root, repo, tower }
 }
 
+/**
+ * Test-only age for a reservation: the shell of a dispatch that never returned
+ * ages in real time; tests backdate `reservedAt` instead of waiting. The window
+ * itself is owned by `STALLED_RESERVATION_GRACE_MS`.
+ */
+const STALE_MS = STALLED_RESERVATION_GRACE_MS + 60_000
+
+/** Backdate a reservation the way a dispatch that failed ages. */
+async function ageReservation(tower, name, ageMs = STALE_MS) {
+  const state = await tower.load()
+  const row = (state.roster ?? []).find((entry) => entry.name === name)
+  assert.ok(row, `reservation ${name} must exist before it can age`)
+  row.reservedAt = Date.now() - ageMs
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+}
+
 /** Exactly the row a dispatch leaves behind when activation never returned. */
-function reserveOrphan(tower) {
-  return tower.reserveRoster({
+async function reserveOrphan(tower, { fresh = false } = {}) {
+  const entry = await tower.reserveRoster({
     missionId: 'M1',
     name: 'worker-m1',
     role: 'worker',
     parentSessionId: 'tower-agent',
   })
+  // A retry normally arrives long after the failed dispatch; only the grace
+  // tests leave the reservation fresh.
+  if (!fresh) await ageReservation(tower, entry.name)
+  return entry
 }
 
 /** The real ownership precheck, against the view the spawn tool reads first. */
@@ -207,8 +228,11 @@ test('adopt reports a legacy terminal row without an agent id as unresolvable', 
 test('a reservation that already carries an agent id is in flight and is never reaped', async () => {
   const { root, repo, tower } = await seeded()
   try {
-    // The activation returned but `recordSpawn` has not written the active row
-    // yet: the row is reserved *with* an agent id, so a child really exists.
+    // Defensive input, not a row production writes today: `recordSpawn` flips
+    // the row to active as it binds the child id, so a reserved row with an
+    // agent id can only come from a hand-edited state file or a future caller.
+    // If it exists, a child really does (or may) exist, so the reap must not
+    // treat the reservation as abandoned.
     await seedRow(tower, {
       name: 'worker-m1',
       role: 'worker',
@@ -232,6 +256,97 @@ test('a reservation that already carries an agent id is in flight and is never r
     assert.deepEqual(result.reaped, [], 'an in-flight reservation is not a stalled one')
     state = await assertValidState(tower)
     assert.equal(state.roster[0].state, 'reserved')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a fresh reservation is kept through the grace window instead of being reaped', async () => {
+  const { root, tower } = await seeded()
+  try {
+    await reserveOrphan(tower, { fresh: true })
+    const before = (await tower.load()).revision
+
+    // A concurrent dispatch may hold a reservation for the same mission for a
+    // moment; the precheck must not write that in-flight name off immediately.
+    assert.equal(await precheck(tower), false, 'a fresh reservation must not force takeover mode')
+    let state = await assertValidState(tower)
+    assert.equal(state.revision, before, 'inside the grace window nothing is rewritten')
+    assert.equal(state.roster.length, 1, 'a young reservation is retried, not reaped')
+    assert.equal(state.roster[0].state, 'reserved')
+
+    // Once it is old enough to be abandoned, the next precheck releases it.
+    await ageReservation(tower, 'worker-m1')
+    assert.equal(await precheck(tower), false)
+    state = await assertValidState(tower)
+    assert.deepEqual(state.roster ?? [], [])
+    assert.match(activityText(tower), /reaped stalled reservations: worker-m1 \(M1\)/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('P2-2: a stale spawn outcome cannot overwrite a newer reservation that reused the name', async () => {
+  const { root, repo, tower } = await seeded()
+  const other = await Tower.open(repo)
+  try {
+    // Process A reserved, failed before activation, and its reservation is
+    // eventually reaped by a later precheck of the same process.
+    await reserveOrphan(tower)
+    assert.equal(await precheck(tower), false)
+    assert.deepEqual((await tower.load()).roster ?? [], [])
+
+    // The name is free again: process B reserves it and activates its child.
+    await other.reserveRoster({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      parentSessionId: 'tower-agent',
+    })
+    await other.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'child-2',
+      parentSessionId: 'tower-agent',
+    })
+
+    const revision = (await tower.load()).revision
+    const skipped = await tower.recordSpawnOutcome({
+      missionId: 'M1',
+      name: 'worker-m1',
+      state: 'failed',
+      detail: 'spawn failed before activation: activation channel closed',
+    })
+    assert.equal(skipped, null, 'the stale outcome is skipped instead of being applied to a foreign row')
+    const state = await assertValidState(tower)
+    const row = state.roster.find((entry) => entry.name === 'worker-m1')
+    assert.equal(row.state, 'active', 'a stale cleanup must not fail an in-use row')
+    assert.equal(row.agentId, 'child-2')
+    assert.equal(row.outcome, undefined)
+    assert.equal(state.revision, revision, 'a skipped outcome must not rewrite state')
+    assert.match(activityText(tower), /worker-m1 outcome skipped/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('P2-2: the owning reservation still records its own activation failure', async () => {
+  const { root, tower } = await seeded()
+  try {
+    await reserveOrphan(tower, { fresh: true })
+    const recorded = await tower.recordSpawnOutcome({
+      missionId: 'M1',
+      name: 'worker-m1',
+      state: 'failed',
+      detail: 'spawn failed before activation: activation channel closed',
+    })
+    assert.ok(recorded, 'the owner of the reservation may always record its outcome')
+    assert.equal(recorded.state, 'failed')
+    assert.equal(recorded.agentId, null)
+    const state = await assertValidState(tower)
+    assert.equal(state.roster[0].state, 'failed')
+    assert.match(activityText(tower), /worker-m1 failed: spawn failed before activation/)
   } finally {
     removeTemp(root)
   }

@@ -13,7 +13,10 @@ import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_STATE } from '../../domain/vo
  * observation counters are keyed by agent id, so a shared `null` key would retire
  * rows the catalog never saw, and the retirement write used to fail validation
  * and abort the whole adopt. `reaped` names the discarded reservations and
- * `unresolvable` names the id-less rows left for a manual fix.
+ * `unresolvable` names the id-less rows left for a manual fix. A stalled
+ * reservation whose disposable review checkout could not be removed is kept and
+ * reported in `unreaped` with the checkout path, so the leak is actionable
+ * instead of silent.
  *
  * @param {any} ctx
  * @param {any} args
@@ -27,7 +30,7 @@ export async function runAdoptView(ctx, args, exec, deps) {
   const subagents = ctx.get('subagents')
   if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot adopt')
 
-  const { reaped } = await reapStalledReservations(tower)
+  const { reaped, unreaped } = await reapStalledReservations(tower)
   const view = await tower.rosterView()
 
   const parents = [...new Set(view.roster.map((entry) => entry.parentSessionId).filter(Boolean))]
@@ -70,6 +73,13 @@ export async function runAdoptView(ctx, args, exec, deps) {
     retired,
     missing,
     reaped: reaped.map((entry) => entry.name),
+    unreaped: unreaped.map((entry) => ({
+      name: entry.name,
+      missionId: entry.missionId,
+      checkout: entry.checkout,
+      error: entry.error,
+      attempts: entry.attempts,
+    })),
     unresolvable,
     unconfirmed: absentIds.filter((agentId) => !retiredCandidates.includes(agentId)),
     skippedUnknownParents: Object.entries(parentStatus)

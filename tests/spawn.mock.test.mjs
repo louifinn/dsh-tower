@@ -25,6 +25,7 @@ const { Tower } = await import('../host/tower.js')
 const { buildActivationSpec, resolveSpawnProvider, usesNestedActivation } = await import('../app/host-contract.js')
 const { validateState } = await import('../domain/state.js')
 const { stateShapeError } = await import('../domain/state/schema.js')
+const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
 
 after(() => removeTemp(home))
 
@@ -190,6 +191,18 @@ function spawn(harness, args) {
 /** Let the fire-and-forget `recordSpawnOutcome` chain settle before cleanup. */
 function settle() {
   return new Promise((resolve) => setTimeout(resolve, 50))
+}
+
+/**
+ * Backdate a reservation past the reap grace window, the way the shell of a
+ * dispatch that never returned ages. Tests do not wait a real minute.
+ */
+async function ageReservation(tower, name) {
+  const state = await tower.load()
+  const row = (state.roster ?? []).find((entry) => entry.name === name)
+  assert.ok(row, `reservation ${name} must exist before it can age`)
+  row.reservedAt = Date.now() - (STALLED_RESERVATION_GRACE_MS + 1_000)
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
 }
 
 async function initAndPlan(repo, missions) {
@@ -563,6 +576,9 @@ test('F57: a stalled reservation left by a failed dispatch does not wedge the mi
       role: 'worker',
       parentSessionId: 'tower-agent',
     })
+    // The failed dispatch happened long enough ago that its name claim is
+    // abandoned; a just-written reservation is intentionally left alone.
+    await ageReservation(tower, 'worker-m1')
 
     const report = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
     assert.equal(report.agentId, 'child-1')
