@@ -385,8 +385,10 @@ test('doctor and recover handle a leftover commit mutex without manual deletion 
     assert.equal(commitCheck.status, 'warn')
     assert.match(commitCheck.detail, /alive but silent/)
     assert.match(commitCheck.detail, /never reclaimed automatically/)
-    assert.match(commitCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(commitCheck.action, /clear-stale-lock recovery step/)
+    assert.match(commitCheck.action, /force:true/)
     assert.match(commitCheck.action, /CLEAR_STALE_LOCK/)
+    assert.doesNotMatch(commitCheck.action, /tower_recover/)
     assert.equal(fs.existsSync(commitLockFile), true, 'doctor must never move the record')
 
     // status sees the same record; an unforced clear refuses the live PID.
@@ -452,8 +454,10 @@ test('doctor warns on an unreadable commit mutex instead of passing it (F71)', a
     assert.equal(commitCheck.status, 'warn', 'an unreadable record is a wedge, not a pass')
     assert.match(commitCheck.detail, /unreadable/i)
     assert.match(commitCheck.detail, /state-commit-busy/)
-    assert.match(commitCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(commitCheck.action, /clear-stale-lock recovery step/)
+    assert.match(commitCheck.action, /force:true/)
     assert.match(commitCheck.action, /CLEAR_STALE_LOCK/)
+    assert.doesNotMatch(commitCheck.action, /tower_recover/)
     assert.equal(
       doctor.checks.find((entry) => entry.id === 'state-lock').status,
       'pass',

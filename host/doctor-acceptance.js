@@ -78,7 +78,7 @@ export function stateLockFacts(lock) {
         'state-lock',
         'warn',
         `unreadable state lock at ${lock.path ?? 'the state lock file'} (${lock.error}); every mutation retries it and then fails until it is moved aside`,
-        'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
+        'confirm no Tower writer is active, then run the clear-stale-lock recovery step with force:true and confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
       )
     : !lock.record
       ? check('state-lock', 'pass', 'no state lock file')
@@ -93,7 +93,7 @@ export function stateLockFacts(lock) {
             'state-lock',
             'warn',
             `state lock pid ${lock.record.pid ?? 'unknown'} is alive but silent (${heartbeatText}); a live-but-silent holder is never reclaimed automatically`,
-            'confirm the process is gone (or stop it), then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
+            'confirm the process is gone (or stop it), then run the clear-stale-lock recovery step with force:true and confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
           )
         : check(
             'state-lock',
@@ -139,7 +139,7 @@ export function commitLockFacts(lock) {
         'commit-lock',
         'warn',
         `unreadable state commit mutex at ${lock.path ?? 'the commit lock file'} (${lock.error}); every state write retries it and then fails with state-commit-busy until it is moved aside`,
-        'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
+        'confirm no Tower writer is active, then run the clear-stale-lock recovery step with force:true and confirm:"CLEAR_STALE_LOCK" to rename the unreadable record to a backup (never delete it)',
       )
     : !lock?.record
       ? check('commit-lock', 'pass', 'no state commit mutex')
@@ -154,7 +154,7 @@ export function commitLockFacts(lock) {
             'commit-lock',
             'warn',
             `state commit mutex pid ${lock.record.pid ?? 'unknown'} is alive but silent (last activity ${heldText} ago); a live commit holder is never reclaimed automatically`,
-            'confirm no Tower writer is active, then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
+            'confirm no Tower writer is active, then run the clear-stale-lock recovery step with force:true and confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
           )
         : check(
             'commit-lock',
