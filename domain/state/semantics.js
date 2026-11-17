@@ -4,6 +4,7 @@
 import { FINDING_STATUSES, MERGE_VERDICTS, REVIEW_STATUS_RE } from '../mission.js'
 import { BATCH_STATUSES } from '../batch.js'
 import { TowerToolError } from '../errors.js'
+import { ROSTER_INACTIVE_STATES } from '../roster.js'
 import { isShapeKind, shapeFor } from '../shapes/index.js'
 import { isAcceptanceRecord } from '../shapes/artifact.js'
 
@@ -155,7 +156,19 @@ export function assertStateSemantics(state, where) {
     const agents = new Set()
     for (const entry of record.roster) {
       const reserved = entry?.state === 'reserved'
-      if (!entry || typeof entry.name !== 'string' || (!reserved && typeof entry.agentId !== 'string')) {
+      // F57: only a live row must identify a child. A reservation may not have
+      // one yet (the name is claimed before activation), and a terminal row may
+      // record that the dispatch never got an agent id (`agentId: null`). Both
+      // are truthful, storable states; requiring a string agent id made the
+      // failed-spawn cleanup and the adopt retirement unwritable, which left the
+      // reservation `reserved` forever. A *missing* agentId stays invalid on a
+      // non-reserved row: absence is an omission, not a recorded fact.
+      const inactive = ROSTER_INACTIVE_STATES.includes(entry?.state)
+      const agentId = entry?.agentId
+      const identifiesChild =
+        typeof agentId === 'string' ||
+        (reserved ? agentId === null || agentId === undefined : inactive && agentId === null)
+      if (!entry || typeof entry.name !== 'string' || !identifiesChild) {
         fail(`invalid roster entry${where}`)
       }
       if (names.has(entry.name)) fail(`duplicate roster name ${entry.name}${where}`)

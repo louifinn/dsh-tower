@@ -15,6 +15,25 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
+import { reapStalledReservations, STALLED_RESERVATION_GRACE_MS } from '../app/roster.js'
+import { precheckWorkerOwnership } from '../app/spawn-prechecks.js'
+import { runAdoptView } from '../tools/views/adopt.js'
+
+/**
+ * Test-only age for a reservation: the shell of a dispatch that never returned
+ * ages in real time; tests backdate `reservedAt` instead of waiting. The window
+ * itself is owned by `STALLED_RESERVATION_GRACE_MS`.
+ */
+const STALE_MS = STALLED_RESERVATION_GRACE_MS + 60_000
+
+/** Backdate a reservation the way a dispatch that failed ages. */
+async function ageReservation(tower, name, ageMs = STALE_MS) {
+  const state = await tower.load()
+  const row = (state.roster ?? []).find((entry) => entry.name === name)
+  assert.ok(row, `reservation ${name} must exist before it can age`)
+  row.reservedAt = Date.now() - ageMs
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+}
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -77,6 +96,19 @@ function reviewerInput(overrides = {}) {
     decision: 'reviewed the recorded commit',
     ...overrides,
   }
+}
+
+/** The real adopt view body with its composition-root deps stubbed. */
+function adopt(tower, repo) {
+  const ctx = {
+    get: (name) => (name === 'subagents' ? { listDescendants: async () => [] } : undefined),
+  }
+  const deps = {
+    openTower: async () => tower,
+    actorFor: async () => ({ name: 'tower', id: 'tower-agent', role: 'tower' }),
+    requireTowerActor: () => {},
+  }
+  return runAdoptView(ctx, { repoRoot: repo }, { agent: { id: 'tower-agent' } }, deps)
 }
 
 test('a reviewer verdict is stamped with the recorded commit and the checkout is disposable', async () => {
@@ -162,6 +194,133 @@ test('a checkout that moved after it was recorded is refused', async () => {
       },
     )
     assert.equal((await tower.load()).reviews?.length ?? 0, 0)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('P2-1: reaping a stalled reviewer reservation removes its detached checkout', async () => {
+  const { root, tower, branch } = await completedMission('dsh-tower-review-checkout-reap-')
+  try {
+    const review = await tower.provisionReviewCheckout({ missionId: 'M1', name: 'reviewer-a' })
+    await tower.reserveRoster({
+      missionId: 'M1',
+      name: 'reviewer-a',
+      role: 'reviewer',
+      parentSessionId: 'parent-review',
+      cwd: review.path,
+      branch,
+      reviewCommit: review.commit,
+      reviewCheckout: review.path,
+    })
+    assert.equal(fs.existsSync(review.path), true)
+
+    await ageReservation(tower, 'reviewer-a')
+    const result = await reapStalledReservations(tower)
+    assert.deepEqual(result.reaped.map((entry) => entry.name), ['reviewer-a'])
+    assert.deepEqual(result.unreaped, [])
+
+    // The row was the only record of the detached checkout's path, so deleting
+    // it without removing the checkout leaked a live worktree registration.
+    assert.equal(fs.existsSync(review.path), false, 'the detached checkout must not outlive its row')
+    assert.ok(
+      !git(tower.root, ['worktree', 'list', '--porcelain']).includes(review.path),
+      'the checkout is no longer a registered worktree',
+    )
+    const state = await tower.load()
+    assert.equal(
+      state.roster.some((entry) => entry.name === 'reviewer-a'),
+      false,
+      'the stalled reservation is still reaped',
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('P2-1: a checkout that cannot be removed keeps its row and is reported instead of leaked', async () => {
+  const { root, tower, branch } = await completedMission('dsh-tower-review-checkout-reap-locked-')
+  try {
+    const review = await tower.provisionReviewCheckout({ missionId: 'M1', name: 'reviewer-a' })
+    await tower.reserveRoster({
+      missionId: 'M1',
+      name: 'reviewer-a',
+      role: 'reviewer',
+      parentSessionId: 'parent-review',
+      cwd: review.path,
+      branch,
+      reviewCommit: review.commit,
+      reviewCheckout: review.path,
+    })
+    // A locked worktree is the deterministic stand-in for a checkout that git
+    // refuses to remove: `git worktree remove --force` fails and the path stays.
+    git(tower.root, ['worktree', 'lock', review.path])
+    await ageReservation(tower, 'reviewer-a')
+
+    const result = await reapStalledReservations(tower)
+    assert.deepEqual(result.reaped, [])
+    assert.equal(result.unreaped.length, 1)
+    const [failure] = result.unreaped
+    assert.equal(failure.name, 'reviewer-a')
+    assert.equal(failure.missionId, 'M1')
+    assert.equal(failure.role, 'reviewer')
+    assert.equal(failure.checkout, review.path)
+    assert.match(String(failure.error), /locked working tree/)
+
+    let state = await tower.load()
+    const row = state.roster.find((entry) => entry.name === 'reviewer-a')
+    assert.equal(row.state, 'reserved', 'the row stays while its checkout is on disk')
+    assert.equal(row.reviewCheckout, review.path, 'the path stays so a later retry can still remove it')
+    assert.equal(fs.existsSync(review.path), true)
+
+    // Adopt retries the cleanup and reports the retained checkout instead of
+    // silently discarding the last record of it.
+    const adopted = await adopt(tower, path.join(root, 'repo'))
+    assert.deepEqual(adopted.reaped, [])
+    assert.deepEqual(adopted.unreaped.map((entry) => entry.name), ['reviewer-a'])
+    assert.equal(adopted.unreaped[0].checkout, review.path)
+    assert.match(String(adopted.unreaped[0].error), /locked working tree/)
+    assert.equal(
+      (await tower.load()).roster.some((entry) => entry.name === 'reviewer-a'),
+      true,
+      'adopt must keep the row while its checkout is still on disk',
+    )
+
+    // A later spawn's ownership precheck (workers are the role it gates) must
+    // report the retained reservation as an actionable roster error, not as a
+    // live worker that takeover could never resolve.
+    const view = await tower.rosterView()
+    await assert.rejects(
+      () =>
+        precheckWorkerOwnership({
+          role: 'worker',
+          tower,
+          ctx: {},
+          view,
+          missionId: 'M1',
+          takeover: false,
+          maxLiveWorkers: 4,
+          budget: 4,
+          observeActivity: async () => ({ activity: {}, parentStatus: {} }),
+        }),
+      (error) => {
+        assert.equal(error.code, 'invalid-transition')
+        assert.match(error.message, /reviewer-a/)
+        assert.ok(error.message.includes(review.path))
+        assert.match(error.message, /git worktree remove --force/)
+        assert.doesNotMatch(error.message, /already has a live worker/)
+        return true
+      },
+    )
+
+    // Once the checkout can be removed, the retry reaps both row and checkout.
+    git(tower.root, ['worktree', 'unlock', review.path])
+    const second = await reapStalledReservations(tower)
+    assert.deepEqual(second.reaped.map((entry) => entry.name), ['reviewer-a'])
+    assert.deepEqual(second.unreaped, [])
+    assert.equal(fs.existsSync(review.path), false)
+    state = await tower.load()
+    assert.equal(state.roster.some((entry) => entry.name === 'reviewer-a'), false)
   } finally {
     removeTemp(root)
   }
