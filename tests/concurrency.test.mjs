@@ -15,7 +15,7 @@ import { validateState } from '../app/tower.js'
 import { countLiveWorkers } from '../domain/roster.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { lockRecord } from '../adapters/lock.js'
-import { pathsFor, withLock, writeStateLocked } from '../adapters/store.js'
+import { pathsFor, stateCommitLockPath, stateLockSuperseded, withLock, writeStateLocked } from '../adapters/store.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -455,6 +455,215 @@ test('a commit that lands during serialisation fails the stale write at the last
       [],
       'a refused write must remove its temp file',
     )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F24/R123: the document CAS still ends at a blind rename. A takeover can
+// land a complete foreign commit between the last check and the rename, so the
+// commit itself is fenced by a short-lived mutex. The fixture pauses A inside
+// `writeJsonAtomic` (test seam) after its last check, performs the operator's
+// forced state-lock recovery, and lets B commit; only the mutex stops B. No
+// timing or machine load is involved.
+test('a commit mutex fences the rename window against a forced takeover (F24/R123)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-commit-mutex-')
+  const commitLockPath = stateCommitLockPath(paths)
+  try {
+    fs.writeFileSync(paths.state, JSON.stringify({ revision: 1, workers: { seed: true } }, null, 2))
+
+    let signalPaused = null
+    let releaseA = null
+    const aPaused = new Promise((resolve) => {
+      signalPaused = resolve
+    })
+    const aGate = new Promise((resolve) => {
+      releaseA = resolve
+    })
+    const aDone = withLock(
+      paths,
+      async (_paths, held) => {
+        const state = JSON.parse(fs.readFileSync(paths.state, 'utf8'))
+        state.revision += 1
+        state.workers.a = true
+        return writeStateLocked(paths, state, held.token, {
+          // Pause after the last ownership/base check and before the rename —
+          // exactly the window the commit mutex must cover.
+          onBeforeRename: async () => {
+            signalPaused()
+            await aGate
+          },
+          commitLockTimeoutMs: 250,
+        })
+      },
+      { heartbeatMs: 60000 },
+    )
+    await aPaused
+
+    // `tower_recover clear-stale-lock force` moves the live state-lock record
+    // aside; B then acquires the freed path and loads the same revision.
+    fs.renameSync(paths.lock, `${paths.lock}.forced-recovery`)
+    let bError = null
+    try {
+      await withLock(
+        paths,
+        async (_paths, held) => {
+          const state = JSON.parse(fs.readFileSync(paths.state, 'utf8'))
+          state.revision += 1
+          state.workers.b = true
+          await writeStateLocked(paths, state, held.token, { commitLockTimeoutMs: 250 })
+        },
+        { heartbeatMs: 60000 },
+      )
+    } catch (error) {
+      bError = error
+    }
+
+    releaseA()
+    await aDone
+    // A blocked B is retried; B reloads and applies on top of A. If the mutex
+    // were missing, B has already committed here and this retry is skipped:
+    // the final assertions below then catch the silently lost update.
+    if (bError?.details?.reason === 'state-commit-busy') {
+      await withLock(
+        paths,
+        async (_paths, held) => {
+          const state = JSON.parse(fs.readFileSync(paths.state, 'utf8'))
+          state.revision += 1
+          state.workers.b = true
+          await writeStateLocked(paths, state, held.token)
+        },
+        { heartbeatMs: 60000 },
+      )
+    }
+
+    const final = JSON.parse(fs.readFileSync(paths.state, 'utf8'))
+    assert.equal(
+      final.workers?.b,
+      true,
+      'the mutation B committed while A was inside its rename window must survive A’s later rename',
+    )
+    assert.deepEqual(final.workers, { seed: true, a: true, b: true })
+    assert.equal(final.revision, 3, 'each successful mutation must bump the revision exactly once')
+
+    // B was stopped by the commit mutex, and the error names the in-flight
+    // committer so the caller can act on it.
+    assert.equal(bError?.code, 'state-locked')
+    assert.equal(bError?.details?.reason, 'state-commit-busy')
+    assert.equal(bError?.retryable, true)
+    assert.equal(bError?.details?.holderPid, process.pid)
+    assert.equal(bError?.details?.stateLockPath, paths.lock)
+    assert.equal(bError?.details?.waitMs, 250)
+
+    // The mutex is released on every path and leaves no record or temp file.
+    assert.equal(fs.existsSync(commitLockPath), false, 'the commit mutex must be released')
+    assert.deepEqual(
+      fs.readdirSync(paths.dir).filter((name) => name.startsWith('state.commit.lock')),
+      [],
+      'the commit mutex must not leave a record or a quarantine file behind',
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F24/R123 P2: bytes that differ from our payload after the rename are not
+// automatically a lost update. If the disk revision is *higher*, our commit
+// reached the disk and a successor built on it, so a retry would apply the
+// mutation twice; only a document that cannot contain our commit is retried.
+test('a commit inherited by a successor revision is applied, never retried (R123 P2)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-superseded-')
+  try {
+    fs.writeFileSync(paths.state, JSON.stringify({ revision: 1, marker: 'base' }, null, 2))
+    let successorRaw = null
+    let first = null
+    let second = null
+    await withLock(
+      paths,
+      async (_paths, held) => {
+        first = await writeStateLocked(paths, { revision: 2, marker: 'mine' }, held.token, {
+          onAfterRename: async ({ file }) => {
+            // A successor commits between our rename and our read-back, on top
+            // of the document this mutation just published.
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'))
+            doc.revision += 1
+            doc.marker = 'successor'
+            successorRaw = JSON.stringify(doc, null, 2)
+            fs.writeFileSync(file, successorRaw)
+          },
+        })
+        assert.deepEqual(stateLockSuperseded(paths), { revision: 2, landedRevision: 3 })
+        // The section chains its next commit from the successor bytes, so a
+        // second write replaces exactly what is on disk and succeeds.
+        second = await writeStateLocked(paths, { revision: 4, marker: 'after' }, held.token)
+      },
+      { heartbeat: false },
+    )
+    assert.equal(first.superseded, true)
+    assert.equal(first.revision, 2)
+    assert.equal(first.landedRevision, 3)
+    assert.equal(second.superseded, false, 'the next commit lands on the successor bytes')
+    assert.equal(second.revision, 4)
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).marker, 'after')
+    assert.equal(typeof successorRaw, 'string')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a commit that lands unchanged is applied exactly once (post-commit classification baseline)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-commit-ok-')
+  try {
+    fs.writeFileSync(paths.state, JSON.stringify({ revision: 1, marker: 'base' }, null, 2))
+    let result = null
+    await withLock(
+      paths,
+      async (_paths, held) => {
+        result = await writeStateLocked(paths, { revision: 2, marker: 'mine' }, held.token)
+      },
+      { heartbeat: false },
+    )
+    assert.equal(result.superseded, false)
+    assert.equal(result.revision, 2)
+    assert.equal(result.landedRevision, 2)
+    assert.equal(stateLockSuperseded(paths), null)
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).marker, 'mine')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a same-revision replacement after the rename is a retryable lost update (R123 P2)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-post-commit-lost-')
+  try {
+    fs.writeFileSync(paths.state, JSON.stringify({ revision: 1, marker: 'base' }, null, 2))
+    let refusal = null
+    await assert.rejects(
+      () =>
+        withLock(
+          paths,
+          async (_paths, held) => {
+            await writeStateLocked(paths, { revision: 2, marker: 'mine' }, held.token, {
+              // Same revision, different bytes: the document cannot contain
+              // this mutation, so the commit must be retried, not reported.
+              onAfterRename: async ({ file }) => {
+                fs.writeFileSync(file, JSON.stringify({ revision: 2, marker: 'intruder' }, null, 2))
+              },
+            })
+          },
+          { heartbeat: false },
+        ),
+      (error) => {
+        refusal = error
+        return error?.code === 'state-locked'
+      },
+    )
+    assert.equal(refusal.details.reason, 'state-lock-lost-update')
+    assert.equal(refusal.retryable, true)
+    assert.equal(refusal.details.expectedRevision, 2)
+    assert.equal(refusal.details.actualRevision, 2)
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).marker, 'intruder')
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), false, 'the commit mutex must be released on the failure path')
   } finally {
     removeTemp(root)
   }
