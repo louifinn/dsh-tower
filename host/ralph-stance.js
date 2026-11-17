@@ -38,6 +38,15 @@ import { runtimeConfig } from './config.js'
 const RALPH_WORKFLOW_META = 'ralph-loop'
 /** Both implementations prefix round-agent labels with "ralph". */
 const RALPH_ROUND_LABEL = /^ralph\b/i
+
+// #F75: the environment-health remedy this module injects is user-facing copy.
+// `scripts/check-components.mjs` reads this table, so the action stays in
+// operator language: no configuration key (`mode.ralphPolicy`), no slash command
+// (`/tower on`) and no internal id. Keep a new remedy in the table.
+const DOCTOR_ACTION_COPY = Object.freeze({
+  ralphLoop:
+    'finish or stop the loop before entering Tower mode: a running loop is refused entry, and its rounds are refused while Tower owns the repository',
+})
 /** A recorded round counts as live for this long after it was seen. */
 const RALPH_ROUND_TTL_MS = 5 * 60_000
 /** Bound on remembered rounds so a long-lived process cannot grow the sensor. */
@@ -287,7 +296,7 @@ export function ralphStanceDoctorFact(root) {
       row: {
         status: 'warn',
         detail: `this repository has a Ralph loop in progress (${ralphLoop.detail}); Tower cannot co-own it`,
-        action: 'finish or stop the loop before /tower on; entering Tower with mode.ralphPolicy:"stop" refuses the loop\'s rounds, "refuse" rejects the entry',
+        action: DOCTOR_ACTION_COPY.ralphLoop,
       },
     }
   }

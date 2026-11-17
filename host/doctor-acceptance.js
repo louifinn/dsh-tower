@@ -12,6 +12,14 @@
 import { shapeFor } from '../domain/shapes/index.js'
 import { lockTiming } from '../adapters/persistence.js'
 
+// #F75: the remedy an artifact acceptance row injects is user-facing copy. The
+// component gate reads this table, so the sentence names the human decision and
+// the merge consequence without a tool id.
+const DOCTOR_ACTION_COPY = Object.freeze({
+  artifactAcceptance:
+    'the human accepts through the approval channel; no agent may self-accept and the merge gate refuses without it',
+})
+
 /**
  * One `artifact-acceptance` doctor check over the loaded state.
  * @param {{ missions?: any[] }} state
@@ -25,7 +33,7 @@ export function artifactAcceptanceCheck(state) {
       id: 'artifact-acceptance',
       status: 'warn',
       detail: `${pending.length} artifact mission(s) wait on a human acceptance of the committed tip (${pending.map((mission) => mission.id).join(', ')})`,
-      action: 'the human accepts through the approval channel (tower_mission accept); no agent may self-accept and the merge gate refuses without it',
+      action: DOCTOR_ACTION_COPY.artifactAcceptance,
     }
   }
   return {

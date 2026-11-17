@@ -22,12 +22,15 @@ import {
   CLIENT_CATALOG_FILE,
   CLIENT_COMMAND_KEYS,
   COMPONENT_GLOSSARY,
+  DOCTOR_ACTION_MODULES,
   GLOSSARY_FILE,
   PRESET_ERROR_FILE,
+  actionCopyFindings,
   capabilityRowTitles,
   checkClientCopy,
   checkClientDictionaries,
   checkCopyGateSelfTest,
+  checkDoctorActionCopy,
   checkGlossaryFile,
   checkLocaleCopy,
   checkMetaRowCopy,
@@ -484,5 +487,58 @@ test('the glossary document exists and names every canonical term pair (#137)', 
     assert.ok(findings.some((entry) => entry.code === 'glossary-term'), JSON.stringify(findings))
   } finally {
     removeTemp(empty)
+  }
+})
+
+test('environment-health actions injected beside the doctor are gated too (#F75)', () => {
+  // The doctor's sibling modules hand their remedy to check(...) as a value, and
+  // that value used to bypass the copy gate entirely. A tool id planted in the
+  // table must fail with the doctor's own finding code.
+  const source = [
+    'const DOCTOR_ACTION_COPY = Object.freeze({',
+    "  restart: 'restart DSH so the new capability takes effect',",
+    '})',
+    'export function fact() { return { row: { status: "warn", detail: "a capability needs a restart", action: DOCTOR_ACTION_COPY.restart } } }',
+  ].join('\n')
+  assert.deepEqual(actionCopyFindings(source, 'host/doctor-acceptance.js'), [])
+  const planted = source.replace(
+    'restart DSH so the new capability takes effect',
+    'finish the loop with tower_recover, then restart DSH',
+  )
+  const findings = actionCopyFindings(planted, 'host/ralph-stance.js')
+  assert.ok(
+    findings.some((entry) => entry.code === 'doctor-copy-tool-id' && entry.message.includes('tower_recover')),
+    JSON.stringify(findings),
+  )
+  // Inline copy cannot dodge the scan: an injected action must resolve to the
+  // module's copy table, so a raw string fails even when its text is clean.
+  const inline = [
+    "const DOCTOR_ACTION_COPY = Object.freeze({ restart: 'restart DSH' })",
+    'export const row = { action: "restart DSH" }',
+  ].join('\n')
+  assert.ok(
+    actionCopyFindings(inline, 'host/compatibility.js').some((entry) => entry.code === 'doctor-action-copy-literal'),
+  )
+  // The shipped package carries every action-copy surface, and the gate reports
+  // the union clean.
+  assert.deepEqual(checkDoctorActionCopy(root), [])
+  for (const entry of DOCTOR_ACTION_MODULES) {
+    assert.ok(fs.existsSync(path.join(root, entry.file)), `${entry.file} is missing from the package`)
+  }
+  // A root that ships only the doctor table is a fixture, not a package: the
+  // sibling group is skipped instead of demanding files the fixture never copies.
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-doctor-actions-'))
+  try {
+    assert.deepEqual(checkDoctorActionCopy(fixture), [])
+    // Half a group is a broken package: the gate fails closed by name.
+    fs.mkdirSync(path.join(fixture, 'host'), { recursive: true })
+    fs.copyFileSync(path.join(root, DOCTOR_ACTION_MODULES[0].file), path.join(fixture, DOCTOR_ACTION_MODULES[0].file))
+    const missing = checkDoctorActionCopy(fixture)
+    assert.ok(
+      missing.some((entry) => entry.code === 'doctor-action-copy-missing'),
+      JSON.stringify(missing),
+    )
+  } finally {
+    removeTemp(fixture)
   }
 })

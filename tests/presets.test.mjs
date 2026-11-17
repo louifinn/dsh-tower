@@ -329,6 +329,10 @@ test('preset validation fails closed before work starts (#64)', async () => {
       assert.match(error.message, /Tower Reviewer preset/)
       assert.match(error.message, /plugin page/)
       assert.match(error.message, /review before merging is set to required/)
+      // #F79: the planning/mode-entry path passes the visible row as the next
+      // step; the registry fallback never names the registered preset ids.
+      assert.match(error.nextAction, /switch the Tower Reviewer preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
       return true
     },
   )
@@ -343,7 +347,15 @@ test('preset validation fails closed before work starts (#64)', async () => {
     await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'optional' } }),
     { checked: true, missing: [] },
   )
-  await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /Tower Worker preset/)
+  await assert.rejects(
+    () => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}),
+    (error) => {
+      assert.match(error.message, /Tower Worker preset/)
+      assert.match(error.nextAction, /switch the Tower Worker preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
+      return true
+    },
+  )
   assert.deepEqual(await assertPresetsAvailable(ctxWith(['tower-worker', 'tower-reviewer']), {}), { checked: true, missing: [] })
   assert.deepEqual(await assertPresetsAvailable({ get: () => undefined }, {}), { checked: false, missing: [] })
 })

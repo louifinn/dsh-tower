@@ -646,7 +646,19 @@ test('mode state is provided as ctx.tower and is disposable', () => {
 test('mode entry refuses when a required preset is missing (#64)', async () => {
   const { ctx, commands } = makeCtx({ agentPresets: { list: async () => [{ id: 'tower-worker' }] } })
   apply(ctx, { review: { mode: 'required' } })
-  await assert.rejects(() => callCommand(commands, makeAgent('agent-preset-missing'), ''), /preset-missing/)
+  await assert.rejects(
+    () => callCommand(commands, makeAgent('agent-preset-missing'), ''),
+    (error) => {
+      assert.equal(error.code, 'preset-missing')
+      // #F79: the registry fallback is label-agnostic; the host passes the visible
+      // plugin-page row as the rendered next step, and no internal preset id
+      // reaches the operator on the planning/mode-entry path.
+      assert.match(error.message, /Tower Reviewer preset/)
+      assert.match(error.nextAction, /switch the Tower Reviewer preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
+      return true
+    },
+  )
   assert.equal(ctx.tower.get('agent-preset-missing'), undefined)
 })
 
@@ -747,7 +759,11 @@ test('#148: survey row availability comes from the real agent-presets service', 
           .execute({ repoRoot: repo, missions: [{ title: 'Survey with the row absent', kind: 'survey' }] }, { agent }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message),
+        /the capability this mission kind needs is turned off: survey missions cannot be planned; the other kinds still can/.test(error.message) &&
+        // #F80: the row id is plugin-page plumbing; the refusal names the
+        // capability and the visible remedy instead.
+        !/tower-survey/.test(`${error.message} ${error.nextAction}`) &&
+        /turn that capability back on in the plugin page/.test(String(error.nextAction)),
     )
     presets.push({ id: 'tower-survey' })
     const planned = await profile.tools
@@ -897,6 +913,8 @@ test('#121: review.mode required with the reviewer row off is locked with an exp
       assert.equal(error.code, 'preset-missing')
       assert.match(error.message, /Tower Reviewer preset/)
       assert.match(error.message, /review before merging is set to required/)
+      assert.match(error.nextAction, /switch the Tower Reviewer preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
       return true
     },
   )
