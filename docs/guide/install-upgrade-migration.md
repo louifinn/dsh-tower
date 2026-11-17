@@ -30,6 +30,31 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.9.0 → 2.9.1 — patch release, no migration required**: the config surface is unchanged (58 keys in
+  16 sections) and the state schema stays v5. The only state-shape change is the optional
+  `reservationId` on the roster row a spawn reserves; a 2.9.0 reader ignores it, so rolling back is
+  safe. What a caller of the tools can observe:
+  - `tower_spawn` output: `worktree` is still required but may now be `null`. A survey spawn creates
+    no branch worktree, so it reports `null` instead of failing output validation after the worker has
+    already started. Branch worktrees keep `{path, branch, baseCommit}`.
+  - `tower_teardown` / `tower_inspect` with `view: "doctor"`: a terminal mission whose checkout was
+    deleted outside Tower is no longer an unrecoverable row. `tower_teardown` records
+    `worktreeRemovedAt` and returns `repaired: true` with the reason `worktree directory was already
+    gone; the removal was recorded`; the doctor downgrades that case in the `worktrees` check to an
+    advisory warn (a missing worktree of a live mission still fails, a dirty worktree still warns) and
+    counts the removals it has recorded.
+  - Host version: the desktop build is now recognized from the `package.json` under `DSH_INSTALL_DIR`
+    (or its parent), so 0.2.2-rc.3 reports as verified without an environment variable. When no source
+    answers, the detail lists every source that was probed.
+  - Windows line endings: Git write commands run with `core.autocrlf=false`, so a user-level
+    `core.autocrlf=true` can no longer make Tower's own checkout look like an out-of-scope change; read
+    commands such as `status`/`diff` keep the ambient setting.
+  - Failed spawns: a stalled `reserved` roster row (`agentId: null`) is reaped after a 60 s grace
+    window in two phases, and each reservation carries its own `reservationId`, so a stale sweep never
+    retires a row another spawn is using. If a one-shot review checkout cannot be removed, the row is
+    kept and reported as `unreaped` by `tower_init({op:"adopt"})` and the spawn precheck.
+  - No configuration key changed. Update the plugin and restart DSH; nothing else to migrate.
+
 <!-- tower-retired-names:begin 2.9.0-migration -->
 - **2.8.0 → 2.9.0 (#163, #176, #160, #164, #162, #159, #161) — consolidated tool surface**: the
   build surface drops from 29 tools to 21 (16 tools in the default profile). The five read-only

@@ -32,6 +32,25 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.9.0 → 2.9.1 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
+  v5；唯一的状态形状变化是派工预留时名册行上的可选 `reservationId`，2.9.0 读取时会忽略，因此回退是安全
+  的。调用工具时能观察到的变化：
+  - `tower_spawn` 输出：`worktree` 仍为必填，但现在允许 `null`。survey 派工不建分支工作树，因此报告
+    `null`，而不是在 worker 其实已经启动之后被判成输出校验失败；分支工作树仍为
+    `{path, branch, baseCommit}`。
+  - `tower_teardown` / `tower_inspect` 的 `doctor` 视图：终态任务的工作树若被 Tower 之外删除，不再是一条
+    无法清除的记录。`tower_teardown` 会补写 `worktreeRemovedAt` 并返回 `repaired: true`，原因为
+    `worktree directory was already gone; the removal was recorded`；doctor 把这类情况在 `worktrees`
+    检查里降为 advisory warn（活跃任务的工作树缺失仍 fail、脏工作树仍 warn），并统计已记录的移除数。
+  - 宿主版本：桌面构建现在可从 `DSH_INSTALL_DIR`（或其父目录）下的 `package.json` 识别，0.2.2-rc.3 无需
+    环境变量即可报告为已验证；所有来源都无答案时，详情会列出探测过的每个来源。
+  - Windows 行尾：Git 写类命令带 `core.autocrlf=false` 运行，用户级 `core.autocrlf=true` 不再让 Tower
+    自己的检出看起来像越界改动；`status`/`diff` 等读类命令仍沿用环境设置。
+  - 派工失败：卡住的 `reserved` 名册行（`agentId: null`）在 60 秒宽限后分两阶段收割；每份预留带自己的
+    `reservationId`，陈旧清理不会收走别的派工正在用的行。若一次性 review checkout 无法删除，该行会保留，
+    并由 `tower_init({op:"adopt"})` 与 spawn 预检以 `unreaped` 报出。
+  - 配置键没有变化。更新插件并重启 DSH，其余无需迁移。
+
 <!-- tower-retired-names:begin 2.9.0-migration -->
 - **2.8.0 → 2.9.0（#163、#176、#160、#164、#162、#159、#161）—— 工具表面收敛**：构建表面从 29 个工具
   降到 21 个（默认 profile 注册 16 个）。五个只读工具（`tower_status`、`tower_roster`、`tower_diff`、

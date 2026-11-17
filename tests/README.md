@@ -141,13 +141,33 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.1 release evidence (2026-11-17)
+
+The bounded suite is **124 `tests/*.test.mjs` files**, run as five sequential `node --test <files...>`
+batches on Windows 11 with Node `v25.8.1` (never an unbounded `npm test`). Declarations are counted, so
+the one skip is included in the total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 124 files | five sequential batches, `node --test --test-reporter=tap <files>` | **1168** | 1167 pass, 1 skip, 0 fail |
+| Survey-spawn contract | `node --test tests/tool-schemas.test.mjs tests/spawn.mock.test.mjs tests/roster-reserved.test.mjs` | 25 | 25 pass (`tower_spawn` reports `worktree: null` for a survey and still satisfies the real spawn schema) |
+| Property PR tier (12 files) | `npm run test:property` | **119** | 119 pass, 0 fail (119 × 3 seeds × 100 runs = 35,700 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.3` (63.9 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs` and
+`git-mutex-budget.test.mjs` run inside them and passed. These are the current totals; the W5 table
+below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
+
 ### W5 integration evidence (#M77, v2.8.0 debt close-out)
 
 This is the final W5 integration record for the branch that carries the M75 structure split and the M76
 bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean worktree of
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
-are included.
+are included. It is history: the current totals are in
+[2.9.1 release evidence](#291-release-evidence-2026-11-17) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
