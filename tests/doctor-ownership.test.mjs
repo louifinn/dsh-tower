@@ -64,7 +64,7 @@ function writeModeStore(home, modes) {
   fs.writeFileSync(path.join(dir, 'modes.json'), JSON.stringify({ version: 1, modes }))
 }
 
-function makeCtx() {
+function makeCtx(options = {}) {
   __testResetComponentRegistry()
   registerComponent('tower-board')
   const tools = new Map()
@@ -78,6 +78,9 @@ function makeCtx() {
       if (name === 'subagents') {
         return { list: () => [], listDescendants: async () => [], sendMessage: async () => {}, interrupt: () => {} }
       }
+      // Only tests that exercise the preset check mount a registry; the default
+      // stays absent, which makes that check report it cannot make a claim.
+      if (name === 'agentPresets') return options.agentPresets
       return undefined
     },
     tools: {
@@ -211,6 +214,26 @@ test('doctor and status agree: the owner mode is off and takeover is available',
     const owner = doctor.checks.find((entry) => entry.id === 'tower-owner')
     assert.equal(owner.status, 'warn')
     assert.match(owner.detail, /appears inactive/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor presets failure names the visible preset rows and offers both remedies (#F69)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({ agentPresets: { list: async () => [] } })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const presets = doctor.checks.find((entry) => entry.id === 'presets')
+    assert.equal(presets.status, 'fail')
+    // Default review mode is optional, so the worker preset is the only required
+    // one. The detail names the visible row title; neither field may render the
+    // internal preset id.
+    assert.match(presets.detail, /Tower Worker preset/)
+    assert.match(presets.action, /switch the missing preset row back on in the plugin page and restart DSH/)
+    assert.match(presets.action, /choose a registered preset on the plugin configuration form/)
+    assert.doesNotMatch(`${presets.detail} ${presets.action}`, /tower-worker|tower-reviewer/)
   } finally {
     removeTemp(root)
   }

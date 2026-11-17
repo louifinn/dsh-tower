@@ -12,6 +12,24 @@ import { shapeFor } from '../domain/shapes/index.js'
 import { roleCountsTowardBudget, roleMissionBlockers, roleTracksMission } from '../domain/roles.js'
 
 /**
+ * #F69: the preset ids the plugin page shows under a row title. A configured
+ * custom id is not here: that name belongs to the operator, so rendering it is
+ * correct and the copy gate treats it as a value, not an internal identifier.
+ */
+const VISIBLE_PRESET_LABELS = Object.freeze({
+  'tower-worker': 'Tower Worker preset',
+  'tower-reviewer': 'Tower Reviewer preset',
+  'tower-survey': 'Tower Survey preset',
+  'tower-survey-sandbox': 'Tower Survey Sandbox preset',
+})
+
+/** The plugin-page title of a preset id, or the configured custom id (#F69). */
+export function presetLabel(id) {
+  const key = String(id)
+  return VISIBLE_PRESET_LABELS[key] ?? key
+}
+
+/**
  * #F69: every user-facing spawn failure is written here, in GLOSSARY.md
  * vocabulary: the visible plugin-page row (Lease coordination) and the concrete
  * next step, never a config key, a capability row id or a tool id. The copy gate
@@ -37,8 +55,12 @@ export const ERROR_COPY = Object.freeze({
   workerLimit: 'live worker limit reached ({max}){live}',
   workerLimitNext: 'stop a worker with the interrupt action or raise the live worker limit in the Tower configuration',
   spawnUnavailable: 'subagents service is unavailable; cannot spawn',
-  presetMissing: 'agent preset "{preset}" is not registered',
-  presetMissingNext: 'switch the missing preset row back on in the plugin page and restart DSH',
+  presetMissing: 'the {preset} is not registered',
+  presetMissingNext:
+    'switch the {preset} row back on in the plugin page and restart DSH, or choose a registered preset on the plugin configuration form',
+  presetMissingCustom: 'the configured preset "{preset}" is not registered',
+  presetMissingCustomNext:
+    'choose a registered preset on the plugin configuration form, or register the configured preset and restart DSH',
   leaseUnavailable:
     'the required lease "{lease}" cannot be satisfied: Lease coordination is switched off in the plugin page; switch it back on and restart DSH, or clear the lease requirement on the plugin configuration form',
   leaseUnavailableNext: 'switch Lease coordination back on in the plugin page and restart DSH',
@@ -260,10 +282,22 @@ export async function precheckSpawnServices({ tower, ctx, config, preset, actor,
   if (presets && typeof presets.list === 'function') {
     const available = await presets.list()
     if (!available.some((entry) => String(entry.id) === preset)) {
+      // #F69: a built-in preset has a visible row in the plugin page, so both
+      // remedies exist (switch the row back on, or configure a registered
+      // preset). A custom configured id has no row: only the configuration-form
+      // remedy is real, and the message names the configured value as the
+      // operator's own name rather than an internal id.
+      if (Object.hasOwn(VISIBLE_PRESET_LABELS, String(preset))) {
+        throw new TowerToolError(
+          'preset-missing',
+          fillCopy(ERROR_COPY.presetMissing, { preset: presetLabel(preset) }),
+          { nextAction: fillCopy(ERROR_COPY.presetMissingNext, { preset: presetLabel(preset) }) },
+        )
+      }
       throw new TowerToolError(
         'preset-missing',
-        fillCopy(ERROR_COPY.presetMissing, { preset }),
-        { nextAction: fillCopy(ERROR_COPY.presetMissingNext) },
+        fillCopy(ERROR_COPY.presetMissingCustom, { preset }),
+        { nextAction: fillCopy(ERROR_COPY.presetMissingCustomNext) },
       )
     }
   }

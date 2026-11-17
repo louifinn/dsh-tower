@@ -1255,6 +1255,26 @@ test('integration: a config key, tool id or row id in a spawn-precondition messa
   }
 })
 
+test('integration: a raw preset id in a spawn-precondition message fails the gate (#F69)', async () => {
+  const dir = gateRoot({
+    'app/spawn-prechecks.js': (text) => {
+      const from = 'fillCopy(ERROR_COPY.presetMissing, { preset: presetLabel(preset) })'
+      assert.ok(text.includes(from), from)
+      return text.replace(from, 'fillCopy(ERROR_COPY.presetMissing, { preset })')
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'precheck-copy-raw-preset'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
 test('integration: a spawn-precondition message outside the copy table fails the gate (#F69)', async () => {
   const dir = gateRoot({
     'app/spawn-prechecks.js': (text) => {

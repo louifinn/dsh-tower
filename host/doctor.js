@@ -64,7 +64,7 @@ function check(id, status, detail, action) {
 
 /** #F69: name the preset row the reader sees, not the internal preset id. */
 const presetLabel = (id) =>
-  id === 'tower-worker' ? 'Tower Worker preset' : id === 'tower-reviewer' ? 'Tower Reviewer preset' : id
+  ({ 'tower-worker': 'Tower Worker preset', 'tower-reviewer': 'Tower Reviewer preset', 'tower-survey': 'Tower Survey preset', 'tower-survey-sandbox': 'Tower Survey Sandbox preset' }[id] ?? id)
 
 /** Render a lock age the same way the state-lock checker does. */
 function durationText(ms) {
@@ -405,7 +405,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
             'presets',
             'fail',
             `missing preset(s): ${missing.map(presetLabel).join(', ')}${requiredNote}`,
-            'switch the missing preset row back on in the plugin page and restart DSH',
+            'switch the missing preset row back on in the plugin page and restart DSH, or choose a registered preset on the plugin configuration form',
           ),
         )
       }

@@ -853,10 +853,13 @@ export function checkPresetErrorCopy(root, rowTitles = []) {
 /**
  * Collect every `fillCopy(ERROR_COPY.<name>, { params })` reference in a token
  * stream. Placeholders are validated against the params the call actually
- * passes, so a typo cannot render a literal `{name}` to the user.
+ * passes, so a typo cannot render a literal `{name}` to the user. The value
+ * expression of each named param is recorded too: #F69 needs to know that a
+ * preset id went through the label helper, which the table text alone cannot
+ * show.
  *
  * @param {Array<{ type: string, value: string }>} tokens
- * @returns {Array<{ name: string, params: Set<string> }>}
+ * @returns {Array<{ name: string, params: Set<string>, values: Map<string, string> }>}
  */
 function fillCopyReferences(tokens) {
   const references = []
@@ -867,6 +870,7 @@ function fillCopyReferences(tokens) {
     const name = tokens[index + 4]?.value
     if (!name) continue
     const params = new Set()
+    const values = new Map()
     if (tokens[index + 5]?.value === ',') {
       let cursor = index + 6
       let depth = 0
@@ -888,12 +892,28 @@ function fillCopyReferences(tokens) {
           const next = tokens[cursor + 1]?.value
           // Shorthand (`{ name }`) or explicit (`{ name: value }`) keys. The
           // identifiers inside a value expression are not parameters.
-          if (next === ':' || previous === '{' || previous === ',') params.add(token.value)
+          if (next === ':' || previous === '{' || previous === ',') {
+            params.add(token.value)
+            if (next === ':') {
+              const parts = []
+              let inner = 0
+              for (let scan = cursor + 2; scan < tokens.length; scan += 1) {
+                const part = tokens[scan]
+                if (part.value === '(' || part.value === '[' || part.value === '{') inner += 1
+                else if (part.value === ')' || part.value === ']' || part.value === '}') {
+                  if (inner === 0) break
+                  inner -= 1
+                } else if (part.value === ',' && inner === 0) break
+                parts.push(part.value)
+              }
+              values.set(token.value, parts.join(' '))
+            }
+          }
         }
         cursor += 1
       }
     }
-    references.push({ name, params })
+    references.push({ name, params, values })
   }
   return references
 }
@@ -944,6 +964,21 @@ export function precheckCopyFindings(source) {
   const tokens = tokenizeScript(source).tokens ?? []
   const references = fillCopyReferences(tokens)
   const referenced = new Set(references.map((reference) => reference.name))
+  // #F69: the built-in preset id must never reach the message. The table text
+  // only has a placeholder, so the check reads the call-site expression: the
+  // `preset` parameter of these two entries has to come from the label helper.
+  // (The custom-preset entry is checked separately and intentionally renders the
+  // operator's configured id.)
+  for (const reference of references) {
+    if (reference.name !== 'presetMissing' && reference.name !== 'presetMissingNext') continue
+    const value = reference.values?.get('preset') ?? ''
+    if (!/\bpresetLabel\s*\(/.test(value)) {
+      record(
+        'precheck-copy-raw-preset',
+        `${PRECHECK_ERROR_FILE} fills ERROR_COPY.${reference.name} with the raw preset id; render it through presetLabel() so a built-in row reads "Tower Worker preset" instead of "tower-worker"`,
+      )
+    }
+  }
   const paramsByEntry = new Map()
   for (const reference of references) {
     if (!paramsByEntry.has(reference.name)) paramsByEntry.set(reference.name, new Set())
@@ -1252,6 +1287,43 @@ export function checkCopyGateSelfTest() {
     'precheck-copy-row-id',
   )
   expectFinding(
+    'a module specifier in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held; install dsh-tower/preset-worker first',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease)) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-module',
+  )
+  expectFinding(
+    'a slash command in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held; run /tower takeover first',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease)) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-command',
+  )
+  expectFinding(
+    'a raw preset id in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  presetMissing: 'the {preset} is not registered',",
+        "  presetMissingNext: 'switch the {preset} back on in the plugin page and restart DSH',",
+        '})',
+        "export function boom(preset) { throw new TowerToolError('preset-missing', fillCopy(ERROR_COPY.presetMissing, { preset }), { nextAction: fillCopy(ERROR_COPY.presetMissingNext, { preset }) }) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-raw-preset',
+  )
+  expectFinding(
     'a spawn-precondition message outside the copy table',
     precheckCopyFindings(
       [
@@ -1317,6 +1389,13 @@ export function checkCopyGateSelfTest() {
       ),
     ),
     'doctor-copy-command',
+  )
+  expectFinding(
+    'a module specifier in an environment-health remedy',
+    doctorCopyFindings(
+      ["function doctor() { check('presets', 'fail', 'a preset is missing', 'install dsh-tower/preset-worker and restart DSH') }"].join('\n'),
+    ),
+    'doctor-copy-module',
   )
   return failures
 }
