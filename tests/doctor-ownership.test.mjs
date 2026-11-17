@@ -330,8 +330,10 @@ test('doctor: a live-but-silent state lock is never called reclaimable (F32)', a
     assert.match(lockCheck.detail, /alive but silent/)
     assert.match(lockCheck.detail, /never reclaimed automatically/)
     assert.doesNotMatch(lockCheck.detail, /next mutation reclaims it/)
-    assert.match(lockCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(lockCheck.action, /clear-stale-lock recovery step/)
+    assert.match(lockCheck.action, /force:true/)
     assert.match(lockCheck.action, /CLEAR_STALE_LOCK/)
+    assert.doesNotMatch(lockCheck.action, /tower_recover/)
     assert.equal(fs.existsSync(stateLockFile), true, 'doctor must not reclaim or remove the lock record')
   } finally {
     removeTemp(root)
@@ -352,7 +354,8 @@ test('doctor: a merged mission whose worktree is gone is advisory, not a failure
     assert.equal(doctor.ok, true, JSON.stringify(doctor.checks.filter((entry) => entry.status === 'fail')))
     assert.equal(worktrees.status, 'warn')
     assert.match(worktrees.detail, /2 terminal mission worktree\(s\) are no longer on disk/)
-    assert.match(worktrees.action, /tower_teardown/)
+    assert.match(worktrees.action, /mission teardown step/)
+    assert.doesNotMatch(worktrees.action, /tower_teardown/)
 
     // The status exemption is terminal-only: an active mission still fails.
     await appendMission(tower, missionFixture(tower, { id: 'M51', status: 'active' }))
@@ -362,6 +365,7 @@ test('doctor: a merged mission whose worktree is gone is advisory, not a failure
     assert.equal(brokenWorktrees.status, 'fail')
     assert.match(brokenWorktrees.detail, /1 mission worktree\(s\) are missing or invalid/)
     assert.match(brokenWorktrees.action, /restore the worktree/)
+    assert.match(brokenWorktrees.action, /environment health check/)
   } finally {
     removeTemp(root)
   }

@@ -145,13 +145,17 @@ export function normalizeCopy(text) {
 // language, so a new key family cannot sneak back into a label. Matching is
 // case-insensitive: `Gates.requireTests` is the same leak.
 export const CONFIG_KEY_SYNTAX =
-  /\b(?:gates|review|spawn|tests|docs|mode|merge|git|worktrees|archive|leases|dev)\.[A-Za-z][A-Za-z0-9_.]*/i
+  /\b(?:gates|review|spawn|tests|docs|mode|merge|git|worktrees|archive|leases|activity|dev)\.[A-Za-z][A-Za-z0-9_.]*/i
 // Bare internal identifiers: tool ids, slash commands and package specifiers.
 // Case-insensitive for the same reason: `Tower_batch` and `/Tower reload` are
 // still internal spelling, not prose.
 export const TOOL_ID_SYNTAX = /\btower_[a-z][a-z0-9_]*/i
 export const COMMAND_SYNTAX = /\/tower\s/i
 export const MODULE_SPECIFIER_SYNTAX = /\bdsh-tower\/[a-z][a-z0-9._/-]*/i
+// #F69: a capability row id (`tower-leases`, `preset-tower-reviewer`) is
+// plugin-page plumbing, not prose. The user sees the row title ("Lease
+// coordination") and switches that on; the id stays in the locale source.
+export const ROW_ID_SYNTAX = /\b(?:preset-)?tower-[a-z][a-z0-9-]*/i
 // Words that must be translated in the Chinese copy. Lowercase only, so
 // product names ("Tower Worker"), file names (MISSIONS.md) and brand names
 // (Tower, DSH) are not mistakes.
@@ -224,6 +228,22 @@ const PRESET_COPY_CODES = Object.freeze({
   module: 'preset-copy-module',
   untranslated: 'preset-copy-untranslated',
 })
+const PRECHECK_COPY_CODES = Object.freeze({
+  configKey: 'precheck-copy-config-key',
+  toolId: 'precheck-copy-tool-id',
+  command: 'precheck-copy-command',
+  module: 'precheck-copy-module',
+  rowId: 'precheck-copy-row-id',
+  untranslated: 'precheck-copy-untranslated',
+})
+const DOCTOR_COPY_CODES = Object.freeze({
+  configKey: 'doctor-copy-config-key',
+  toolId: 'doctor-copy-tool-id',
+  command: 'doctor-copy-command',
+  module: 'doctor-copy-module',
+  rowId: 'doctor-copy-row-id',
+  untranslated: 'doctor-copy-untranslated',
+})
 
 /**
  * @param {{ file: string, path: string, text: string }} field
@@ -265,6 +285,15 @@ function checkBannedCopy(field, lang, record, codes = LOCALE_COPY_CODES, options
       codes.module,
       `${label} names the module specifier "${specifier[0]}"; describe the capability instead`,
     )
+  }
+  if (codes.rowId) {
+    const rowId = text.match(ROW_ID_SYNTAX)
+    if (rowId) {
+      record(
+        codes.rowId,
+        `${label} names the capability row id "${rowId[0]}"; name the plugin-page row by its visible title and the action the user takes`,
+      )
+    }
   }
   if (lang !== 'zh') return
   for (const { term, pattern } of ZH_UNTRANSLATED_SYNTAX) {
@@ -377,6 +406,10 @@ export function checkLocaleCopy(pairs) {
 export const CLIENT_CATALOG_FILE = 'ui-bundle/client.locales.js'
 /** #F22: the module that owns the preset failure copy. */
 export const PRESET_ERROR_FILE = 'host/presets.js'
+/** #F69: the module that owns the spawn-precondition failure copy. */
+export const PRECHECK_ERROR_FILE = 'app/spawn-prechecks.js'
+/** #F69: the module that owns the environment-health remedy copy. */
+export const DOCTOR_ERROR_FILE = 'host/doctor.js'
 /**
  * Client strings whose job is to quote the composer command the user has to
  * type. The dock chip is a non-interactive status display, so `/tower off` is
@@ -677,21 +710,22 @@ function stripComments(source) {
 }
 
 /**
- * #F22: extract the `const ERROR_COPY = Object.freeze({ key: 'copy', ... })`
- * table from host/presets.js. The table is the one user-facing copy surface of
- * the preset failures, so the gate can check the real rendered sentences
- * without executing the module.
+ * Read one `const <table> = Object.freeze({ key: 'copy', ... })` copy table.
+ * The table is the user-facing surface of a runtime module, so the gate can
+ * check the real rendered sentences without executing the module (#F22, #F69).
  *
  * @param {string} source
+ * @param {string} tableName
+ * @param {string} fileLabel repository-relative path for findings
  * @returns {{ entries: Array<{ name: string, text: string }>, error?: string }}
  */
-export function parseErrorCopy(source) {
+function parseCopyTable(source, tableName, fileLabel) {
   const shapeError = () =>
-    `${PRESET_ERROR_FILE} must declare \`const ERROR_COPY = Object.freeze({ key: 'copy', ... })\`; the copy gate cannot read the preset failure copy`
+    `${fileLabel} must declare \`const ${tableName} = Object.freeze({ key: 'copy', ... })\`; the copy gate cannot read the user-facing copy`
   const scanned = tokenizeScript(source)
   const tokens = scanned.tokens ?? []
   const start = tokens.findIndex(
-    (token, index) => token.type === 'ident' && token.value === 'ERROR_COPY' && tokens[index - 1]?.value === 'const',
+    (token, index) => token.type === 'ident' && token.value === tableName && tokens[index - 1]?.value === 'const',
   )
   if (start === -1) return { entries: [], error: shapeError() }
   const isPunct = (index, value) => tokens[index]?.type === 'punct' && tokens[index]?.value === value
@@ -716,7 +750,7 @@ export function parseErrorCopy(source) {
     if (!value || value.type !== 'string' || value.interpolated === true || value.quote === '`') {
       return {
         entries: [],
-        error: `${PRESET_ERROR_FILE} ERROR_COPY.${key.value} must be a plain quoted string; use {name} placeholders instead of template interpolation`,
+        error: `${fileLabel} ${tableName}.${key.value} must be a plain quoted string; use {name} placeholders instead of template interpolation`,
       }
     }
     entries.push({ name: key.value, text: value.value })
@@ -728,6 +762,17 @@ export function parseErrorCopy(source) {
     return { entries: [], error: shapeError() }
   }
   return { entries: [], error: shapeError() }
+}
+
+/**
+ * #F22: extract the `const ERROR_COPY = Object.freeze({ ... })` table from
+ * host/presets.js.
+ *
+ * @param {string} source
+ * @returns {{ entries: Array<{ name: string, text: string }>, error?: string }}
+ */
+export function parseErrorCopy(source) {
+  return parseCopyTable(source, 'ERROR_COPY', PRESET_ERROR_FILE)
 }
 
 /**
@@ -803,6 +848,219 @@ export function checkPresetErrorCopy(root, rowTitles = []) {
     return [finding('preset-copy-unreadable', 'error', `${PRESET_ERROR_FILE} is missing; the preset failure copy cannot be checked`)]
   }
   return presetCopyFindings(fs.readFileSync(file, 'utf8'), rowTitles)
+}
+
+/**
+ * Collect every `fillCopy(ERROR_COPY.<name>, { params })` reference in a token
+ * stream. Placeholders are validated against the params the call actually
+ * passes, so a typo cannot render a literal `{name}` to the user.
+ *
+ * @param {Array<{ type: string, value: string }>} tokens
+ * @returns {Array<{ name: string, params: Set<string> }>}
+ */
+function fillCopyReferences(tokens) {
+  const references = []
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!(tokens[index].type === 'ident' && tokens[index].value === 'fillCopy')) continue
+    if (tokens[index + 1]?.value !== '(') continue
+    if (tokens[index + 2]?.value !== 'ERROR_COPY' || tokens[index + 3]?.value !== '.') continue
+    const name = tokens[index + 4]?.value
+    if (!name) continue
+    const params = new Set()
+    if (tokens[index + 5]?.value === ',') {
+      let cursor = index + 6
+      let depth = 0
+      while (cursor < tokens.length) {
+        const token = tokens[cursor]
+        if (token.value === '{') {
+          depth += 1
+          cursor += 1
+          continue
+        }
+        if (token.value === '}') {
+          depth -= 1
+          if (depth === 0) break
+          cursor += 1
+          continue
+        }
+        if (token.type === 'ident' && depth === 1) {
+          const previous = tokens[cursor - 1]?.value
+          const next = tokens[cursor + 1]?.value
+          // Shorthand (`{ name }`) or explicit (`{ name: value }`) keys. The
+          // identifiers inside a value expression are not parameters.
+          if (next === ':' || previous === '{' || previous === ',') params.add(token.value)
+        }
+        cursor += 1
+      }
+    }
+    references.push({ name, params })
+  }
+  return references
+}
+
+/**
+ * #F69: check the spawn-precondition failure copy. Every `TowerToolError` in
+ * app/spawn-prechecks.js must read its message from ERROR_COPY (except the
+ * domain blocker passthrough, whose prose belongs to the role contract), the
+ * table must avoid internal identifiers and row ids, every entry must be used,
+ * and every `{placeholder}` must be filled by its call site.
+ *
+ * @param {string} source app/spawn-prechecks.js source
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function precheckCopyFindings(source) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const code = stripComments(source)
+  const callSites = [...code.matchAll(/new TowerToolError\(/g)].length
+  const tablePattern =
+    /new TowerToolError\(\s*(['"])([a-z][a-z0-9-]*)\1\s*,\s*(?:fillCopy\(\s*)?ERROR_COPY\.([A-Za-z][A-Za-z0-9_]*)/g
+  const tableCalls = [...code.matchAll(tablePattern)]
+  const blockerCalls = [...code.matchAll(/new TowerToolError\(\s*blocker\.code\s*,\s*blocker\.message\s*\)/g)].length
+  if (tableCalls.length + blockerCalls !== callSites) {
+    record(
+      'precheck-copy-unparsed',
+      `${PRECHECK_ERROR_FILE} has ${callSites} TowerToolError message(s) but only ${tableCalls.length + blockerCalls} are read from ERROR_COPY; keep every user-facing failure in the table so the copy gate can check it`,
+    )
+  }
+  if (/nextAction:\s*(['"`])/.test(code)) {
+    record(
+      'precheck-copy-literal-action',
+      `${PRECHECK_ERROR_FILE} passes a literal nextAction; keep the rendered next step in ERROR_COPY so the copy gate can check it`,
+    )
+  }
+  const parsed = parseCopyTable(source, 'ERROR_COPY', PRECHECK_ERROR_FILE)
+  if (parsed.error) {
+    record('precheck-copy-unreadable', parsed.error)
+    return findings
+  }
+  if (parsed.entries.length === 0) record('precheck-copy-empty', `${PRECHECK_ERROR_FILE} ERROR_COPY is empty`)
+  const known = new Set(parsed.entries.map((entry) => entry.name))
+  for (const match of tableCalls) {
+    if (!known.has(match[3])) {
+      record('precheck-copy-unknown', `${PRECHECK_ERROR_FILE} throws ERROR_COPY.${match[3]}, which the table does not define`)
+    }
+  }
+  const tokens = tokenizeScript(source).tokens ?? []
+  const references = fillCopyReferences(tokens)
+  const referenced = new Set(references.map((reference) => reference.name))
+  const paramsByEntry = new Map()
+  for (const reference of references) {
+    if (!paramsByEntry.has(reference.name)) paramsByEntry.set(reference.name, new Set())
+    for (const param of reference.params) paramsByEntry.get(reference.name).add(param)
+  }
+  for (const entry of parsed.entries) {
+    const field = { file: PRECHECK_ERROR_FILE, path: `ERROR_COPY.${entry.name}`, text: entry.text }
+    if (!referenced.has(entry.name)) {
+      record(
+        'precheck-copy-unused',
+        `${PRECHECK_ERROR_FILE} ERROR_COPY.${entry.name} is never used; remove it or read it from the throw site`,
+      )
+    }
+    checkBannedCopy(field, 'en', record, PRECHECK_COPY_CODES)
+    const params = paramsByEntry.get(entry.name) ?? new Set()
+    for (const match of entry.text.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)) {
+      if (!params.has(match[1])) {
+        record(
+          'precheck-copy-placeholder',
+          `${PRECHECK_ERROR_FILE} ERROR_COPY.${entry.name} renders the placeholder "{${match[1]}}" without a matching call-site parameter`,
+        )
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * @param {string} root
+ */
+export function checkPrecheckErrorCopy(root) {
+  const file = path.join(root, PRECHECK_ERROR_FILE)
+  if (!fs.existsSync(file)) {
+    return [finding('precheck-copy-unreadable', 'error', `${PRECHECK_ERROR_FILE} is missing; the spawn-precondition failure copy cannot be checked`)]
+  }
+  return precheckCopyFindings(fs.readFileSync(file, 'utf8'))
+}
+
+/**
+ * #F69: check the remedy copy of the environment-health checks. A doctor
+ * `check(id, status, detail, action)` action is the sentence a reader acts on,
+ * so it must name a capability and a next step, never a config key, a tool id,
+ * a slash command or a capability row id. Diagnostic details stay in the detail
+ * field, where naming a component or a path is the fact being reported.
+ *
+ * @param {string} source host/doctor.js source
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function doctorCopyFindings(source) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const scanned = tokenizeScript(source)
+  if (scanned.error) {
+    record('doctor-copy-unreadable', `${DOCTOR_ERROR_FILE} cannot be read: ${scanned.error}`)
+    return findings
+  }
+  const tokens = scanned.tokens
+  let actions = 0
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (!(token.type === 'ident' && token.value === 'check')) continue
+    if (tokens[index - 1]?.value === 'function') continue
+    if (!(tokens[index + 1]?.type === 'punct' && tokens[index + 1].value === '(')) continue
+    const args = []
+    let current = []
+    let depth = 0
+    let closed = false
+    for (let cursor = index + 2; cursor < tokens.length; cursor += 1) {
+      const next = tokens[cursor]
+      if (next.type === 'punct') {
+        if (next.value === '(' || next.value === '[' || next.value === '{') depth += 1
+        else if (next.value === ')' || next.value === ']' || next.value === '}') {
+          if (depth === 0 && next.value === ')') {
+            closed = true
+            break
+          }
+          depth -= 1
+        } else if (next.value === ',' && depth === 0) {
+          args.push(current)
+          current = []
+          continue
+        }
+      }
+      current.push(next)
+    }
+    if (!closed) continue
+    args.push(current)
+    if (args.length < 4) continue
+    actions += 1
+    for (const argument of args[3]) {
+      if (argument.type !== 'string') continue
+      checkBannedCopy(
+        { file: DOCTOR_ERROR_FILE, path: 'check(..., action)', text: argument.value },
+        'en',
+        record,
+        DOCTOR_COPY_CODES,
+      )
+    }
+  }
+  if (actions === 0) {
+    record(
+      'doctor-copy-unparsed',
+      `${DOCTOR_ERROR_FILE} declares no check(..., action) remedy; the copy gate cannot read the environment-health remedy copy`,
+    )
+  }
+  return findings
+}
+
+/**
+ * @param {string} root
+ */
+export function checkDoctorCopy(root) {
+  const file = path.join(root, DOCTOR_ERROR_FILE)
+  if (!fs.existsSync(file)) {
+    return [finding('doctor-copy-unreadable', 'error', `${DOCTOR_ERROR_FILE} is missing; the environment-health remedy copy cannot be checked`)]
+  }
+  return doctorCopyFindings(fs.readFileSync(file, 'utf8'))
 }
 
 /**
@@ -946,6 +1204,119 @@ export function checkCopyGateSelfTest() {
       ['Test evidence'],
     ),
     'preset-copy-placeholder',
+  )
+  // #F69: the spawn-precondition failures and the environment-health remedies
+  // are runtime copy the user reads mid-task. The same detectors must fire on
+  // both, and a clean sentence with its placeholder must stay green.
+  const cleanPrecheck = [
+    'const ERROR_COPY = Object.freeze({',
+    '  lease: \'the required lease "{lease}" cannot be satisfied: Lease coordination is switched off in the plugin page; switch it back on and restart DSH\',',
+    '})',
+    "export function precheckSpawnServices(lease) { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease, { lease })) }",
+  ].join('\n')
+  expectClean('a clean spawn-precondition message', precheckCopyFindings(cleanPrecheck))
+  expectFinding(
+    'a config key in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held, so spawn.requireLease is on and the spawn fails',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease)) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-config-key',
+  )
+  expectFinding(
+    'a tool id in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'no live lease is held; acquire it with tower_resource before spawning',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease)) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-tool-id',
+  )
+  expectFinding(
+    'a row id in the spawn-precondition copy',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held; switch the tower-leases row back on in the plugin page',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease)) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-row-id',
+  )
+  expectFinding(
+    'a spawn-precondition message outside the copy table',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held; acquire it with the lease action before starting an agent',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', 'spawn.requireLease is set') }",
+      ].join('\n'),
+    ),
+    'precheck-copy-unparsed',
+  )
+  expectFinding(
+    'a literal next step in a spawn-precondition failure',
+    precheckCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        "  lease: 'the required lease is not held; acquire it with the lease action before starting an agent',",
+        '})',
+        "export function boom() { throw new TowerToolError('lease-busy', fillCopy(ERROR_COPY.lease), { nextAction: 'run tower_recover' }) }",
+      ].join('\n'),
+    ),
+    'precheck-copy-literal-action',
+  )
+  const cleanDoctor = [
+    'function doctor() {',
+    "  check('spawn-lease', 'pass', 'A lease is required and Lease coordination is on')",
+    "  check('state-lock', 'pass', 'the lock is held by this session', 'no action needed')",
+    '}',
+  ].join('\n')
+  expectClean('a clean environment-health remedy', doctorCopyFindings(cleanDoctor))
+  expectFinding(
+    'a tool id in an environment-health remedy',
+    doctorCopyFindings(
+      ["function doctor() { check('state-lock', 'warn', 'the lock is silent', 'run tower_recover clear-stale-lock force:true to clear it') }"].join(
+        '\n',
+      ),
+    ),
+    'doctor-copy-tool-id',
+  )
+  expectFinding(
+    'a config key in an environment-health remedy',
+    doctorCopyFindings(
+      ["function doctor() { check('activity-log', 'warn', 'rotation is off', 'set activity.maxBytes above 0 to bound the log') }"].join(
+        '\n',
+      ),
+    ),
+    'doctor-copy-config-key',
+  )
+  expectFinding(
+    'a row id in an environment-health remedy',
+    doctorCopyFindings(
+      ["function doctor() { check('spawn-lease', 'fail', 'the lease is required', 'switch the tower-leases row back on in the plugin page') }"].join(
+        '\n',
+      ),
+    ),
+    'doctor-copy-row-id',
+  )
+  expectFinding(
+    'a slash command in an environment-health remedy',
+    doctorCopyFindings(
+      ["function doctor() { check('takeover', 'fail', 'another session owns the repo', 'run /tower takeover <reason> to claim it') }"].join(
+        '\n',
+      ),
+    ),
+    'doctor-copy-command',
   )
   return failures
 }
@@ -1475,6 +1846,12 @@ export async function checkComponents(root) {
   findings.push(...checkCopyGateSelfTest())
   findings.push(...checkClientCopy(root))
   findings.push(...checkPresetErrorCopy(root, capabilityRowTitles(live.locales[LOCALE_FILES[0]])))
+  // #F69: the spawn-precondition failures and the environment-health remedies
+  // are runtime copy too. The precheck copy is read from its ERROR_COPY table;
+  // the doctor remedy is the action (4th argument) of each check, so a reader
+  // gets a capability and a next step instead of an internal id.
+  findings.push(...checkPrecheckErrorCopy(root))
+  findings.push(...checkDoctorCopy(root))
   findings.push(...checkGlossaryFile(root))
   // #138.2: the route table is imported, so an absent file, a failed import or a
   // missing/non-Map export fails closed. An empty Map remains the correct

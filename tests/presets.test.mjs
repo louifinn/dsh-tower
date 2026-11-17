@@ -180,21 +180,25 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     exec: { agent: { id: 'session-1' } },
     inspectLeases: async () => ({ leases: [] }),
   }
-  // Row off: name the cause and both remedies, never "acquire it with tower_resource".
+  // Row off: name the cause and both remedies in the plugin page's vocabulary,
+  // never the internal row id or the unregistered tool (#F69).
   await assert.rejects(
     () => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }) }),
     (error) => {
       assert.equal(error.code, 'lease-busy')
-      assert.match(error.message, /disabled by component tower-leases/)
-      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
-      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      assert.match(error.message, /cannot be satisfied/)
+      assert.match(error.message, /Lease coordination is switched off in the plugin page/)
+      assert.match(error.message, /clear the lease requirement on the plugin configuration form/)
+      assert.doesNotMatch(error.message, /spawn\.requireLease|tower_resource|tower-leases|disabled by component/)
       return true
     },
   )
-  // Row on: the original advice is still correct and still offered.
+  // Row on: the remedy is the lease action, still without the tool id.
   await assert.rejects(() => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: true, reason: '' }) }), (error) => {
     assert.equal(error.code, 'lease-busy')
-    assert.match(error.message, /acquire it with tower_resource before spawning/)
+    assert.match(error.message, /no live lease "heavy-ci" is held/)
+    assert.match(error.message, /lease action before starting an agent/)
+    assert.doesNotMatch(error.message, /tower_resource|spawn\.requireLease/)
     return true
   })
   // Row off: a lease left over from when the row was on must not let the spawn
@@ -209,9 +213,9 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     (error) => {
       assert.equal(error.code, 'lease-busy')
       assert.match(error.message, /cannot be satisfied/)
-      assert.match(error.message, /disabled by component tower-leases/)
-      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
-      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      assert.match(error.message, /Lease coordination is switched off in the plugin page/)
+      assert.match(error.message, /clear the lease requirement on the plugin configuration form/)
+      assert.doesNotMatch(error.message, /spawn\.requireLease|tower_resource|tower-leases|disabled by component/)
       return true
     },
   )
@@ -233,7 +237,7 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     (error) => {
       assert.equal(error.code, 'lease-busy')
       assert.match(error.message, /held by "someone-else", not by this tower/)
-      assert.doesNotMatch(error.message, /disabled by component/)
+      assert.doesNotMatch(error.message, /disabled by component|tower-leases/)
       return true
     },
   )
