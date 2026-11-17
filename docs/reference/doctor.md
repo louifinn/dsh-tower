@@ -101,6 +101,10 @@ It returns:
 }
 ```
 
+The `environmentContract.hostVersionProbes` array in this example is an excerpt: it shows the install-dir
+probes but omits, for example, the other two version-variable probes. `probes` records one entry for every
+attempt actually made, including unset variables and readable candidates a higher-precedence source displaced.
+
 ### When config resolution fails
 
 Doctor is the one diagnostic that stays reachable when the configuration cannot be resolved: an unknown
@@ -232,23 +236,30 @@ trust order:
 1. `DSH_VERSION`, `DSH_HOST_VERSION`, then `npm_config_dsh_version`. Each value is trimmed and must parse as a
    version; unset, empty and whitespace-only values are treated as absent, never as a version. The desktop
    host exports both version variables as empty strings, so that is the normal desktop shape, not a version.
-2. The `version` field of the `package.json` in `DSH_INSTALL_DIR` and in its parent directory. When
-   `DSH_INSTALL_DIR` points inside an `app.asar` archive — as the desktop install does — ordinary fs cannot
-   read through the container, so doctor substitutes the matching `app.asar.unpacked` path (the packager's
-   readable sibling) and records one probe per path: the asar path itself, its parent, the unpacked
-   substitution, and the unpacked parent.
+2. The `version` field of the `package.json` in `DSH_INSTALL_DIR` and in its parent directory. The probes run
+   in that order and **the first readable path answers**: `DSH_INSTALL_DIR` outranks its parent, so a parent's
+   older, already-verified row can never stand in for a newer untested install. When `DSH_INSTALL_DIR` points
+   inside an `app.asar` archive — as the desktop install does — ordinary fs cannot read through the container,
+   so doctor substitutes the matching `app.asar.unpacked` path (the packager's readable sibling) and records
+   one probe per path: the asar path itself, its parent, the unpacked substitution, and the unpacked parent
+   (the unpacked package outranks the unpacked parent). Later readable candidates stay in the provenance as
+   recorded-but-not-used probes.
 3. The mounted `app`, `runtime` or `host` service's `version`/`build.version`.
 4. Last, as a labelled **secondary source only**, a profile-installed `@deepseek-ai/dsh*` dependency
-   (`@deepseek-ai/dsh-tool-subagent` first, then siblings, never this plugin's own `tower` package) under
+   (`@deepseek-ai/dsh` first — that is the host package itself — then `@deepseek-ai/dsh-tool-subagent` as the
+   known lockstep package, then any other sibling; never this plugin's own `tower` package) under
    `DSH_HOME/profiles/*/node_modules/@deepseek-ai`. Those packages ship in lockstep with the host but are only
    a dependency and may lag it, so a hit from this source is never authoritative.
 
 Every source is probed defensively: a missing file, unreadable directory, unparsable version or a lookup that
-throws is recorded as a failed probe, never thrown. `resolveHostVersion` returns the provenance: `source` and
-`detail` name the source that answered (or an unknown report says why each source failed), `authoritative` is
-`false` for the profile fallback, `probes` lists every attempt with `target`, `status` (`hit`/`miss`/`skipped`),
-`reason` and `authoritative`, and `asar` describes the container, install dir and unpacked substitution plus
-whether the archive was directly readable and whether the unpacked copy answered.
+throws is recorded as a failed probe, never thrown. That includes a throwing `os.homedir()` while locating the
+profile fallback: the profile is simply not scanned and the failure is a `miss` probe. `resolveHostVersion`
+returns the provenance: `source` and `detail` name the source that answered (or an unknown report says why each
+source failed), `authoritative` is `false` for the profile fallback, `probes` lists every attempt with `target`,
+`status` (`hit`/`miss`/`skipped`), `reason` and `authoritative` — a readable candidate that a higher-precedence
+source displaced keeps `status: "hit"` and says so in `reason` — and `asar` describes the container, install dir
+and unpacked substitution plus whether the archive was directly readable and whether the unpacked copy
+answered.
 
 Doctor surfaces that provenance in the `host-version` detail (`<version>: <verdict>. Source: <detail>`), in
 `environmentContract.hostVersionSource`/`hostVersionSourceDetail`/`hostVersionAuthoritative`/

@@ -19,7 +19,14 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
-import { compareVersions, detectHostVersion, readCompatibility, resolveHostVersion } from '../host/compatibility.js'
+import {
+  assessHostVersion,
+  compareVersions,
+  detectHostVersion,
+  diagnoseHostVersion,
+  readCompatibility,
+  resolveHostVersion,
+} from '../host/compatibility.js'
 import { writeJsonAtomic } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
@@ -715,5 +722,169 @@ test('doctor: the desktop asar shape is reported and a profile dependency never 
   } finally {
     restoreHostEnv(saved)
     removeTemp(root)
+  }
+})
+
+test('detectHostVersion: the first readable install package answers, not its parent (F65, R122)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-precedence-'))
+  const home = path.join(root, 'home')
+  fs.mkdirSync(home)
+  const saved = saveHostEnv()
+  const seeded = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    // 9.9.9 is newer than every COMPATIBILITY row; the parent's 0.2.2-rc.3 is a
+    // verified row, so the last-readable-candidate bug used to turn this into a
+    // `verified` doctor pass.
+    const rows = readCompatibility()
+    assert.ok(rows.some((row) => row.hostVersion === '0.2.2-rc.3'), 'the parent fixture is a verified row')
+    const installDir = writeHostPackage(path.join(root, 'install', 'node_modules', '@deepseek-ai', 'dsh'), '9.9.9')
+    const parentDir = writePackage(path.dirname(installDir), '@deepseek-ai/dsh', '0.2.2-rc.3')
+    const env = {
+      DSH_HOME: home,
+      DSH_VERSION: '',
+      DSH_HOST_VERSION: '',
+      npm_config_dsh_version: '',
+      DSH_INSTALL_DIR: installDir,
+    }
+
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, '9.9.9', 'the install dir itself answers, not its older parent')
+    assert.equal(report.source, 'DSH_INSTALL_DIR')
+    assert.equal(report.authoritative, true)
+    assert.match(report.detail, /named by DSH_INSTALL_DIR/)
+
+    const assessment = assessHostVersion(report.version, readCompatibility())
+    assert.equal(assessment.verdict, 'untested-newer')
+    assert.notEqual(assessment.verdict, 'verified')
+    const diagnosis = diagnoseHostVersion(report, assessment)
+    assert.equal(diagnosis.status, 'warn', 'an untested-newer install must not be a doctor pass')
+    assert.match(diagnosis.detail, /^9\.9\.9: /)
+    assert.match(diagnosis.detail, /newer than every verified build/)
+
+    // Provenance keeps both readable candidates; only the parent is displaced.
+    const chosen = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR')
+    assert.equal(chosen.status, 'hit')
+    assert.equal(chosen.target, installDir)
+    assert.match(chosen.reason, /declares 9\.9\.9/)
+    const displaced = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR(parent)')
+    assert.equal(displaced.status, 'hit')
+    assert.equal(displaced.target, parentDir)
+    assert.match(displaced.reason, /declares 0\.2\.2-rc\.3/)
+    assert.match(displaced.reason, /higher-precedence source answered/)
+    assert.match(displaced.reason, /recorded and not used/)
+
+    // End to end: doctor's host-version check is a warn, never the false pass
+    // the last-readable-candidate bug produced.
+    await call(tools, 'tower_init', { repoRoot: seeded.repo }, OWNER)
+    clearHostEnv()
+    process.env.DSH_INSTALL_DIR = installDir
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: seeded.repo })
+    const check = doctor.checks.find((entry) => entry.id === 'host-version')
+    assert.equal(check.status, 'warn')
+    assert.equal(doctor.environmentContract.hostVersion, '9.9.9')
+    assert.equal(doctor.environmentContract.hostVersionSource, 'DSH_INSTALL_DIR')
+    assert.equal(doctor.environmentContract.hostCompatibility, 'untested-newer')
+    assert.equal(doctor.environmentContract.hostVersionAuthoritative, true)
+  } finally {
+    restoreHostEnv(saved)
+    removeTemp(seeded.root)
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: the unpacked install package outranks the unpacked parent (F65, R122)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-unpacked-precedence-'))
+  try {
+    const resources = path.join(root, 'resources')
+    fs.mkdirSync(resources)
+    fs.writeFileSync(path.join(resources, 'app.asar'), 'asar container placeholder\n')
+    const installDir = path.join(resources, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh')
+    const unpacked = writeHostPackage(
+      path.join(resources, 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'dsh'),
+      '9.9.9',
+    )
+    const unpackedParent = writePackage(path.dirname(unpacked), '@deepseek-ai/dsh', '0.2.2-rc.3')
+    const home = path.join(root, 'home')
+    fs.mkdirSync(home)
+    const env = { DSH_HOME: home, DSH_HOST_VERSION: '', DSH_INSTALL_DIR: installDir }
+
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, '9.9.9')
+    assert.equal(report.source, 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(report.authoritative, true)
+    assert.equal(report.asar.unpackedAnswered, true)
+    assert.equal(report.asar.directReadable, false)
+    assert.match(report.detail, /app\.asar\.unpacked copy/)
+
+    const answered = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(answered.status, 'hit')
+    assert.equal(answered.target, unpacked)
+    assert.match(answered.reason, /declares 9\.9\.9/)
+    const displaced = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR.asar.unpacked(parent)')
+    assert.equal(displaced.status, 'hit')
+    assert.equal(displaced.target, unpackedParent)
+    assert.match(displaced.reason, /declares 0\.2\.2-rc\.3/)
+    assert.match(displaced.reason, /higher-precedence source answered/)
+    assert.match(displaced.reason, /recorded and not used/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: provenance records every install candidate exactly once (F65, R122)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-provenance-'))
+  try {
+    const resources = path.join(root, 'resources')
+    fs.mkdirSync(resources)
+    fs.writeFileSync(path.join(resources, 'app.asar'), 'asar container placeholder\n')
+    // DSH_INSTALL_DIR names the container itself: the unpacked parent collapses
+    // onto `resources`, so the dedupe must keep one probe for that path.
+    writePackage(resources, '@fixture/resources', '0.2.2-rc.3')
+    const home = path.join(root, 'home')
+    fs.mkdirSync(home)
+    const env = { DSH_HOME: home, DSH_INSTALL_DIR: path.join(resources, 'app.asar') }
+
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, '0.2.2-rc.3')
+    assert.equal(report.source, 'DSH_INSTALL_DIR(parent)')
+    assert.equal(report.authoritative, true)
+    const sources = report.probes.filter((probe) => probe.source.startsWith('DSH_INSTALL_DIR')).map((probe) => probe.source)
+    assert.deepEqual(sources, [
+      'DSH_INSTALL_DIR',
+      'DSH_INSTALL_DIR(parent)',
+      'DSH_INSTALL_DIR.asar.unpacked',
+    ])
+    const containerProbe = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR')
+    assert.equal(containerProbe.status, 'miss')
+    assert.match(containerProbe.reason, /inside an asar container, which ordinary fs cannot read/)
+    const unpackedProbe = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(unpackedProbe.status, 'miss')
+    assert.match(unpackedProbe.reason, /app\.asar\.unpacked substitution/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: a throwing os.homedir() is a failed probe, never a throw (F65, R122)', () => {
+  const savedHomedir = os.homedir
+  try {
+    os.homedir = () => {
+      throw new Error('homedir unavailable')
+    }
+    const env = { DSH_VERSION: '', DSH_HOST_VERSION: '', npm_config_dsh_version: '', DSH_INSTALL_DIR: '' }
+    let report
+    assert.doesNotThrow(() => {
+      report = resolveHostVersion(undefined, env)
+    })
+    assert.equal(report.version, null)
+    const probe = report.probes.find((entry) => entry.source === 'profile')
+    assert.ok(probe, 'the failed homedir lookup is recorded')
+    assert.equal(probe.status, 'miss')
+    assert.match(probe.reason, /os\.homedir\(\) threw/)
+    assert.match(probe.reason, /homedir unavailable/)
+    assert.equal(probe.authoritative, false)
+  } finally {
+    os.homedir = savedHomedir
   }
 })

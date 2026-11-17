@@ -243,17 +243,30 @@ function probeInstallDir(env, probes) {
     const read = readPackageVersion(attempt.dir)
     const archive = asarLayout(attempt.dir) !== null
     const note = archive ? 'this path is inside an asar container, which ordinary fs cannot read' : attempt.note
+    const viaUnpacked = layout !== null && (attempt.dir === layout.unpackedDir || attempt.dir === path.dirname(layout.unpackedDir))
+    const selected = Boolean(read.version) && hit === null
     probes.push({
       source: attempt.source,
       target: attempt.dir,
       status: read.version ? 'hit' : 'miss',
-      reason: read.version ? read.reason : `${note}; ${read.reason}`,
+      reason: !read.version
+        ? `${note}; ${read.reason}`
+        : selected
+          ? read.reason
+          : `${read.reason}; readable, but a higher-precedence source answered, so this candidate was recorded and not used`,
       authoritative: true,
     })
     if (!read.version) continue
-    const viaUnpacked = layout !== null && (attempt.dir === layout.unpackedDir || attempt.dir === path.dirname(layout.unpackedDir))
+    // A readable candidate answers for the archive-flags even when a
+    // higher-precedence candidate supplied the version.
     if (asar && attempt.dir === resolved) asar.directReadable = true
     if (asar && viaUnpacked) asar.unpackedAnswered = true
+    // The first readable candidate answers: DSH_INSTALL_DIR outranks its
+    // parent, and the app.asar.unpacked package outranks that copy's parent.
+    // A later readable candidate is recorded above but never overrides the
+    // answer (F65: letting a parent's verified-but-older row win turned an
+    // untested-newer host into a false `pass`).
+    if (hit) continue
     hit = {
       version: read.version,
       source: attempt.source,
@@ -345,7 +358,33 @@ function probeServices(ctx, probes) {
  * @param {any[]} probes
  */
 function probeProfileDependency(env, probes) {
-  const home = nonEmpty(env?.DSH_HOME) || path.join(os.homedir(), '.dsh')
+  let home = nonEmpty(env?.DSH_HOME)
+  if (!home) {
+    let fallback
+    try {
+      fallback = nonEmpty(os.homedir())
+    } catch (error) {
+      probes.push({
+        source: 'profile',
+        target: null,
+        status: 'miss',
+        reason: `os.homedir() threw while locating the profile fallback (${String(error?.message ?? error)}); the profile dependency was not scanned`,
+        authoritative: false,
+      })
+      return null
+    }
+    if (!fallback) {
+      probes.push({
+        source: 'profile',
+        target: null,
+        status: 'miss',
+        reason: 'os.homedir() returned no home directory; the profile dependency was not scanned',
+        authoritative: false,
+      })
+      return null
+    }
+    home = path.join(fallback, '.dsh')
+  }
   const profilesDir = path.join(home, 'profiles')
   let entries
   try {
