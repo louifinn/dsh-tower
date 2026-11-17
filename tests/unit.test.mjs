@@ -2,7 +2,7 @@
 // Run with: node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scopesOverlap, normalizeScope, validateTitle, fileInScope } from '../app/tower.js'
+import { scopesOverlap, normalizeScope, validateTitle, fileInScope, directoryScopeCandidate, expandScopeDirectories } from '../app/tower.js'
 
 test('scopesOverlap: identical and nested prefixes overlap', () => {
   assert.equal(scopesOverlap(['src/a/**'], ['src/a/**']), true)
@@ -49,6 +49,65 @@ test('normalizeScope: rejects absolute paths and parent traversal', () => {
 test('normalizeScope: build missions need a scope, surveys may be empty', () => {
   assert.throws(() => normalizeScope([]), /must not be empty/)
   assert.deepEqual(normalizeScope([], { allowEmpty: true }), [])
+})
+
+test('F18: a bare directory entry expands to its subtree glob before storage', () => {
+  // Real repository paths: docs/guide/quickstart.md sits below docs/guide.
+  // The matcher stays a pure glob, so the literal entry alone misses the file.
+  assert.equal(fileInScope(['docs/guide'], 'docs/guide/quickstart.md'), false)
+  const expanded = expandScopeDirectories(['docs/guide'], { directories: new Set(['docs/guide']) })
+  assert.deepEqual(expanded, ['docs/guide/**'])
+  assert.deepEqual(normalizeScope(expanded), ['docs/guide/**'], 'the stored plan is the explicit glob')
+  assert.equal(fileInScope(expanded, 'docs/guide/quickstart.md'), true)
+  assert.equal(fileInScope(expanded, 'docs/guide'), false, 'the directory itself is not a changed file')
+  assert.equal(fileInScope(expanded, 'docs/guidebook.md'), false, 'the subtree glob must not match sibling names')
+})
+
+test('F18: a trailing separator always means directory, even before it exists', () => {
+  assert.deepEqual(expandScopeDirectories(['reports/']), ['reports/**'])
+  assert.deepEqual(expandScopeDirectories(['reports\\'], {}), ['reports/**'])
+  assert.deepEqual(expandScopeDirectories(['./reports//']), ['reports/**'])
+  assert.deepEqual(normalizeScope(expandScopeDirectories(['reports/'])), ['reports/**'])
+})
+
+test('F18: globs, files, unknown bare paths and invalid entries stay literal', () => {
+  const directories = new Set(['docs/guide'])
+  assert.deepEqual(expandScopeDirectories(['docs/guide/**'], { directories }), ['docs/guide/**'])
+  assert.deepEqual(expandScopeDirectories(['docs/*.md'], { directories }), ['docs/*.md'])
+  assert.deepEqual(expandScopeDirectories(['docs/guide/quickstart.md'], { directories }), ['docs/guide/quickstart.md'])
+  assert.deepEqual(expandScopeDirectories(['no/such/dir'], { directories }), ['no/such/dir'])
+  const invalid = ['/abs/', 'a/../b/', 'C:/x/', '', null, 7]
+  assert.deepEqual(expandScopeDirectories(invalid, { directories }), invalid)
+  // Invalid shapes keep failing through the normal normalizer with the same messages.
+  assert.throws(() => normalizeScope(expandScopeDirectories(['a/../b/'])), /\.\./)
+  assert.throws(() => normalizeScope(expandScopeDirectories(['/abs/'])), /relative/)
+  assert.throws(() => normalizeScope(expandScopeDirectories(['C:/x/'])), /relative/)
+  assert.throws(() => normalizeScope(expandScopeDirectories([null])), /non-empty strings/)
+})
+
+test('F18: the repository root "." becomes the whole-tree glob', () => {
+  assert.deepEqual(expandScopeDirectories(['.']), ['**'])
+  assert.equal(fileInScope(['**'], 'docs/guide/quickstart.md'), true)
+  assert.deepEqual(normalizeScope(['.']), ['.'], 'normalizeScope itself is unchanged and still stores the literal dot')
+})
+
+test('F18: expansion is a fixed point and duplicate subtrees collapse', () => {
+  const directories = new Set(['src'])
+  assert.deepEqual(normalizeScope(expandScopeDirectories(['src', 'src/**'], { directories })), ['src/**'])
+  assert.deepEqual(expandScopeDirectories(['src/**'], { directories }), ['src/**'], 'an explicit glob needs no second pass')
+})
+
+test('F18: directoryScopeCandidate recognises only bare relative paths', () => {
+  assert.deepEqual(directoryScopeCandidate('docs/guide'), { value: 'docs/guide', trailing: false })
+  assert.deepEqual(directoryScopeCandidate('docs\\guide\\'), { value: 'docs/guide', trailing: true })
+  assert.deepEqual(directoryScopeCandidate('./docs/guide'), { value: 'docs/guide', trailing: false })
+  assert.equal(directoryScopeCandidate('docs/*'), null)
+  assert.equal(directoryScopeCandidate('/docs'), null)
+  assert.equal(directoryScopeCandidate('C:/docs'), null)
+  assert.equal(directoryScopeCandidate('a/../b'), null)
+  assert.equal(directoryScopeCandidate('./'), null)
+  assert.equal(directoryScopeCandidate('  '), null)
+  assert.equal(directoryScopeCandidate(null), null)
 })
 
 function titleError(title) {

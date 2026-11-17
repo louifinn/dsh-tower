@@ -10,6 +10,14 @@
 // absolute paths, drive letters and `..` traversal — are refused with
 // `TowerToolError('invalid-argument')` rather than resolved.
 //
+// F18 adds the plan-time directory rule: planning expands a directory-shaped
+// scope entry into its explicit subtree glob (`docs/guide` -> `docs/guide/**`)
+// so the stored plan is a glob the fence matcher understands. The properties
+// below keep generated plans inside the documented grammar after that
+// expansion, prove the literal fallback for globs/files/unknown paths, and show
+// that a bare entry only widens once the planning checkout reports it as a
+// directory.
+//
 // `validateTitle` promises printable Unicode: it trims, normalizes to NFC, and
 // caps the result at 120 **code points**. The tests below deliberately mix
 // astral characters (one UTF-16 surrogate pair each) with BMP text so a bound
@@ -25,7 +33,7 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 
 import { TowerToolError } from '../../domain/errors.js'
-import { normalizeScope, validateTitle } from '../../domain/scope.js'
+import { expandScopeDirectories, fileInScope, normalizeScope, validateTitle } from '../../domain/scope.js'
 import {
   absoluteScopeEntryArb,
   parentTraversalScopeEntryArb,
@@ -158,6 +166,126 @@ runProperty({
     assert.equal(rejectionOf(() => normalizeScope([], { allowEmpty: true })), null)
     assert.deepEqual(normalizeScope([], { allowEmpty: true }), [])
     assertInvalidArgument(rejectionOf(() => normalizeScope([])), 'empty scope', /must not be empty/)
+  },
+})
+
+// ---------------------------------------------------------------------------
+// F18: plan-time directory expansion.
+//
+// The rule is pure: the caller supplies the directories the planning checkout
+// has, so these properties run with no filesystem and no temp repo.
+// ---------------------------------------------------------------------------
+
+const DIRECTORY_NAME_ARB = fc
+  .array(fc.constantFrom('src', 'docs', 'guide', 'lib', 'assets', 'a', 'b-c'), { minLength: 1, maxLength: 4 })
+  .map((parts) => parts.join('/'))
+
+/** One generated plan entry. The kind decides the rule's expected output. */
+const plannedEntryArb = fc.oneof(
+  DIRECTORY_NAME_ARB.map((dir) => ({ kind: 'directory', dir, entry: dir })),
+  DIRECTORY_NAME_ARB.map((dir) => ({ kind: 'trailing', dir, entry: `${dir}/` })),
+  fc.tuple(DIRECTORY_NAME_ARB, fc.constantFrom('quickstart.md', 'notes.txt', 'a.js')).map(([dir, name]) => ({
+    kind: 'file',
+    dir,
+    entry: `${dir}/${name}`,
+  })),
+  fc.tuple(DIRECTORY_NAME_ARB, fc.constantFrom('**', '*', '*.md', '?.js')).map(([dir, glob]) => ({
+    kind: 'glob',
+    dir,
+    entry: `${dir}/${glob}`,
+  })),
+  fc.constant({ kind: 'root', dir: '.', entry: '.' }),
+)
+
+/**
+ * The expansion the rule promises per kind: a known directory and an explicit
+ * trailing separator become their subtree glob, the repository root becomes the
+ * whole-tree glob, and everything else stays as written.
+ * @param {{ kind: string, dir: string, entry: string }} generated
+ * @returns {string}
+ */
+function expectedExpansion({ kind, dir, entry }) {
+  if (kind === 'root') return '**'
+  if (kind === 'directory' || kind === 'trailing') return `${dir}/**`
+  return entry
+}
+
+const plannedPlanArb = fc.array(plannedEntryArb, { minLength: 1, maxLength: 5 }).map((entries) => ({
+  entries,
+  // Only the "directory" kind is known to exist. "trailing" carries its own
+  // intent; files, globs and the root must not depend on membership.
+  directories: new Set(entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.dir)),
+}))
+
+runProperty({
+  name: 'F18: a generated plan expands directory entries into explicit subtree globs inside the documented grammar',
+  arbitrary: plannedPlanArb,
+  classify: ({ entries }) => `entries=${entries.length}`,
+  predicate: ({ entries, directories }) => {
+    const scope = entries.map((entry) => entry.entry)
+    const expanded = expandScopeDirectories(scope, { directories })
+    assert.ok(Array.isArray(expanded), 'a generated plan array must stay an array')
+    for (const [index, entry] of entries.entries()) {
+      assert.equal(
+        expanded[index],
+        expectedExpansion(entry),
+        `entry ${JSON.stringify(entry.entry)} (${entry.kind}) expanded unexpectedly`,
+      )
+    }
+    const normalized = normalizeScope(/** @type {string[]} */ (expanded), { allowEmpty: true })
+    for (const entry of normalized) {
+      assert.ok(entry.length > 0, 'a normalized plan entry is never empty')
+      assert.ok(!entry.endsWith('/'), `a normalized entry has no trailing separator: ${entry}`)
+      assert.ok(!entry.startsWith('./'), `a normalized entry has no "./" prefix: ${entry}`)
+      assert.ok(!entry.startsWith('/'), `a normalized entry is relative: ${entry}`)
+      assert.ok(!/^[A-Za-z]:/.test(entry), `a normalized entry is not a drive path: ${entry}`)
+      assert.ok(!entry.split('/').includes('..'), `a normalized entry has no "..": ${entry}`)
+      assert.ok(!entry.includes('\\'), `a normalized entry uses "/" separators: ${entry}`)
+    }
+    // The new rule: a directory entry now covers files below it, the raw
+    // literal spelling did not, and the directory path itself is not a file.
+    for (const entry of entries) {
+      const output = expectedExpansion(entry)
+      if (entry.kind === 'directory' || entry.kind === 'trailing') {
+        assert.equal(fileInScope([output], `${entry.dir}/new-file.md`), true, `${entry.entry} must cover its subtree`)
+        assert.equal(fileInScope([output], entry.dir), false, `${entry.dir} itself is not a changed file`)
+        const literal = entry.entry.replace(/\/+$/, '')
+        assert.equal(fileInScope([literal], `${entry.dir}/new-file.md`), false, 'the literal spelling stays a pure glob')
+      }
+      if (entry.kind === 'file') {
+        assert.equal(fileInScope([output], entry.entry), true, 'a file entry still matches itself')
+        assert.equal(fileInScope([output], `${entry.entry}/child`), false, 'a file entry is not a subtree')
+      }
+      if (entry.kind === 'root') {
+        assert.equal(fileInScope([output], 'docs/guide/quickstart.md'), true, 'the root glob covers every path')
+      }
+    }
+    // A second pass is a no-op: expanded plans need no further expansion, and
+    // duplicate spellings of the same subtree collapse in normalization.
+    assert.deepEqual(expandScopeDirectories(normalized, { directories }), normalized)
+    assert.deepEqual(normalizeScope([...normalized, ...normalized], { allowEmpty: true }), normalized)
+  },
+})
+
+runProperty({
+  name: 'F18: a bare entry stays literal unless the planning checkout says it is a directory',
+  arbitrary: fc.uniqueArray(DIRECTORY_NAME_ARB, { minLength: 2, maxLength: 5 }).map((names) => ({
+    entry: names[0],
+    directories: new Set(names.slice(1)),
+  })),
+  predicate: ({ entry, directories }) => {
+    const literal = normalizeScope([entry])[0]
+    assert.equal(directories.has(literal), false, 'the generated "missing" path must not be in the tree')
+    // Not a directory: stored as written (a file, or a path a mission will
+    // create), and it matches only that exact spelling.
+    assert.deepEqual(expandScopeDirectories([literal], { directories }), [literal])
+    assert.equal(fileInScope([literal], `${literal}/child`), false)
+    // The same entry, once the checkout has that directory, becomes its subtree.
+    const withDirectory = new Set([...directories, literal])
+    const expanded = expandScopeDirectories([literal], { directories: withDirectory })
+    assert.deepEqual(normalizeScope(/** @type {string[]} */ (expanded)), [`${literal}/**`])
+    assert.equal(fileInScope([`${literal}/**`], `${literal}/child`), true)
+    assert.equal(fileInScope([`${literal}/**`], `${literal}sibling/file`), false)
   },
 })
 
