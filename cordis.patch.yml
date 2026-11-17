@@ -35,7 +35,7 @@
             send:
               interruptDefault: true
             spawn:
-              staleMs: 15000
+              staleMs: 30000
         # Each preset row mounts its own Tower-owned declaration module, not the
         # shared @deepseek-ai/dsh-agent-preset: DSH labels a row from
         # <specifier>/locale/<lang>.json, so two rows sharing one module would
