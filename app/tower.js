@@ -10,13 +10,14 @@
 // its re-exports are unchanged.
 import path from 'node:path'
 import { assertPorts } from '../ports/index.js'
+import { directoryScopeCandidate, expandScopeDirectories } from '../domain/scope.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 
 import { rebaseWaived } from '../domain/gate.js'
 import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
-export { fileInScope, scopesOverlap, validateTitle, normalizeScope } from '../domain/scope.js'
+export { fileInScope, scopesOverlap, validateTitle, normalizeScope, directoryScopeCandidate, expandScopeDirectories } from '../domain/scope.js'
 export { missionSummary } from '../domain/summary.js'
 
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
@@ -60,6 +61,58 @@ import { recordMessage, recordDelivery, inbox } from './messages.js'
 import { createBatch, closeBatch, abandonBatch, batchStatus } from './batch.js'
 import { recordRosterObservations, reconcileObservedInactive, markRetired, markMissing, sweepRoster, unreadFor } from './roster.js'
 export { validateState } from '../domain/state.js'
+
+/**
+ * F18: the bare scope entries of one plan or widening input that name a
+ * directory in the planning checkout. `plan`/`mission` expand those entries
+ * into `dir/**` before planning; a bare path that is not a directory stays
+ * literal (an existing file, or a file a mission will create). The probe is
+ * best effort: a missing path, an unsupported stat, or any store failure leaves
+ * the entry literal instead of failing the plan.
+ * @param {Tower} tower
+ * @param {unknown} scope
+ * @returns {Promise<Set<string>>}
+ */
+async function plannedDirectorySet(tower, scope) {
+  const directories = new Set()
+  if (!Array.isArray(scope)) return directories
+  const probed = new Set()
+  for (const raw of scope) {
+    const candidate = directoryScopeCandidate(raw)
+    if (candidate === null || candidate.trailing || candidate.value === '.') continue
+    if (probed.has(candidate.value)) continue
+    probed.add(candidate.value)
+    try {
+      const info = await tower.deps.store.stat(path.join(tower.root, candidate.value))
+      if (typeof info?.isDirectory === 'function' && info.isDirectory()) directories.add(candidate.value)
+    } catch {
+      // Missing or unreadable paths are not directories: keep the entry literal.
+    }
+  }
+  return directories
+}
+
+/**
+ * F18: a fresh plan input with directory-shaped scope entries expanded to
+ * explicit subtree globs. Invalid shapes are passed through untouched so the
+ * domain reports the same error as before.
+ * @param {Tower} tower
+ * @param {any} input
+ * @returns {Promise<any>}
+ */
+async function expandedPlanInput(tower, input) {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.missions)) return input
+  const missions = []
+  for (const mission of input.missions) {
+    if (mission === null || typeof mission !== 'object' || Array.isArray(mission) || !Array.isArray(mission.scope)) {
+      missions.push(mission)
+      continue
+    }
+    const directories = await plannedDirectorySet(tower, mission.scope)
+    missions.push({ ...mission, scope: expandScopeDirectories(mission.scope, { directories }) })
+  }
+  return { ...input, missions }
+}
 
 export class Tower {
   /**
@@ -257,11 +310,18 @@ export class Tower {
   }
 
   async plan(input = {}) {
-    return plan(this, input)
+    return plan(this, await expandedPlanInput(this, input))
   }
 
   async mission(input = {}) {
-    return updateMission(this, input)
+    // F18: widening input gets the same directory expansion as planning, so a
+    // directory-shaped entry cannot silently widen a fence to nothing.
+    const update = /** @type {any} */ (input)
+    if (update && typeof update === 'object' && Array.isArray(update.scope)) {
+      const directories = await plannedDirectorySet(this, update.scope)
+      return updateMission(this, { ...update, scope: expandScopeDirectories(update.scope, { directories }) })
+    }
+    return updateMission(this, update)
   }
 
   assertOutside(target) {
