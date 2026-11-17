@@ -133,9 +133,18 @@ export async function ownershipView(_ctx, tower, exec) {
 
 /**
  * Observe catalog activity for every roster parent; read-only.
+ *
+ * #F73: reaching the catalog and receiving an empty descendant list is not
+ * evidence that a roster child stopped: a just-spawned child, a catalog race,
+ * or a momentarily empty parent list all produce `[]`. `parentStatus` keeps
+ * its legacy meaning ("the parent catalog was reachable") because spawn
+ * takeover uses it to choose between "parent unavailable" and "the child is
+ * not in the live catalog" (both refusals). `parentAuthoritative` carries the
+ * actual evidence bit: true only when the parent answered with at least one
+ * descendant, so the watchdog can require it before trusting an absence.
  * @param {any} ctx
  * @param {any} tower
- * @returns {Promise<{ activity: Record<string, string>, parentStatus: Record<string, string> }>}
+ * @returns {Promise<{ activity: Record<string, string>, parentStatus: Record<string, string>, parentAuthoritative: Record<string, boolean> }>}
  */
 export async function observeActivity(ctx, tower) {
   const view = await tower.rosterView()
@@ -144,16 +153,22 @@ export async function observeActivity(ctx, tower) {
   const activity = {}
   /** @type {Record<string, string>} */
   const parentStatus = {}
-  if (!subagents) return { activity, parentStatus }
+  /** @type {Record<string, boolean>} */
+  const parentAuthoritative = {}
+  if (!subagents) return { activity, parentStatus, parentAuthoritative }
   const parents = [...new Set(view.roster.map((entry) => entry.parentSessionId).filter(Boolean))]
   for (const parent of parents) {
     try {
       const rows = await subagents.listDescendants(parent)
       for (const row of rows) activity[String(row.id)] = row.activity ?? ROSTER_ACTIVITY.unknown
       parentStatus[parent] = PARENT_STATUS_OK
+      // An empty list is absence of evidence, not evidence of absence (#F73):
+      // a live child whose catalog row is not visible yet must never be swept.
+      parentAuthoritative[parent] = rows.length > 0
     } catch (error) {
       parentStatus[parent] = `unavailable: ${String(error?.message ?? error)}`
+      parentAuthoritative[parent] = false
     }
   }
-  return { activity, parentStatus }
+  return { activity, parentStatus, parentAuthoritative }
 }

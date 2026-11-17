@@ -448,12 +448,12 @@ export class Tower {
     return inbox(this, input)
   }
 
-  async checkCompletion(input) {
-    return checkCompletion(this, input)
+  async checkCompletion(input, options = {}) {
+    return checkCompletion(this, input, options)
   }
 
-  async complete(input) {
-    return complete(this, input)
+  async complete(input, options = {}) {
+    return complete(this, input, options)
   }
 
   async addFinding(input) {

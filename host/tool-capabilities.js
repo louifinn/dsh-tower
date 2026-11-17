@@ -7,6 +7,7 @@
 // is the shipped tool order and must not change.
 import {
   PARENT_STATUS_OK,
+  ROSTER_ACTIVITY,
   ROSTER_INACTIVE_STATES,
 } from '../domain/vocabulary.js'
 import {
@@ -84,6 +85,86 @@ import {
 } from './tool-observers.js'
 
 /**
+ * One roster-watchdog pass over one watched repository (#F73).
+ *
+ * Exported so the policy can be driven deterministically by
+ * `tests/roster-watchdog.test.mjs` instead of waiting on the live interval.
+ *
+ * Two independent guards keep a live worker from being judged dead:
+ * 1. `observeActivity` marks a parent whose descendant list is empty as
+ *    non-authoritative, and this pass returns before writing anything unless
+ *    every parent is reachable and reported at least one descendant.
+ * 2. An absence needs consecutive observations spanning at least twice
+ *    `spawn.staleMs` before it may reach the staleness rule. Unconfirmed
+ *    absences are passed to the sweep as `unknown`, which the pure
+ *    `rosterEntryStale` rule already refuses to mark.
+ *
+ * The invariant behind guard 2 is worth stating on its own because the sweep
+ * runs in its own state-lock transaction, after this tick's snapshot:
+ * **no observation is not an observation of absence.** A row that was not in
+ * the snapshot this tick judged (inactive/stale at `rosterView()`, or revived
+ * or spawned while the tick was running) has no evidence either way, so it is
+ * handed to the sweep as `unknown` rather than left out. Leaving it out would
+ * let `rosterEntryStale` fire on `observed === undefined`, which is exactly how
+ * a worker that revived itself and reported completion mid-tick could be
+ * re-marked stale — a completed mission then blocked by `worker-stale`. The
+ * roster is re-read after the observations are recorded precisely to cover
+ * rows that the snapshot predates.
+ * @param {any} ctx
+ * @param {any} tower
+ * @param {number} staleMs effective spawn.staleMs (0 disables all watchdog writes)
+ * @returns {Promise<{ skipped?: string, marked?: string[], idled?: string[], confirmed?: string[] }>}
+ */
+export async function watchdogTick(ctx, tower, staleMs) {
+  const window = Number(staleMs) || 0
+  if (window <= 0) return { skipped: 'disabled' }
+  const view = await tower.rosterView()
+  const live = view.roster.filter((entry) => !ROSTER_INACTIVE_STATES.includes(entry.state))
+  if (live.length === 0) return { skipped: 'no-live-workers' }
+  const parents = [...new Set(live.map((entry) => entry.parentSessionId).filter(Boolean))]
+  if (parents.length === 0) return { skipped: 'unknown-parent' }
+  const { activity, parentStatus, parentAuthoritative } = await observeActivity(ctx, tower)
+  const authoritative = parents.every(
+    (parent) => parentStatus[parent] === PARENT_STATUS_OK && parentAuthoritative[parent] === true,
+  )
+  if (!authoritative) {
+    // Never sweep on an empty/partial catalog: an unknown parent can explain
+    // every missing row, so there is no authoritative absence to confirm. The
+    // empty-answer bit lives in `parentAuthoritative` (not `parentStatus`) so
+    // spawn takeover keeps its "reachable, child not listed" refusal path.
+    return { skipped: 'catalog-unknown' }
+  }
+  const present = Object.keys(activity)
+  const absent = live
+    .filter((entry) => entry.agentId && activity[entry.agentId] === undefined)
+    .map((entry) => /** @type {string} */ (entry.agentId))
+  const { candidates } = await tower.recordRosterObservations({
+    present,
+    absent,
+    confirmations: 2,
+    windowMs: window * 2,
+  })
+  // Re-read: `recordRosterObservations` took its own lock, so a worker that
+  // revived itself (or spawned) while this tick was running is visible now but
+  // was in neither `present` nor `absent`. It must reach the sweep as
+  // `unknown`, never as an implicit absence.
+  const observed = new Set([...present, ...candidates])
+  const current = await tower.rosterView()
+  const sweepActivity = { ...activity }
+  for (const entry of current.roster ?? []) {
+    const agentId = entry?.agentId ? String(entry.agentId) : ''
+    if (agentId && !observed.has(agentId) && sweepActivity[agentId] === undefined) {
+      sweepActivity[agentId] = ROSTER_ACTIVITY.unknown
+    }
+  }
+  for (const agentId of absent) {
+    if (!candidates.includes(agentId)) sweepActivity[agentId] = ROSTER_ACTIVITY.unknown
+  }
+  const result = await tower.sweepRoster({ staleMs: window, activity: sweepActivity, authoritative: true })
+  return { ...result, confirmed: candidates }
+}
+
+/**
  * Register the mandatory Tower host surface (#121).
  *
  * The host owns planning, mode integration, the health contract
@@ -142,8 +223,9 @@ export function registerCoreTowerTools(ctx, options = {}) {
     },
   }
   // A lightweight roster watchdog: the authoritative activity comes from the
-  // subagents catalog; a missing observation after spawn.staleMs is marked
-  // stale (never silently treated as stopped) and blocks merge via the gate.
+  // subagents catalog; a missing observation after the confirmation window is
+  // marked stale (never silently treated as stopped) and blocks merge via the
+  // gate. watchdogTick owns the F73 guards and is tested directly.
   const watchMs = Math.max(1000, Number(runtimeConfig().mode?.heartbeatMs) || 10000)
   const timer = setInterval(() => {
     void (async () => {
@@ -151,18 +233,8 @@ export function registerCoreTowerTools(ctx, options = {}) {
         if (!ctx.get('subagents')) return
         for (const repoRoot of [...watchedRepos()]) {
           const tower = await openTower(repoRoot)
-          const view = await tower.rosterView()
-          const live = view.roster.filter((entry) => !ROSTER_INACTIVE_STATES.includes(entry.state))
-          if (live.length === 0) { watchedRepos().delete(repoRoot); continue }
-          const parents = [...new Set(live.map((entry) => entry.parentSessionId).filter(Boolean))]
-          if (parents.length === 0) continue
-          const { activity, parentStatus } = await observeActivity(ctx, tower)
-          const authoritative = parents.every((parent) => parentStatus[parent] === PARENT_STATUS_OK)
-          await tower.sweepRoster({
-            staleMs: Number(tower.config.spawn?.staleMs) || 0,
-            activity,
-            authoritative,
-          })
+          const result = await watchdogTick(ctx, tower, Number(tower.config.spawn?.staleMs) || 0)
+          if (result.skipped === 'no-live-workers') watchedRepos().delete(repoRoot)
         }
       } catch {
         // watchdog failures are best effort; tools still re-check on demand

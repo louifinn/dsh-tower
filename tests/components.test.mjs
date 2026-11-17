@@ -382,7 +382,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     { key: 'mode.ralphPolicy', value: 'stop' },
     { key: 'init.autoGitInit', value: 'true' },
     { key: 'send.interruptDefault', value: 'true' },
-    { key: 'spawn.staleMs', value: '15000' },
+    { key: 'spawn.staleMs', value: '30000' },
   ])
   assert.deepEqual(patch.rows.find((row) => row.id === 'preset-tower-worker').configOverrides, [])
   assert.deepEqual(patch.rows.find((row) => row.id === 'preset-tower-reviewer').configOverrides, [])
