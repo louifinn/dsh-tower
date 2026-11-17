@@ -111,9 +111,13 @@ async function prepareReview(tower, input) {
 export async function submitReview(tower, input) {
   // #M39: `review.mode:off` means review is intentionally unavailable. The tool
   // is not registered in that profile, but the repository layer can also turn it
-  // off, so the app layer refuses before any state is read.
+  // off, so the app layer refuses before any state is read. #F82: the refusal is
+  // operator copy — it names the visible control, never the configuration key.
   if (reviewUnavailable(tower.config)) {
-    throw new TowerToolError('review-disabled', 'review.mode is off, so tower_review cannot record a verdict')
+    throw new TowerToolError(
+      'review-disabled',
+      'review before merging is turned off in this project\'s plugin configuration, so a verdict cannot be recorded',
+    )
   }
   // Two-phase (#51): the lock is held only for the state reload, revision
   // revalidation, and write; every git call happens in prepareReview.
