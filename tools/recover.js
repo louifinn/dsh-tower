@@ -47,7 +47,7 @@ export function registerRecoverTool(ctx, deps) {
   define(ctx, {
     name: 'tower_recover',
     description:
-      'Recovery diagnostics and stale state-lock repair. status reports the lock owner with age, heartbeat, and staleness; clear-stale-lock needs confirm:CLEAR_STALE_LOCK and only moves a lock whose PID is dead (force also clears a live-but-silent PID) to a backup. Never resets state.',
+      "Recover the state lock and short-lived state-commit mutex. status reports each lock's owner, age, heartbeat, staleness, or unreadable record. clear-stale-lock needs confirm:CLEAR_STALE_LOCK; moves a dead or unreadable record to a backup, never deleting it; state is never reset.",
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {

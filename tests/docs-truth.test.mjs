@@ -10,6 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { checkDocs, currentDocPages, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { loadShippedToolSurface } from '../scripts/lib/tool-surface.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -253,4 +254,56 @@ test('linkProblems reports a broken relative link', (t) => {
   const problems = linkProblems(root)
   assert.equal(problems.length, 1)
   assert.match(problems[0], /docs[\\/]broken\.md links to missing missing\.md/)
+})
+
+// F76: the `tower_recover` description is the only tool text an agent reads, so
+// it must advertise both writer fences (the state lock and the short-lived
+// state-commit mutex) that M103 made the tool repair. Assert the registered
+// description AND its generated row; a wording that drops one fence is the drift.
+test('F76: the tower_recover description covers both writer fences', () => {
+  const generated = fs.readFileSync(path.join(repoRoot, 'docs', 'reference', 'tools.generated.md'), 'utf8')
+  const row = generated.split('\n').find((line) => line.startsWith('| `tower_recover` |'))
+  assert.ok(row, 'docs/reference/tools.generated.md must carry the tower_recover row')
+  assert.match(row, /state[- ]lock/i, 'the generated description must mention the state lock')
+  assert.match(row, /commit/i, 'the generated description must mention the commit mutex')
+
+  // The generated row is a rendering of the registered description; check the
+  // source too so a stale generated file cannot hide a drift in tools/recover.js.
+  const surface = loadShippedToolSurface()
+  try {
+    const definition = surface.definitions.get('tower_recover')
+    assert.ok(definition, 'the shipped surface must register tower_recover')
+    assert.match(definition.description, /state[- ]lock/i, 'tower_recover must advertise the state lock')
+    assert.match(definition.description, /commit/i, 'tower_recover must advertise the commit mutex')
+  } finally {
+    surface.dispose()
+  }
+})
+
+// F81: README.md and README.en.md state the window the bundled patch installs.
+// The number there is the install-time behavior a reader trusts, so compare it
+// against cordis.patch.yml itself rather than a second hard-coded constant.
+// (The comment in tests/tasks-command.test.mjs is not the install contract.)
+test('F81: both READMEs quote the bundled spawn.staleMs window', () => {
+  const patch = fs.readFileSync(path.join(repoRoot, 'cordis.patch.yml'), 'utf8')
+  const patchMatch = patch.match(/^\s*staleMs:\s*(\d+)\s*$/m)
+  assert.ok(patchMatch, 'cordis.patch.yml must set spawn.staleMs explicitly')
+  const bundledMs = Number(patchMatch[1])
+  const bundledSeconds = bundledMs / 1000
+
+  const readmeWindows = [
+    ['README.md', /`spawn\.staleMs`\s*设为\s*(\d+)s/],
+    ['README.en.md', /`spawn\.staleMs`\s*to\s*(\d+)s/],
+  ]
+  for (const [page, pattern] of readmeWindows) {
+    const text = fs.readFileSync(path.join(repoRoot, page), 'utf8')
+    const match = text.match(pattern)
+    assert.ok(match, `${page} must state the bundled spawn.staleMs window in seconds`)
+    const seconds = Number(match[1])
+    assert.equal(
+      seconds * 1000,
+      bundledMs,
+      `${page} says ${seconds}s but cordis.patch.yml sets spawn.staleMs: ${bundledMs} (${bundledSeconds}s)`,
+    )
+  }
 })
