@@ -13,7 +13,7 @@ export const GIT_LOCK_MARGIN_MS = 60000
 export const DEFAULT_MERGE_TIMEOUT_MS = 900000
 
 /**
- * @param {{ merge?: { timeoutMs?: number } } | null | undefined} config
+ * @param {{ merge?: { timeoutMs?: number | null } | null } | null | undefined} config
  * @param {number} [mergeTimeoutMs] the caller's resolved merge timeout
  * @returns {number}
  */
