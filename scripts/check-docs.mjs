@@ -324,6 +324,71 @@ function pairsWithReplacement(block, lines, index, name) {
 }
 
 /**
+ * The reference tool tables are hand-written in two languages, so a row added to
+ * one of them alone is invisible to the English-only checks (#F60). The first
+ * cell of every row is the tool name, which makes the row *set* comparable
+ * without diffing the prose.
+ *
+ * @param {string} text a `docs/<language>/reference/tools.md` page
+ * @returns {string[]} sorted tool names in the table's first column
+ */
+export function toolTableNames(text) {
+  const names = new Set()
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\|\s*`(tower_[a-z0-9_]+)`\s*\|/)
+    if (match) names.add(match[1])
+  }
+  return [...names].sort()
+}
+
+/** One row of a reference tool table, by first-cell name; '' when absent. */
+function toolRow(text, name) {
+  return text.split('\n').find((line) => line.startsWith(`| \`${name}\` `)) ?? ''
+}
+
+/**
+ * English and Chinese `reference/tools.md` must list the same tool rows, and the
+ * `tower_spawn` row in both must keep the placement semantics its output schema
+ * carries: a branch worktree has a `worktree` object, a survey gets `null`. This
+ * is a set/shape check, not a word-for-word translation comparison.
+ *
+ * @param {string} root repository root
+ * @returns {string[]} one problem per missing row or lost placement sentence
+ */
+export function toolTableRowProblems(root = packageRoot) {
+  const enPage = 'docs/reference/tools.md'
+  const zhPage = 'docs/zh/reference/tools.md'
+  const problems = []
+  if (!fs.existsSync(path.join(root, enPage))) return problems
+  // A missing translation tree is reported by the parity block, not twice here.
+  if (!fs.existsSync(path.join(root, zhPage))) return problems
+
+  const enText = fs.readFileSync(path.join(root, enPage), 'utf8')
+  const zhText = fs.readFileSync(path.join(root, zhPage), 'utf8')
+  const enNames = toolTableNames(enText)
+  const zhNames = toolTableNames(zhText)
+  const missingInZh = enNames.filter((name) => !zhNames.includes(name))
+  const missingInEn = zhNames.filter((name) => !enNames.includes(name))
+  if (missingInZh.length > 0) problems.push(`${zhPage} is missing tool rows: ${missingInZh.join(', ')}`)
+  if (missingInEn.length > 0) problems.push(`${enPage} is missing tool rows: ${missingInEn.join(', ')}`)
+
+  for (const [page, text] of [[enPage, enText], [zhPage, zhText]]) {
+    const row = toolRow(text, 'tower_spawn')
+    if (row === '') {
+      problems.push(`${page} has no table row for tower_spawn`)
+      continue
+    }
+    if (!row.includes('`worktree`')) {
+      problems.push(`${page}: the tower_spawn row must name the worktree placement`)
+    }
+    if (!/\bnull\b/.test(row)) {
+      problems.push(`${page}: the tower_spawn row must state that a survey placement is null`)
+    }
+  }
+  return problems
+}
+
+/**
  * @param {string} root repository root
  * @returns {string[]} one problem per retired tool name on a current page
  */
@@ -547,6 +612,7 @@ export function checkDocs(root = packageRoot) {
     }
   }
 
+  problems.push(...toolTableRowProblems(root))
   problems.push(...retiredToolNameProblems(root))
   problems.push(...linkProblems(root))
   return {
