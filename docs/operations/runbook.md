@@ -31,6 +31,16 @@ activity beyond `spawn.staleMs`; `tower_init({op:"adopt"})` retires such entries
 `missing` instead). After the old owner is interrupted/failed/missing, spawn a replacement with
 `takeover:true`; a still-running owner returns `takeover-refused`.
 
+Adopt judges a row only when its parent's catalog is authoritative: the call must return at least one
+descendant. An **empty answer or a failing catalog is not evidence that a child stopped** — a just-spawned
+child or a catalog race can answer `[]`, and a throw only says the catalog could not answer (F83). Those
+rows are reported in `unjudged` (`{name, missionId, agentId, reason}`) and their observation counters are
+left untouched; `parentStatus` carries the per-parent status (`empty: …` / `unavailable: …`) and
+`skippedUnknownParents` names the parents that could not judge. Retirement (or `missing` with
+`retire_missing:false`) needs **two observations against an authoritative catalog** in which the row is
+positively absent. If adopt keeps reporting `empty:` for a session that still has live workers, retry once
+the catalog settles; do not force the rows to `retired` by hand.
+
 ## Workspace lock
 
 With `mode.workspaceLock:true`, `<git-common-dir>/dsh-tower/tower.lock` names the owning session. A second

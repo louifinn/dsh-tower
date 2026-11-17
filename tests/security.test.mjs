@@ -45,6 +45,31 @@ function fakeSubagents() {
   }
 }
 
+/**
+ * A fake catalog whose activation never settles: the spawned row stays `active`
+ * for the test, the state the F83 recovery path must not retire. The default
+ * fake resolves at once, which correctly records the row `inactive`.
+ */
+function liveSubagents() {
+  let counter = 0
+  return {
+    ...fakeSubagents(),
+    async startActivation() {
+      counter += 1
+      return { childId: `child-live-${counter}`, result: new Promise(() => {}) }
+    },
+  }
+}
+
+/**
+ * A fake catalog whose parent answers with these rows. An empty answer is not
+ * evidence of absence (#F83), so tests that expect a retirement must return at
+ * least one unrelated descendant.
+ */
+function catalogSubagents(rows) {
+  return { ...fakeSubagents(), async listDescendants() { return rows } }
+}
+
 function makeCtx(services = {}) {
   const tools = new Map()
   const resolved = { subagents: fakeSubagents(), ...services }
@@ -181,15 +206,77 @@ test('security: retiring a stale worker clears the permanent stale flag', async 
 
 test('security: adopt needs two observations before retiring an absent worker', async () => {
   const { root, repo } = makeRepo()
-  const { tools } = makeCtx()
+  // F83: only a non-empty answer is an authoritative catalog. The unrelated row
+  // keeps the parent authoritative while the spawned child stays absent.
+  const { tools } = makeCtx({ subagents: catalogSubagents([{ id: 'child-unrelated', activity: 'running' }]) })
   try {
     const planned = await initPlan(tools, repo)
     const missionId = planned.missions[0].id
-    await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
     const first = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
     assert.deepEqual(first.retired, [])
+    assert.deepEqual(first.unjudged, [], 'an authoritative catalog judges every row')
     const second = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
     assert.equal(second.retired.length, 1)
+    assert.equal(second.retired[0], spawned.agentId)
+    const state = await (await Tower.open(repo)).load()
+    assert.equal(state.roster.find((entry) => entry.agentId === spawned.agentId).state, 'retired')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('security: adopt never retires a live worker from an empty catalog (F83)', async () => {
+  const { root, repo } = makeRepo()
+  const { tools } = makeCtx({ subagents: liveSubagents() })
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    // A catalog race can answer `[]` for a just-spawned child (the F73 window).
+    // Two such answers are still not evidence of absence: retirement needs an
+    // authoritative catalog that positively does not list the child.
+    const first = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
+    const second = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
+    const state = await (await Tower.open(repo)).load()
+    const row = state.roster.find((entry) => entry.agentId === spawned.agentId)
+    assert.equal(row.state, 'active', 'two adopts against an empty catalog must leave a live worker active (F83)')
+    assert.deepEqual(second.retired, [], 'an empty catalog is not evidence of absence')
+    assert.deepEqual(second.missing, [])
+    for (const result of [first, second]) {
+      assert.match(String(result.parentStatus['tower-sec']), /^empty:/, 'an empty catalog gets a distinct status')
+      assert.equal(result.unjudged.length, 1, 'the row is reported as not judged')
+      assert.equal(result.unjudged[0].agentId, spawned.agentId)
+      assert.match(String(result.unjudged[0].reason), /^empty:/)
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('security: adopt never retires a live worker when the catalog throws (F83)', async () => {
+  const { root, repo } = makeRepo()
+  const fake = liveSubagents()
+  const { tools } = makeCtx({ subagents: fake })
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    fake.listDescendants = async () => {
+      throw new Error('catalog unavailable')
+    }
+    const first = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
+    const second = await call(tools, 'tower_init', { repoRoot: repo, op: 'adopt' })
+    const state = await (await Tower.open(repo)).load()
+    const row = state.roster.find((entry) => entry.agentId === spawned.agentId)
+    assert.equal(row.state, 'active', 'a failing catalog must not be read as an absent child (F83)')
+    assert.deepEqual(second.retired, [])
+    for (const result of [first, second]) {
+      assert.match(String(result.parentStatus['tower-sec']), /^unavailable:/)
+      assert.equal(result.unjudged.length, 1)
+      assert.equal(result.unjudged[0].agentId, spawned.agentId)
+      assert.match(String(result.unjudged[0].reason), /^unavailable:/)
+    }
   } finally {
     removeTemp(root)
   }
