@@ -3,7 +3,6 @@ import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { CompleteInput } from '../domain/contracts/tool-inputs/index.js'
 import { isCompleteAdmission } from '../domain/vocabulary.js'
-import { reviveStaleSelfReporter, markSelfReportedCompletion } from '../app/roster.js'
 
 /**
  * @param {any} ctx
@@ -26,16 +25,22 @@ export function registerCompleteTool(ctx, deps) {
       const agentId = String(exec.agent.id)
       const missionId = String(args.missionId)
       // #F73: a worker that calls this tool is alive. If the watchdog marked its
-      // row stale (empty/partial catalog or a single missed sweep), revive that
-      // exact row before admission; every other terminal state still refuses.
-      const revival = await reviveStaleSelfReporter(tower, { missionId: missionId, agentId })
+      // row stale (empty/partial catalog or a single missed sweep), its own row
+      // may still complete: the completion transaction revives the row and closes
+      // it as `inactive` inside the same state lock, so a concurrent sweep can
+      // never observe it as an active-but-unobserved row. Every other terminal
+      // state still refuses before any repository-controlled work runs.
+      const options = { allowStaleSelfReport: true }
       // Validate authorization/state before executing repository-controlled
       // test code or writing a test receipt.
-      await tower.checkCompletion({
-        missionId: missionId,
-        agentId,
-        report: args.report,
-      })
+      await tower.checkCompletion(
+        {
+          missionId: missionId,
+          agentId,
+          report: args.report,
+        },
+        options,
+      )
       const context = await tower.missionContext(missionId)
       const checks = [...(Array.isArray(args.checks) ? args.checks : [])]
       const testsConfig = /** @type {any} */ (tower.config.tests ?? {})
@@ -50,18 +55,16 @@ export function registerCompleteTool(ctx, deps) {
       // #149 W4: the receipt already lives in mission.testRuns and is read by
       // domain/evidence.js. Copying a `tests` projection into the completion
       // report would be a second evidence shape, so it is not done here.
-      const result = await tower.complete({
-        missionId: missionId,
-        agentId,
-        report: args.report,
-        result: args.result,
-        checks,
-      })
-      if (revival.revived) {
-        // The mission is durable at this point; closing the roster row is
-        // bookkeeping. A failure must not roll back an accepted completion.
-        await markSelfReportedCompletion(tower, { missionId: missionId, agentId }).catch(() => {})
-      }
+      const result = await tower.complete(
+        {
+          missionId: missionId,
+          agentId,
+          report: args.report,
+          result: args.result,
+          checks,
+        },
+        options,
+      )
       return result
     },
   })

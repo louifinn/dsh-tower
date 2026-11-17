@@ -273,8 +273,14 @@ observation is not death. A live roster row may only become stale after
 consecutive missing observations spanning twice `spawn.staleMs`, never from an
 empty or partial catalog; a row already marked stale that calls
 `tower_complete` itself must be revived, because a stopped worker cannot call
-tools. Keep the default `spawn.staleMs` at least three times the watchdog poll
-interval (10 s); `tests/roster-watchdog.test.mjs` pins all three guards.
+tools. Revival and the roster settle are not a separate bookkeeping step: they
+run inside the completion's own state-lock transaction, so an in-flight
+watchdog sweep sees either the row before the completion or the closed
+(`inactive`) one — never an `active` row its snapshot never observed. A sweep
+that still wins the lock makes the completion re-prepare instead of failing
+with `stale-base`. Keep the default `spawn.staleMs` at least three times the
+watchdog poll interval (10 s); `tests/roster-watchdog.test.mjs` pins these
+guards, including the interleavings.
 
 A closed `regression` issue carries the six-field record from
 [docs/operations/incident.md](docs/operations/incident.md) (symptom, introduced in,

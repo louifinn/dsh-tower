@@ -98,6 +98,18 @@ import {
  *    `spawn.staleMs` before it may reach the staleness rule. Unconfirmed
  *    absences are passed to the sweep as `unknown`, which the pure
  *    `rosterEntryStale` rule already refuses to mark.
+ *
+ * The invariant behind guard 2 is worth stating on its own because the sweep
+ * runs in its own state-lock transaction, after this tick's snapshot:
+ * **no observation is not an observation of absence.** A row that was not in
+ * the snapshot this tick judged (inactive/stale at `rosterView()`, or revived
+ * or spawned while the tick was running) has no evidence either way, so it is
+ * handed to the sweep as `unknown` rather than left out. Leaving it out would
+ * let `rosterEntryStale` fire on `observed === undefined`, which is exactly how
+ * a worker that revived itself and reported completion mid-tick could be
+ * re-marked stale — a completed mission then blocked by `worker-stale`. The
+ * roster is re-read after the observations are recorded precisely to cover
+ * rows that the snapshot predates.
  * @param {any} ctx
  * @param {any} tower
  * @param {number} staleMs effective spawn.staleMs (0 disables all watchdog writes)
@@ -132,7 +144,19 @@ export async function watchdogTick(ctx, tower, staleMs) {
     confirmations: 2,
     windowMs: window * 2,
   })
+  // Re-read: `recordRosterObservations` took its own lock, so a worker that
+  // revived itself (or spawned) while this tick was running is visible now but
+  // was in neither `present` nor `absent`. It must reach the sweep as
+  // `unknown`, never as an implicit absence.
+  const observed = new Set([...present, ...candidates])
+  const current = await tower.rosterView()
   const sweepActivity = { ...activity }
+  for (const entry of current.roster ?? []) {
+    const agentId = entry?.agentId ? String(entry.agentId) : ''
+    if (agentId && !observed.has(agentId) && sweepActivity[agentId] === undefined) {
+      sweepActivity[agentId] = ROSTER_ACTIVITY.unknown
+    }
+  }
   for (const agentId of absent) {
     if (!candidates.includes(agentId)) sweepActivity[agentId] = ROSTER_ACTIVITY.unknown
   }

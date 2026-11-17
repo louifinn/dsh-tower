@@ -14,7 +14,14 @@
 // 3. a present observation resets the absence evidence;
 // 4. `staleMs: 0` disables the watchdog without writing state or activity;
 // 5. a stale-marked worker's own `tower_complete` revives the row, completes
-//    the mission, and records why in the activity log.
+//    the mission, and records why in the activity log;
+// 6. a completion that runs while a tick is parked after its roster snapshot
+//    still closes the row, and the tick's sweep does not re-stale it;
+// 7. a row revived between the snapshot and the sweep never enters the
+//    "absent => stale" decision, so it is still active at tick end (no
+//    observation is not an observation of absence);
+// 8. a sweep that wins the state lock between the two-phase completion check
+//    and the commit makes the completion re-prepare, not fail with `stale-base`.
 //
 // Run with: node --test tests/roster-watchdog.test.mjs
 import test, { afterEach } from 'node:test'
@@ -29,6 +36,7 @@ import { observeActivity } from '../host/tool-observers.js'
 import { watchdogTick } from '../host/tool-capabilities.js'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry } from '../host/capability-registry.js'
+import { reviveStaleSelfReporter } from '../app/roster.js'
 import { PARENT_STATUS_OK } from '../domain/vocabulary.js'
 
 const MINUTE = 60_000
@@ -99,6 +107,79 @@ async function ageAbsence(tower, agentId, ageMs) {
   assert.ok(entry && Number.isFinite(entry.absentSince), 'absence evidence must be persisted first')
   entry.absentSince = Date.now() - ageMs
   fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+}
+
+/** Rewrite the persisted roster (another process's write) without waiting. */
+async function writeRoster(tower, mutate) {
+  const state = await tower.load()
+  mutate(state.roster ?? [], state)
+  state.revision += 1
+  state.updatedAt = Date.now()
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+  return state
+}
+
+/**
+ * Park a tick after its first `rosterView()` and hand the test a way to resume
+ * it. This is the injectable seam for the F73 race: the snapshot is already
+ * taken (so `live`/`absent` are fixed) but the sweep has not run yet, which is
+ * exactly the window in which a worker revives itself.
+ * @param {any} tower
+ * @returns {{ reached: Promise<void>, release: () => void }}
+ */
+function pauseAfterFirstRosterView(tower) {
+  const original = tower.rosterView.bind(tower)
+  let release = () => {}
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let signal = () => {}
+  const reached = new Promise((resolve) => {
+    signal = resolve
+  })
+  let calls = 0
+  tower.rosterView = async (...args) => {
+    const view = await original(...args)
+    if ((calls += 1) === 1) {
+      signal()
+      await gate
+    }
+    return view
+  }
+  return { reached, release: () => release() }
+}
+
+/** The two-mission fixture: a worker to race, plus a live bystander the
+ * catalog can prove so the tick's sweep is authoritative. */
+async function seededPair(prefix) {
+  const { root, repo } = seedRepo(prefix)
+  const tower = await Tower.open(repo)
+  await tower.init({ towerAgentId: 'tower-agent' })
+  await tower.plan({
+    missions: [
+      { title: 'F73 raced completion', scope: ['src/**'] },
+      { title: 'F73 bystander', scope: ['src/**'] },
+    ],
+  })
+  await tower.recordSpawn({
+    missionId: 'M1',
+    name: 'worker-m1',
+    role: 'worker',
+    agentId: 'agent-live',
+    parentSessionId: 'tower-agent',
+    cwd: null,
+    branch: null,
+  })
+  await tower.recordSpawn({
+    missionId: 'M2',
+    name: 'worker-m2',
+    role: 'worker',
+    agentId: 'agent-bystander',
+    parentSessionId: 'tower-agent',
+    cwd: null,
+    branch: null,
+  })
+  return { root, repo, tower }
 }
 
 test('F73: an empty descendant list is not authoritative evidence and writes nothing', async () => {
@@ -272,6 +353,171 @@ test('F73: a stale-marked worker completes its own mission and is revived', asyn
     const log = activityText(await Tower.open(repo))
     assert.match(log, /revived worker-m\d+ from stale: it called tower_complete itself, so the child is alive \(F73\)/)
     assert.match(log, /marked worker-m\d+ inactive after self-reported completion \(F73\)/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// --- F73 round 3: revival is atomic with an in-flight sweep -----------------
+
+test('F73: a row revived mid-tick never enters the absence decision', async () => {
+  const { root, tower } = await seededPair('dsh-tower-watchdog-mid-tick-')
+  try {
+    await writeRoster(tower, (roster) => {
+      for (const entry of roster) entry.spawnedAt = Date.now() - 10 * MINUTE
+      const straggler = roster.find((entry) => entry.agentId === 'agent-live')
+      straggler.state = 'stale'
+      straggler.stale = true
+      straggler.staleAt = Date.now()
+    })
+    const ctx = fakeCtx([{ id: 'agent-bystander', activity: 'running' }])
+    const seam = pauseAfterFirstRosterView(tower)
+    const ticking = watchdogTick(ctx, tower, STALE_MS)
+    try {
+      await seam.reached
+      // The straggler is alive after all: it revived itself in the window
+      // between the tick's roster snapshot and its sweep. The snapshot still
+      // excludes it, so only an explicit "no observation" can protect it.
+      const revived = await reviveStaleSelfReporter(tower, { missionId: 'M1', agentId: 'agent-live' })
+      assert.equal(revived.revived, true)
+      assert.equal((await row(tower)).state, 'active')
+    } finally {
+      seam.release()
+    }
+    const tick = await ticking
+    assert.equal(tick.skipped, undefined, `the tick must reach the sweep, got ${tick.skipped}`)
+    assert.deepEqual(tick.marked, [], 'a row revived mid-tick is not evidence of absence')
+    const live = await row(tower)
+    assert.equal(live.state, 'active', 'the revived row is still active at tick end')
+    assert.equal(live.stale, undefined)
+    assert.equal(live.staleAt, undefined)
+    assert.doesNotMatch(activityText(tower), /stale worker-m1/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('F73: a completion racing a parked tick closes the row and leaves no worker-stale blocker', async () => {
+  const { root, repo } = seedRepo('dsh-tower-watchdog-race-')
+  const tools = makeTools()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'F73 raced completion', scope: ['src/**'] },
+        { title: 'F73 bystander', scope: ['src/**'] },
+      ],
+    })
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.ok(spawned.agentId, 'spawn must activate a child')
+    fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(spawned.worktree.path, ['add', '-A'])
+    git(spawned.worktree.path, ['commit', '-m', 'work'])
+
+    const tower = await Tower.open(repo)
+    await tower.recordSpawn({
+      missionId: 'M2',
+      name: 'worker-m2',
+      role: 'worker',
+      agentId: 'agent-bystander',
+      parentSessionId: 'tower-agent',
+      cwd: null,
+      branch: null,
+    })
+    await writeRoster(tower, (roster) => {
+      for (const entry of roster) entry.spawnedAt = Date.now() - 10 * MINUTE
+      const live = roster.find((entry) => entry.agentId === spawned.agentId)
+      live.state = 'stale'
+      live.stale = true
+      live.staleAt = Date.now()
+    })
+
+    const ctx = fakeCtx([{ id: 'agent-bystander', activity: 'running' }])
+    const seam = pauseAfterFirstRosterView(tower)
+    const ticking = watchdogTick(ctx, tower, STALE_MS)
+    let tick
+    try {
+      await seam.reached
+      // The whole `tower_complete` transition — revival, roster settle and
+      // mission commit — runs while the tick is parked after its snapshot. A
+      // sweep that resumes afterwards must not treat the row's snapshot state
+      // as absence.
+      const completed = await call(
+        tools,
+        'tower_complete',
+        { repoRoot: repo, missionId: 'M1', report: 'done' },
+        { agent: { id: spawned.agentId } },
+      )
+      assert.equal(completed.mission.status, 'completed')
+    } finally {
+      seam.release()
+      tick = await ticking
+    }
+    assert.deepEqual(tick.marked, [], 'the tick must not mark the completed row')
+    const after = await (await Tower.open(repo)).load()
+    const closed = after.roster.find((entry) => entry.agentId === spawned.agentId)
+    assert.equal(closed.state, 'inactive', 'the row stays closed after the sweep')
+    assert.equal(closed.outcome, 'completed (self-report)')
+    assert.equal(closed.stale, undefined)
+    assert.equal(closed.staleAt, undefined)
+    const gate = await (await Tower.open(repo)).evaluateGate({ missionId: 'M1', activity: {}, parentStatus: {} })
+    const codes = gate.blockers.map((blocker) => blocker.code)
+    assert.ok(!codes.includes('worker-stale'), `no worker-stale blocker, got ${codes.join(', ')}`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('F73: a sweep that wins the lock before the commit is absorbed, not refused', async () => {
+  const { root, repo } = seedRepo('dsh-tower-watchdog-lock-')
+  const tools = makeTools()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'F73 lock race', scope: ['src/**'] }] })
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.ok(spawned.agentId, 'spawn must activate a child')
+    fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(spawned.worktree.path, ['add', '-A'])
+    git(spawned.worktree.path, ['commit', '-m', 'work'])
+
+    const tower = await Tower.open(repo)
+    await writeRoster(tower, (roster) => {
+      for (const entry of roster) entry.spawnedAt = Date.now() - 10 * MINUTE
+    })
+    // Deterministic preemption: the sweep wins the state lock in the window
+    // between the two-phase prepare and the commit's own lock — the exact
+    // moment the old revision guard turned a live worker's report into
+    // `stale-base`.
+    const originalCheck = tower.checkCompletion.bind(tower)
+    let prepares = 0
+    let injected = null
+    tower.checkCompletion = async (input, options) => {
+      const prepared = await originalCheck(input, options)
+      prepares += 1
+      if (!injected) injected = await tower.sweepRoster({ staleMs: STALE_MS, activity: {}, authoritative: true })
+      return prepared
+    }
+
+    const completed = await tower.complete(
+      { missionId: 'M1', agentId: spawned.agentId, report: 'done' },
+      { allowStaleSelfReport: true },
+    )
+    assert.deepEqual(injected.marked, ['worker-m1'], 'the race must actually stale the row first')
+    assert.ok(prepares >= 2, `completion must re-prepare after the sweep, saw ${prepares}`)
+    assert.equal(completed.mission.status, 'completed')
+
+    const after = await (await Tower.open(repo)).load()
+    const closed = after.roster.find((entry) => entry.agentId === spawned.agentId)
+    assert.equal(closed.state, 'inactive')
+    assert.equal(closed.outcome, 'completed (self-report)')
+    assert.equal(closed.stale, undefined)
+    assert.equal(closed.staleAt, undefined)
+    const gate = await (await Tower.open(repo)).evaluateGate({ missionId: 'M1', activity: {}, parentStatus: {} })
+    const codes = gate.blockers.map((blocker) => blocker.code)
+    assert.ok(!codes.includes('worker-stale'), `no worker-stale blocker, got ${codes.join(', ')}`)
   } finally {
     removeTemp(root)
   }
