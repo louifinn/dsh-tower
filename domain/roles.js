@@ -189,8 +189,9 @@ export function roleMissionBlockers(role, { shape, mission, reviewAvailable = tr
   if (spec.requires.review && !reviewAvailable) {
     blockers.push({
       code: 'review-disabled',
-      // #F82: operator copy, same words as the spawn precheck's ERROR_COPY
-      // (which overrides this sentence): no configuration key, no tool id.
+      // #F82/#F84: operator copy, and the only copy of it — the spawn precheck
+      // passes this sentence through unchanged, so the role contract is the
+      // single source. No configuration key, no tool id.
       message:
         'review before merging is turned off in this project\'s plugin configuration, so a reviewer cannot be started and a review cannot be recorded',
     })

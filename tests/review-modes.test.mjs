@@ -45,7 +45,8 @@ import { shapeFor } from '../domain/shapes/index.js'
 import { Config, resolveTowerConfig } from '../domain/config/schema.js'
 import { configureRuntime, profileConfig, resolveRepoConfig, runtimeConfig } from '../host/config.js'
 import { submitReview } from '../app/review.js'
-import { assertSpawnableMission } from '../app/spawn-prechecks.js'
+import { assertSpawnableMission, ERROR_COPY } from '../app/spawn-prechecks.js'
+import { errorNextAction } from '../domain/errors.js'
 import { assertPresetsAvailable } from '../host/presets.js'
 import { definedToolNames, registerTowerTools, __testResetToolSurface } from '../host/tool-registry.js'
 import { __testResetComponentRegistry } from '../host/capability-registry.js'
@@ -385,9 +386,10 @@ test('review submission: off refuses before any state read', async () => {
 
 test('reviewer spawn and preset validation: off refuses, optional/required allow', async () => {
   const context = { mission: { id: 'M1', status: 'completed', worktree: { path: 'x', branch: 'b' } } }
-  // #F82: the role contract's own sentence is operator copy too. The spawn
-  // precheck overrides it with the same words, and any other consumer of the
-  // ordered blockers must not inherit the configuration key.
+  // #F82/#F84: the role contract's own sentence is operator copy too, and since
+  // #F84 it is the only copy — the spawn precheck passes the blocker through
+  // unchanged, so every consumer of the ordered blockers inherits the same
+  // sentence and never the configuration key.
   const [roleBlocker] = roleMissionBlockers('reviewer', {
     shape: shapeFor('build'),
     mission: { id: 'M1', status: 'completed' },
@@ -401,12 +403,17 @@ test('reviewer spawn and preset validation: off refuses, optional/required allow
     () => assertSpawnableMission({ role: 'reviewer', context, config: { review: { mode: 'off' } } }),
     (error) => {
       assert.equal(error.code, 'review-disabled')
-      // #F77/#F82: the spawn precondition speaks the operator's language; the
-      // configuration key stays out of the refusal and its next step.
-      assert.match(error.message, /review before merging is turned off in this project's plugin configuration/)
-      assert.match(error.message, /a reviewer cannot be started and a review cannot be recorded/)
+      // #F84: one copy source. The rendered message is the registry sentence
+      // plus exactly one next-step segment, so a reintroduced local rewrite
+      // shows up here as a byte mismatch instead of a silent word change.
+      assert.equal(
+        String(error.message),
+        `[tower:review-disabled] ${roleBlocker.message} — next: ${errorNextAction('review-disabled')}`,
+      )
+      assert.equal(String(error.message).split(' — next: ').length - 1, 1)
       assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
-      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
+      assert.doesNotMatch(String(error.message), /review\.mode|tower_review/)
+      assert.doesNotMatch(String(error.nextAction), /review\.mode|tower_review/)
       return true
     },
   )
@@ -435,6 +442,89 @@ test('reviewer spawn and preset validation: off refuses, optional/required allow
       return true
     },
   )
+})
+
+// #F84: the redundancy itself was the defect. The precheck carried its own copy
+// of the role contract's refusal and rewrote the blocker with it; two sentences
+// that agree today can drift tomorrow. This pins the single source: no local
+// copy entry, and no per-code branch that could rewrite one blocker again.
+test('reviewer spawn: the precheck carries no second copy of the role refusal (#F84)', () => {
+  const [roleBlocker] = roleMissionBlockers('reviewer', {
+    shape: shapeFor('build'),
+    mission: { id: 'M1', status: 'completed' },
+    reviewAvailable: false,
+  })
+  assert.equal(roleBlocker.code, 'review-disabled')
+  assert.equal(
+    Object.hasOwn(ERROR_COPY, 'reviewDisabled'),
+    false,
+    'the spawn precheck must not carry its own review-disabled copy; the role contract owns the sentence',
+  )
+  assert.equal(
+    Object.values(ERROR_COPY).includes(roleBlocker.message),
+    false,
+    'no spawn-precheck copy entry may repeat the role contract sentence word for word',
+  )
+  const source = fs.readFileSync(new URL('../app/spawn-prechecks.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(
+    source,
+    /blocker\.code\s*===/,
+    'every role blocker must go through the same throw path; no code-specific rewrite in the precheck',
+  )
+})
+
+// #F84: the same throw path for every code is what makes the role contract the
+// single source. Prove it on the blockers that are not review-disabled too, so a
+// future per-code override cannot hide behind the one case this mission fixed.
+test('reviewer spawn: every role blocker sentence reaches the caller unchanged (#F84)', () => {
+  const cases = [
+    {
+      name: 'a survey mission has no branch to review',
+      role: 'reviewer',
+      mission: { id: 'M7', kind: 'survey', status: 'completed' },
+    },
+    {
+      name: 'a planned build mission is not completed',
+      role: 'reviewer',
+      mission: { id: 'M8', kind: 'build', status: 'planned', worktree: { path: 'x', branch: 'b' } },
+    },
+    {
+      name: 'an unknown role is rejected by the same path',
+      role: 'not-a-role',
+      mission: { id: 'M9', kind: 'build', status: 'planned' },
+    },
+  ]
+  for (const entry of cases) {
+    const [blocker] = roleMissionBlockers(entry.role, {
+      shape: shapeFor(entry.mission.kind),
+      mission: entry.mission,
+      reviewAvailable: true,
+    })
+    assert.ok(blocker, entry.name)
+    let thrown = null
+    assert.throws(
+      () =>
+        assertSpawnableMission({
+          role: entry.role,
+          context: { mission: entry.mission },
+          config: { review: { mode: 'optional' } },
+        }),
+      (error) => {
+        thrown = error
+        return true
+      },
+      entry.name,
+    )
+    assert.equal(thrown.code, blocker.code, entry.name)
+    const next = errorNextAction(blocker.code)
+    assert.equal(
+      thrown.message,
+      next
+        ? `[tower:${blocker.code}] ${blocker.message} — next: ${next}`
+        : `[tower:${blocker.code}] ${blocker.message}`,
+      `${entry.name}: the blocker sentence must reach the caller unchanged`,
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------
