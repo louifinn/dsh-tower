@@ -153,12 +153,16 @@ export function resolveReviewPolicy(rawReview) {
  */
 export function reviewPolicyView(config) {
   const mode = reviewModeOf(config)
+  // #F82: both consumers (`tower_status` and the doctor's review check) render
+  // this sentence to the operator, so each posture is described by its effect on
+  // the visible "review before merging" control, never by the configuration key
+  // or the tool id. The machine-readable fields below stay the contract.
   const detail =
     mode === 'off'
-      ? 'review.mode:off — review is intentionally unavailable: recording a review is refused, reviewer spawn is refused, and the merge gate ignores review; a profile-level off does not register tower_review'
+      ? 'review before merging is off: a verdict cannot be recorded, a reviewer cannot be started, and the merge gate ignores review; when the plugin configuration turns it off for the whole profile, the review action is not offered at all'
       : mode === 'required'
-        ? 'review.mode:required — a clean review bound to the branch tip is a merge blocker'
-        : 'review.mode:optional — review is available but never blocks a merge'
+        ? 'review before merging is required: a clean review bound to the branch tip blocks the merge'
+        : 'review before merging is optional: a review can be recorded, but it never blocks a merge'
   return { mode, available: mode !== 'off', required: mode === 'required', detail }
 }
 

@@ -40,6 +40,8 @@ import {
   reviewUnavailable,
 } from '../domain/integration/review.js'
 import { mergeGateBlockers } from '../domain/gate.js'
+import { roleMissionBlockers } from '../domain/roles.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import { Config, resolveTowerConfig } from '../domain/config/schema.js'
 import { configureRuntime, profileConfig, resolveRepoConfig, runtimeConfig } from '../host/config.js'
 import { submitReview } from '../app/review.js'
@@ -327,6 +329,39 @@ test('review gate: review-exemption-invalid exists only in required and names th
   assert.deepEqual(allowed, [])
 })
 
+test('review policy detail: every mode renders operator copy, never the config key', () => {
+  // #F82: `detail` is shared by `tower_status` and the doctor's review check.
+  // The machine-readable fields are the contract; the sentence is operator copy.
+  const off = reviewPolicyView({ review: { mode: 'off' } })
+  assert.deepEqual(
+    { mode: off.mode, available: off.available, required: off.required },
+    { mode: 'off', available: false, required: false },
+  )
+  assert.match(off.detail, /review before merging is off/)
+  assert.match(off.detail, /a verdict cannot be recorded/)
+  assert.match(off.detail, /the merge gate ignores review/)
+  assert.match(off.detail, /the review action is not offered at all/)
+  assert.doesNotMatch(off.detail, /review\.mode|tower_review/)
+
+  const optional = reviewPolicyView({ review: { mode: 'optional' } })
+  assert.deepEqual(
+    { mode: optional.mode, available: optional.available, required: optional.required },
+    { mode: 'optional', available: true, required: false },
+  )
+  assert.match(optional.detail, /review before merging is optional/)
+  assert.match(optional.detail, /never blocks a merge/)
+  assert.doesNotMatch(optional.detail, /review\.mode|tower_review/)
+
+  const required = reviewPolicyView({ review: { mode: 'required' } })
+  assert.deepEqual(
+    { mode: required.mode, available: required.available, required: required.required },
+    { mode: 'required', available: true, required: true },
+  )
+  assert.match(required.detail, /review before merging is required/)
+  assert.match(required.detail, /blocks the merge/)
+  assert.doesNotMatch(required.detail, /review\.mode|tower_review/)
+})
+
 // ---------------------------------------------------------------------------
 // Review submission, reviewer spawn, preset validation.
 // ---------------------------------------------------------------------------
@@ -336,10 +371,11 @@ test('review submission: off refuses before any state read', async () => {
     () => submitReview({ config: { review: { mode: 'off' } } }, { missionId: 'M1' }),
     (error) => {
       assert.equal(error.code, 'review-disabled')
-      // app/review.js still phrases its own message (F77 residual, out of
-      // M107's file scope); the registry fallback appended by
-      // renderErrorMessage must not name the configuration key (#F77).
-      assert.match(error.message, /review\.mode is off/)
+      // #F82: the submission refusal itself speaks the operator's language, and
+      // neither the message nor the registry's next step names the config key.
+      assert.match(error.message, /review before merging is turned off in this project's plugin configuration/)
+      assert.match(error.message, /a verdict cannot be recorded/)
+      assert.doesNotMatch(String(error.message), /review\.mode/)
       assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
       assert.doesNotMatch(String(error.nextAction), /review\.mode/)
       return true
@@ -349,13 +385,26 @@ test('review submission: off refuses before any state read', async () => {
 
 test('reviewer spawn and preset validation: off refuses, optional/required allow', async () => {
   const context = { mission: { id: 'M1', status: 'completed', worktree: { path: 'x', branch: 'b' } } }
+  // #F82: the role contract's own sentence is operator copy too. The spawn
+  // precheck overrides it with the same words, and any other consumer of the
+  // ordered blockers must not inherit the configuration key.
+  const [roleBlocker] = roleMissionBlockers('reviewer', {
+    shape: shapeFor('build'),
+    mission: { id: 'M1', status: 'completed' },
+    reviewAvailable: false,
+  })
+  assert.equal(roleBlocker.code, 'review-disabled')
+  assert.match(roleBlocker.message, /review before merging is turned off in this project's plugin configuration/)
+  assert.match(roleBlocker.message, /a reviewer cannot be started and a review cannot be recorded/)
+  assert.doesNotMatch(roleBlocker.message, /review\.mode|tower_review/)
   assert.throws(
     () => assertSpawnableMission({ role: 'reviewer', context, config: { review: { mode: 'off' } } }),
     (error) => {
       assert.equal(error.code, 'review-disabled')
-      // #F77: the spawn precondition speaks the operator's language; the
+      // #F77/#F82: the spawn precondition speaks the operator's language; the
       // configuration key stays out of the refusal and its next step.
       assert.match(error.message, /review before merging is turned off in this project's plugin configuration/)
+      assert.match(error.message, /a reviewer cannot be started and a review cannot be recorded/)
       assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
       assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
       return true
@@ -524,12 +573,18 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     assert.equal(requiredStatus.review.mode, 'required')
     assert.equal(requiredStatus.review.required, true)
     assert.equal(requiredStatus.review.available, true)
+    // #F82: status and the doctor share the detail sentence; both render the
+    // visible control and its effect, never the configuration key.
+    assert.match(requiredStatus.review.detail, /review before merging is required/)
+    assert.match(requiredStatus.review.detail, /blocks the merge/)
+    assert.doesNotMatch(requiredStatus.review.detail, /review\.mode/)
     const requiredDoctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(requiredDoctor.review.mode, 'required')
     const reviewCheck = requiredDoctor.checks.find((check) => check.id === 'review')
     assert.equal(reviewCheck.status, 'pass')
-    assert.match(reviewCheck.detail, /review\.mode:required/)
-    assert.match(reviewCheck.detail, /merge blocker/)
+    assert.match(reviewCheck.detail, /review before merging is required/)
+    assert.match(reviewCheck.detail, /blocks the merge/)
+    assert.doesNotMatch(reviewCheck.detail, /review\.mode/)
     const requiredPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.ok(requiredPreflight.blockers.some((blocker) => blocker.code === 'no-review'), JSON.stringify(requiredPreflight.blockers))
 
@@ -538,8 +593,15 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     const optionalStatus = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(optionalStatus.review.mode, 'optional')
     assert.equal(optionalStatus.review.required, false)
+    assert.match(optionalStatus.review.detail, /review before merging is optional/)
+    assert.match(optionalStatus.review.detail, /never blocks a merge/)
+    assert.doesNotMatch(optionalStatus.review.detail, /review\.mode/)
     const optionalDoctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
-    assert.match(optionalDoctor.checks.find((check) => check.id === 'review').detail, /review\.mode:optional/)
+    assert.match(optionalDoctor.checks.find((check) => check.id === 'review').detail, /review before merging is optional/)
+    assert.doesNotMatch(
+      optionalDoctor.checks.find((check) => check.id === 'review').detail,
+      /review\.mode/,
+    )
     const optionalPreflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.equal(optionalPreflight.blockers.some((blocker) => blocker.code === 'no-review'), false)
 
@@ -551,9 +613,12 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     const offStatus = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(offStatus.review.mode, 'off')
     assert.equal(offStatus.review.available, false)
-    assert.match(offStatus.review.detail, /intentionally unavailable/)
-    assert.match(offStatus.review.detail, /recording a review is refused/)
-    assert.match(offStatus.review.detail, /a profile-level off does not register tower_review/)
+    assert.match(offStatus.review.detail, /review before merging is off/)
+    assert.match(offStatus.review.detail, /a verdict cannot be recorded/)
+    assert.match(offStatus.review.detail, /a reviewer cannot be started/)
+    assert.match(offStatus.review.detail, /the merge gate ignores review/)
+    assert.match(offStatus.review.detail, /the review action is not offered at all/)
+    assert.doesNotMatch(offStatus.review.detail, /review\.mode|tower_review/)
     assert.equal(tools.has('tower_review'), true, 'a repository-level off cannot unregister the profile-owned tool')
     await assert.rejects(
       () =>
@@ -568,7 +633,9 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
         }),
       (error) => {
         assert.equal(error.code, 'review-disabled')
-        assert.match(String(error.message), /review\.mode is off/)
+        assert.match(String(error.message), /review before merging is turned off in this project's plugin configuration/)
+        assert.match(String(error.message), /a verdict cannot be recorded/)
+        assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
         return true
       },
     )
@@ -576,12 +643,15 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     assert.equal(offDoctor.review.mode, 'off')
     const offCheck = offDoctor.checks.find((check) => check.id === 'review')
     assert.equal(offCheck.status, 'pass', 'off is a supported posture, not a degradation')
-    assert.match(offCheck.detail, /intentionally unavailable/)
+    assert.match(offCheck.detail, /review before merging is off/)
+    assert.match(offCheck.detail, /the merge gate ignores review/)
+    assert.doesNotMatch(offCheck.detail, /review\.mode/)
     await assert.rejects(
       () => call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'reviewer' }),
       (error) => {
         assert.equal(error.code, 'review-disabled')
-        // #F77: the end-to-end refusal is operator copy too — no config key.
+        // #F77/#F82: the end-to-end refusal is operator copy too — no config key.
+        assert.match(String(error.message), /review before merging is turned off in this project's plugin configuration/)
         assert.match(String(error.nextAction), /turn review before merging back on in the plugin page/)
         assert.doesNotMatch(`${error.message} ${error.nextAction}`, /review\.mode/)
         return true
@@ -602,7 +672,10 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
     assert.equal(profileOff.tools.has('tower_review'), false, 'a profile-level off never registers tower_review')
     const profileOffStatus = await call(profileOff.tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(profileOffStatus.review.mode, 'off')
-    assert.match(profileOffStatus.review.detail, /a profile-level off does not register tower_review/)
+    // #F82: the profile-level nuance stays, in operator words ("the review
+    // action is not offered at all") rather than the registered tool id.
+    assert.match(profileOffStatus.review.detail, /the review action is not offered at all/)
+    assert.doesNotMatch(profileOffStatus.review.detail, /review\.mode|tower_review/)
   } finally {
     removeTemp(root)
   }
