@@ -177,10 +177,18 @@ export function gitLockView(lock, options = {}) {
 
 /**
  * Paths objects whose state lock this process currently holds, mapped to the
- * token of that acquisition. A state write may proceed only with the exact
- * token this process acquired: the loader uses the same map to tell a locked
- * mutation from a read-only load, and `writeStateLocked` refuses every write
- * that was not made inside the matching `withLock` section (#167).
+ * in-process record of that acquisition: the token, the lock handle (so a lost
+ * heartbeat is visible here), and the exact state.json bytes this mutation may
+ * replace. A state write may proceed only with the exact token this process
+ * acquired: the loader uses the same map to tell a locked mutation from a
+ * read-only load, and `writeStateLocked` refuses every write that was not made
+ * inside the matching `withLock` section (#167).
+ *
+ * `baseRaw` is captured under the lock before the mutation loads state;
+ * `lastWrittenRaw` chains a second commit in the same section. A state write
+ * may replace either of those two documents and nothing else, which is what
+ * makes a lost update impossible even when a takeover slips past the lock
+ * (#F24).
  */
 const HELD_STATE_LOCKS = new WeakMap()
 
@@ -191,7 +199,86 @@ export function isStateLockHeld(paths) {
 
 /** The token of the state lock this process holds for `paths`, or null. */
 export function stateLockToken(paths) {
+  return heldStateLock(paths)?.token ?? null
+}
+
+/** The in-process state-lock section for `paths`, or null outside `withLock`. */
+function heldStateLock(paths) {
   return (paths && HELD_STATE_LOCKS.get(paths)) ?? null
+}
+
+/**
+ * True when this process still owns the in-process section but a heartbeat
+ * found the on-disk record taken away (an operator recovery moved it, or a
+ * successor acquired the path). The mutation must fail closed instead of
+ * publishing state under a lock it no longer holds.
+ */
+export function stateLockLost(paths) {
+  return heldStateLock(paths)?.handle?.lost === true
+}
+
+/**
+ * The exact bytes on disk for `paths.state`, or null when the file does not
+ * exist yet (a fresh repository being initialised). Any other read error is
+ * propagated: a write whose base document cannot be read cannot be fenced.
+ */
+async function readStateBytes(paths) {
+  try {
+    return await fsp.readFile(paths.state, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+/** The `revision` of a serialised state document, for diagnostics only. */
+function stateRevision(raw) {
+  if (typeof raw !== 'string') return null
+  try {
+    const value = JSON.parse(raw)
+    return Number.isFinite(value?.revision) ? value.revision : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A mutation loaded a document that another writer has since replaced. The
+ * write is refused rather than overwriting the newer document: applying the
+ * same base revision twice is the lost update #F24 reports. Retryable, because
+ * re-running the mutation against the new state succeeds.
+ */
+function lostUpdateError(paths, { token, expectedRaw, actualRaw }) {
+  const expectedRevision = stateRevision(expectedRaw)
+  const actualRevision = stateRevision(actualRaw)
+  return new TowerToolError(
+    'state-locked',
+    `refusing to write ${paths.state}: the state document changed after this mutation loaded it (expected revision ${expectedRevision ?? 'unknown'}, found ${actualRevision ?? 'missing'}); another writer committed first, so this write would drop that update`,
+    {
+      retryable: true,
+      nextAction: 're-run the mutation; it will load the committed state and apply again',
+      details: {
+        reason: 'state-lock-lost-update',
+        lockPath: paths.lock,
+        expectedToken: token,
+        expectedRevision,
+        actualRevision,
+      },
+    },
+  )
+}
+
+/** A heartbeat observed that the lock record is no longer this mutation's. */
+function ownershipLostError(paths, token) {
+  return new TowerToolError(
+    'state-locked',
+    `refusing to write ${paths.state}: the state lock at ${paths.lock} was taken away from this mutation while it was in flight; another writer owns the lock`,
+    {
+      retryable: true,
+      nextAction: 're-run the mutation; it will take a fresh lock and load the committed state',
+      details: { reason: 'state-lock-ownership-lost', lockPath: paths.lock, expectedToken: token },
+    },
+  )
 }
 
 /**
@@ -259,13 +346,24 @@ async function verifyStateLockHolder(paths, token) {
  * serialisation, via the atomic writer's `verify` hook) so a record moved by
  * another process during the mutation cannot slip a stale write through.
  *
+ * Invariant (lost-update fence, #F24): this mutation may replace only the
+ * exact state.json bytes it loaded — the document present when `withLock`
+ * took the lock — or the document its own previous commit in this section
+ * wrote. Those bytes are compared against the disk immediately before the
+ * atomic rename (inside the verify hook) and the landed bytes are compared to
+ * the payload. A takeover, a revoked lock record resurrected by a late
+ * heartbeat, or any other writer that committed in between therefore fails
+ * this write closed with a retryable
+ * 'state-locked' / 'state-lock-lost-update' instead of applying the same base
+ * revision twice. Mutual exclusion is the fast path; this CAS is the guarantee.
+ *
  * @param {{ state: string }} paths
  * @param {unknown} state
  * @param {string | undefined} token
  */
 export async function writeStateLocked(paths, state, token) {
-  const heldToken = stateLockToken(paths)
-  if (typeof token !== 'string' || token.length === 0 || heldToken !== token) {
+  const held = heldStateLock(paths)
+  if (typeof token !== 'string' || token.length === 0 || held?.token !== token) {
     throw new TowerToolError(
       'state-locked',
       `refusing to write ${String(paths?.state ?? 'state.json')} outside the held state lock (token missing or mismatched)`,
@@ -273,7 +371,29 @@ export async function writeStateLocked(paths, state, token) {
     )
   }
   await verifyStateLockHolder(paths, token)
-  await writeJsonAtomic(paths.state, state, { verify: () => verifyStateLockHolder(paths, token) })
+  if (held.handle?.lost) throw ownershipLostError(paths, token)
+  const expectedRaw = held.lastWrittenRaw ?? held.baseRaw
+  const onDisk = await readStateBytes(paths)
+  if (onDisk !== expectedRaw) throw lostUpdateError(paths, { token, expectedRaw, actualRaw: onDisk })
+  const payload = JSON.stringify(state, null, 2)
+  await writeJsonAtomic(paths.state, state, {
+    verify: async () => {
+      // Re-check ownership and the exact base document at the last possible
+      // moment: after serialisation, before the rename. A `toJSON` side effect,
+      // a takeover, or a successor's commit between the checks above and this
+      // hook fails the write and leaves state.json untouched.
+      await verifyStateLockHolder(paths, token)
+      if (held.handle?.lost) throw ownershipLostError(paths, token)
+      const current = await readStateBytes(paths)
+      if (current !== expectedRaw) throw lostUpdateError(paths, { token, expectedRaw, actualRaw: current })
+    },
+  })
+  const written = await readStateBytes(paths)
+  if (written !== payload) throw lostUpdateError(paths, { token, expectedRaw: payload, actualRaw: written })
+  // Chain the next commit of this section from the bytes just published. The
+  // payload is used rather than a second read: a successor that replaced the
+  // document after our rename must not make its bytes this section's base.
+  held.lastWrittenRaw = payload
 }
 
 /** Human-readable facts about a held lock for a waiter's error message. */
@@ -331,8 +451,15 @@ export async function withLock(paths, fn, options = {}) {
     )
   }
   const startedAt = Date.now()
-  HELD_STATE_LOCKS.set(paths, token)
+  /** @type {{ token: string, handle: { lost?: boolean, release: () => Promise<boolean> }, baseRaw: string | null, lastWrittenRaw: string | null }} */
+  const heldState = { token, handle: held, baseRaw: null, lastWrittenRaw: null }
+  HELD_STATE_LOCKS.set(paths, heldState)
   try {
+    // Capture the base document under the lock, before the mutation loads it:
+    // the first write may replace exactly these bytes. A mutation that loads a
+    // document nobody replaced since this read is the only one allowed to
+    // publish, which is the lost-update fence across processes (#F24).
+    heldState.baseRaw = await readStateBytes(paths)
     return await fn(paths, { token })
   } finally {
     HELD_STATE_LOCKS.delete(paths)

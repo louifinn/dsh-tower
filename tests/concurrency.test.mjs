@@ -14,6 +14,8 @@ import { Tower } from '../host/tower.js'
 import { validateState } from '../app/tower.js'
 import { countLiveWorkers } from '../domain/roster.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
+import { lockRecord } from '../adapters/lock.js'
+import { pathsFor, withLock, writeStateLocked } from '../adapters/store.js'
 
 const exec = { agent: { id: 'tower-concurrency' } }
 
@@ -333,11 +335,126 @@ test('parallel writers serialize on the state lock and keep revisions monotonic'
     const after = await tower.load()
     validateState(after, tower.paths.state)
     assert.equal(after.revision, before.revision + 8, 'each successful mutation must bump the revision exactly once')
+    // A lost update is silent in the final document (the last writer wins), so
+    // the returned revisions are asserted too: the eight successful mutations
+    // must have committed exactly the eight consecutive revisions, never the
+    // same base revision twice (#F24, #F15).
+    const writeRevisions = results.slice(0, writes.length).map((result) => result.value.revision)
+    assert.deepEqual(
+      [...writeRevisions].sort((a, b) => a - b),
+      Array.from({ length: 8 }, (_, index) => before.revision + index + 1),
+      `each successful mutation must commit its own revision, got ${writeRevisions.join(',')}`,
+    )
+    assert.equal(new Set(writeRevisions).size, 8, 'two writers must never apply the same revision')
     for (let index = 0; index < 8; index += 1) {
       const mission = after.missions.find((entry) => entry.id === `M${index + 1}`)
       assert.ok(mission.notes.includes(`parallel note ${index}`), `M${index + 1} lost its concurrent note`)
     }
     assert.ok(after.revision > before.revision)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F24: the state lock alone cannot make a state write safe when the record is
+// taken away mid-mutation — a late heartbeat can resurrect the old record, so
+// the old code's token check passed and its stale document overwrote a
+// committed revision. The store fences the document itself: a write may only
+// replace the exact bytes this mutation loaded. These two tests force the
+// takeover deterministically (no sleeping, no load) and assert the commit that
+// actually happened survives.
+function lostUpdatePaths(prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const paths = pathsFor(path.join(root, '.git'))
+  fs.mkdirSync(paths.dir, { recursive: true })
+  return { root, paths }
+}
+
+test('a takeover followed by a resurrected record cannot lose a committed update (F24)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-lost-update-')
+  try {
+    const base = JSON.stringify({ revision: 1, marker: 'base' }, null, 2)
+    const successorDoc = JSON.stringify({ revision: 2, marker: 'successor' }, null, 2)
+    fs.writeFileSync(paths.state, base)
+
+    let refusal = null
+    await assert.rejects(
+      () =>
+        withLock(
+          paths,
+          async (_paths, held) => {
+            // The mutation has loaded revision 1. An operator recovery moves the
+            // live record aside (force:true), a successor takes the freed path
+            // and commits revision 2, then the first holder's record comes back.
+            const recordRaw = fs.readFileSync(paths.lock, 'utf8')
+            fs.renameSync(paths.lock, `${paths.lock}.recovered-1`)
+            fs.writeFileSync(paths.lock, JSON.stringify(lockRecord('successor-holder')))
+            fs.writeFileSync(paths.state, successorDoc)
+            fs.writeFileSync(paths.lock, recordRaw)
+            // Pretend the takeover interrupted the mutation: this state object
+            // is the revision-1 document with revision bumped, as app/mission.js
+            // would build it from the load before the takeover.
+            await writeStateLocked(paths, { revision: 2, marker: 'first' }, held.token)
+          },
+          // No heartbeat: the document CAS, not heartbeat health, must catch it.
+          { heartbeat: false },
+        ),
+      (error) => {
+        refusal = error
+        return error?.code === 'state-locked'
+      },
+    )
+    assert.equal(refusal.details.reason, 'state-lock-lost-update')
+    assert.equal(refusal.retryable, true, 're-running the mutation against the committed state succeeds')
+    assert.equal(refusal.details.expectedRevision, 1)
+    assert.equal(refusal.details.actualRevision, 2)
+    assert.equal(fs.readFileSync(paths.state, 'utf8'), successorDoc, 'the committed update must survive byte for byte')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a commit that lands during serialisation fails the stale write at the last check (F24)', async () => {
+  const { root, paths } = lostUpdatePaths('dsh-tower-lost-update-window-')
+  try {
+    const base = JSON.stringify({ revision: 1, marker: 'base' }, null, 2)
+    const successorDoc = JSON.stringify({ revision: 2, marker: 'successor' }, null, 2)
+    fs.writeFileSync(paths.state, base)
+
+    let refusal = null
+    await assert.rejects(
+      () =>
+        withLock(
+          paths,
+          async (_paths, held) => {
+            // A second writer commits between this mutation's load and its
+            // rename. The lock record is still ours, so only the document CAS
+            // inside the atomic writer's verify hook can see it.
+            const stale = {
+              revision: 2,
+              marker: 'first',
+              toJSON() {
+                fs.writeFileSync(paths.state, successorDoc)
+                return { revision: 2, marker: 'first' }
+              },
+            }
+            await writeStateLocked(paths, stale, held.token)
+          },
+          { heartbeat: false },
+        ),
+      (error) => {
+        refusal = error
+        return error?.code === 'state-locked'
+      },
+    )
+    assert.equal(refusal.details.reason, 'state-lock-lost-update')
+    assert.equal(fs.readFileSync(paths.state, 'utf8'), successorDoc, 'state.json must keep the committed document')
+    // The refused write leaves no temp file behind.
+    assert.deepEqual(
+      fs.readdirSync(paths.dir).filter((name) => name.includes('.tmp-')),
+      [],
+      'a refused write must remove its temp file',
+    )
   } finally {
     removeTemp(root)
   }
