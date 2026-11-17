@@ -16,6 +16,12 @@ const S = {
 
 const blockerSchema = S.obj({ code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool }, ['code', 'detail'])
 const worktreeSchema = S.obj({ path: S.str, branch: S.str, baseCommit: S.str })
+// A placement is a union, not an object: a build owns a branch worktree
+// (`{path, branch, baseCommit}`), while a survey reads the shared checkout or a
+// detached sandbox and reports `worktree: null` (tools/spawn.js). DSH's output
+// validator supports exact-one `oneOf` but rejects type arrays, so nullability
+// is a branch; the object branch still type-checks every documented member.
+const nullableWorktreeSchema = { oneOf: [worktreeSchema, { type: 'null' }] }
 const missionSummarySchema = S.obj({
   id: S.str,
   title: S.str,
@@ -48,7 +54,13 @@ const findingSummarySchema = S.obj({
 })
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
-// additive; `required` lists only fields every successful path returns.
+// additive; `required` lists the fields a successful value carries on every
+// path. spawn's `worktree` is required although its value is nullable: the
+// tool always writes the key (an object for a build, null for a survey that
+// owns no checkout), so a report that omits it has dropped the placement and
+// must stay visible to the output validator. Only the object branch's members
+// are individually optional, tolerating legacy worktree records
+// (domain/state/semantics.js assertWorktreeRecord).
 /** @type {Record<string, any>} */
 const SCHEMAS = {
   init: S.obj(
@@ -115,7 +127,7 @@ const SCHEMAS = {
       provider: S.str,
       maxDepth: S.int,
       agentOptions: S.any,
-      worktree: worktreeSchema,
+      worktree: nullableWorktreeSchema,
       created: S.bool,
       briefingChars: S.int,
       rosterEntry: S.obj(),

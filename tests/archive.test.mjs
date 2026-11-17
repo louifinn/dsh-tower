@@ -788,3 +788,29 @@ test('archivedEntry nests the untouched mission and its linked history', () => {
   assert.equal(entry.status, 'merged')
   assert.equal(entry.branch, null)
 })
+
+test('teardown repairs a terminal mission whose checkout is gone, then archival can run (F61)', async () => {
+  const { root, repo } = makeRepo('dsh-tower-archive-repair-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const seeded = await seedTerminalMissions(tower, 1, { ageDays: 60, worktree: 'live' })
+    const recorded = seeded.missions[0]
+    assert.equal(fs.existsSync(recorded.worktree.path), false, 'the fixture records a checkout that is gone')
+    assert.equal(recorded.worktreeRemovedAt, undefined)
+
+    const torn = await call(tools, 'tower_teardown', { repoRoot: repo })
+    assert.deepEqual(torn.removed, ['M1'])
+    assert.equal(torn.decisions.find((entry) => entry.missionId === 'M1').repaired, true)
+    assert.deepEqual(torn.archived, ['M1'])
+
+    const hot = await tower.load()
+    assert.equal(hot.missions.length, 0, 'the repaired mission was archived out of hot state')
+    const index = await readArchiveIndex(tower.deps.store, tower.paths)
+    assert.equal(index.ok, true)
+    assert.ok(index.missions.some((entry) => entry.id === 'M1'))
+  } finally {
+    cleanup(root)
+  }
+})

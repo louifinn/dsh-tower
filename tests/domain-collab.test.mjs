@@ -13,6 +13,8 @@ import {
 import {
   isWorkerRole,
   liveWorkerLimit,
+  hasNoAgentId,
+  isStalledReservation,
   applySpawnOutcome,
   applyInterrupt,
   reservedRosterEntry,
@@ -174,6 +176,49 @@ test('spawn policy projects entries and enforces worker limits', () => {
       }),
     /live worker limit reached \(1\)/,
   )
+})
+
+test('reservation helpers treat only an absent agent id as absent', () => {
+  assert.equal(hasNoAgentId({ agentId: null }), true)
+  assert.equal(hasNoAgentId({ agentId: undefined }), true)
+  assert.equal(hasNoAgentId({}), true)
+  assert.equal(hasNoAgentId(null), true)
+  assert.equal(hasNoAgentId({ agentId: '' }), false, 'an empty agent id is corrupt, not absent')
+  assert.equal(hasNoAgentId({ agentId: 0 }), false)
+  assert.equal(hasNoAgentId({ agentId: 'a1' }), false)
+
+  assert.equal(isStalledReservation({ state: 'reserved', agentId: null }), true)
+  assert.equal(isStalledReservation({ state: 'reserved', agentId: undefined }), true)
+  assert.equal(isStalledReservation({ state: 'reserved', agentId: 'a1' }), false, 'a reservation past activation has a child')
+  assert.equal(isStalledReservation({ state: 'active', agentId: null }), false)
+  assert.equal(isStalledReservation(null), false)
+})
+
+test('a reservation token rides the row and survives the activation record', () => {
+  const reserved = reservedRosterEntry(
+    { name: 'worker-m1', role: 'worker', missionId: 'M1', parentSessionId: 'p', reservationId: 'res-1' },
+    5,
+  )
+  assert.equal(reserved.reservationId, 'res-1')
+  assert.equal(
+    reservedRosterEntry({ name: 'w', role: 'worker', missionId: 'M1', parentSessionId: 'p' }, 5).reservationId,
+    undefined,
+  )
+
+  const mission = { id: 'M1', status: 'planned', owner: null, ownerGeneration: 0 }
+  const roster = [reserved]
+  const entry = recordSpawnEntry({
+    roster,
+    mission,
+    input: { name: 'worker-m1', role: 'worker', agentId: 'a1', missionId: 'M1', reservationId: 'res-1' },
+    spawnTip: null,
+    maxLiveWorkers: 4,
+    now: 7,
+  })
+  assert.equal(entry, reserved, 'the reserved row is reused')
+  assert.equal(entry.state, 'active')
+  assert.equal(entry.reservationId, 'res-1', 'the token survives the activation record')
+  assert.equal(entry.reservedAt, 5, 'activation does not reset the reservation age')
 })
 
 test('spawn outcome and interrupt projections mutate only their draft row', () => {

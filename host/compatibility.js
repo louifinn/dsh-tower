@@ -91,9 +91,38 @@ export function assessHostVersion(hostVersion, rows) {
   }
 }
 
+/**
+ * Read the version a package.json in `dir` declares. Returns null when the file
+ * is missing, unreadable, not JSON, or carries a version this parser rejects.
+ * `DSH_INSTALL_DIR` points at the package directory itself; the caller also
+ * probes its parent because an install can name a subdirectory (for example
+ * `.../dsh/node_modules/...`) rather than the package root.
+ * @param {string} dir
+ * @returns {string | null}
+ */
+function readPackageVersion(dir) {
+  try {
+    const document = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    const version = document?.version
+    return typeof version === 'string' && parseVersion(version) ? version.trim() : null
+  } catch {
+    return null
+  }
+}
+
 export function detectHostVersion(ctx, env = process.env) {
   for (const value of [env.DSH_VERSION, env.DSH_HOST_VERSION, env.npm_config_dsh_version]) {
     if (typeof value === 'string' && parseVersion(value)) return value
+  }
+  // #F62: the installed package is the last reliable source when the harness did
+  // not export a version. Every read is defensive: doctor must never fail here.
+  const installDir = typeof env.DSH_INSTALL_DIR === 'string' ? env.DSH_INSTALL_DIR.trim() : ''
+  if (installDir) {
+    const resolved = path.resolve(installDir)
+    for (const dir of [resolved, path.dirname(resolved)]) {
+      const version = readPackageVersion(dir)
+      if (version) return version
+    }
   }
   for (const serviceName of ['app', 'runtime', 'host']) {
     try {

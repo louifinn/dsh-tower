@@ -12,6 +12,7 @@ It returns:
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
+    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17" },
     { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
@@ -79,6 +80,8 @@ It returns:
     "stateDir": "D:/repo/.git/dsh-tower",
     "caseInsensitive": true,
     "comparisonMode": "case-insensitive",
+    "hostVersion": "0.2.2-rc.3",
+    "hostCompatibility": "verified",
     "ralphLoop": {
       "scopedRounds": 0,
       "liveScopedRounds": 0,
@@ -211,12 +214,33 @@ parent session's cwd (`scopedRounds`, `liveScopedRounds`); first-party workflow 
 `processRuns` counts them process-wide and the check warns on them only while no round has matched.
 The `warn` action names both `mode.ralphPolicy` outcomes; the loop itself is not doctor's to stop.
 
+### Host version provenance
+
+The `host-version` check (and `environmentContract.hostVersion`/`hostCompatibility`) compares the
+running DeepSeek Harness version with the rows in `COMPATIBILITY.md`; doctor reads that file from the
+installed package and never touches the network. The version is resolved in order from `DSH_VERSION`,
+`DSH_HOST_VERSION`, `npm_config_dsh_version`, then the `version` field of the `package.json` in
+`DSH_INSTALL_DIR` and in its parent directory, then the mounted `app`, `runtime` or `host` service's
+`version`/`build.version`. Every source is probed defensively: a missing file, unreadable directory or
+unparsable version is ignored, never thrown. When no source yields a parsable version, the check is a
+`warn` whose detail names the probed sources, `environmentContract.hostVersion` is `null`, and the
+action tells the operator to set `DSH_VERSION` or `DSH_INSTALL_DIR` and re-run doctor. A detected
+version is `pass` only when it exactly matches a row (`verdict: "verified"`); newer, older and
+unparsable versions are advisory `warn`s (`untested-newer`, `untested-older`, `unknown`). This
+contract is informational: doctor never blocks a tool on it.
+
 Checks cover: git availability, repository identity, state schema/load, bounded activity-log rotation,
 the detected case mode, repo config presence, worker/reviewer preset names, subagents and HMR services,
 state lock age/heartbeat, workspace lock holder/staleness, live roster, worktree
 existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy
 snapshots, batches, leases and the Ralph stance. Missions intentionally cleaned up by `tower_teardown` are skipped (the
-check notes the removed count) instead of being reported as missing.
+check notes the removed count) instead of being reported as missing. A **terminal** mission
+(merged/abandoned) whose checkout directory no longer exists is likewise advisory: the `worktrees`
+check is a `warn` naming the count and pointing at `tower_teardown` as the repair, so a merged mission
+never fails the check merely because its directory was deleted. A missing or invalid worktree on a
+**non-terminal** mission still fails: a live worker cannot work in it. `tower_teardown` repairs the
+terminal case by pruning any surviving registration, deleting the branch when it still exists, and
+stamping `worktreeRemovedAt`; the removal decision carries `repaired: true`.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,

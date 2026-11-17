@@ -1,7 +1,11 @@
 // tower_spawn prechecks (#56 P3c): roster naming, mission preconditions, and
-// service/provider/lease validation. Split out of tools/spawn.js; no I/O.
+// service/provider/lease validation. Split out of tools/spawn.js; the only write
+// is the stalled-reservation reap (#F57), which must be serialized with the
+// ownership decision it unblocks.
 import { TowerToolError } from '../domain/errors.js'
 import { resolveSpawnProvider } from './host-contract.js'
+import { reapStalledReservations } from './roster.js'
+import { isStalledReservation } from '../domain/collab/spawn.js'
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { reviewUnavailable } from '../domain/integration/review.js'
 import { shapeFor } from '../domain/shapes/index.js'
@@ -48,9 +52,18 @@ export function assertSpawnableMission({ role, context, config }) {
   if (blocker) throw new TowerToolError(blocker.code, blocker.message)
 }
 
+/** One roster row in an error message: role, state and the agent id if any. */
+function rosterDetail(entry) {
+  const agent = typeof entry.agentId === 'string' ? entry.agentId : 'none'
+  return `${entry.role ?? 'unknown'} ${entry.state ?? 'unknown'}, agent ${agent}`
+}
+
 /**
  * Single-owner and live-worker rules, checked before provisioning or starting
  * a child so a rejection cannot leak an activation or worktree.
+ * Before the live-worker scan it reaps reservations that never received an
+ * agent id (#F57); the caller's `view` was read before that reap, so reaped rows
+ * are filtered out of it.
  * @param {{
  *   role: string,
  *   tower: any,
@@ -76,26 +89,64 @@ export async function precheckWorkerOwnership({
 }) {
   let effectiveTakeover = takeover === true
   if (!roleTracksMission(role)) return effectiveTakeover
+  // #F57: a reservation that never received an agent id belongs to a dispatch
+  // that failed before activation. It can never become active and nothing can
+  // observe or interrupt it, so counting it as a live worker would wedge the
+  // mission (spawn, takeover and adopt all refuse). Reap those rows first, then
+  // run the normal ownership checks on the remaining roster.
+  const { reaped, unreaped } = await reapStalledReservations(tower)
+  // A row whose disposable review checkout could not be removed is kept so the
+  // path is not lost; report it as the actionable roster problem it is rather
+  // than as a live worker that takeover can never resolve.
+  if (unreaped.length > 0) {
+    throw new TowerToolError(
+      'invalid-transition',
+      'stalled spawn reservation(s) hold review checkouts that could not be removed: ' +
+        unreaped
+          .map(
+            (entry) =>
+              `${entry.name} (mission ${entry.missionId ?? 'none'}) still holds ${entry.checkout} after ${entry.attempts} attempt(s): ${entry.error}`,
+          )
+          .join('; ') +
+        '; remove it with "git worktree remove --force <path>" and retry tower_spawn, or run tower_init({op:"adopt"}) or tower_teardown to retry the cleanup',
+    )
+  }
+  const reapedNames = new Set(reaped.map((entry) => entry.name))
+  const roster = reapedNames.size === 0 ? view.roster : view.roster.filter((entry) => !reapedNames.has(entry.name))
   // #148: a read-only survey worker must not consume a build worker slot, but
   // the single-owner rule still applies to every worker entry.
   const state = await tower.load()
   const kinds = new Map(state.missions.map((entry) => [entry.id, entry.kind]))
   const budgeted = (entry) => roleCountsTowardBudget(entry.role, shapeFor(kinds.get(entry.missionId)))
-  const liveWorkers = view.roster.filter(
-    (entry) => roleTracksMission(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state),
+  const liveWorkers = roster.filter(
+    (entry) =>
+      roleTracksMission(entry.role) &&
+      !ROSTER_INACTIVE_STATES.includes(entry.state) &&
+      // A reservation still inside the grace window has no child behind it yet;
+      // it may belong to a concurrent dispatch, so it must not count as a live
+      // worker (that would reject the spawn it belongs to).
+      !isStalledReservation(entry),
   )
   const budgetWorkers = liveWorkers.filter(budgeted)
   const sameMission = liveWorkers.filter((entry) => entry.missionId === missionId)
   if (sameMission.length > 1) {
     throw new TowerToolError(
       'invalid-transition',
-      'mission ' + missionId + ' has ' + sameMission.length + ' live worker entries; inspect tower_inspect with view: roster before spawning',
+      'mission ' +
+        missionId +
+        ' has ' +
+        sameMission.length +
+        ' live worker entries: ' +
+        sameMission.map((entry) => `${entry.name} (${rosterDetail(entry)})`).join('; ') +
+        '; inspect tower_inspect with view: roster before spawning',
     )
   }
   if (sameMission.length === 1 && !effectiveTakeover) {
+    const worker = sameMission[0]
     throw new TowerToolError(
       'invalid-transition',
-      'mission ' + missionId + ' already has a live worker "' + sameMission[0].name + '"; stop it with tower_interrupt, or pass takeover:true after it is no longer running',
+      'mission ' + missionId + ' already has a live worker "' + worker.name + '" (' + rosterDetail(worker) +
+        '); stop it with tower_interrupt, or pass takeover:true after it is no longer running',
     )
   }
   if (effectiveTakeover) {
@@ -105,7 +156,8 @@ export async function precheckWorkerOwnership({
       if (observed.parentStatus[worker.parentSessionId] !== 'ok') {
         throw new TowerToolError(
           'takeover-refused',
-          'cannot verify that worker ' + worker.name + ' stopped: its parent catalog is unavailable',
+          'cannot verify that worker ' + worker.name + ' (' + rosterDetail(worker) +
+            ') stopped: its parent catalog is unavailable',
         )
       }
       const activity = observed.activity[worker.agentId]
@@ -118,7 +170,8 @@ export async function precheckWorkerOwnership({
       if (activity === undefined) {
         throw new TowerToolError(
           'takeover-refused',
-          'worker ' + worker.name + ' is not in the live catalog; run tower_init({op:"adopt"}) before takeover',
+          'worker ' + worker.name + ' (mission ' + (worker.missionId ?? 'none') + ', ' + rosterDetail(worker) +
+            ') is not in the live catalog; run tower_init({op:"adopt"}) before takeover',
         )
       }
     } else {
@@ -133,9 +186,11 @@ export async function precheckWorkerOwnership({
   const mission = state.missions.find((entry) => entry.id === missionId)
   const countsTowardBudget = roleCountsTowardBudget(role, shapeFor(mission?.kind))
   if (countsTowardBudget && remaining.length >= max) {
+    const live = remaining.map((entry) => `${entry.name} (${entry.missionId ?? 'no mission'})`).join(', ')
     throw new TowerToolError(
       'worker-limit',
-      'live worker limit reached (' + max + '); stop a worker with tower_interrupt or raise spawn.maxLiveWorkers',
+      'live worker limit reached (' + max + ')' + (live ? '; live: ' + live : '') +
+        '; stop a worker with tower_interrupt or raise spawn.maxLiveWorkers',
     )
   }
   return effectiveTakeover

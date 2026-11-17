@@ -23,6 +23,9 @@ process.env.DSH_HOME = home
 const { apply } = await import('../index.js')
 const { Tower } = await import('../host/tower.js')
 const { buildActivationSpec, resolveSpawnProvider, usesNestedActivation } = await import('../app/host-contract.js')
+const { validateState } = await import('../domain/state.js')
+const { stateShapeError } = await import('../domain/state/schema.js')
+const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
 
 after(() => removeTemp(home))
 
@@ -188,6 +191,18 @@ function spawn(harness, args) {
 /** Let the fire-and-forget `recordSpawnOutcome` chain settle before cleanup. */
 function settle() {
   return new Promise((resolve) => setTimeout(resolve, 50))
+}
+
+/**
+ * Backdate a reservation past the reap grace window, the way the shell of a
+ * dispatch that never returned ages. Tests do not wait a real minute.
+ */
+async function ageReservation(tower, name) {
+  const state = await tower.load()
+  const row = (state.roster ?? []).find((entry) => entry.name === name)
+  assert.ok(row, `reservation ${name} must exist before it can age`)
+  row.reservedAt = Date.now() - (STALLED_RESERVATION_GRACE_MS + 1_000)
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
 }
 
 async function initAndPlan(repo, missions) {
@@ -534,6 +549,90 @@ test('worker spawn: rc.3 Service without list() starts a flat activation', async
     assert.equal(activation.prompt[0].type, 'text')
     assert.match(activation.prompt[0].text, /Tower mission M1/)
 
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// F57: a failed dispatch may leave `{ state: 'reserved', agentId: null }`. No
+// child exists behind that row, so it must not count as a live worker forever.
+test('F57: a stalled reservation left by a failed dispatch does not wedge the mission', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-f57-')
+  // A pending activation result keeps the row `active` while the assertions run:
+  // the outcome write is fire-and-forget once the child reports back.
+  const subagents = fakeSubagents()
+  const start = subagents.startActivation.bind(subagents)
+  subagents.startActivation = async (input) => {
+    const activation = await start(input)
+    return { ...activation, result: new Promise(() => {}) }
+  }
+  const harness = makeHarness({ subagents })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Wedge recovery', scope: ['src/**'] }])
+    await tower.reserveRoster({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      parentSessionId: 'tower-agent',
+    })
+    // The failed dispatch happened long enough ago that its name claim is
+    // abandoned; a just-written reservation is intentionally left alone.
+    await ageReservation(tower, 'worker-m1')
+
+    const report = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.equal(report.agentId, 'child-1')
+    // The stale name is already taken by the reservation, so the new worker gets
+    // a fresh name; what matters is that it is not blocked.
+    assert.match(report.name, /^worker-m1/)
+
+    const state = await tower.load()
+    assert.equal(stateShapeError(state), null)
+    validateState(state, tower.paths.state)
+    assert.equal(state.roster.filter((row) => row.state === 'reserved').length, 0, 'the stalled row is gone')
+    assert.equal(state.roster.length, 1)
+    assert.equal(state.roster[0].agentId, 'child-1')
+    assert.equal(state.roster[0].state, 'active')
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// F57 root cause: the failed-spawn cleanup writes `state: 'failed', agentId:
+// null`. That is the truthful terminal record, so it must validate — otherwise
+// the cleanup is swallowed and the reservation stays `reserved` forever.
+test('F57: an activation failure is recorded as a failed row, not a corrupt state', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-f57-fail-')
+  const subagents = fakeSubagents()
+  const start = subagents.startActivation.bind(subagents)
+  let failNext = true
+  subagents.startActivation = async (input) => {
+    if (failNext) {
+      failNext = false
+      throw new Error('activation channel closed')
+    }
+    return start(input)
+  }
+  const harness = makeHarness({ subagents })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Failed dispatch', scope: ['src/**'] }])
+    await assertRejectsWith(
+      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }),
+      [/activation channel closed/],
+    )
+
+    const failed = await tower.load()
+    assert.equal(stateShapeError(failed), null)
+    validateState(failed, tower.paths.state)
+    const row = failed.roster.find((entry) => entry.name === 'worker-m1')
+    assert.equal(row.state, 'failed')
+    assert.equal(row.agentId, null)
+    assert.match(String(row.outcome), /spawn failed before activation/)
+
+    // The truthful terminal row releases the mission: a retry spawns at once.
+    const report = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.equal(report.agentId, 'child-1')
     await settle()
   } finally {
     removeTemp(root)

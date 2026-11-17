@@ -145,6 +145,21 @@ async function prepareTeardown(tower, input) {
       decisions.push(precheck.decision)
       continue
     }
+    // #F61: a terminal mission may outlive its checkout (the directory was
+    // deleted outside Tower while the worktree record survived). There is
+    // nothing to verify or remove, so it is a repair candidate: the git phase
+    // prunes a leftover registration best-effort and the commit phase stamps
+    // worktreeRemovedAt, so doctor/status stop reporting a live worktree.
+    if (!(await tower.deps.store.exists(mission.worktree.path))) {
+      const decision = {
+        missionId: mission.id,
+        action: 'remove',
+        reason: 'worktree directory is already gone; the removal will be recorded',
+      }
+      decisions.push(decision)
+      if (!dryRun) candidates.push({ missionId: mission.id, worktree: mission.worktree, decision })
+      continue
+    }
     try {
       await tower.assertWorktree(mission.worktree)
     } catch (error) {
@@ -234,26 +249,45 @@ export async function teardown(tower, input) {
       const mission = current.mission
       const worktree = mission.worktree
       if (!worktree) return { phase: 'skip', reason: 'worktree is already gone' }
-      let dirty = true
-      try {
-        dirty = !(await tower.isClean(worktree.path))
-      } catch {
-        dirty = true
-      }
-      const dirtyKeep = teardownDirtyDecision(dirty, input.force)
-      if (dirtyKeep) return { phase: 'skip', reason: dirtyKeep.reason }
-      try {
-        await tower.git(tower.root, ['worktree', 'remove', ...(dirty ? ['--force'] : []), worktree.path])
-      } catch (error) {
-        return { phase: 'remove-failed', reason: `remove failed: ${String(error?.message ?? error)}` }
+      // #F61: converge a terminal mission whose checkout is gone without
+      // failing the dirty check or the removal itself. The directory may also
+      // have vanished between prepare and this lock, so the check is repeated
+      // here where it protects the git mutation.
+      let repaired = false
+      if (await tower.deps.store.exists(worktree.path)) {
+        let dirty = true
+        try {
+          dirty = !(await tower.isClean(worktree.path))
+        } catch {
+          dirty = true
+        }
+        const dirtyKeep = teardownDirtyDecision(dirty, input.force)
+        if (dirtyKeep) return { phase: 'skip', reason: dirtyKeep.reason }
+        try {
+          await tower.git(tower.root, ['worktree', 'remove', ...(dirty ? ['--force'] : []), worktree.path])
+        } catch (error) {
+          return { phase: 'remove-failed', reason: `remove failed: ${String(error?.message ?? error)}` }
+        }
+      } else {
+        // Best-effort prune of a stale registration; the checkout is already
+        // gone, so recording the removal is the actual repair.
+        repaired = true
+        try {
+          await tower.git(tower.root, ['worktree', 'remove', '--force', worktree.path])
+        } catch {
+          // nothing to remove: the directory is gone
+        }
       }
       let branchDeleteError = null
       try {
-        await tower.git(tower.root, ['branch', '-d', worktree.branch])
+        // Only delete a branch that still exists; a repaired mission may have
+        // been deleted with its checkout. `-d` keeps unmerged branches.
+        const listed = (await tower.git(tower.root, ['branch', '--list', worktree.branch])).trim()
+        if (listed) await tower.git(tower.root, ['branch', '-d', worktree.branch])
       } catch (error) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
-      return { phase: 'removed', branch: worktree.branch, branchDeleteError }
+      return { phase: 'removed', branch: worktree.branch, branchDeleteError, repaired }
     }, tower.gitMutexOptions({ phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
@@ -286,13 +320,18 @@ export async function teardown(tower, input) {
         at: now,
         type: 'teardown',
         missionId: mission.id,
-        text: teardownActivityText(outcome.branch, outcome.branchDeleteError),
+        text: `${teardownActivityText(outcome.branch, outcome.branchDeleteError)}${outcome.repaired ? ' (checkout was already gone)' : ''}`,
       })
       return { revision: state.revision }
     })
     expectedRevision = commit.revision
     removed.push(candidate.missionId)
-    setDecision(candidate.decision, teardownRemovedDecision(outcome))
+    setDecision(candidate.decision, {
+      ...teardownRemovedDecision(outcome),
+      ...(outcome.repaired
+        ? { repaired: true, reason: 'worktree directory was already gone; the removal was recorded' }
+        : {}),
+    })
   }
 
   // Archival runs under one final short lock. It is policy-driven (age or the

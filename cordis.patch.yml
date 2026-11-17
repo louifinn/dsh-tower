@@ -11,10 +11,10 @@
 # scripts/component-surface.json. `npm run docs:check:components` reads every
 # shipped patch (this file and ui-bundle/cordis.patch.yml, which ships the
 # tower-ui row) and refuses a row with no classification, a missing locale label,
-# or a moved component count without a written decision. `tower_doctor` and
-# `tower_recover` are part of the host and are never switches (#122); a capability
-# row owns exactly one optional capability, and `tower_status` / `tower_doctor`
-# name any row that is off.
+# or a moved component count without a written decision. `tower_inspect`
+# (`view: doctor`) and `tower_recover` are part of the host and are never
+# switches (#122); a capability row owns exactly one optional capability, and
+# `tower_inspect` (`view: status` / `view: doctor`) names any row that is off.
 - insert:
     # Mandatory host anchor. Not an optional capability: off == uninstall.
     - id: tower
@@ -61,8 +61,8 @@
     # Optional capabilities: each row is the switch for exactly one capability.
     # #163 Phase 5: the five subsystem rows ship disabled so the default profile
     # registers 16 tools. Disabled is not deleted: remove `disabled: true` (or
-    # set it to false) and restart DSH to enable the row. tower_doctor lists
-    # every disabled row with its tool and this enable step.
+    # set it to false) and restart DSH to enable the row. `tower_inspect`
+    # (`view: doctor`) lists every disabled row, its tool and this enable step.
     - id: tower-skills
       name: 'dsh-tower/skills'
     - id: tower-batch
