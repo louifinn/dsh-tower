@@ -64,7 +64,7 @@ function writeModeStore(home, modes) {
   fs.writeFileSync(path.join(dir, 'modes.json'), JSON.stringify({ version: 1, modes }))
 }
 
-function makeCtx() {
+function makeCtx(options = {}) {
   __testResetComponentRegistry()
   registerComponent('tower-board')
   const tools = new Map()
@@ -78,6 +78,9 @@ function makeCtx() {
       if (name === 'subagents') {
         return { list: () => [], listDescendants: async () => [], sendMessage: async () => {}, interrupt: () => {} }
       }
+      // Only tests that exercise the preset check mount a registry; the default
+      // stays absent, which makes that check report it cannot make a claim.
+      if (name === 'agentPresets') return options.agentPresets
       return undefined
     },
     tools: {
@@ -216,6 +219,26 @@ test('doctor and status agree: the owner mode is off and takeover is available',
   }
 })
 
+test('doctor presets failure names the visible preset rows and offers both remedies (#F69)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({ agentPresets: { list: async () => [] } })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const presets = doctor.checks.find((entry) => entry.id === 'presets')
+    assert.equal(presets.status, 'fail')
+    // Default review mode is optional, so the worker preset is the only required
+    // one. The detail names the visible row title; neither field may render the
+    // internal preset id.
+    assert.match(presets.detail, /Tower Worker preset/)
+    assert.match(presets.action, /switch the missing preset row back on in the plugin page and restart DSH/)
+    assert.match(presets.action, /choose a registered preset on the plugin configuration form/)
+    assert.doesNotMatch(`${presets.detail} ${presets.action}`, /tower-worker|tower-reviewer/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor and status agree: an active owner blocks takeover with owner-live', async () => {
   const { root, repo, home } = seedRepo()
   const { tools } = makeCtx()
@@ -330,8 +353,10 @@ test('doctor: a live-but-silent state lock is never called reclaimable (F32)', a
     assert.match(lockCheck.detail, /alive but silent/)
     assert.match(lockCheck.detail, /never reclaimed automatically/)
     assert.doesNotMatch(lockCheck.detail, /next mutation reclaims it/)
-    assert.match(lockCheck.action, /tower_recover clear-stale-lock force:true/)
+    assert.match(lockCheck.action, /clear-stale-lock recovery step/)
+    assert.match(lockCheck.action, /force:true/)
     assert.match(lockCheck.action, /CLEAR_STALE_LOCK/)
+    assert.doesNotMatch(lockCheck.action, /tower_recover/)
     assert.equal(fs.existsSync(stateLockFile), true, 'doctor must not reclaim or remove the lock record')
   } finally {
     removeTemp(root)
@@ -352,7 +377,8 @@ test('doctor: a merged mission whose worktree is gone is advisory, not a failure
     assert.equal(doctor.ok, true, JSON.stringify(doctor.checks.filter((entry) => entry.status === 'fail')))
     assert.equal(worktrees.status, 'warn')
     assert.match(worktrees.detail, /2 terminal mission worktree\(s\) are no longer on disk/)
-    assert.match(worktrees.action, /tower_teardown/)
+    assert.match(worktrees.action, /mission teardown step/)
+    assert.doesNotMatch(worktrees.action, /tower_teardown/)
 
     // The status exemption is terminal-only: an active mission still fails.
     await appendMission(tower, missionFixture(tower, { id: 'M51', status: 'active' }))
@@ -362,6 +388,7 @@ test('doctor: a merged mission whose worktree is gone is advisory, not a failure
     assert.equal(brokenWorktrees.status, 'fail')
     assert.match(brokenWorktrees.detail, /1 mission worktree\(s\) are missing or invalid/)
     assert.match(brokenWorktrees.action, /restore the worktree/)
+    assert.match(brokenWorktrees.action, /environment health check/)
   } finally {
     removeTemp(root)
   }
