@@ -44,15 +44,16 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
     advisory warn (a missing worktree of a live mission still fails, a dirty worktree still warns) and
     counts the removals it has recorded.
   - Host version: the desktop build is now recognized from the `package.json` under `DSH_INSTALL_DIR`
-    (or its parent), so 0.2.2-rc.3 reports as verified without an environment variable. When no source
-    answers, the detail lists every source that was probed.
+    (or its parent), so 0.2.2-rc.3 reports as verified without hand-setting a version environment
+    variable. When no source answers, the detail lists every source that was probed.
   - Windows line endings: Git write commands run with `core.autocrlf=false`, so a user-level
     `core.autocrlf=true` can no longer make Tower's own checkout look like an out-of-scope change; read
     commands such as `status`/`diff` keep the ambient setting.
   - Failed spawns: a stalled `reserved` roster row (`agentId: null`) is reaped after a 60 s grace
     window in two phases, and each reservation carries its own `reservationId`, so a stale sweep never
     retires a row another spawn is using. If a one-shot review checkout cannot be removed, the row is
-    kept and reported as `unreaped` by `tower_init({op:"adopt"})` and the spawn precheck.
+    kept: the spawn precheck fails with its checkout path and a remedy, and `tower_init({op:"adopt"})`
+    reports it in the `unreaped` list.
   - No configuration key changed. Update the plugin and restart DSH; nothing else to migrate.
 
 <!-- tower-retired-names:begin 2.9.0-migration -->

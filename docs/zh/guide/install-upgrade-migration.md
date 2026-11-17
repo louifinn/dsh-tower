@@ -43,12 +43,12 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
     `worktree directory was already gone; the removal was recorded`；doctor 把这类情况在 `worktrees`
     检查里降为 advisory warn（活跃任务的工作树缺失仍 fail、脏工作树仍 warn），并统计已记录的移除数。
   - 宿主版本：桌面构建现在可从 `DSH_INSTALL_DIR`（或其父目录）下的 `package.json` 识别，0.2.2-rc.3 无需
-    环境变量即可报告为已验证；所有来源都无答案时，详情会列出探测过的每个来源。
+    手工设置版本环境变量即可报告为已验证；所有来源都无答案时，详情会列出探测过的每个来源。
   - Windows 行尾：Git 写类命令带 `core.autocrlf=false` 运行，用户级 `core.autocrlf=true` 不再让 Tower
     自己的检出看起来像越界改动；`status`/`diff` 等读类命令仍沿用环境设置。
   - 派工失败：卡住的 `reserved` 名册行（`agentId: null`）在 60 秒宽限后分两阶段收割；每份预留带自己的
-    `reservationId`，陈旧清理不会收走别的派工正在用的行。若一次性 review checkout 无法删除，该行会保留，
-    并由 `tower_init({op:"adopt"})` 与 spawn 预检以 `unreaped` 报出。
+    `reservationId`，陈旧清理不会收走别的派工正在用的行。若一次性 review checkout 无法删除，该行会保留：
+    spawn 预检以带路径与处置建议的错误报出，`tower_init({op:"adopt"})` 则在 `unreaped` 列表里给出。
   - 配置键没有变化。更新插件并重启 DSH，其余无需迁移。
 
 <!-- tower-retired-names:begin 2.9.0-migration -->

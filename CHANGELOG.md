@@ -28,9 +28,9 @@
 
 - **失败派工遗留的 reserved 名册行会把任务彻底楔死（F57，含 R116 的 checkout 收割与 F64 守卫）**：派工
   失败后残留的 `reserved` + `agentId:null` 行现在会被安全收割——两阶段执行（锁外清理一次性 review
-  checkout，锁内复核仍是同一份预留后删除），清理失败则保留该行，并在 `tower_init({op:"adopt"})` 与 spawn
-  预检里以 `unreaped` 报出；预留行新增可选 `reservationId`，`recordSpawnOutcome` 只作用于自己那份预留，
-  陈旧清理不会误标他人在用的行；收割前有 60 秒宽限窗口。
+  checkout，锁内复核仍是同一份预留后删除），清理失败则保留该行：spawn 预检以带路径与处置建议的错误报出，
+  `tower_init({op:"adopt"})` 则在 `unreaped` 列表里给出；预留行新增可选 `reservationId`，
+  `recordSpawnOutcome` 只作用于自己那份预留，陈旧清理不会误标他人在用的行；收割前有 60 秒宽限窗口。
 - **随包 `cordis.patch.yml` 注释仍在提退役工具名（F59）**：注释改用 `tower_inspect` 的 `doctor`/`status`
   视图与 `tower_recover`，并新增整词门禁测试，防止旧名重新出现在随包声明里。
 
