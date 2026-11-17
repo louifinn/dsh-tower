@@ -105,10 +105,12 @@ export async function recordRosterObservations(tower, { present = [], absent = [
    * that never got activation back (dispatch failed, process died); there is no
    * child to interrupt, adopt or observe, so the row can never converge on its
    * own and would wedge every later spawn for the mission. Delete it instead of
-   * retiring it: no session or worktree ever existed, the activity log keeps the
-   * name, and deleting leaves the name free so a spawn racing the reap can still
-   * record. A reserved row that already carries an agent id is past activation
-   * and is never touched.
+   * retiring it: no agent session ever existed, the activity log keeps the name,
+   * and deleting leaves the name free so a spawn racing the reap can still
+   * record. Any disposable review checkout is removed before the row is deleted
+   * (see below); rows whose checkout cannot be removed are kept and reported. A
+   * reserved row that already carries an agent id is past activation and is
+   * never touched.
    *
    * A review spawn provisions a disposable detached checkout whose path is
    * recorded only on the roster row, so deleting the row without removing the
