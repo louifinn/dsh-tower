@@ -12,10 +12,11 @@
 //      that any group, row or boolean key can disable;
 //   3. a component count that moved without a decision in
 //      scripts/surface-baseline.json (the same brake `surface:check` applies);
-//   4. #137: user-facing label copy that leaks a config key, an internal tool id,
+//   4. #137/#F22: user-facing copy that leaks a config key, an internal tool id,
 //      a slash command or a module specifier, leaves a term untranslated in
 //      Chinese, drifts from the recorded glossary, or diverges between zh and en
-//      in the root locale, the generated row locales and the ui-bundle locale;
+//      in the root locale, the generated row locales, the ui-bundle locale, the
+//      Web client string catalogue and the preset runtime failure copy;
 //   5. #M42: the review policy presented as a row. `review.mode` is one
 //      tri-state configuration control (off/optional/required) on the plugin
 //      page, not a component row and not three mutually exclusive rows; no row
@@ -79,8 +80,9 @@ by a group, row or boolean key, a component count that moved without a
 scripts/surface-baseline.json decision, an unclassified config key or component
 row, a stale generated reference, (#137) any label copy that names a config key or
 internal tool id, leaves a glossary term untranslated, or diverges between zh and
-en, and (#M42) the review policy exposed as a row instead of one tri-state
-configuration control.
+en, (#F22) the Web client catalogue or the preset runtime failure copy naming a
+config key, a tool id or a non-glossary term, and (#M42) the review policy
+exposed as a row instead of one tri-state configuration control.
 Regenerate the table with \`npm run docs:generate:components\` and the row labels
 with \`npm run docs:generate:locale\`.`
 
@@ -114,6 +116,11 @@ export const COMPONENT_GLOSSARY = Object.freeze([
   { en: 'lease', zh: '租约', pattern: /\b[Ll]eases?\b/ },
   { en: 'worker', zh: '执行代理', pattern: /\b(?<!Tower )[Ww]orkers?\b/ },
   { en: 'reviewer', zh: '审查代理', pattern: /\b(?<!Tower )[Rr]eviewers?\b/ },
+  // #F22: acceptance is the human decision that lands an artifact mission. The
+  // glossary records 接受 and explicitly rejects 验收, which belongs to the
+  // reviewer. The row and reviewer copy used 验收, so the term joins the gate to
+  // keep the distinction from drifting back.
+  { en: 'acceptance', zh: '接受', pattern: /\b[Aa]ccept(?:ance|ed|s|ing)?\b/ },
 ])
 
 /**
@@ -193,7 +200,40 @@ export function labelCopyFields(file, payload) {
   return fields
 }
 
-function checkBannedCopy(field, lang, record) {
+// The finding codes of the banned-syntax rule, per surface. The rule is the
+// same everywhere; the code says which surface failed, so a red gate points at
+// the file family before the message is read (#F22).
+const LOCALE_COPY_CODES = Object.freeze({
+  configKey: 'locale-copy-config-key',
+  toolId: 'locale-copy-tool-id',
+  command: 'locale-copy-command',
+  module: 'locale-copy-module',
+  untranslated: 'locale-copy-untranslated',
+})
+const CLIENT_COPY_CODES = Object.freeze({
+  configKey: 'client-copy-config-key',
+  toolId: 'client-copy-tool-id',
+  command: 'client-copy-command',
+  module: 'client-copy-module',
+  untranslated: 'client-copy-untranslated',
+})
+const PRESET_COPY_CODES = Object.freeze({
+  configKey: 'preset-copy-config-key',
+  toolId: 'preset-copy-tool-id',
+  command: 'preset-copy-command',
+  module: 'preset-copy-module',
+  untranslated: 'preset-copy-untranslated',
+})
+
+/**
+ * @param {{ file: string, path: string, text: string }} field
+ * @param {'en' | 'zh'} lang
+ * @param {(code: string, message: string) => void} record
+ * @param {Record<string, string>} codes
+ * @param {{ allowCommand?: boolean }} [options] `allowCommand` is only true for
+ *        the client instruction strings that teach the composer command.
+ */
+function checkBannedCopy(field, lang, record, codes = LOCALE_COPY_CODES, options = {}) {
   const label = `${field.file} ${field.path}`
   // Match on the normalized spelling so case variants and full-width
   // punctuation cannot bypass the rule (#137).
@@ -201,28 +241,28 @@ function checkBannedCopy(field, lang, record) {
   const configKey = text.match(CONFIG_KEY_SYNTAX)
   if (configKey) {
     record(
-      'locale-copy-config-key',
+      codes.configKey,
       `${label} names a config key ("${configKey[0]}"); describe the capability and its off consequence in plain language instead`,
     )
   }
   const toolId = text.match(TOOL_ID_SYNTAX)
   if (toolId) {
     record(
-      'locale-copy-tool-id',
+      codes.toolId,
       `${label} names the internal tool id "${toolId[0]}"; describe what the user can do instead`,
     )
   }
   const command = text.match(COMMAND_SYNTAX)
-  if (command) {
+  if (command && options.allowCommand !== true) {
     record(
-      'locale-copy-command',
+      codes.command,
       `${label} names the slash command "${command[0].trim()}"; describe the capability instead`,
     )
   }
   const specifier = text.match(MODULE_SPECIFIER_SYNTAX)
   if (specifier) {
     record(
-      'locale-copy-module',
+      codes.module,
       `${label} names the module specifier "${specifier[0]}"; describe the capability instead`,
     )
   }
@@ -230,7 +270,7 @@ function checkBannedCopy(field, lang, record) {
   for (const { term, pattern } of ZH_UNTRANSLATED_SYNTAX) {
     if (pattern.test(text)) {
       record(
-        'locale-copy-untranslated',
+        codes.untranslated,
         `${label} leaves "${term}" untranslated; use the glossary term from ${GLOSSARY_FILE}`,
       )
     }
@@ -321,6 +361,593 @@ export function checkLocaleCopy(pairs) {
     }
   }
   return findings
+}
+
+/**
+ * #F22: the two user-facing surfaces that used to sit outside the copy gate —
+ * the Web client string catalogue and the preset runtime errors.
+ *
+ * The client catalogue ships as a browser chunk, so the gate loads it the way
+ * the Web client does: the chunk registers itself on `window.__ModuleLoader__`
+ * and its factory returns the EN/ZH dictionaries. Reading the rendered
+ * dictionaries (instead of scraping the source) keeps object keys such as
+ * `dock.mode.tooltip` — dots are config-key syntax on paper — out of the copy
+ * side of the check.
+ */
+export const CLIENT_CATALOG_FILE = 'ui-bundle/client.locales.js'
+/** #F22: the module that owns the preset failure copy. */
+export const PRESET_ERROR_FILE = 'host/presets.js'
+/**
+ * Client strings whose job is to quote the composer command the user has to
+ * type. The dock chip is a non-interactive status display, so `/tower off` is
+ * the only affordance for leaving Tower mode: those instructions keep the
+ * command, and every other client string must describe the result instead.
+ */
+export const CLIENT_COMMAND_KEYS = Object.freeze([
+  'dock.hint.title',
+  'dock.mode.tooltip',
+  'dock.mode.lastKnown',
+  'dock.mode.unknownTooltip',
+  'deny.hint',
+])
+
+/** Fill the `{name}` placeholders of one copy string. */
+function fillCopyText(template, params = {}) {
+  return String(template).replace(/\{(\w+)\}/g, (match, name) =>
+    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match,
+  )
+}
+
+/**
+ * Load the shipped client catalogue through the browser module shim.
+ *
+ * @param {string} root
+ * @returns {{ EN?: Record<string, string>, ZH?: Record<string, string>, error?: string }}
+ */
+export function loadClientCatalog(root) {
+  const file = path.join(root, CLIENT_CATALOG_FILE)
+  if (!fs.existsSync(file)) {
+    return { error: `${CLIENT_CATALOG_FILE} is missing; the client string catalogue cannot be checked` }
+  }
+  const source = fs.readFileSync(file, 'utf8')
+  let definition = null
+  const window = {
+    __ModuleLoader__: {
+      load(value) {
+        definition = value
+      },
+    },
+  }
+  try {
+    new Function('window', source)(window)
+  } catch (error) {
+    return { error: `${CLIENT_CATALOG_FILE} cannot be loaded: ${String(error?.message ?? error)}` }
+  }
+  if (!definition || typeof definition.factory !== 'function') {
+    return { error: `${CLIENT_CATALOG_FILE} must register through window.__ModuleLoader__.load({ factory })` }
+  }
+  let catalog
+  try {
+    catalog = definition.factory()
+  } catch (error) {
+    return { error: `${CLIENT_CATALOG_FILE} factory threw: ${String(error?.message ?? error)}` }
+  }
+  if (!catalog || typeof catalog.EN !== 'object' || typeof catalog.ZH !== 'object' || !catalog.EN || !catalog.ZH) {
+    return { error: `${CLIENT_CATALOG_FILE} must return { EN, ZH } dictionaries` }
+  }
+  return { EN: catalog.EN, ZH: catalog.ZH }
+}
+
+/**
+ * Check one pair of client dictionaries: parity, non-emptiness, banned syntax
+ * (with the documented command-key exemption) and the glossary in both
+ * directions.
+ *
+ * @param {Record<string, string>} EN
+ * @param {Record<string, string>} ZH
+ */
+export function checkClientDictionaries(EN, ZH) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const en = EN && typeof EN === 'object' ? EN : {}
+  const zh = ZH && typeof ZH === 'object' ? ZH : {}
+  const enKeys = Object.keys(en)
+  const zhKeys = Object.keys(zh)
+  if (enKeys.length === 0) {
+    record('client-copy-empty', `${CLIENT_CATALOG_FILE} carries no English dictionary`)
+  }
+  if (zhKeys.length === 0) {
+    record('client-copy-empty', `${CLIENT_CATALOG_FILE} carries no Chinese dictionary`)
+  }
+  const zhSet = new Set(zhKeys)
+  const enSet = new Set(enKeys)
+  for (const key of enKeys) {
+    if (!zhSet.has(key)) record('client-copy-parity', `${CLIENT_CATALOG_FILE} labels "${key}" in English but not in Chinese`)
+  }
+  for (const key of zhKeys) {
+    if (!enSet.has(key)) record('client-copy-parity', `${CLIENT_CATALOG_FILE} labels "${key}" in Chinese but not in English`)
+  }
+  const ordered = [...COMPONENT_GLOSSARY].sort((a, b) => b.zh.length - a.zh.length)
+  for (const [lang, dictionary, other] of [
+    ['en', en, zh],
+    ['zh', zh, en],
+  ]) {
+    for (const [key, value] of Object.entries(dictionary)) {
+      const field = { file: CLIENT_CATALOG_FILE, path: `${key} (${lang})`, text: typeof value === 'string' ? value : '' }
+      if (!field.text.trim()) {
+        record('client-copy-empty', `${field.file} ${field.path} is empty`)
+        continue
+      }
+      checkBannedCopy(field, lang, record, CLIENT_COPY_CODES, {
+        allowCommand: CLIENT_COMMAND_KEYS.includes(key),
+      })
+      const otherText = other[key]
+      if (typeof otherText !== 'string') continue
+      if (lang === 'en') {
+        for (const term of COMPONENT_GLOSSARY) {
+          if (term.pattern.test(field.text) && !otherText.includes(term.zh)) {
+            record(
+              'client-copy-glossary',
+              `${field.file} ${key} (zh) must name "${term.zh}" for the English ${term.en}`,
+            )
+          }
+        }
+      } else {
+        let remaining = field.text
+        for (const term of ordered) {
+          if (!remaining.includes(term.zh)) continue
+          remaining = remaining.split(term.zh).join(' ')
+          if (!term.pattern.test(otherText)) {
+            record(
+              'client-copy-glossary',
+              `${field.file} ${key} (en) must name the English ${term.en} for the Chinese "${term.zh}"`,
+            )
+          }
+        }
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * #F22: read and check the shipped client catalogue.
+ *
+ * @param {string} root
+ */
+export function checkClientCopy(root) {
+  const catalog = loadClientCatalog(root)
+  if (catalog.error) return [finding('client-catalog-unreadable', 'error', catalog.error)]
+  return checkClientDictionaries(catalog.EN, catalog.ZH)
+}
+
+/**
+ * Minimal JavaScript tokenizer: enough to walk the `ERROR_COPY` object literal
+ * in host/presets.js while ignoring comments (which quote internal names on
+ * purpose) and to reject anything that is not a plain `key: 'copy'` entry.
+ *
+ * @param {string} source
+ * @returns {{ tokens?: Array<{ type: string, value: string, quote?: string, interpolated?: boolean }>, comments?: Array<[number, number]>, error?: string }}
+ */
+function tokenizeScript(source) {
+  const tokens = []
+  const comments = []
+  const n = source.length
+  let i = 0
+  const skipNestedLiteral = (start, quote) => {
+    let j = start
+    while (j < n) {
+      const char = source[j]
+      if (char === '\\') {
+        j += 2
+        continue
+      }
+      if (char === quote) return j + 1
+      j += 1
+    }
+    return n
+  }
+  const skipTemplateExpression = (start) => {
+    let depth = 1
+    let j = start
+    while (j < n) {
+      const char = source[j]
+      if (char === '{') depth += 1
+      else if (char === '}') {
+        depth -= 1
+        if (depth === 0) return j + 1
+      } else if (char === "'" || char === '"' || char === '`') {
+        j = skipNestedLiteral(j + 1, char)
+        continue
+      }
+      j += 1
+    }
+    return n
+  }
+  while (i < n) {
+    const char = source[i]
+    if (char === '\n' || char === ' ' || char === '\t' || char === '\r') {
+      i += 1
+      continue
+    }
+    if (char === '/' && source[i + 1] === '/') {
+      let end = source.indexOf('\n', i)
+      if (end === -1) end = n
+      comments.push([i, end])
+      i = end
+      continue
+    }
+    if (char === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2)
+      const stop = end === -1 ? n : end + 2
+      comments.push([i, stop])
+      i = stop
+      continue
+    }
+    if (char === "'" || char === '"') {
+      let value = ''
+      let j = i + 1
+      let closed = false
+      while (j < n) {
+        const next = source[j]
+        if (next === '\\') {
+          value += source[j + 1] ?? ''
+          j += 2
+          continue
+        }
+        if (next === char) {
+          closed = true
+          j += 1
+          break
+        }
+        value += next
+        j += 1
+      }
+      if (!closed) return { error: `unterminated string literal at offset ${i}` }
+      tokens.push({ type: 'string', value, quote: char })
+      i = j
+      continue
+    }
+    if (char === '`') {
+      let value = ''
+      let j = i + 1
+      let closed = false
+      let interpolated = false
+      while (j < n) {
+        const next = source[j]
+        if (next === '\\') {
+          value += source[j + 1] ?? ''
+          j += 2
+          continue
+        }
+        if (next === '`') {
+          closed = true
+          j += 1
+          break
+        }
+        if (next === '$' && source[j + 1] === '{') {
+          interpolated = true
+          j = skipTemplateExpression(j + 2)
+          continue
+        }
+        value += next
+        j += 1
+      }
+      if (!closed) return { error: `unterminated template literal at offset ${i}` }
+      tokens.push({ type: 'string', value, quote: '`', interpolated })
+      i = j
+      continue
+    }
+    if (/[A-Za-z_$]/.test(char)) {
+      let j = i + 1
+      while (j < n && /[A-Za-z0-9_$]/.test(source[j])) j += 1
+      tokens.push({ type: 'ident', value: source.slice(i, j) })
+      i = j
+      continue
+    }
+    if (/[0-9]/.test(char)) {
+      let j = i + 1
+      while (j < n && /[0-9a-fx._]/i.test(source[j])) j += 1
+      tokens.push({ type: 'number', value: source.slice(i, j) })
+      i = j
+      continue
+    }
+    if ('{}()[].,:=;'.includes(char)) {
+      tokens.push({ type: 'punct', value: char })
+      i += 1
+      continue
+    }
+    i += 1
+  }
+  return { tokens, comments }
+}
+
+/** Blank out comments while keeping their newlines, for call-site matching. */
+function stripComments(source) {
+  const scanned = tokenizeScript(source)
+  if (scanned.error || !scanned.comments) return source
+  let out = ''
+  let cursor = 0
+  for (const [start, end] of scanned.comments) {
+    out += source.slice(cursor, start)
+    out += source.slice(start, end).replace(/[^\n]/g, ' ')
+    cursor = end
+  }
+  return out + source.slice(cursor)
+}
+
+/**
+ * #F22: extract the `const ERROR_COPY = Object.freeze({ key: 'copy', ... })`
+ * table from host/presets.js. The table is the one user-facing copy surface of
+ * the preset failures, so the gate can check the real rendered sentences
+ * without executing the module.
+ *
+ * @param {string} source
+ * @returns {{ entries: Array<{ name: string, text: string }>, error?: string }}
+ */
+export function parseErrorCopy(source) {
+  const shapeError = () =>
+    `${PRESET_ERROR_FILE} must declare \`const ERROR_COPY = Object.freeze({ key: 'copy', ... })\`; the copy gate cannot read the preset failure copy`
+  const scanned = tokenizeScript(source)
+  const tokens = scanned.tokens ?? []
+  const start = tokens.findIndex(
+    (token, index) => token.type === 'ident' && token.value === 'ERROR_COPY' && tokens[index - 1]?.value === 'const',
+  )
+  if (start === -1) return { entries: [], error: shapeError() }
+  const isPunct = (index, value) => tokens[index]?.type === 'punct' && tokens[index]?.value === value
+  if (tokens[start + 1]?.value !== '=') return { entries: [], error: shapeError() }
+  const freeze =
+    tokens[start + 2]?.value === 'Object' &&
+    tokens[start + 3]?.value === '.' &&
+    tokens[start + 4]?.value === 'freeze' &&
+    isPunct(start + 5, '(') &&
+    isPunct(start + 6, '{')
+  if (!freeze) return { entries: [], error: shapeError() }
+  const entries = []
+  let index = start + 7
+  while (index < tokens.length) {
+    const key = tokens[index]
+    if (isPunct(index, '}')) return { entries }
+    if (!(key.type === 'ident' || (key.type === 'string' && key.quote !== '`'))) {
+      return { entries: [], error: shapeError() }
+    }
+    if (!isPunct(index + 1, ':')) return { entries: [], error: shapeError() }
+    const value = tokens[index + 2]
+    if (!value || value.type !== 'string' || value.interpolated === true || value.quote === '`') {
+      return {
+        entries: [],
+        error: `${PRESET_ERROR_FILE} ERROR_COPY.${key.value} must be a plain quoted string; use {name} placeholders instead of template interpolation`,
+      }
+    }
+    entries.push({ name: key.value, text: value.value })
+    if (isPunct(index + 3, ',')) {
+      index += 4
+      continue
+    }
+    if (isPunct(index + 3, '}')) return { entries }
+    return { entries: [], error: shapeError() }
+  }
+  return { entries: [], error: shapeError() }
+}
+
+/**
+ * #F22: check the preset failure copy — banned syntax, no unfilled
+ * placeholders, the user-visible capability row, and a remedy.
+ *
+ * @param {string} source host/presets.js source
+ * @param {string[]} rowTitles capability row titles from the English locale
+ */
+export function presetCopyFindings(source, rowTitles = []) {
+  const findings = []
+  const record = (code, message) => findings.push(finding(code, 'error', message))
+  const code = stripComments(source)
+  const callSites = [...code.matchAll(/new TowerToolError\(/g)].length
+  const inlinePattern =
+    /new TowerToolError\(\s*(['"])([a-z][a-z0-9-]*)\1\s*,\s*(?:fillCopy\(\s*)?ERROR_COPY\.([A-Za-z][A-Za-z0-9_]*)/g
+  const inline = [...code.matchAll(inlinePattern)]
+  if (inline.length !== callSites) {
+    record(
+      'preset-copy-unparsed',
+      `${PRESET_ERROR_FILE} has ${callSites} TowerToolError message(s) but only ${inline.length} read from ERROR_COPY; keep every user-facing failure in the table so the copy gate can check it`,
+    )
+  }
+  const parsed = parseErrorCopy(source)
+  if (parsed.error) {
+    record('preset-copy-unreadable', parsed.error)
+    return findings
+  }
+  if (parsed.entries.length === 0) {
+    record('preset-copy-empty', `${PRESET_ERROR_FILE} ERROR_COPY is empty`)
+  }
+  const known = new Set(parsed.entries.map((entry) => entry.name))
+  for (const match of inline) {
+    if (!known.has(match[3])) {
+      record('preset-copy-unknown', `${PRESET_ERROR_FILE} throws ERROR_COPY.${match[3]}, which the table does not define`)
+    }
+  }
+  const titles = rowTitles.filter((title) => typeof title === 'string' && title.trim() !== '')
+  for (const entry of parsed.entries) {
+    const field = { file: PRESET_ERROR_FILE, path: `ERROR_COPY.${entry.name}`, text: entry.text }
+    checkBannedCopy(field, 'en', record, PRESET_COPY_CODES)
+    const filled = fillCopyText(entry.text, { detail: '', lease: 'sample-lease' })
+    const leftover = filled.match(/\{([A-Za-z][A-Za-z0-9_]*)\}/)
+    if (leftover) {
+      record(
+        'preset-copy-placeholder',
+        `${field.file} ${field.path} leaves the placeholder "{${leftover[1]}}" unfilled; fill it in host/presets.js and in the copy-gate self-test`,
+      )
+    }
+    if (titles.length > 0 && !titles.some((title) => filled.includes(title))) {
+      record(
+        'preset-copy-row',
+        `${field.file} ${field.path} names no user-visible capability row; name the plugin-page row the user switches back on (for example "${titles[0]}")`,
+      )
+    }
+    if (!/plugin page|plugin configuration form/i.test(filled)) {
+      record(
+        'preset-copy-remedy',
+        `${field.file} ${field.path} names no remedy; tell the user to switch the capability back on in the plugin page or clear the requirement on the plugin configuration form`,
+      )
+    }
+  }
+  return findings
+}
+
+/**
+ * @param {string} root
+ * @param {string[]} rowTitles capability row titles from the English locale
+ */
+export function checkPresetErrorCopy(root, rowTitles = []) {
+  const file = path.join(root, PRESET_ERROR_FILE)
+  if (!fs.existsSync(file)) {
+    return [finding('preset-copy-unreadable', 'error', `${PRESET_ERROR_FILE} is missing; the preset failure copy cannot be checked`)]
+  }
+  return presetCopyFindings(fs.readFileSync(file, 'utf8'), rowTitles)
+}
+
+/**
+ * The plugin-page capability rows a failure may name: every labelled component
+ * except the product row and the Web-client row, whose titles are brand names
+ * rather than a switchable capability.
+ *
+ * @param {any} localePayload locale/en.json payload
+ * @returns {string[]}
+ */
+export function capabilityRowTitles(localePayload) {
+  const titles = []
+  for (const entry of Object.values(localePayload?.components ?? {})) {
+    const title = typeof entry?.title === 'string' ? entry.title.trim() : ''
+    if (!title) continue
+    if (title === 'Tower' || title === 'Tower UI') continue
+    titles.push(title)
+  }
+  return titles
+}
+
+/**
+ * #F22: the copy gate checks itself. Each planted leak must produce its code,
+ * and each clean instruction must not. A green self-test is part of
+ * `docs:check:components`, so a refactor that quiets the detectors turns the
+ * gate red instead of silently passing every surface.
+ *
+ * @returns {Array<{ code: string, level: string, message: string }>}
+ */
+export function checkCopyGateSelfTest() {
+  const failures = []
+  const expectFinding = (name, findings, code) => {
+    if (!Array.isArray(findings) || !findings.some((entry) => entry.code === code)) {
+      failures.push(finding('copy-gate-self-test', 'error', `copy gate self-test: ${name} was not caught as ${code}`))
+    }
+  }
+  const expectClean = (name, findings) => {
+    const relevant = (findings ?? []).filter((entry) => entry.level === 'error')
+    if (relevant.length > 0) {
+      failures.push(
+        finding(
+          'copy-gate-self-test',
+          'error',
+          `copy gate self-test: ${name} reported ${[...new Set(relevant.map((entry) => entry.code))].join(', ')}`,
+        ),
+      )
+    }
+  }
+  const localePair = (en, zh) => [
+    {
+      en: { file: 'locale/en.json', payload: { meta: { title: 'Tower', description: en } } },
+      zh: { file: 'locale/zh.json', payload: { meta: { title: 'Tower', description: zh } } },
+    },
+  ]
+  expectFinding(
+    'a config key in label copy',
+    checkLocaleCopy(localePair('Missions.', '任务线。gates.requireTests 已开启。')),
+    'locale-copy-config-key',
+  )
+  expectFinding(
+    'a config key in the client catalogue',
+    checkClientDictionaries({ 'card.title': 'Gates.requireTests is on' }, { 'card.title': '任务线' }),
+    'client-copy-config-key',
+  )
+  expectFinding(
+    'a tool id in the client catalogue',
+    checkClientDictionaries({ 'card.title': 'tower_batch is running' }, { 'card.title': '任务线' }),
+    'client-copy-tool-id',
+  )
+  expectFinding(
+    'a command outside the instruction keys',
+    checkClientDictionaries(
+      { 'card.title': 'Run /tower off first' },
+      { 'card.title': '先执行 /tower off' },
+    ),
+    'client-copy-command',
+  )
+  expectClean(
+    'a command in an instruction key',
+    checkClientDictionaries(
+      { 'dock.mode.tooltip': 'Run /tower off in the composer' },
+      { 'dock.mode.tooltip': '在输入框中执行 /tower off 可退出' },
+    ),
+  )
+  expectFinding(
+    'a glossary drift in the client catalogue',
+    checkClientDictionaries({ 'card.missionLine': 'mission {id}' }, { 'card.missionLine': '任务 {id}' }),
+    'client-copy-glossary',
+  )
+  const plantedPreset = [
+    '// `tower_resource` is quoted in this comment on purpose.',
+    'const ERROR_COPY = Object.freeze({',
+    "  requireTests: 'The Test evidence row is off; switch it back on in the plugin page. gates.requireTests is on.',",
+    '})',
+    "export function boom() { throw new TowerToolError('config-invalid', fillCopy(ERROR_COPY.requireTests)) }",
+  ].join('\n')
+  const planted = presetCopyFindings(plantedPreset, ['Test evidence'])
+  expectFinding('a config key in the preset copy', planted, 'preset-copy-config-key')
+  if (planted.some((entry) => entry.code === 'preset-copy-tool-id')) {
+    failures.push(
+      finding('copy-gate-self-test', 'error', 'copy gate self-test: a comment quoting an internal name was read as copy'),
+    )
+  }
+  expectFinding(
+    'a preset message outside the copy table',
+    presetCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({ ok: "The Test evidence row is off; switch it back on in the plugin page." })',
+        "export function boom() { throw new TowerToolError('config-invalid', 'switch it back on in the plugin page') }",
+      ].join('\n'),
+      ['Test evidence'],
+    ),
+    'preset-copy-unparsed',
+  )
+  expectFinding(
+    'a preset message with no capability row',
+    presetCopyFindings(
+      ['const ERROR_COPY = Object.freeze({', "  locked: 'Planning is refused. Switch it back on in the plugin page.',", '})'].join(
+        '\n',
+      ),
+      ['Test evidence'],
+    ),
+    'preset-copy-row',
+  )
+  expectFinding(
+    'a preset message with no remedy',
+    presetCopyFindings(
+      ['const ERROR_COPY = Object.freeze({', "  locked: 'The Test evidence row is off.',", '})'].join('\n'),
+      ['Test evidence'],
+    ),
+    'preset-copy-remedy',
+  )
+  expectFinding(
+    'an unknown preset placeholder',
+    presetCopyFindings(
+      [
+        'const ERROR_COPY = Object.freeze({',
+        '  lease: \'The lease "{tenant}" is missing; switch it back on in the plugin page.\',',
+        '})',
+      ].join('\n'),
+      ['Test evidence'],
+    ),
+    'preset-copy-placeholder',
+  )
+  return failures
 }
 
 /**
@@ -839,6 +1466,15 @@ export async function checkComponents(root) {
     })),
   ]
   findings.push(...checkLocaleCopy(labelPairs))
+  // #F22: the Web client string catalogue and the preset runtime failures are
+  // user-facing copy too. The client chunk is loaded through the same browser
+  // shim the Web client uses; the preset copy is read from the ERROR_COPY table
+  // without executing the module. Both are checked with the same banned-syntax
+  // and glossary rules. The self-test proves the detectors still fire, so a
+  // refactor that quiets one cannot leave every surface silently green.
+  findings.push(...checkCopyGateSelfTest())
+  findings.push(...checkClientCopy(root))
+  findings.push(...checkPresetErrorCopy(root, capabilityRowTitles(live.locales[LOCALE_FILES[0]])))
   findings.push(...checkGlossaryFile(root))
   // #138.2: the route table is imported, so an absent file, a failed import or a
   // missing/non-Map export fails closed. An empty Map remains the correct
