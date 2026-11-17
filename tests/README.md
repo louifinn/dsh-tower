@@ -194,7 +194,7 @@ release check exited 0 in that same checkout:
 | Generated references | `docs:check:generated`, `:tools`, `:config`, `:events`, `:blockers`, `:types`, `:components`, `:locale`, `:shapes` | 0 |
 | Docs, components, blockers, shapes | `docs:check`, `docs:check:philosophy`, `docs:check:components`, `blockers:check`, `shape:audit` | 0 |
 | Surface, pack, workflow, support | `surface:check` (57 keys / 16 sections / 29 tools, 12 visible), `pack:check` (337 files), `workflow:check` (3 canonical legs, 4 legacy contexts, 15 SHA pins), `support:check` (Node >=24.9, DSH 0.2.2-rc.1) | 0 |
-| Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (both tsconfigs), `domain:check` (42.3% pure) | 0 |
+| Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (main, strict, declarations), `domain:check` (42.3% pure) | 0 |
 | Release claim | `release:check` | 0 (one expected `version-not-bumped` warning; this branch does not bump the version) |
 
 The W5 `workflow:check` row records that run's numbers (3 canonical legs, 4 legacy contexts, 15 SHA
