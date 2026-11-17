@@ -4,6 +4,36 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.1（2026-11-17）
+
+### 变更
+
+- **survey 派工不再被输出契约判成硬失败（F60）**：`tower_spawn` 的输出里 `worktree` 仍为必填，但允许
+  `null`——survey 任务不建分支工作树，按放置语义给 `null`（读取共享检出，或 `survey.sandbox:"detached"`
+  的一次性 sandbox）；此前输出校验会把已经启动成功的 survey worker 报成失败。
+- **终态任务的工作树已被外部删除时，`tower_teardown` 会记录移除（F61）**：目录已不存在的终态任务补写
+  `worktreeRemovedAt`，decision 带 `repaired:true` 与原因 `worktree directory was already gone; the removal
+  was recorded`，不再留下一条永远无法清除的 worktree 记录。`tower_inspect` 的 `doctor` 视图把这类终态任务
+  在 `worktrees` 检查里降为 advisory warn，并汇报 `N removed by teardown` 计数；活跃任务的工作树缺失仍
+  `fail`，脏工作树仍 `warn`。
+- **宿主版本识别的兜底探测（F62）**：`detectHostVersion` 增加 `DSH_INSTALL_DIR`（及其父目录）下
+  `package.json` 的探测，rc.3 桌面构建因此可被识别为已验证宿主；都识别不到时，doctor 的详情报出探测过的
+  全部来源（`DSH_VERSION`、`DSH_HOST_VERSION`、`npm_config_dsh_version` 与安装目录）。
+- **Windows 行尾写入规范化（F58）**：Git 写类子命令（merge、rebase、checkout、switch、restore、reset、
+  cherry-pick、revert、am、apply、pull、`worktree add`、`stash apply|pop`）统一带
+  `-c core.autocrlf=false`，读类（status、diff）保持用户/环境设置。修复用户级 `core.autocrlf=true` 时
+  Tower 自己的检出看起来像越界改动、进而把任务假阻塞在 out-of-scope 门禁上的问题。
+
+### 修复
+
+- **失败派工遗留的 reserved 名册行会把任务彻底楔死（F57，含 R116 的 checkout 收割与 F64 守卫）**：派工
+  失败后残留的 `reserved` + `agentId:null` 行现在会被安全收割——两阶段执行（锁外清理一次性 review
+  checkout，锁内复核仍是同一份预留后删除），清理失败则保留该行，并在 `tower_init({op:"adopt"})` 与 spawn
+  预检里以 `unreaped` 报出；预留行新增可选 `reservationId`，`recordSpawnOutcome` 只作用于自己那份预留，
+  陈旧清理不会误标他人在用的行；收割前有 60 秒宽限窗口。
+- **随包 `cordis.patch.yml` 注释仍在提退役工具名（F59）**：注释改用 `tower_inspect` 的 `doctor`/`status`
+  视图与 `tower_recover`，并新增整词门禁测试，防止旧名重新出现在随包声明里。
+
 ## 2.9.0（2026-11-17）
 
 ### 新增
