@@ -162,6 +162,26 @@ function readGitLockRecord(tower) {
   }
 }
 
+/**
+ * Write a heartbeat timestamp into the live holder's record (F68).
+ *
+ * `touchLock` is a compare-and-swap: it re-reads the record before renaming its
+ * updated copy and returns false when anything (here, the holder's real 1 s
+ * heartbeat) rewrote the file in between. That false result is a *lost race*,
+ * not a lost lock, so retrying re-reads the fresh bytes and applies the same
+ * timestamp again. Once an attempt succeeds the caller advances the shared
+ * virtual clock in the same promise continuation, before any timer callback can
+ * run, so the accelerated record can no longer be rewritten by the heartbeat.
+ *
+ * @returns {Promise<number>} the attempt number that succeeded
+ */
+async function setHolderHeartbeat(lockPath, token, at, label) {
+  for (let attempt = 1; attempt <= 25; attempt += 1) {
+    if (await touchLock(lockPath, token, { now: at })) return attempt
+  }
+  assert.fail(`${label}: could not write the holder heartbeat; the git mutex was lost`)
+}
+
 function gitHolds(tower) {
   try {
     return fs
@@ -327,12 +347,17 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
       // Simulate 90 s of merge time. Write the holder's heartbeat one jump
       // ahead first and only then move the shared clock: a record dated in the
       // future is never stale (the age clamps at zero), so the accelerated jump
-      // cannot be mistaken for a silent/crashed holder and reclaimed.
-      assert.equal(
-        await touchLock(mergeTower.paths.gitLock, holder.token, { now: clock.now() + 90000 }),
-        true,
-        'the holder must still own the lock before virtual time advances',
+      // cannot be mistaken for a silent/crashed holder and reclaimed. The write
+      // retries a lost CAS against the holder's real heartbeat instead of racing
+      // it (F68); by the time the clock moves, no timer can interleave.
+      const attempts = await setHolderHeartbeat(
+        mergeTower.paths.gitLock,
+        holder.token,
+        clock.now() + 90000,
+        'before advancing virtual time',
       )
+      assert.ok(attempts >= 1 && attempts <= 25, `heartbeat attempts must stay bounded, saw ${attempts}`)
+      assert.equal(readGitLockRecord(mergeTower)?.at, clock.now() + 90000)
       clock.advance(90000)
       // Wait for the init's wait loop to observe the advanced clock instead of
       // betting on a fixed 150 ms sleep. The race keeps a genuinely stuck waiter
