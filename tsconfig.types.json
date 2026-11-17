@@ -1,0 +1,34 @@
+// F12: check the *published* declaration file itself. The main program
+// (tsconfig.json) includes types/index.d.ts but sets `skipLibCheck: true`, so
+// tsc never reports a semantic error inside it before the package ships.
+//
+// Deliberately narrow, so the gate reports defects in our own declarations
+// rather than third-party library noise:
+//   * `include` is the single published declaration. The domain modules its
+//     `TowerConfig` alias names are type-resolved with it, so a broken
+//     reference there is caught too.
+//   * `types: ["node"]` supplies the Node globals those referenced modules use
+//     (`Buffer`, ...). With `skipLibCheck: false` @types/node is checked as a
+//     library and must stay clean; `types: []` would instead fail on `Buffer`,
+//     which is not a declaration error.
+//   * `checkJs: false` keeps this gate about declarations: referenced JS is
+//     resolved for its types, not re-linted (tsconfig.json checks JS bodies).
+//   * `lib: ["ES2022"]` drops the DOM lib the base config picks up implicitly,
+//     so the declaration cannot quietly depend on browser globals.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": false,
+    "noEmit": true,
+    "checkJs": false,
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ES2022"
+    ]
+  },
+  "include": [
+    "types/index.d.ts"
+  ]
+}

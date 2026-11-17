@@ -339,3 +339,68 @@ test('strict ratchet: the config must set noImplicitAny and stay explicit', () =
   assert.deepEqual(compareLists({ include: ['a'], manifest: ['a', 'b'] }), { lost: ['b'], grew: [] })
   assert.deepEqual(compareLists({ include: ['a', 'b'], manifest: ['a'] }), { lost: [], grew: ['b'] })
 })
+
+// ---------------------------------------------------------------------------
+// F12: the published declaration is checked with skipLibCheck off.
+//
+// tsconfig.json keeps `skipLibCheck: true`, so it never reports an error
+// *inside* types/index.d.ts: a bad reference there only surfaces at a
+// consumer's tsc, or never. `tsconfig.types.json` narrows the program to that
+// declaration (plus the domain modules its aliases name) and turns the check
+// on; `npm run types:check` runs it, so the static gate chain does too.
+// ---------------------------------------------------------------------------
+
+const TSC = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')
+
+function runDeclarationCheck(args = ['-p', 'tsconfig.types.json']) {
+  return spawnSync(process.execPath, [TSC, ...args], { cwd: root, encoding: 'utf8' })
+}
+
+test('declarations: the published types/index.d.ts is checked with skipLibCheck off', () => {
+  // Resolve the config through tsc itself: it is JSONC, and --showConfig also
+  // proves the project resolves (extended base include replaced, not merged).
+  const shown = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.types.json', '--showConfig'], { cwd: root, encoding: 'utf8' })
+  assert.equal(shown.status, 0, shown.stderr || shown.stdout)
+  const config = JSON.parse(shown.stdout)
+  assert.equal(config.compilerOptions.skipLibCheck, false)
+  assert.equal(config.compilerOptions.noEmit, true)
+  assert.deepEqual(config.include, ['types/index.d.ts'])
+  // Why the gate exists: the main program trusts declaration files.
+  const base = JSON.parse(fs.readFileSync(path.join(root, 'tsconfig.json'), 'utf8'))
+  assert.equal(base.compilerOptions.skipLibCheck, true)
+  // It must not be silenced from inside the file it checks.
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'types', 'index.d.ts'), 'utf8'), /@ts-nocheck/)
+  const result = runDeclarationCheck()
+  assert.equal(result.status, 0, result.stdout || result.stderr)
+})
+
+test('declarations: types:check runs the declaration gate', () => {
+  const scripts = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts
+  assert.match(scripts['types:check'], /types:check:declarations/)
+  assert.match(scripts['types:check:declarations'], /tsconfig\.types\.json/)
+})
+
+test('declarations: a semantic error in the published declaration fails the check (fixture)', () => {
+  const source = fs.readFileSync(path.join(root, 'types', 'index.d.ts'), 'utf8')
+  const stamp = `${process.pid}-${Date.now()}`
+  // tests/ is outside every tsconfig include, so this copy cannot race the
+  // repo's own tsc runs while the fixture exists.
+  const copyName = `declaration-check-${stamp}.d.ts`
+  const copy = path.join(root, 'tests', copyName)
+  const config = path.join(root, `tsconfig.declaration-check-${stamp}.json`)
+  try {
+    fs.writeFileSync(copy, source)
+    fs.writeFileSync(config, JSON.stringify({ extends: './tsconfig.types.json', include: [`tests/${copyName}`] }, null, 2))
+    // Control: the copy resolves its imports exactly like the original.
+    const clean = runDeclarationCheck(['-p', config])
+    assert.equal(clean.status, 0, clean.stdout || clean.stderr)
+    // A duplicate identifier is a semantic error the base config would skip.
+    fs.writeFileSync(copy, `${source}\nexport type DuplicateDeclaration = 1\nexport type DuplicateDeclaration = 2\n`)
+    const broken = runDeclarationCheck(['-p', config])
+    assert.notEqual(broken.status, 0, 'a broken declaration must fail the gate')
+    assert.match(broken.stdout, /Duplicate identifier 'DuplicateDeclaration'/)
+  } finally {
+    fs.rmSync(copy, { force: true })
+    fs.rmSync(config, { force: true })
+  }
+})

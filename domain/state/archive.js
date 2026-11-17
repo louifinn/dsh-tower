@@ -84,8 +84,8 @@ export function selectForArchive(missions, policy = {}, options = {}) {
   if (policy?.enabled === false) return []
   const now = Number.isFinite(options.now) ? /** @type {number} */ (options.now) : Date.now()
   const protectedIds = new Set(options.protectedIds ?? [])
-  const afterDays = Number.isFinite(policy?.afterDays) ? /** @type {number} */ (policy.afterDays) : 30
-  const maxMissions = Number.isFinite(policy?.maxMissions) ? /** @type {number} */ (policy.maxMissions) : 100
+  const afterDays = Number.isFinite(policy?.afterDays) ? /** @type {number} */ (policy?.afterDays) : 30
+  const maxMissions = Number.isFinite(policy?.maxMissions) ? /** @type {number} */ (policy?.maxMissions) : 100
   const eligible = missions.filter(
     (mission) => shapeFor(mission.kind).isTerminal(mission.status) && !hasLiveWorktree(mission) && !protectedIds.has(mission.id),
   )
