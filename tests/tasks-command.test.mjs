@@ -154,7 +154,7 @@ async function callTool(tools, name, args) {
  * - M1/child-1: active, last mission activity 12m ago, present in the catalog;
  * - M2/child-2: absent from the catalog, spawned 50m ago (its spawn activity
  *   entry is aged to the same timestamp), so the shared spawn.staleMs rule
- *   flags it stale under the default 15s window.
+ *   flags it stale under the default 30s window.
  */
 async function seedRosterFixture(prefix) {
   const { root, repo } = seedRepo(prefix)
@@ -282,7 +282,7 @@ test('acceptance: stale comes from the same spawn.staleMs rule the tower_inspect
   try {
     const agent = makeAgent('human', repo)
     const rosterView = () => callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
-    // Default window (15s): both views flag M2's 50m-silent row stale.
+    // Default window (30s): both views flag M2's 50m-silent row stale.
     const rosterBefore = await rosterView()
     const m2Before = rosterBefore.roster.find((entry) => entry.agentId === 'child-2')
     assert.equal(m2Before.stale, true, 'the tower_inspect roster view flags the 50m-silent row stale')
