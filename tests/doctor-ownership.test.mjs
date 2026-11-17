@@ -19,7 +19,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
-import { compareVersions, detectHostVersion, readCompatibility } from '../host/compatibility.js'
+import { compareVersions, detectHostVersion, readCompatibility, resolveHostVersion } from '../host/compatibility.js'
 import { writeJsonAtomic } from '../adapters/store.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
@@ -122,9 +122,19 @@ function restoreHostEnv(saved) {
 }
 
 function writeHostPackage(dir, version) {
+  return writePackage(dir, '@deepseek-ai/dsh', version)
+}
+
+/** Write a package.json with an explicit name (a profile dependency fixture). */
+function writePackage(dir, name, version) {
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version }))
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }))
   return dir
+}
+
+/** Write a profile-installed @deepseek-ai package the way npm lays it out. */
+function writeProfilePackage(home, profile, name, version) {
+  return writePackage(path.join(home, 'profiles', profile, 'node_modules', '@deepseek-ai', name), `@deepseek-ai/${name}`, version)
 }
 
 /** A mission whose worktree record points at a directory the test never creates. */
@@ -396,22 +406,212 @@ test('doctor: an active mission with a dirty worktree still warns (F61)', async 
 
 test('detectHostVersion: DSH_INSTALL_DIR/package.json is a fallback source (F62)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-version-'))
+  const home = path.join(root, 'home')
+  fs.mkdirSync(home)
+  // DSH_HOME is pinned so the profile fallback (#F65) can never see a real ~/.dsh.
+  const env = (extra) => ({ DSH_HOME: home, ...extra })
   try {
     const installDir = writeHostPackage(path.join(root, 'install', 'node_modules', '@deepseek-ai', 'dsh'), '0.2.2-rc.3')
-    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: installDir }), '0.2.2-rc.3')
+    assert.equal(detectHostVersion(undefined, env({ DSH_INSTALL_DIR: installDir })), '0.2.2-rc.3')
 
     // DSH_INSTALL_DIR may name a directory inside the package; its parent is tried.
     const nested = path.join(installDir, 'dist')
     fs.mkdirSync(nested)
-    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: nested }), '0.2.2-rc.3')
+    assert.equal(detectHostVersion(undefined, env({ DSH_INSTALL_DIR: nested })), '0.2.2-rc.3')
 
     // A missing package.json and an unparsable version both stay unknown.
-    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: path.join(root, 'missing') }), null)
+    assert.equal(detectHostVersion(undefined, env({ DSH_INSTALL_DIR: path.join(root, 'missing') })), null)
     const broken = writeHostPackage(path.join(root, 'broken'), 'not-a-version')
-    assert.equal(detectHostVersion(undefined, { DSH_INSTALL_DIR: broken }), null)
+    assert.equal(detectHostVersion(undefined, env({ DSH_INSTALL_DIR: broken })), null)
 
     // An explicit version still wins over the installed package metadata.
-    assert.equal(detectHostVersion(undefined, { DSH_VERSION: '0.2.2-rc.3', DSH_INSTALL_DIR: broken }), '0.2.2-rc.3')
+    assert.equal(detectHostVersion(undefined, env({ DSH_VERSION: '0.2.2-rc.3', DSH_INSTALL_DIR: broken })), '0.2.2-rc.3')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: the desktop asar shape stays unknown and says why (F65)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-asar-'))
+  try {
+    const resources = path.join(root, 'resources')
+    fs.mkdirSync(resources)
+    // The desktop DSH_INSTALL_DIR sits inside app.asar: a container file that
+    // ordinary fs cannot read through, so no package.json is reachable there.
+    fs.writeFileSync(path.join(resources, 'app.asar'), 'asar container placeholder\n')
+    const installDir = path.join(resources, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh')
+    // The unused resources\app.asar.unpacked subtree holds only libreoffice-kit.
+    writePackage(
+      path.join(resources, 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'libreoffice-kit'),
+      '@deepseek-ai/libreoffice-kit',
+      '0.2.3',
+    )
+    const home = path.join(root, 'home')
+    fs.mkdirSync(home)
+    const env = { DSH_HOME: home, DSH_VERSION: '', DSH_HOST_VERSION: '   ', DSH_INSTALL_DIR: installDir }
+    const ctx = { get: (name) => (['app', 'runtime', 'host'].includes(name) ? {} : undefined) }
+
+    assert.equal(detectHostVersion(ctx, env), null)
+    const report = resolveHostVersion(ctx, env)
+    assert.equal(report.version, null)
+    assert.equal(report.source, null)
+    assert.equal(report.authoritative, false)
+    assert.equal(report.asar.container, path.join(resources, 'app.asar'))
+    // The substitution mirrors the install path into the unpacked sibling.
+    assert.equal(
+      report.asar.unpackedDir,
+      path.join(resources, 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'dsh'),
+    )
+    assert.equal(report.asar.directReadable, false)
+    assert.equal(report.asar.unpackedAnswered, false)
+    assert.match(report.asar.note, /cannot read/)
+    assert.match(report.detail, /no source answered/)
+    assert.match(report.detail, /app\.asar/)
+    assert.equal(report.probes.find((probe) => probe.source === 'env:DSH_VERSION').status, 'skipped')
+    assert.match(
+      report.probes.find((probe) => probe.source === 'env:DSH_VERSION').reason,
+      /empty or whitespace-only; treated as absent/,
+    )
+    assert.equal(report.probes.find((probe) => probe.source === 'env:DSH_HOST_VERSION').status, 'skipped')
+    const asarProbe = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR')
+    assert.equal(asarProbe.status, 'miss')
+    assert.match(asarProbe.reason, /inside an asar container, which ordinary fs cannot read/)
+    const unpackedProbe = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(unpackedProbe.status, 'miss')
+    assert.match(unpackedProbe.reason, /app\.asar\.unpacked substitution/)
+    assert.match(unpackedProbe.target, /app\.asar\.unpacked/)
+    assert.deepEqual(
+      report.probes.filter((probe) => probe.source.startsWith('service:')).map((probe) => probe.status),
+      ['miss', 'miss', 'miss'],
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: the app.asar.unpacked copy answers when the archive is unreadable (F65)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-unpacked-'))
+  try {
+    const resources = path.join(root, 'resources')
+    fs.mkdirSync(resources)
+    fs.writeFileSync(path.join(resources, 'app.asar'), 'asar container placeholder\n')
+    const installDir = path.join(resources, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh')
+    const unpacked = writeHostPackage(
+      path.join(resources, 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'dsh'),
+      '0.2.2-rc.3',
+    )
+    const home = path.join(root, 'home')
+    fs.mkdirSync(home)
+    const env = { DSH_HOME: home, DSH_HOST_VERSION: '', DSH_INSTALL_DIR: installDir }
+
+    assert.equal(detectHostVersion(undefined, env), '0.2.2-rc.3')
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, '0.2.2-rc.3')
+    assert.equal(report.source, 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(report.authoritative, true)
+    assert.equal(report.asar.container, path.join(resources, 'app.asar'))
+    assert.equal(report.asar.directReadable, false)
+    assert.equal(report.asar.unpackedAnswered, true)
+    assert.match(report.detail, /app\.asar\.unpacked copy/)
+    const hit = report.probes.find((probe) => probe.source === 'DSH_INSTALL_DIR.asar.unpacked')
+    assert.equal(hit.status, 'hit')
+    assert.equal(hit.authoritative, true)
+    assert.equal(hit.target, unpacked)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: empty and whitespace-only env values are absent, not versions (F65)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-empty-'))
+  const home = path.join(root, 'home')
+  fs.mkdirSync(home)
+  try {
+    const env = {
+      DSH_HOME: home,
+      DSH_VERSION: '',
+      DSH_HOST_VERSION: '  \t ',
+      npm_config_dsh_version: '\n',
+      DSH_INSTALL_DIR: '   ',
+    }
+    assert.equal(detectHostVersion(undefined, env), null)
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, null)
+    for (const key of ['DSH_VERSION', 'DSH_HOST_VERSION', 'npm_config_dsh_version']) {
+      const probe = report.probes.find((entry) => entry.source === `env:${key}`)
+      assert.ok(probe, `${key} is probed`)
+      assert.equal(probe.status, 'skipped')
+      assert.match(probe.reason, /treated as absent/)
+    }
+    const installProbe = report.probes.find((entry) => entry.source === 'env:DSH_INSTALL_DIR')
+    assert.equal(installProbe.status, 'skipped')
+    assert.match(installProbe.reason, /treated as absent/)
+
+    // A padded real value is answered trimmed, never with its whitespace.
+    assert.equal(detectHostVersion(undefined, { DSH_HOME: home, DSH_VERSION: ' 0.2.2-rc.3 ' }), '0.2.2-rc.3')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: a profile dependency answers only as a labelled secondary source (F65)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-profile-'))
+  const home = path.join(root, 'home')
+  fs.mkdirSync(home)
+  try {
+    const profilePackageDir = writeProfilePackage(home, 'desktop', 'dsh-tool-subagent', '0.2.2-rc.3')
+    const env = { DSH_HOME: home }
+    assert.equal(detectHostVersion(undefined, env), '0.2.2-rc.3')
+    const report = resolveHostVersion(undefined, env)
+    assert.equal(report.version, '0.2.2-rc.3')
+    assert.equal(report.source, 'profile:@deepseek-ai/dsh-tool-subagent')
+    assert.equal(report.authoritative, false)
+    assert.match(report.detail, /profile-installed dependency/)
+    assert.match(report.detail, /secondary source/)
+    assert.match(report.detail, /may lag/)
+    const hit = report.probes.find((entry) => entry.source === 'profile:@deepseek-ai/dsh-tool-subagent')
+    assert.equal(hit.status, 'hit')
+    assert.equal(hit.authoritative, false)
+    assert.equal(hit.target, profilePackageDir)
+
+    // An authoritative source still wins and the profile is never probed.
+    const authoritative = resolveHostVersion(undefined, { DSH_HOME: home, DSH_VERSION: '0.2.2-rc.3' })
+    assert.equal(authoritative.source, 'env:DSH_VERSION')
+    assert.equal(authoritative.authoritative, true)
+    assert.equal(authoritative.probes.some((entry) => entry.source.startsWith('profile:')), false)
+
+    // A sibling @deepseek-ai/dsh* package is a candidate when the named one is absent.
+    const otherHome = path.join(root, 'other-home')
+    fs.mkdirSync(otherHome)
+    writeProfilePackage(otherHome, 'desktop', 'dsh-tool-batch', '0.2.2-rc.3')
+    const sibling = resolveHostVersion(undefined, { DSH_HOME: otherHome })
+    assert.equal(sibling.version, '0.2.2-rc.3')
+    assert.equal(sibling.source, 'profile:@deepseek-ai/dsh-tool-batch')
+    assert.equal(sibling.authoritative, false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('detectHostVersion: a bogus version string is rejected, never returned (F65)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-bogus-'))
+  const home = path.join(root, 'home')
+  fs.mkdirSync(home)
+  try {
+    const broken = writeHostPackage(path.join(root, 'broken'), 'not-a-version')
+    const env = { DSH_HOME: home, DSH_VERSION: 'not-a-version', DSH_HOST_VERSION: 'unknown', DSH_INSTALL_DIR: broken }
+    assert.equal(detectHostVersion(undefined, env), null)
+    const report = resolveHostVersion(undefined, env)
+    const versionProbe = report.probes.find((entry) => entry.source === 'env:DSH_VERSION')
+    assert.equal(versionProbe.status, 'miss')
+    assert.match(versionProbe.reason, /not a parsable version/)
+    assert.equal(report.probes.find((entry) => entry.source === 'env:DSH_HOST_VERSION').status, 'miss')
+    const installProbe = report.probes.find((entry) => entry.source === 'DSH_INSTALL_DIR')
+    assert.equal(installProbe.status, 'miss')
+    assert.match(installProbe.reason, /not a parsable version/)
+
+    // A later authoritative source still answers when the earlier ones are bogus.
+    assert.equal(detectHostVersion(undefined, { ...env, npm_config_dsh_version: '0.2.2-rc.3' }), '0.2.2-rc.3')
   } finally {
     removeTemp(root)
   }
@@ -446,6 +646,72 @@ test('doctor: DSH_INSTALL_DIR identifies the host and unknown names the sources 
     assert.match(unknownCheck.action, /DSH_VERSION/)
     assert.match(unknownCheck.action, /DSH_INSTALL_DIR/)
     assert.equal(unknown.environmentContract.hostVersion, null)
+  } finally {
+    restoreHostEnv(saved)
+    removeTemp(root)
+  }
+})
+
+test('doctor: the desktop asar shape is reported and a profile dependency never passes (F65)', async () => {
+  const { root, repo, home } = seedRepo()
+  const { tools } = makeCtx()
+  const saved = saveHostEnv()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    clearHostEnv()
+    const rows = readCompatibility()
+    const expected = rows.reduce(
+      (best, row) => (compareVersions(row.hostVersion, best.hostVersion) >= 0 ? row : best),
+      rows[0],
+    ).hostVersion
+
+    // The real desktop shape: the install dir lives inside app.asar, the version
+    // env vars exist but are empty, and no app/runtime/host service answers.
+    const resources = path.join(root, 'resources')
+    fs.mkdirSync(resources, { recursive: true })
+    fs.writeFileSync(path.join(resources, 'app.asar'), 'asar container placeholder\n')
+    process.env.DSH_VERSION = ''
+    process.env.DSH_HOST_VERSION = ''
+    process.env.DSH_INSTALL_DIR = path.join(resources, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh')
+    writePackage(
+      path.join(resources, 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'libreoffice-kit'),
+      '@deepseek-ai/libreoffice-kit',
+      '0.2.3',
+    )
+
+    const unknown = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const unknownCheck = unknown.checks.find((entry) => entry.id === 'host-version')
+    assert.equal(unknownCheck.status, 'warn')
+    assert.match(unknownCheck.detail, /unknown host version/)
+    assert.match(unknownCheck.detail, /app\.asar/)
+    assert.match(unknownCheck.detail, /cannot read/)
+    assert.equal(unknown.environmentContract.hostVersion, null)
+    assert.equal(unknown.environmentContract.hostAsar.container, path.join(resources, 'app.asar'))
+    assert.equal(unknown.environmentContract.hostAsar.directReadable, false)
+    assert.ok(
+      unknown.environmentContract.hostVersionProbes.some(
+        (probe) => probe.source === 'env:DSH_VERSION' && probe.status === 'skipped',
+      ),
+    )
+
+    // The profile-installed tool package is versioned in lockstep with the host,
+    // but it is only a dependency and may lag: advisory, never a pass.
+    writeProfilePackage(home, 'desktop', 'dsh-tool-subagent', expected)
+    const secondary = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const secondaryCheck = secondary.checks.find((entry) => entry.id === 'host-version')
+    assert.equal(secondary.environmentContract.hostVersion, expected)
+    assert.equal(secondary.environmentContract.hostVersionSource, 'profile:@deepseek-ai/dsh-tool-subagent')
+    assert.equal(secondary.environmentContract.hostVersionAuthoritative, false)
+    assert.equal(secondary.environmentContract.hostCompatibility, 'verified')
+    assert.equal(secondaryCheck.status, 'warn', 'a secondary source never passes')
+    assert.match(secondaryCheck.detail, /profile-installed dependency/)
+    assert.match(secondaryCheck.detail, /may lag/)
+    assert.match(secondaryCheck.action, /DSH_VERSION/)
+    const hit = secondary.environmentContract.hostVersionProbes.find(
+      (probe) => probe.source === 'profile:@deepseek-ai/dsh-tool-subagent',
+    )
+    assert.equal(hit.status, 'hit')
+    assert.equal(hit.authoritative, false)
   } finally {
     restoreHostEnv(saved)
     removeTemp(root)
