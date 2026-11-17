@@ -24,8 +24,24 @@ import { applyCompletion } from '../domain/missions/completion.js'
 import { applyReviewOutcome } from '../domain/missions/review.js'
 import { applyMergeSuccess, applyLandedMerge } from '../domain/integration/merge.js'
 
+// F29: every fixture git invocation runs with end-of-line conversion off, the
+// same rule `adapters/git.js` applies to Tower's working-tree writes. The temp
+// repository therefore stores and reads exactly the bytes the fixture writes,
+// whatever `core.autocrlf` the host carries (this Windows host has
+// `core.autocrlf=true` in its system config). Without the override the
+// fixture's own `git add`/`git status` depend on the ambient settings: an agent
+// environment with `GIT_CONFIG_NOSYSTEM=1` hides that system value while a
+// Tower child inherits it, so a CRLF checkout (6 bytes `seed\r\n`) reads as
+// `M README.md` to the fixture and as clean to Tower; `git add -A` then commits
+// the CRLF copy, the file enters the mission branch diff, and the merge gate
+// reports a false `out-of-scope` blocker because README.md is not in
+// `['src/**']`. Pin conversion off on both sides instead of trusting the host.
 function git(cwd, args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return execFileSync('git', ['-c', 'core.autocrlf=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
 }
 
 function makeRepo(prefix = 'dsh-tower-events-') {
@@ -33,11 +49,13 @@ function makeRepo(prefix = 'dsh-tower-events-') {
   const repo = path.join(root, 'repo')
   fs.mkdirSync(repo)
   git(repo, ['init'])
-  // F29: keep the seed README byte-stable on a Windows global core.autocrlf=true.
+  // The repository config is the belt to the helper's braces: readers that use
+  // the repository's own config (Tower's `status`/`diff`) must agree that the
+  // LF seed is clean too.
   git(repo, ['config', 'core.autocrlf', 'false'])
   git(repo, ['config', 'user.email', 'tower@test'])
   git(repo, ['config', 'user.name', 'Tower Test'])
-  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  fs.writeFileSync(path.join(repo, 'README.md'), Buffer.from('seed\n', 'utf8'))
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])
   return { root, repo }
@@ -186,10 +204,21 @@ test('a full mission lifecycle emits planned, completed, reviewed, merged and ab
     const missionId = planned.missions[0].id
     const provisioned = await tower.provision({ missionId })
     const wt = provisioned.worktree.path
+    // F29: the seed is committed as five LF bytes and Tower's checkout must
+    // materialize them verbatim. A CRLF copy (six bytes) is the failure this
+    // test used to inherit from the host: it shows up as a modification to a
+    // git with conversion off, `git add -A` below commits it, and the merge
+    // gate then blocks the mission as out-of-scope for an untouched file.
+    assert.deepEqual(fs.readFileSync(path.join(wt, 'README.md')), Buffer.from('seed\n', 'utf8'))
+    assert.equal(git(wt, ['status', '--porcelain']), '', 'a fresh checkout must be clean')
     fs.mkdirSync(path.join(wt, 'src'), { recursive: true })
     fs.writeFileSync(path.join(wt, 'src', 'a.txt'), 'a\n')
     git(wt, ['add', '-A'])
     git(wt, ['commit', '-m', 'M1 a'])
+    // The mission branch changes exactly the in-scope file: no line-ending
+    // shadow copy of README.md may ride along.
+    assert.equal(git(wt, ['status', '--porcelain']), '')
+    assert.equal(git(wt, ['diff', '--name-only', 'HEAD~1', 'HEAD']), 'src/a.txt')
     await tower.mission({ id: missionId, status: 'active' })
     await tower.mission({ id: missionId, task_done: 'write it' })
 
