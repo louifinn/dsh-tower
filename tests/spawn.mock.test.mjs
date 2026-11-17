@@ -390,9 +390,15 @@ test('preset precheck: a missing tower-worker preset rejects with "not registere
   try {
     await initAndPlan(repo, [{ title: 'Preset case', scope: ['src/**'] }])
 
-    await assertRejectsWith(
+    await assert.rejects(
       () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }),
-      [/not registered/i, /tower-worker/],
+      (error) => {
+        const message = String(error?.message ?? error)
+        assert.match(message, /not registered/i)
+        assert.match(message, /Tower Worker preset/)
+        assert.doesNotMatch(message, /tower-worker/, 'user-visible copy must not leak the internal preset id')
+        return true
+      },
     )
     assert.equal(harness.subagents.activations.length, 0, 'no activation may start when the preset is missing')
   } finally {
