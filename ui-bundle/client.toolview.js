@@ -68,6 +68,19 @@ window.__ModuleLoader__.load({
         // Only a settled result with curated detail is expandable; native rows
         // get the same treatment from DisclosureRow (`expandOnRowClick`).
         const expandable = !running && model.rows.length > 0
+        // The open body is the native generic tool-result surface:
+        // bodyWrap > ioCard, one ioSection per curated row, with an ioDivider
+        // between adjacent sections. It is built only while open, so the card
+        // never exists in the collapsed state. The flat keyed list keeps React
+        // keys on both the sections and the dividers.
+        const rows = expanded && expandable ? model.rows.slice(0, 6) : []
+        const bodyChildren = []
+        for (let index = 0; index < rows.length; index += 1) {
+          if (index > 0) {
+            bodyChildren.push(h('span', { key: 'divider-' + index, 'aria-hidden': true, style: ST.ioDivider }))
+          }
+          bodyChildren.push(rowElement(t, index, rows[index]))
+        }
         return h(
           'div',
           {
@@ -92,13 +105,11 @@ window.__ModuleLoader__.load({
               ),
             ],
             children:
-              expanded && expandable
+              rows.length > 0
                 ? h(
                     'div',
-                    { key: 'body', style: ST.body },
-                    model.rows.slice(0, 6).map(function (row, index) {
-                      return rowElement(t, index, row)
-                    }),
+                    { key: 'body', style: ST.bodyWrap },
+                    h('div', { key: 'card', style: ST.ioCard }, bodyChildren),
                   )
                 : undefined,
           }),

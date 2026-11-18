@@ -273,6 +273,17 @@ function findNode(node, predicate) {
   return found
 }
 
+function findAll(node, predicate, out = []) {
+  if (node === null || typeof node !== 'object') return out
+  if (Array.isArray(node)) {
+    for (const child of node) findAll(child, predicate, out)
+    return out
+  }
+  if (node.props && predicate(node)) out.push(node)
+  for (const child of node.children || []) findAll(child, predicate, out)
+  return out
+}
+
 function freeTimer(fakeCtx) {
   for (const effect of fakeCtx.effects) {
     if (typeof effect.cleanup === 'function') effect.cleanup()
@@ -501,11 +512,19 @@ test('locale metadata is present in en/zh', () => {
   assert.deepEqual(Object.keys(en.meta).sort(), Object.keys(zh.meta).sort())
 })
 
-test('theme references are limited to --dsw-alias-* tokens', () => {
+// The expanded io-card reproduces the host `ToolRow.module.css` verbatim, and
+// that native surface uses two non-alias design tokens for the card's corner
+// radius and type scale. Everything else stays on the --dsw-alias-* family.
+const NATIVE_NON_ALIAS_TOKENS = new Set(['--dsw-radius-lg', '--dsw-font-markdown-code-block-small'])
+
+test('theme references are limited to --dsw-alias-* plus the native io-card radius/font tokens', () => {
   const tokens = ALL_SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
   assert.ok(tokens.length > 0, 'the cards must use DSH theme tokens')
   for (const token of tokens) {
-    assert.match(token, /^--dsw-alias-/, `non-alias theme token: ${token}`)
+    assert.ok(
+      token.startsWith('--dsw-alias-') || NATIVE_NON_ALIAS_TOKENS.has(token),
+      `non-native theme token: ${token}`,
+    )
   }
 })
 
@@ -821,6 +840,197 @@ test('toolview renders the native DisclosureRow and publishes start/result notic
   assert.equal(notice.ok, true)
 })
 
+// M117: the expanded body must be the native generic tool-result surface, not
+// a local lookalike. These are the exact `ToolRow.module.css` rules the host
+// renders for a generic result (`ioCard`/`ioSection`/`ioLabel`/`ioText`/
+// `ioDivider`), in CSS-in-JS form.
+const NATIVE_IO = {
+  bodyWrap: { display: 'flex', flexDirection: 'column' },
+  card: {
+    border: '.5px solid var(--dsw-alias-border-l1)',
+    borderRadius: 'var(--dsw-radius-lg)',
+    background: 'var(--dsw-alias-markdown-code-block)',
+    font: 'var(--dsw-font-markdown-code-block-small)',
+    flexDirection: 'column',
+    margin: '4px 0 4px 4px',
+    display: 'flex',
+  },
+  section: {
+    gridTemplateColumns: 'max-content 1fr',
+    alignItems: 'baseline',
+    columnGap: '14px',
+    maxHeight: '150px',
+    padding: '12px 16px',
+    display: 'grid',
+    overflowY: 'auto',
+  },
+  label: { color: 'var(--dsw-alias-label-caption)', alignSelf: 'start', position: 'sticky', top: 0 },
+  text: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minWidth: 0,
+    color: 'var(--dsw-alias-label-secondary)',
+  },
+  textError: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minWidth: 0,
+    color: 'var(--dsw-alias-state-error-primary)',
+  },
+  divider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
+}
+
+function isIoCard(node) {
+  return Boolean(node.props && node.props.style && node.props.style.borderRadius === 'var(--dsw-radius-lg)')
+}
+function isIoSection(node) {
+  return Boolean(node.props && node.props.style && node.props.style.gridTemplateColumns === 'max-content 1fr')
+}
+function isIoDivider(node) {
+  return Boolean(node.props && node.props.style && node.props.style.height === '.5px')
+}
+
+test('expanded toolview body is the native io-card surface, token for token', async () => {
+  const { react, toolviews } = await components()
+  const payload = {
+    view: 'status',
+    counts: { planned: 0, active: 1, completed: 0 },
+    openTasks: 2,
+    roster: 1,
+    findings: 0,
+    revision: 3,
+    missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
+  }
+  const props = {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-io',
+    block: {
+      kind: 'tool/result',
+      callId: 'call-io',
+      call: { name: 'tower_inspect' },
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+    },
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  }
+  const open = render(react, toolviews.get('tower_inspect'), props)
+
+  // bodyWrap > ioCard, with the native border, code-block background and the
+  // `font` shorthand that carries the native type scale.
+  const card = findNode(open, isIoCard)
+  assert.ok(card, 'the open body must render the native ioCard')
+  assert.deepEqual(card.props.style, NATIVE_IO.card, 'ioCard must be the native token set — no local border, background or type')
+  const bodyWrap = findNode(open, (node) => {
+    if (!node.props || !node.props.style) return false
+    const style = node.props.style
+    return style.display === 'flex' && style.flexDirection === 'column' && Object.keys(style).length === 2
+  })
+  assert.ok(bodyWrap, 'the ioCard must sit in the native bodyWrap flex column')
+  assert.deepEqual(bodyWrap.props.style, NATIVE_IO.bodyWrap)
+
+  // One ioSection per curated row; each section is exactly the ioLabel caption
+  // plus the ioText value, both on their native token sets.
+  const sections = findAll(open, isIoSection)
+  assert.equal(sections.length, 3, 'one ioSection per curated row')
+  assert.deepEqual(sections.map((section) => section.props['data-tower-tone']), ['warn', undefined, undefined])
+  for (const section of sections) {
+    assert.deepEqual(section.props.style, NATIVE_IO.section, 'ioSection must keep the native grid, gap, padding and scroll box')
+    const spans = section.children.filter((child) => child && child.tag === 'span')
+    assert.equal(spans.length, 2, 'an ioSection is the ioLabel + ioText pair')
+    assert.deepEqual(spans[0].props.style, NATIVE_IO.label, 'the caption takes the ioLabel tokens')
+    assert.deepEqual(spans[1].props.style, NATIVE_IO.text, 'the value takes the ioText tokens')
+    assert.equal(spans[1].props['data-error'], undefined, 'only error rows are marked')
+  }
+  assert.match(textOf(sections[0]), /card\.tone\.warn/, 'a toned row is captioned with its localized tone word')
+  assert.match(textOf(sections[1]), /card\.detail/, 'a toneless row is captioned with the neutral Details label')
+
+  // Adjacent sections are separated by the native ioDivider, and the card's
+  // immediate children alternate section / divider / section.
+  const dividers = findAll(open, isIoDivider)
+  assert.equal(dividers.length, sections.length - 1, 'adjacent sections are separated by an ioDivider')
+  for (const divider of dividers) {
+    assert.deepEqual(divider.props.style, NATIVE_IO.divider, 'the divider takes the border-l2 token and native height')
+    assert.equal(divider.props['aria-hidden'], true)
+  }
+  const cardChildren = []
+  for (const child of card.children) {
+    if (Array.isArray(child)) cardChildren.push(...child)
+    else cardChildren.push(child)
+  }
+  assert.equal(cardChildren.length, sections.length + dividers.length)
+  cardChildren.forEach((child, index) => {
+    if (index % 2 === 0) assert.ok(isIoSection(child), `card child ${index} must be an ioSection`)
+    else assert.ok(isIoDivider(child), `card child ${index} must be an ioDivider`)
+  })
+
+  // No hardcoded px type or hex/rgb colour anywhere in the expanded surface:
+  // those would ignore the appearance text-size setting and the light/dark
+  // theme. Type comes from the ioCard `font` token; colour from --dsw-alias-*.
+  const expandedStyles = [bodyWrap.props.style, card.props.style]
+  for (const section of sections) {
+    expandedStyles.push(section.props.style)
+    for (const child of section.children) {
+      if (child && child.props && child.props.style) expandedStyles.push(child.props.style)
+    }
+  }
+  for (const divider of dividers) expandedStyles.push(divider.props.style)
+  for (const style of expandedStyles) {
+    for (const [prop, value] of Object.entries(style)) {
+      assert.doesNotMatch(String(value), /#[0-9a-f]{3,8}\b/i, `expanded style ${prop} must not hardcode a hex colour`)
+      assert.doesNotMatch(String(value), /^rgba?\(/i, `expanded style ${prop} must not hardcode an rgb colour`)
+      if (prop === 'fontSize') {
+        assert.doesNotMatch(String(value), /^\d+(\.\d+)?px$/, 'expanded type must come from the native font token, not a px size')
+      }
+    }
+  }
+
+  // An error row marks its value with data-error, so the native
+  // `ioText[data-error]` error colour applies.
+  const blocked = {
+    mission: {
+      id: 'M1',
+      status: 'blocked',
+      tasks: [{ status: 'done' }, { status: 'open' }],
+      blockers: ['waiting on base'],
+      reviewPolicy: 'required-clean',
+    },
+  }
+  const errorCard = render(react, toolviews.get('tower_mission'), {
+    toolName: 'tower_mission',
+    phase: 'result',
+    callId: 'call-err',
+    block: {
+      kind: 'tool/result',
+      callId: 'call-err',
+      call: { name: 'tower_mission' },
+      content: [{ type: 'text', text: JSON.stringify(blocked) }],
+    },
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  })
+  const errorSections = findAll(errorCard, isIoSection)
+  const errorSection = errorSections.find((section) => section.props['data-tower-tone'] === 'error')
+  assert.ok(errorSection, 'a blocker row must render as an error ioSection')
+  const errorSpans = errorSection.children.filter((child) => child && child.tag === 'span')
+  assert.deepEqual(errorSpans[0].props.style, NATIVE_IO.label)
+  assert.equal(errorSpans[1].props['data-error'], true, 'error rows carry data-error, like the native ioText')
+  assert.deepEqual(errorSpans[1].props.style, NATIVE_IO.textError, 'data-error takes the native error colour token')
+  assert.match(textOf(errorSection), /card\.tone\.error/)
+  assert.equal(findAll(errorCard, isIoCard).length, 1)
+
+  // Collapsed: the fake DisclosureRow renders `open && children`, so the card
+  // and every section/divider must be absent.
+  const collapsed = render(
+    react,
+    toolviews.get('tower_inspect'),
+    Object.assign({}, props, { useDisclosure: disclosureSeat(false, () => {}) }),
+  )
+  assert.equal(findAll(collapsed, isIoCard).length, 0, 'the expanded ioCard must not exist while collapsed')
+  assert.equal(findAll(collapsed, isIoSection).length, 0, 'no curated section may exist while collapsed')
+  assert.equal(findAll(collapsed, isIoDivider).length, 0, 'no divider may exist while collapsed')
+})
+
 test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', async () => {
   const { react, toolviews } = await components()
   const cases = [
@@ -889,8 +1099,8 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
   assert.doesNotMatch(text, /p1-2items|fix-then-merge/)
   const toned = findNode(card, (node) => node.props && node.props['data-tower-tone'] === 'warn')
   assert.ok(toned, 'a review finding row must carry its tone as data, not only colour')
-  assert.equal(toned.props.role, 'note')
-  assert.match(toned.props['aria-label'], /警告/)
+  assert.equal(toned.props.style.gridTemplateColumns, 'max-content 1fr', 'the row is a native ioSection')
+  assert.match(textOf(toned), /警告/, 'the caption is the localized tone word')
   assert.equal(en['enum.reviewStatus.p1'], '{count} blocking problem(s)')
   assert.equal(en['card.reviewLine'], 'review {status} · merge verdict {merge} · round {round}')
 
