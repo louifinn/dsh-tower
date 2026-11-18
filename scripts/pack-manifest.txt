@@ -69,6 +69,7 @@ docs/adr/0007-bounded-activity-log-rotation.md
 docs/adr/0008-process-local-advisory-budgets.md
 docs/adr/0009-role-phase-exposure.md
 docs/adr/0010-tower-ralph-mutual-exclusion.md
+docs/adr/0011-client-budget-covers-logic-not-locale-data.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
