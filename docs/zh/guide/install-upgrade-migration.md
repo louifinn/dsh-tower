@@ -32,6 +32,30 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.9.1 → 2.9.2 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
+  v5。操作者能观察到的变化：
+  - **计划 scope 覆盖其子树。** `tower_plan`（以及 `tower_mission` 的 scope 放宽）中的裸目录条目，或带
+    尾分隔符的条目，现在展开为子树：`docs/guide/` 存成 `docs/guide/**`，`.` 展开为整棵树（`**`）。
+    glob、文件与未知路径保持字面写法；已存在任务线上的 scope 永远不会被重写。
+  - **执行代理的停滞判定改为持续证据。** `spawn.staleMs` 默认值现在为 30000，随包补丁也设为同一
+    30 秒窗口。看门狗只有在“连续 2 次缺失、跨 2× 窗口”后才记为缺席，空的或无法读取的父 catalog 不构成
+    证据。执行代理自己的 `tower_complete` 到达宿主时，会在完成任务的事务内复活自己的行并记为
+    `completed (self-report)`；其他终态仍然拒绝。
+  - **`tower_init({op: "adopt"})` 不会因空 catalog 而退休。** 只有非空的 `listDescendants` 回答才是缺席
+    证据；空回答或失败父会话下的行会进入新的 `unjudged` 列表并附 `parentStatus` 原因，观测计数保持
+    不变。`retire_missing` 在权威 catalog 下保持原义。
+  - **`tower_recover` 也恢复提交互斥。** `status` 与 `clear-stale-lock` 同时检查 `state.commit.lock` 与
+    状态锁，返回 `commitBackup`；记录在读取后变化时拒绝移动；`force` 会先清提交互斥再移动状态锁。
+    不可读记录报告为 `{unreadable: true, path, error}` 并重命名到备份，绝不删除。
+  - **宿主版本来源有明确的信任顺序。** 先是非空的 `DSH_VERSION`、`DSH_HOST_VERSION` 与
+    `npm_config_dsh_version`；然后是 `DSH_INSTALL_DIR` 及其父目录、对应 `app.asar.unpacked` 副本中
+    首个可读的 `package.json`；接着是已挂载的服务；最后才是 profile 安装的依赖，作为明确标注的非权威
+    提示。父目录的包不再能顶替 `DSH_INSTALL_DIR` 指定的包；profile 命中永远只给警告，不会判 pass。
+  - **发布类型面现在被真实检查。** `types:check` 增加 `types:check:declarations`，以
+    `skipLibCheck: false` 检查 `types/index.d.ts` 本身。`TowerConfig` 现在解析为真实配置类型而不再是
+    `any`，因此使用方可能看到更严格、但正确的类型。
+  - 无需迁移 state 或配置。更新插件并**重启 DSH**。
+
 - **2.9.0 → 2.9.1 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
   v5；唯一的状态形状变化是派工预留时名册行上的可选 `reservationId`，2.9.0 读取时会忽略，因此回退是安全
   的。调用工具时能观察到的变化：

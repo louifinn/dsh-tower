@@ -19,10 +19,21 @@ import {
   releaseLock,
   removeLockIfMatches,
   removeLockIfMatchesSync,
+  touchLock,
 } from '../adapters/lock.js'
 import { pathsFor, withLock } from '../adapters/store.js'
 
 const DEAD_PID = 999999
+
+/** Poll a predicate that flips when an injected heartbeat finishes. */
+async function waitFor(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() > deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  return true
+}
 
 function deadRecord(token) {
   const at = Date.now() - 60_000
@@ -365,6 +376,118 @@ test('lock kernel: a sync release restore never overwrites a newer record', () =
     const preserved = quarantines(paths, 'state.lock.release-')
     assert.equal(preserved.length, 1)
     assert.equal(fs.readFileSync(preserved[0], 'utf8'), foreign)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F24: a heartbeat may only publish a record for the token it read. The
+// previous kernel checked the token before writing its temp file, but a takeover
+// between that read and the rename made the rename recreate the old record over
+// the successor's — and the old holder then kept writing state under a record
+// that said it still owned the lock.
+test('lock kernel: a heartbeat superseded right after its rename reports the loss (#F24)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await acquireLock(paths.lock, { token: 'late-holder', heartbeat: false, timeoutMs: 0 })
+    const successor = JSON.stringify(lockRecord('successor-holder', { marker: 'successor' }))
+    const refreshed = await touchLock(paths.lock, 'late-holder', {
+      rename: async (from, to) => {
+        await fsp.rename(from, to)
+        // A recovery frees the path and a successor acquires it in the instant
+        // after this heartbeat's rename landed.
+        fs.writeFileSync(paths.lock, successor)
+      },
+      sleep: async () => {},
+    })
+    assert.equal(refreshed, false, 'a heartbeat must not claim a record a successor already owns')
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), successor, "the successor's record must survive untouched")
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a heartbeat never rewrites another token record', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const foreign = JSON.stringify(lockRecord('other-holder', { marker: 'foreign' }))
+    fs.writeFileSync(paths.lock, foreign)
+    assert.equal(await touchLock(paths.lock, 'stale-holder'), false)
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), foreign)
+    const leftovers = fs.readdirSync(paths.dir).filter((name) => name.includes('.heartbeat-'))
+    assert.deepEqual(leftovers, [], 'a refused heartbeat must remove its temp file')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: a holder whose record is taken away reports the loss on its handle (#F24)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    let tick = null
+    const holder = await acquireLock(paths.lock, {
+      token: 'abandoned-holder',
+      setInterval: (callback) => {
+        tick = callback
+        return { unref() {} }
+      },
+      clearInterval: () => {},
+      timeoutMs: 0,
+    })
+    assert.equal(holder.lost, false)
+    // An operator recovery moves the live record aside; a successor acquires it.
+    fs.renameSync(paths.lock, `${paths.lock}.recovered-1`)
+    fs.writeFileSync(paths.lock, JSON.stringify(lockRecord('successor-holder')))
+    tick()
+    assert.equal(await waitFor(() => holder.lost === true), true, 'the heartbeat must observe the lost record')
+    assert.equal(await holder.release(), false, 'the abandoned holder must not release the successor record')
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, 'successor-holder')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F24: the state store must fail a write closed even when the old record is
+// back at the path (a late heartbeat won the rename race). The heartbeat health
+// flags the loss, and the document CAS backs it up for a silent takeover.
+test('lock kernel: a resurrected record cannot publish state after the loss was observed (#F24)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const { stateLockLost, writeStateLocked } = await import('../adapters/store.js')
+    const committed = JSON.stringify({ revision: 2, marker: 'successor' }, null, 2)
+    fs.writeFileSync(paths.state, JSON.stringify({ revision: 1, marker: 'base' }, null, 2))
+    let tick = null
+    await assert.rejects(
+      () =>
+        withLock(
+          paths,
+          async (_paths, held) => {
+            const recordRaw = fs.readFileSync(paths.lock, 'utf8')
+            fs.renameSync(paths.lock, `${paths.lock}.recovered-1`)
+            fs.writeFileSync(paths.lock, JSON.stringify(lockRecord('successor-holder')))
+            fs.writeFileSync(paths.state, committed)
+            tick()
+            assert.equal(await waitFor(() => stateLockLost(paths)), true)
+            // The late heartbeat puts the old record back at the lock path.
+            fs.writeFileSync(paths.lock, recordRaw)
+            await writeStateLocked(paths, { revision: 2, marker: 'first' }, held.token)
+          },
+          {
+            setInterval: (callback) => {
+              tick = callback
+              return { unref() {} }
+            },
+            clearInterval: () => {},
+          },
+        ),
+      (error) => {
+        assert.equal(error.code, 'state-locked')
+        assert.equal(error.retryable, true)
+        assert.equal(error.details.reason, 'state-lock-ownership-lost')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(paths.state, 'utf8'), committed, 'the committed update must survive')
   } finally {
     removeTemp(root)
   }

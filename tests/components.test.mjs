@@ -70,11 +70,19 @@ const GATE_FILES = [
   'scripts/surface-baseline.json',
   'docs/reference/component-surface.md',
   'docs/adr/0005-component-surface.md',
+  // The surface decisions cite this ADR as growth evidence.
+  'docs/adr/0006-mission-shapes.md',
   'host/tool-registry.js',
   'locale/en.json',
   'locale/zh.json',
   // #137: the copy gate reads the generated row labels and the glossary.
   ...rowLocalePaths(),
+  // #F22: the Web client string catalogue and the preset runtime failures.
+  'ui-bundle/client.locales.js',
+  'host/presets.js',
+  // #F69: the spawn-precondition failures and the environment-health remedies.
+  'app/spawn-prechecks.js',
+  'host/doctor.js',
   'GLOSSARY.md',
 ]
 
@@ -374,7 +382,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     { key: 'mode.ralphPolicy', value: 'stop' },
     { key: 'init.autoGitInit', value: 'true' },
     { key: 'send.interruptDefault', value: 'true' },
-    { key: 'spawn.staleMs', value: '15000' },
+    { key: 'spawn.staleMs', value: '30000' },
   ])
   assert.deepEqual(patch.rows.find((row) => row.id === 'preset-tower-worker').configOverrides, [])
   assert.deepEqual(patch.rows.find((row) => row.id === 'preset-tower-reviewer').configOverrides, [])
@@ -1113,5 +1121,254 @@ test('integration: a missing GLOSSARY.md fails the copy gate (#137)', async () =
     )
   } finally {
     removeTemp(dir)
+  }
+})
+
+// #F22: the Web client string catalogue and the preset runtime failures are
+// copy-gate surfaces too. The shipped pair passes; one planted leak per surface
+// must turn the gate red with a surface-specific code.
+test('integration: a clean throwaway root passes the copy gate, including the #F22 surfaces', async () => {
+  const dir = gateRoot()
+  try {
+    const report = await checkComponents(dir)
+    assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a config key or tool id in the client catalogue fails the gate (#F22)', async () => {
+  for (const [from, to, code] of [
+    ["'card.title': ['Tower', 'Tower']", "'card.title': ['Gates.requireTests is on', 'Tower']", 'client-copy-config-key'],
+    ["'tool.batch': ['Batch', '批次']", "'tool.batch': ['Batch', 'tower_batch 批次']", 'client-copy-tool-id'],
+  ]) {
+    const dir = gateRoot({
+      'ui-bundle/client.locales.js': (text) => {
+        assert.ok(text.includes(from), from)
+        return text.replace(from, to)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${to} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: glossary drift in the client catalogue fails the gate (#F22)', async () => {
+  const dir = gateRoot({
+    'ui-bundle/client.locales.js': (text) => {
+      const from = "'tool.review': ['Review', '审查']"
+      assert.ok(text.includes(from), from)
+      return text.replace(from, "'tool.review': ['Review', '复核']")
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'client-copy-glossary'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a tool id or config key in a preset failure message fails the gate (#F22)', async () => {
+  for (const [planted, code] of [
+    ['Run tower_resource, then test evidence is required before merging', 'preset-copy-tool-id'],
+    ['gates.requireTests is true, so test evidence is required before merging', 'preset-copy-config-key'],
+  ]) {
+    const dir = gateRoot({
+      'host/presets.js': (text) => {
+        const from = 'Test evidence is required before merging'
+        assert.ok(text.includes(from), from)
+        return text.replace(from, planted)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${planted} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: a missing client catalogue or preset module fails the copy gate (#F22)', async () => {
+  for (const [relative, code] of [
+    ['ui-bundle/client.locales.js', 'client-catalog-unreadable'],
+    ['host/presets.js', 'preset-copy-unreadable'],
+  ]) {
+    const dir = gateRoot()
+    try {
+      fs.rmSync(path.join(dir, relative))
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+// #F69: the spawn-precondition failures are runtime copy too. One planted leak
+// per internal-identifier family must turn the gate red with its own code, and
+// an inline message outside the copy table must be caught as unparsed.
+test('integration: a config key, tool id or row id in a spawn-precondition message fails the gate (#F69)', async () => {
+  for (const [planted, code] of [
+    ['Cannot spawn: spawn.requireLease is on but no lease is held', 'precheck-copy-config-key'],
+    ['Cannot spawn: acquire the lease with tower_resource first', 'precheck-copy-tool-id'],
+    ['Cannot spawn: switch the tower-leases row back on in the plugin page', 'precheck-copy-row-id'],
+  ]) {
+    const dir = gateRoot({
+      'app/spawn-prechecks.js': (text) => {
+        const from = 'subagents service is unavailable; cannot spawn'
+        assert.ok(text.includes(from), from)
+        return text.replace(from, planted)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${planted} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: a raw preset id in a spawn-precondition message fails the gate (#F69)', async () => {
+  const dir = gateRoot({
+    'app/spawn-prechecks.js': (text) => {
+      const from = 'fillCopy(ERROR_COPY.presetMissing, { preset: presetLabel(preset) })'
+      assert.ok(text.includes(from), from)
+      return text.replace(from, 'fillCopy(ERROR_COPY.presetMissing, { preset })')
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'precheck-copy-raw-preset'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+test('integration: a spawn-precondition message outside the copy table fails the gate (#F69)', async () => {
+  const dir = gateRoot({
+    'app/spawn-prechecks.js': (text) => {
+      const from =
+        "if (!subagents) throw new TowerToolError('spawn-unavailable', fillCopy(ERROR_COPY.spawnUnavailable))"
+      assert.ok(text.includes(from), from)
+      return text.replace(
+        from,
+        "if (!subagents) throw new TowerToolError('spawn-unavailable', 'spawn.requireLease is set')",
+      )
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false)
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'precheck-copy-unparsed'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+// #F84: the review-disabled refusal belongs to the role contract now. The gate's
+// unused-entry rule is what makes "keep the duplicate in the table so the gate
+// stays quiet" impossible: re-adding it without a reader turns the gate red.
+test('integration: a re-added review-disabled copy entry with no reader fails the gate (#F84)', async () => {
+  const anchor = `  leaseForeignHolder: 'lease "{lease}" is held by "{holder}", not by this tower',`
+  const planted =
+    "  reviewDisabled: 'review before merging is turned off in this project\\'s plugin configuration, so a reviewer cannot be started and a review cannot be recorded',"
+  const dir = gateRoot({
+    'app/spawn-prechecks.js': (text) => {
+      assert.ok(text.includes(anchor), anchor)
+      return text.replace(anchor, `${anchor}\n${planted}`)
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false, 'an unused copy entry must fail the gate')
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'precheck-copy-unused'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
+// #F69: the doctor remedy is the action a reader follows. A tool id, config key
+// or row id planted in it must be caught by the action scanner, not excused as
+// if it were a diagnostic detail.
+test('integration: a tool id or config key in an environment-health remedy fails the gate (#F69)', async () => {
+  for (const [planted, code] of [
+    ['run tower_recover clear-stale-lock force:true to repair the environment', 'doctor-copy-tool-id'],
+    ['set spawn.requireLease and restart DSH to repair the environment', 'doctor-copy-config-key'],
+    ['switch the tower-leases row back on in the plugin page and restart DSH', 'doctor-copy-row-id'],
+  ]) {
+    const dir = gateRoot({
+      'host/doctor.js': (text) => {
+        const from = 'switch the missing preset row back on in the plugin page and restart DSH'
+        assert.ok(text.includes(from), from)
+        return text.replace(from, planted)
+      },
+    })
+    try {
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false, `${planted} must fail the gate`)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('integration: a missing precheck or doctor module fails the runtime copy gate (#F69)', async () => {
+  for (const [relative, code] of [
+    ['app/spawn-prechecks.js', 'precheck-copy-unreadable'],
+    ['host/doctor.js', 'doctor-copy-unreadable'],
+  ]) {
+    const dir = gateRoot()
+    try {
+      fs.rmSync(path.join(dir, relative))
+      const report = await checkComponents(dir)
+      assert.equal(report.ok, false)
+      assert.ok(
+        report.findings.some((entry) => entry.code === code),
+        JSON.stringify(report.findings, null, 2),
+      )
+    } finally {
+      removeTemp(dir)
+    }
   }
 })

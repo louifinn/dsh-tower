@@ -265,8 +265,11 @@ test('survey off refuses planning with an actionable code and leaves builds alon
       () => tower.plan({ missions: [{ title: 'Survey with the row off', kind: 'survey' }] }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message) &&
-        typeof error.nextAction === 'string',
+        /the capability this mission kind needs is turned off: survey missions cannot be planned; the other kinds still can/.test(error.message) &&
+        typeof error.nextAction === 'string' &&
+        // #F80: the capability row id must never be the operator-facing label.
+        !/tower-survey/.test(`${error.message} ${error.nextAction}`) &&
+        /turn that capability back on in the plugin page/.test(error.nextAction),
     )
     const build = await tower.plan({ missions: [{ title: 'Build with the row off', scope: ['src/**'] }] })
     assert.equal(build.missions[0].kind, 'build', 'build planning is unaffected')
@@ -321,7 +324,8 @@ test('survey planning uses the async availability probe, not the sync switch (#1
       () => offTower.plan({ missions: [{ title: 'Survey through the probe', kind: 'survey' }] }),
       (error) =>
         error.code === 'invalid-argument' &&
-        /the tower-survey component is off: survey missions cannot be planned; the other kinds are unaffected/.test(error.message),
+        /the capability this mission kind needs is turned off: survey missions cannot be planned; the other kinds still can/.test(error.message) &&
+        !/tower-survey/.test(`${error.message} ${error.nextAction}`),
     )
     assert.deepEqual(probed, ['tower-survey'], 'the async probe is what gates the shape')
 

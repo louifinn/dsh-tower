@@ -22,11 +22,13 @@ import { assertPort, definePort } from './contract.js'
  * @property {(file: string, text: string, encoding?: string) => Promise<void>} appendText
  * @property {(from: string, to: string) => Promise<void>} rename
  * @property {(from: string, to: string) => Promise<void>} renameWithRetry
- * @property {(from: string, to: string) => Promise<void>} copyFileExclusive
- * @property {(file: string) => Promise<{ mtimeMs: number }>} stat
+ * @property {(from: string, to: string) => Promise<void>} [copyFileExclusive]
+ * @property {(file: string) => Promise<{ mtimeMs: number, size?: number, isDirectory(): boolean }>} stat
  * @property {(file: string) => Promise<void>} unlink
  * @property {(paths: object, options?: object) => Promise<{ record: any, raw: string | null }>} readGitLock
  * @property {(lock: { record: any } | null, options?: object) => { held: boolean, pid?: number | null, phase?: string | null, heldMs?: number }} gitLockView
+ * @property {(paths: object, options?: { now?: number | (() => number) }) => Promise<{ path: string, record: any, raw: string | null, alive: boolean | null }>} [readStateCommitLock]
+ * @property {(paths: object, options?: { force?: boolean, now?: number | (() => number), expectedRaw?: string }) => Promise<{ held: boolean, cleared: boolean, pid?: number | null, backup?: string | null, forced?: boolean }>} [clearStateCommitLock]
  */
 
 // `rename` and `renameWithRetry` are both declared because they are not
@@ -37,12 +39,33 @@ import { assertPort, definePort } from './contract.js'
 //
 // `copyFileExclusive` is an optional filesystem capability rather than a
 // required method: an in-memory implementation has no filesystem and need not
-// provide it. It is declared here because the only caller,
-// `removeStaleGitLocks` in app/tower.js, must never fall back to the
+// provide it, so it is listed in `STORE_OPTIONAL_METHODS` below like the
+// commit-mutex repair methods. It is declared here because the only caller,
+// `removeStaleGitLocks` in app/git-locks.js, must never fall back to the
 // overwriting `rename` when the capability is absent — it keeps the quarantined
 // lock as evidence instead. The filesystem implementation in
 // adapters/store-fs.js always provides it; its EEXIST outcome is the CAS that
 // prevents a third Git writer's freshly created lock from being replaced.
+//
+// `stat`'s result shape is part of the contract (#F70). The planning probe in
+// app/tower.js expands a bare scope entry only when a directory exists at that
+// path, so the result must expose `isDirectory()`. That was previously duck
+// typed while the port declared only `mtimeMs`; declaring the capability on the
+// existing result keeps fs.Stats and the in-memory double conformant and avoids
+// a second round trip. `size` stays optional because app/git-locks.js compares
+// it only when the implementation exposes it.
+//
+// The state-commit mutex (`state.commit.lock`, see adapters/store.js) is an
+// implementation detail of the durable store, not a lock every StorePort must
+// be able to repair: an in-memory double has no second writer to fence.
+// `tower_recover` feature-detects these two methods and reports no commit lock
+// when the capability is absent, so they are declared optional here rather than
+// widening the required contract (#F71).
+export const STORE_OPTIONAL_METHODS = Object.freeze([
+  'readStateCommitLock',
+  'clearStateCommitLock',
+  'copyFileExclusive',
+])
 export const STORE_PORT = definePort('StorePort', [
   'pathsFor',
   'exists',

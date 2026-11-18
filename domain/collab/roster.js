@@ -39,14 +39,22 @@ export function clearStale(entry) {
 
 /**
  * Count repeated absence observations and list rows ready to adopt.
+ *
+ * A candidate needs both repeated observations and, when `windowMs` is set, a
+ * span of at least that long between the first and the current observation.
+ * The watchdog passes twice `spawn.staleMs` so one missed sweep can never stale
+ * a live worker (#F73); callers that omit `windowMs` keep the historical
+ * count-only behavior (a single authoritative sweep may still adopt).
  * @param {RosterEntry[]} roster
- * @param {{ present?: unknown[], absent?: unknown[], confirmations?: unknown }} observations
+ * @param {{ present?: unknown[], absent?: unknown[], confirmations?: unknown, windowMs?: unknown }} observations
  * @param {number} now
  * @returns {{ candidates: string[], changed: boolean }}
  */
-export function recordRosterObservations(roster, { present = [], absent = [], confirmations = 2 }, now) {
+export function recordRosterObservations(roster, { present = [], absent = [], confirmations = 2, windowMs = 0 }, now) {
   const presentIds = new Set(present)
   const absentIds = new Set(absent)
+  const required = Math.max(2, Number(confirmations) || 2)
+  const window = Number(windowMs) || 0
   /** @type {string[]} */
   const candidates = []
   let changed = false
@@ -64,11 +72,83 @@ export function recordRosterObservations(roster, { present = [], absent = [], co
     entry.absentSince ??= now
     changed = true
     const observations = /** @type {number} */ (entry.absentObservations)
-    if (observations >= Math.max(2, Number(confirmations) || 2)) {
-      candidates.push(/** @type {string} */ (entry.agentId))
-    }
+    if (observations < required) continue
+    const since = Number(entry.absentSince ?? now)
+    if (window > 0 && now - since < window) continue
+    candidates.push(/** @type {string} */ (entry.agentId))
   }
   return { candidates, changed }
+}
+
+/**
+ * The roster row a self-reporting agent owns, if any.
+ * @param {RosterEntry[]} roster
+ * @param {string} missionId
+ * @param {string} agentId
+ * @returns {RosterEntry | undefined}
+ */
+function selfReportedEntry(roster, missionId, agentId) {
+  return roster.find((entry) => String(entry.agentId) === String(agentId) && entry.missionId === missionId)
+}
+
+/**
+ * Revive the row of a worker whose own `tower_complete` reached the host (#F73).
+ *
+ * A worker that calls a tool is, by that act, alive: a stopped child cannot
+ * call anything. When the watchdog mis-marked the row stale (a transient empty
+ * catalog, one missed observation), the row must be revived before admission,
+ * otherwise the mission is stranded and the live child can neither finish nor
+ * re-register. Only the caller's own row (`agentId` + `missionId`) is eligible;
+ * every other terminal state is refused by `assertCompletionRequest`.
+ *
+ * Pure: the caller holds the state lock and persists the result.
+ * @param {RosterEntry[]} roster
+ * @param {{ missionId: string, agentId: string, now: number }} input
+ * @returns {{ revived: boolean, name?: string, remark?: boolean }}
+ */
+export function reviveSelfReportedEntry(roster, { missionId, agentId, now }) {
+  const entry = selfReportedEntry(roster, missionId, agentId)
+  if (!entry || entry.state !== 'stale') return { revived: false }
+  const remark = entry.stale === true
+  entry.state = 'active'
+  clearStale(entry)
+  // The absence evidence described the old mis-marked state; a revived row
+  // starts observing again from scratch.
+  delete entry.absentObservations
+  delete entry.absentSince
+  entry.revivedAt = now
+  entry.revivedReason = 'self-reported completion (a live worker cannot be judged dead)'
+  return { revived: true, name: entry.name, remark }
+}
+
+/**
+ * Close the roster row of a worker whose own completion is being accepted.
+ *
+ * Called inside the completion's state-lock transaction, right after the
+ * revive, so a watchdog sweep must see either the pre-completion row or the
+ * closed one — never an `active` row carrying no observation (which the sweep
+ * would mark stale, leaving a completed mission blocked by `worker-stale`).
+ *
+ * Tolerates a row that is still `stale` at this point (a sweep that won the
+ * lock between the pre-check and this transaction); the stale mark is cleared
+ * in place. Any other state — retired, failed, interrupted, missing — is left
+ * alone.
+ * @param {RosterEntry[]} roster
+ * @param {{ missionId: string, agentId: string, now: number }} input
+ * @returns {{ marked: boolean, name?: string, remark?: boolean }}
+ */
+export function settleSelfReportedCompletion(roster, { missionId, agentId, now }) {
+  const entry = selfReportedEntry(roster, missionId, agentId)
+  if (!entry) return { marked: false }
+  if (entry.state !== 'active' && entry.state !== 'stale') return { marked: false }
+  const remark = entry.state === 'stale' || entry.stale === true
+  entry.state = 'inactive'
+  entry.outcome = 'completed (self-report)'
+  entry.outcomeAt = now
+  clearStale(entry)
+  delete entry.absentObservations
+  delete entry.absentSince
+  return { marked: true, name: entry.name, remark }
 }
 
 /**

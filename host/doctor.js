@@ -5,8 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fsp } from '../adapters/store-fs.js'
 import { git } from '../adapters/git.js'
-import { inspectActivityLog, readStateLock, readGitLock, gitLockView } from '../adapters/store.js'
-import { lockTiming } from '../adapters/persistence.js'
+import { inspectActivityLog, readStateLock, readStateCommitLock, readGitLock, gitLockView } from '../adapters/store.js'
 import { inspectArchive } from '../adapters/archive.js'
 import { inspectStateVersion } from '../domain/state.js'
 import { SCHEMA_VERSION } from '../domain/mission.js'
@@ -17,12 +16,12 @@ import { hasTestReceipts } from '../domain/evidence.js'
 import { configSurface } from '../domain/config/schema.js'
 import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
-import { assessHostVersion, detectHostVersion, readCompatibility } from './compatibility.js'
+import { assessHostVersion, diagnoseHostVersion, readCompatibility, resolveHostVersion } from './compatibility.js'
 import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck } from './doctor-acceptance.js'
+import { artifactAcceptanceCheck, commitLockFacts, stateLockFacts } from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -61,6 +60,10 @@ function isTerminalMission(mission) { try { return isTerminal(mission.kind, miss
 function check(id, status, detail, action) {
   return { id, status, detail, ...(action ? { action } : {}) }
 }
+
+/** #F69: name the preset row the reader sees, not the internal preset id. */
+const presetLabel = (id) =>
+  ({ 'tower-worker': 'Tower Worker preset', 'tower-reviewer': 'Tower Reviewer preset', 'tower-survey': 'Tower Survey preset', 'tower-survey-sandbox': 'Tower Survey Sandbox preset' }[id] ?? id)
 
 /** Render a lock age the same way the state-lock checker does. */
 function durationText(ms) {
@@ -140,7 +143,7 @@ function stateSchemaReport(info) {
       'state-schema',
       'fail',
       info.message ?? 'state schemaVersion is unreadable',
-      'restore a state.json this build can read, or run tower_init for a new repository',
+      'restore a state.json this build can read, or initialize a new Tower repository',
     ),
   }
 }
@@ -150,22 +153,20 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const checks = []
   let reportsReport = null
   let stateLockReport = null
+  let commitLockReport = null
   const version = await gitVersion()
   checks.push(version ? check('git', 'pass', version) : check('git', 'fail', 'git is not available', 'install Git and retry'))
 
-  const detectedHost = hostVersion ?? detectHostVersion(ctx)
-  const compatibilityRows = readCompatibility(compatibilityFile)
-  const hostAssessment = assessHostVersion(detectedHost, compatibilityRows)
-  checks.push(
-    check(
-      'host-version',
-      hostAssessment.verdict === 'verified' ? 'pass' : 'warn',
-      detectedHost
-        ? `${detectedHost}: ${hostAssessment.detail}`
-        : `unknown host version; ${hostAssessment.detail}. Checked DSH_VERSION, DSH_HOST_VERSION, npm_config_dsh_version and DSH_INSTALL_DIR/package.json; include host version + COMPATIBILITY.md row in bug reports.`,
-      'record the running version in DSH_VERSION or DSH_INSTALL_DIR (or add a COMPATIBILITY.md row) and re-run tower_inspect with view: doctor',
-    ),
-  )
+  // #F65: an empty DSH_VERSION/DSH_HOST_VERSION is absent, not a version, and a
+  // DSH_INSTALL_DIR inside app.asar is unreadable by ordinary fs. Resolve with
+  // provenance, then let diagnoseHostVersion write the check and contract.
+  const callerHostVersion = typeof hostVersion === 'string' && hostVersion.trim() ? hostVersion.trim() : null
+  const hostReport = callerHostVersion
+    ? { version: callerHostVersion, source: 'caller', authoritative: true, detail: `${callerHostVersion} was supplied to doctor by the caller`, probes: [], asar: null }
+    : resolveHostVersion(ctx)
+  const hostAssessment = assessHostVersion(hostReport.version, readCompatibility(compatibilityFile))
+  const hostDiagnosis = diagnoseHostVersion(hostReport, hostAssessment)
+  checks.push(check('host-version', hostDiagnosis.status, hostDiagnosis.detail, hostDiagnosis.action))
 
   const rows = Array.isArray(loaderRows)
     ? loaderRows
@@ -207,7 +208,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'git-lock',
           'warn',
           `held by pid ${gitLock.pid ?? 'unknown'}${gitLock.phase ? ` (${gitLock.phase})` : ''} for ${durationText(gitLock.heldMs)}; the repo-scoped git mutex is busy`,
-          'wait for the git mutation to finish; tower_inspect with view: status reports the same holder',
+          'wait for the git mutation to finish; the Tower status report shows the same holder',
         )
       : check('git-lock', 'pass', 'free'),
   )
@@ -229,14 +230,14 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       ownershipError = error
     }
     if (!state.towerAgentId) {
-      checks.push(check('tower-owner', 'warn', 'state has no towerAgentId; write tools will fail closed', 'run tower_init with the restored session to re-claim ownership'))
+      checks.push(check('tower-owner', 'warn', 'state has no towerAgentId; write tools will fail closed', 're-run repository initialization with the restored session to re-claim ownership'))
     } else if (!ownershipFacts) {
       checks.push(
         check(
           'tower-owner',
           'warn',
           `ownership facts could not be read: ${String(ownershipError?.message ?? ownershipError ?? 'unknown error')}`,
-          'inspect the mode store and workspace lock files, then retry tower_inspect with view: doctor',
+          'inspect the mode store and workspace lock files, then re-run the environment health check',
         ),
       )
     } else {
@@ -260,13 +261,13 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'warn',
           detail,
           busy.length > 0
-            ? 'stop the live roster agents or release the foreign workspace lock, then run /tower takeover <reason>'
-            : 'in the new session run /tower takeover <reason> to claim this repository without deleting its history',
+            ? 'stop the live roster agents or release the foreign workspace lock, then take over the repository (give a reason)'
+            : 'in the new session, take over the repository (give a reason) to claim it without deleting its history',
         ))
       }
     }
   } catch (error) {
-    checks.push(check('state', 'fail', String(error?.message ?? error), 'run tower_init or restore the state file'))
+    checks.push(check('state', 'fail', String(error?.message ?? error), 'initialize the repository or restore the state file'))
   }
   const schemaReport = stateSchemaReport(schemaInfo)
   checks.push(schemaReport.check)
@@ -283,7 +284,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'case-mode',
           'warn',
           `caseInsensitive: not detected; scope matching uses ${comparison} comparison`,
-          'run tower_init on a writable checkout to probe and record the filesystem mode',
+          'initialize the repository on a writable checkout to probe and record the filesystem mode',
         )
       : check(
           'case-mode',
@@ -315,7 +316,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       'config',
       config.configPath && config.repoConfigPresent ? 'pass' : 'warn',
       config.repoConfigPresent ? `repo config ${config.configPath}` : `repo config not present (${config.configPath ?? 'unknown'})`,
-      'optional: add <git-common-dir>/dsh-tower/config.json',
+      'optional: add the Tower config file under <git-common-dir>/dsh-tower/',
     ),
   )
   // #M76: the activity log is bounded by the store adapter. Report both the
@@ -341,7 +342,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         `activity.jsonl ${activityLog.liveBytes} B live + ${segmentCount} rotated segment(s) ${activityLog.rotatedBytes} B (${rotation})`,
         activityLog.rotationEnabled
           ? undefined
-          : 'set activity.maxBytes above 0 in the profile or repo config to bound the activity log',
+          : 'raise the activity-log size cap above 0 in the profile or repository configuration to bound the log',
       ),
     )
   }
@@ -391,16 +392,20 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       // be dispatched.
       if (missing.length === 0) {
         const reviewerNote = available.includes(reviewer)
-          ? `reviewer=${reviewer}`
-          : `reviewer=${reviewer} (disabled by component preset-tower-reviewer)`
-        checks.push(check('presets', 'pass', `worker=${worker} ${reviewerNote}`))
+          ? `reviewer=${presetLabel(reviewer)}`
+          : `reviewer=${presetLabel(reviewer)} (Tower Reviewer preset switched off in the plugin page)`
+        checks.push(check('presets', 'pass', `worker=${presetLabel(worker)} ${reviewerNote}`))
       } else {
+        const requiredNote =
+          reviewerRequired && missing.includes(reviewer)
+            ? ' (review before merging is required, so the Tower Reviewer preset may not be switched off)'
+            : ''
         checks.push(
           check(
             'presets',
             'fail',
-            `missing preset(s): ${missing.join(', ')}${reviewerRequired && missing.includes(reviewer) ? ' (review.mode is required, so preset-tower-reviewer may not be off)' : ''}`,
-            'enable the Tower preset component and retry',
+            `missing preset(s): ${missing.map(presetLabel).join(', ')}${requiredNote}`,
+            'switch the missing preset row back on in the plugin page and restart DSH, or choose a registered preset on the plugin configuration form',
           ),
         )
       }
@@ -427,7 +432,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'components',
           'warn',
           componentSummary(components) + (subsystemRows.length > 0 ? '; ' + subsystemRows.map((entry) => entry.id + ' (' + (entry.tool ?? 'no tool') + ') is off, not deleted: ' + entry.enable).join('; ') : ''),
-          'enable the row named in the detail in cordis.patch.yml (remove `disabled: true`) and restart DSH',
+          'switch the row named in the detail back on in the plugin page (remove its disabled setting) and restart DSH',
         )
       : check('components', 'pass', componentSummary(components)),
   )
@@ -460,10 +465,10 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         ? check(
             'spawn-lease',
             'fail',
-            `spawn.requireLease="${requiredLease}" is set but the tower-leases row is disabled, so tower_resource cannot acquire the lease`,
-            're-enable the tower-leases row in the plugin page and restart DSH, or clear spawn.requireLease',
+            `A lease "${requiredLease}" is required before an execution agent starts, but Lease coordination is switched off in the plugin page, so no lease can be acquired`,
+            'switch Lease coordination back on in the plugin page and restart DSH, or clear the lease requirement on the plugin configuration form',
           )
-        : check('spawn-lease', 'pass', `spawn.requireLease="${requiredLease}" is satisfiable (tower-leases row enabled)`),
+        : check('spawn-lease', 'pass', `A lease "${requiredLease}" is required and Lease coordination is on`),
     )
   }
 
@@ -473,48 +478,15 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   checks.push(hmr ? check('hmr', 'pass', 'service mounted') : check('hmr', 'warn', 'HMR is not mounted; /tower reload is unavailable'))
 
   if (state) {
-    const lock = await readStateLock(tower.paths)
-    const timing = lockTiming(lock.record)
-    stateLockReport = {
-      held: Boolean(lock.record),
-      pid: lock.record?.pid ?? null,
-      startedAt: lock.record?.startedAt ?? null,
-      at: lock.record?.at ?? null,
-      alive: lock.alive,
-      ageMs: timing.ageMs,
-      heartbeatAgeMs: timing.heartbeatAgeMs,
-      staleAfterMs: timing.staleAfterMs,
-      stale: timing.stale,
-    }
-    // The PID alone cannot distinguish a live writer from a recycled PID
-    // (#92); report the heartbeat age so a stuck tower is diagnosable without
-    // reading the file.
-    const heartbeatText =
-      timing.heartbeatAgeMs === null
-        ? 'no heartbeat timestamp'
-        : `last heartbeat ${timing.heartbeatAgeMs}ms ago (stale after ${timing.staleAfterMs}ms)`
-    checks.push(
-      !lock.record
-        ? check('state-lock', 'pass', 'no state lock file')
-        : lock.alive === false
-          ? check(
-              'state-lock',
-              'warn',
-              `stale state lock (pid ${lock.record.pid ?? 'unknown'} is gone; ${heartbeatText}); the next mutation reclaims it atomically`,
-            )
-          : timing.stale
-            ? check(
-                'state-lock',
-                'warn',
-                `state lock pid ${lock.record.pid ?? 'unknown'} is alive but silent (${heartbeatText}); a live-but-silent holder is never reclaimed automatically`,
-                'confirm the process is gone (or stop it), then run tower_recover clear-stale-lock force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup',
-              )
-            : check(
-                'state-lock',
-                'warn',
-                `state lock held by pid ${lock.record.pid ?? 'unknown'}; ${heartbeatText}; retry after it finishes`,
-              ),
-    )
+    const stateLock = stateLockFacts(await readStateLock(tower.paths))
+    stateLockReport = stateLock.report
+    checks.push(stateLock.check)
+    // #F71: a leftover commit mutex makes every state write fail with
+    // state-commit-busy; report it next to the state lock so the recovery
+    // command is visible instead of requiring a manual file deletion.
+    const commitLock = commitLockFacts(await readStateCommitLock(tower.paths))
+    commitLockReport = commitLock.report
+    checks.push(commitLock.check)
     const lockDir = path.join(tower.commonDir, 'dsh-tower', 'tower.lock')
     // Same ownership facts as the tower-owner check above: no second lock read
     // with a different rule, and no duplicated roster/mode logic.
@@ -525,7 +497,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           'workspace-lock',
           'warn',
           `workspace lock ${lockDir} could not be inspected${ownershipError ? `: ${String(ownershipError?.message ?? ownershipError)}` : ''}`,
-          'inspect the lock path and retry tower_inspect with view: doctor',
+          'inspect the lock path and re-run the environment health check',
         ),
       )
     } else if (workspaceLock.corrupt) {
@@ -547,7 +519,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           workspaceLock.stale ? 'warn' : 'pass',
           `held by ${holder}${workspaceLock.stale ? ' (stale)' : ''}`,
           workspaceLock.stale
-            ? 'a live holder is never stolen automatically; confirm the owning session exited, then run /tower takeover <reason> to claim the repository and release the orphan lock'
+            ? 'a live holder is never stolen automatically; confirm the owning session exited, then take over the repository (give a reason) to claim it and release the orphan lock'
             : undefined,
         ),
       )
@@ -573,10 +545,10 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       } catch { missingWorktrees += 1 }
     }
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
-    const terminalSummary = `${terminalMissingWorktrees} terminal mission worktree(s) are no longer on disk; run tower_teardown to record the removal`
+    const terminalSummary = `${terminalMissingWorktrees} terminal mission worktree(s) are no longer on disk; run the mission teardown step to record the removal`
     const terminalNote = terminalMissingWorktrees > 0 ? `; ${terminalSummary}` : ''
     const problem = missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid${terminalNote}` : terminalMissingWorktrees > 0 ? terminalSummary : dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null
-    const action = missingWorktrees > 0 ? 'inspect tower_inspect with view: status, restore the worktree/branch, then re-run tower_inspect with view: doctor' : terminalMissingWorktrees > 0 ? 'run tower_teardown; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : undefined
+    const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : undefined
     checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
 
     const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))
@@ -612,7 +584,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
           ? `MISSIONS.md is not written (disabled by component tower-board); expected at ${boardPath}`
           : `MISSIONS.md refreshes after mission changes at ${boardPath}`,
         boardDisabled
-          ? 'enable the tower-board row and restart DSH, or accept a stale board; every state tool and gate still works'
+          ? 'switch the Mission board capability back on in the plugin page and restart DSH, or accept a stale board; every state tool and gate still works'
           : undefined,
       ),
     )
@@ -653,7 +625,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         'leases',
         corrupt ? 'fail' : 'warn',
         corrupt ? `lease ledger is corrupt: ${String(error?.message ?? error)}` : 'lease module unavailable',
-        corrupt ? 'inspect <git-common-dir>/dsh-tower/leases.json and repair or remove it' : undefined,
+        corrupt ? 'inspect the lease ledger in the Tower state directory and repair or remove it' : undefined,
       ),
     )
   }
@@ -710,7 +682,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         'archive',
         'warn',
         `${archiveInventory.missions} archived mission(s), ${archiveInventory.bytes} bytes; unreadable: ${archiveInventory.unreadable[0]}`,
-        'inspect <git-common-dir>/dsh-tower/archive/ and repair or move the corrupt file; archiving is paused until it is readable',
+        'inspect the archive directory in the Tower state directory and repair or move the corrupt file; archiving is paused until it is readable',
       ),
     )
   } else {
@@ -739,6 +711,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     // can compare doctor with tower_status instead of re-deriving the rules.
     ownership: ownershipFacts?.snapshot ?? null,
     stateLock: stateLockReport,
+    commitLock: commitLockReport,
     gitLock,
     stateSchema: schemaReport.stateSchema,
 // reports (from #89) and archive (from #73) are both kept
@@ -781,7 +754,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       gitTimeoutMs: Number(tower.config.git?.timeoutMs) || 15000,
       mergeTimeoutMs: Number(tower.config.merge?.timeoutMs) || 900000,
       testsAdmission: tower.config.tests?.admission ?? 'off',
-      hostVersion: detectedHost,
+      ...hostDiagnosis.contract,
       hostCompatibility: hostAssessment.verdict,
       hostCompatibilityDetail: hostAssessment.detail,
       ralphLoop,

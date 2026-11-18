@@ -22,34 +22,50 @@ export function registerCompleteTool(ctx, deps) {
     output: output(SCHEMAS.complete),
     async execute(args, exec) {
       const tower = await deps.openTower(args.repoRoot)
+      const agentId = String(exec.agent.id)
+      const missionId = String(args.missionId)
+      // #F73: a worker that calls this tool is alive. If the watchdog marked its
+      // row stale (empty/partial catalog or a single missed sweep), its own row
+      // may still complete: the completion transaction revives the row and closes
+      // it as `inactive` inside the same state lock, so a concurrent sweep can
+      // never observe it as an active-but-unobserved row. Every other terminal
+      // state still refuses before any repository-controlled work runs.
+      const options = { allowStaleSelfReport: true }
       // Validate authorization/state before executing repository-controlled
       // test code or writing a test receipt.
-      await tower.checkCompletion({
-        missionId: args.missionId,
-        agentId: String(exec.agent.id),
-        report: args.report,
-      })
-      const context = await tower.missionContext(args.missionId)
+      await tower.checkCompletion(
+        {
+          missionId: missionId,
+          agentId,
+          report: args.report,
+        },
+        options,
+      )
+      const context = await tower.missionContext(missionId)
       const checks = [...(Array.isArray(args.checks) ? args.checks : [])]
       const testsConfig = /** @type {any} */ (tower.config.tests ?? {})
       // #136: the `tower-tests` component row is the only switch; admission
       // decides when discovery runs, not whether it may run.
       if (isCompleteAdmission(testsConfig.admission)) {
-        const discovery = await runMissionDiscovery(tower, { id: args.missionId, worktree: context.mission.worktree })
+        const discovery = await runMissionDiscovery(tower, { id: missionId, worktree: context.mission.worktree })
         if (discovery.configured && discovery.receipt.ok !== true) {
-          throw new TowerToolError('tests-failed', `test discovery failed for ${args.missionId}: ${discovery.receipt.error}`)
+          throw new TowerToolError('tests-failed', `test discovery failed for ${missionId}: ${discovery.receipt.error}`)
         }
       }
       // #149 W4: the receipt already lives in mission.testRuns and is read by
       // domain/evidence.js. Copying a `tests` projection into the completion
       // report would be a second evidence shape, so it is not done here.
-      return tower.complete({
-        missionId: args.missionId,
-        agentId: String(exec.agent.id),
-        report: args.report,
-        result: args.result,
-        checks,
-      })
+      const result = await tower.complete(
+        {
+          missionId: missionId,
+          agentId,
+          report: args.report,
+          result: args.result,
+          checks,
+        },
+        options,
+      )
+      return result
     },
   })
 }

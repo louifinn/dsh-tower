@@ -80,6 +80,13 @@ export function readJsonSync(file) {
  * the temp file is removed and state.json is left untouched. This keeps the
  * state-write lock check out of the serialisation window (a `toJSON` that
  * mutates the lock file cannot slip a stale write through).
+ *
+ * `options.onBeforeRename` and `options.onAfterRename` run immediately before
+ * and immediately after the rename, with `{ file, tmp }`; both are test seams
+ * that let a fixture land a foreign commit on either side of the atomic
+ * commit window deterministically (production callers omit them). A
+ * `onBeforeRename` failure is treated like a `verify` failure: the temp file
+ * is removed and the destination is untouched.
  */
 export async function writeJsonAtomic(file, value, options = {}) {
   const dir = path.dirname(file)
@@ -92,15 +99,15 @@ export async function writeJsonAtomic(file, value, options = {}) {
   } finally {
     await handle.close()
   }
-  if (options.verify) {
-    try {
-      await options.verify()
-    } catch (error) {
-      await fsp.unlink(tmp).catch(() => {})
-      throw error
-    }
+  try {
+    if (options.verify) await options.verify()
+    if (options.onBeforeRename) await options.onBeforeRename({ file, tmp })
+  } catch (error) {
+    await fsp.unlink(tmp).catch(() => {})
+    throw error
   }
   await renameWithRetry(tmp, file)
+  if (options.onAfterRename) await options.onAfterRename({ file, tmp })
 }
 
 /** Synchronous counterpart used by the mode store's short critical section. */

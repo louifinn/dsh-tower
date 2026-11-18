@@ -176,9 +176,10 @@ test('generated events reference matches the event table', async () => {
 
 test('declaration contracts typecheck with tsc --noEmit', async () => {
   const { execFileSync } = await import('node:child_process')
-  execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '--noEmit'], {
-    cwd: root,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-  })
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const options = { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' }
+  execFileSync(npx, ['tsc', '--noEmit'], options)
+  // F12: tsc --noEmit keeps skipLibCheck: true, so it never looks inside
+  // types/index.d.ts. The declaration project does, with skipLibCheck off.
+  execFileSync(npx, ['tsc', '-p', 'tsconfig.types.json'], options)
 })

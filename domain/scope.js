@@ -195,6 +195,71 @@ export function normalizeScope(scope, { allowEmpty = false } = {}) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// F18: planning-time directory scopes.
+//
+// A scope entry names files, not directories, and `fileInScope` stays a pure
+// glob matcher. A literal `docs/guide` can therefore only match a file spelled
+// exactly like that — never a file below it (the M29 accident: a plan named
+// `docs/guide` and every gate-required file under it fell outside the fence).
+// Planning therefore expands a directory-shaped entry into its explicit
+// subtree glob before normalization and stores that glob. Expansion only
+// shapes new input: a fence already stored on a mission is never rewritten, so
+// old literal scopes keep rejecting files below them until the operator widens
+// them explicitly.
+
+/**
+ * The canonical directory path a bare plan entry names, or `null` when the
+ * entry is not a bare relative path (glob metacharacters, absolute path, `..`,
+ * empty text, or non-string input). `trailing` records an explicit trailing
+ * separator, which means "this is a directory" even when it does not exist yet.
+ * @param {unknown} raw
+ * @returns {{ value: string, trailing: boolean } | null}
+ */
+export function directoryScopeCandidate(raw) {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return null
+  const slashed = trimmed.replace(/\\/g, '/')
+  const trailing = slashed.endsWith('/')
+  const value = slashed.replace(/^\.\//, '').replace(/\/+$/, '')
+  if (value.length === 0) return null
+  if (GLOB_META.test(value)) return null
+  if (value.startsWith('/') || /^[A-Za-z]:/.test(value)) return null
+  if (value.split('/').some((part) => part === '..')) return null
+  return { value, trailing }
+}
+
+/**
+ * Expand the directory-shaped entries of a plan (or scope-widening) input into
+ * explicit subtree globs:
+ *
+ *  - `docs/guide/` (explicit trailing separator) becomes `docs/guide/**`;
+ *  - a bare `docs/guide` becomes `docs/guide/**` when `directories` contains
+ *    it, i.e. the planning checkout has that directory;
+ *  - `.` becomes `**`: the repository root is a directory by definition;
+ *  - globs, absolute paths, `..` entries, non-strings and bare paths that are
+ *    not known directories stay exactly as written (a bare path may name an
+ *    existing file or a file a mission will create).
+ *
+ * The caller normalizes the result afterwards (`normalizeScope`), so
+ * separators, empty text and duplicates are handled there with the same errors
+ * as before. Stored mission scopes never pass through this function.
+ * @param {unknown} scope
+ * @param {{ directories?: ReadonlySet<string> }} [options]
+ * @returns {unknown}
+ */
+export function expandScopeDirectories(scope, { directories = new Set() } = {}) {
+  if (!Array.isArray(scope)) return scope
+  return scope.map((raw) => {
+    const candidate = directoryScopeCandidate(raw)
+    if (candidate === null) return raw
+    if (candidate.value === '.') return '**'
+    if (!candidate.trailing && !directories.has(candidate.value)) return raw
+    return `${candidate.value}/**`
+  })
+}
+
 /**
  * @param {string} pattern
  * @returns {string}

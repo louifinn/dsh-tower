@@ -36,10 +36,14 @@ async function assertShapeComponents(tower, input) {
       // exactly as a host without the component port did before shapes existed.
       if ((await components.available(required)) !== false) continue
     } else if (components.enabled(required) === true) continue
+    // #F80: the required component is a capability row id. Name the capability,
+    // not the row: the plugin page shows titles, and the gate that checks copy
+    // for internal identifiers has no business accepting this one just because
+    // the sentence is built here rather than in a copy table.
     throw new TowerToolError(
       'invalid-argument',
-      `the ${required} component is off: ${shape.kind} missions cannot be planned; the other kinds are unaffected`,
-      { nextAction: `enable the ${required} component and plan the ${shape.kind} mission again` },
+      `the capability this mission kind needs is turned off: ${shape.kind} missions cannot be planned; the other kinds still can`,
+      { nextAction: `turn that capability back on in the plugin page, then plan the ${shape.kind} mission again` },
     )
   }
 }

@@ -34,6 +34,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
 - `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
 - `concurrency.test.mjs` — `spawn.maxLiveWorkers`, `tower_send` per-minute rate limiting, stale roster entries (`spawn.staleMs`), and parallel writers serializing on the state lock with a monotonic revision. Also pins the #148 budget shape: a live survey row does not consume a build slot, a survey spawn is allowed while build slots are full, and a second build is refused with `worker-limit`.
+- `roster-watchdog.test.mjs` — F73 roster truth: an empty descendant catalog is never authoritative; a live row needs consecutive missing observations spanning twice `spawn.staleMs` before it can go stale; a stale-marked row that calls `tower_complete` itself is revived and recorded, because a stopped worker cannot call tools; `staleMs: 0` disables the watchdog without writing state or activity. The race cases are pinned with an injectable seam (`rosterView` parked between the snapshot and the sweep; `checkCompletion` preempted by a sweep): a row revived mid-tick stays active, a completion that races a parked tick closes its row with no `worker-stale` blocker, and a sweep that wins the lock before the commit is re-prepared instead of refused.
 - `survey-lifecycle.test.mjs` — the survey shape against a real temporary Git repository: planning records `readCommit`/`readDirty` and no worktree/branch/baseCommit, a moved shared checkout refuses planning, provisioning is the shared checkout, completion enforces HEAD and the tracked-status fingerprint with zero commits, merge/rebase/preflight/diff are refused, a completed survey is terminal for archive/reanchor/open work, and the `tower-survey` row off refuses planning with an actionable code.
 - `shape-registry.test.mjs` / `shape-migration.test.mjs` — the shape kernel (per-kind statuses, `isTerminal`/`canTransition` agreement, `dependencySatisfied`, action refusals, `migrateLegacy` fixed point) and the v3 → v4 per-kind schema migration (a branch-shaped survey becomes a read-only record, a build is unchanged, one-way and idempotent).
 - `faults.test.mjs` — corrupt/unsupported state JSON (`state-corrupt`), a held writer lock (`state-locked`), and a vanished worktree reported as `branch-missing` instead of throwing.
@@ -76,7 +77,7 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
 
-Twelve files carry **119 property cases** (the PR tier therefore generates 119 × 3 seeds × 100 runs = **35,700 inputs** per run; the long tier 119 × 2000 = 238,000):
+Twelve files carry **121 property cases** (the PR tier therefore generates 121 × 3 seeds × 100 runs = **36,300 inputs** per run; the long tier 121 × 2000 = 242,000):
 
 - `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
 - `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
@@ -141,6 +142,25 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.2 release evidence (2026-11-18)
+
+The bounded suite is **125 `tests/*.test.mjs` files**, run as five sequential `node --test <files...>`
+batches on Windows 11 with Node `v25.8.1` (never an unbounded `npm test`). Declarations are counted, so
+the one skip is included in the total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 125 files | five sequential batches, `node --test --test-reporter=tap <files>` | **1252** | 1251 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.3` (79.1 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs` and `roster-watchdog.test.mjs` run inside them and passed. These are the
+current totals; the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is
+kept as written.
+
 ### 2.9.1 release evidence (2026-11-17)
 
 The bounded suite is **124 `tests/*.test.mjs` files**, run as five sequential `node --test <files...>`
@@ -167,7 +187,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.1 release evidence](#291-release-evidence-2026-11-17) above.
+[2.9.2 release evidence](#292-release-evidence-2026-11-18) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
@@ -194,7 +214,7 @@ release check exited 0 in that same checkout:
 | Generated references | `docs:check:generated`, `:tools`, `:config`, `:events`, `:blockers`, `:types`, `:components`, `:locale`, `:shapes` | 0 |
 | Docs, components, blockers, shapes | `docs:check`, `docs:check:philosophy`, `docs:check:components`, `blockers:check`, `shape:audit` | 0 |
 | Surface, pack, workflow, support | `surface:check` (57 keys / 16 sections / 29 tools, 12 visible), `pack:check` (337 files), `workflow:check` (3 canonical legs, 4 legacy contexts, 15 SHA pins), `support:check` (Node >=24.9, DSH 0.2.2-rc.1) | 0 |
-| Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (both tsconfigs), `domain:check` (42.3% pure) | 0 |
+| Architecture, types, domain | `architecture:check` (2 waivers), `types:coverage` (181/181), `types:strict:check` (10 pinned), `types:check` (main, strict, declarations), `domain:check` (42.3% pure) | 0 |
 | Release claim | `release:check` | 0 (one expected `version-not-bumped` warning; this branch does not bump the version) |
 
 The W5 `workflow:check` row records that run's numbers (3 canonical legs, 4 legacy contexts, 15 SHA

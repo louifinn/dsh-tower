@@ -398,7 +398,15 @@ export interface TowerState {
   deliverySeq?: number
 }
 
-export type TowerConfig = import('@deepseek-ai/schemastery').TypeS<typeof import('../domain/config/schema.js').Config>
+// F12: schemastery's *type* helpers (`TypeS`, `TypeT`, ...) are declared in the
+// global `Schemastery` namespace of its declaration file, not in the module's
+// exports — the package only default-exports the `Schema` constructor. Import
+// it for types so the augmentation is loaded before the reference below, and
+// reference the namespace rather than a non-existent module member (which
+// `tsc` only reports once `skipLibCheck` is off for this file).
+import type {} from '@deepseek-ai/schemastery'
+
+export type TowerConfig = Schemastery.TypeS<typeof import('../domain/config/schema.js').Config>
 
 /** Counts rendered by mission summaries and the board. */
 export interface TaskCounts {

@@ -12,7 +12,7 @@ It returns:
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
-    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17" },
+    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17. Source: 0.2.2-rc.3 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
     { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
@@ -81,6 +81,15 @@ It returns:
     "caseInsensitive": true,
     "comparisonMode": "case-insensitive",
     "hostVersion": "0.2.2-rc.3",
+    "hostVersionSource": "DSH_INSTALL_DIR",
+    "hostVersionSourceDetail": "0.2.2-rc.3 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR",
+    "hostVersionAuthoritative": true,
+    "hostVersionProbes": [
+      { "source": "env:DSH_VERSION", "target": null, "status": "skipped", "reason": "DSH_VERSION is unset; treated as absent", "authoritative": true },
+      { "source": "DSH_INSTALL_DIR", "target": "D:/app/dsh/node_modules/@deepseek-ai/dsh", "status": "hit", "reason": "D:/app/dsh/node_modules/@deepseek-ai/dsh/package.json declares 0.2.2-rc.3", "authoritative": true },
+      { "source": "DSH_INSTALL_DIR(parent)", "target": "D:/app/dsh/node_modules/@deepseek-ai", "status": "miss", "reason": "the parent of DSH_INSTALL_DIR; no readable package.json at D:/app/dsh/node_modules/@deepseek-ai/package.json (ENOENT)", "authoritative": true }
+    ],
+    "hostAsar": null,
     "hostCompatibility": "verified",
     "ralphLoop": {
       "scopedRounds": 0,
@@ -91,6 +100,10 @@ It returns:
   }
 }
 ```
+
+The `environmentContract.hostVersionProbes` array in this example is an excerpt: it shows the install-dir
+probes but omits, for example, the other two version-variable probes. `probes` records one entry for every
+attempt actually made, including unset variables and readable candidates a higher-precedence source displaced.
 
 ### When config resolution fails
 
@@ -169,7 +182,28 @@ automatically**. Only a lock whose PID is provably dead is reclaimed, atomically
 mutation. Recovering a live-but-silent lock requires the operator to confirm the process is gone and
 run `tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; that moves the
 lock record to a backup instead of deleting it. This makes a recycled PID diagnosable without
-reading `state.lock` by hand.
+reading `state.lock` by hand. A lock file that exists but cannot be parsed (a torn write) is reported
+as `unreadable: true` with `path` and the reader `error`; the `state-lock` check is a `warn` (never a
+pass) and names the same force recovery, which renames the unreadable bytes to a unique numeric
+`.recovered-<timestamp><tick>` backup instead of deleting them.
+
+`commitLock` (and the `commit-lock` check) reports the short-lived state-commit mutex
+`state.commit.lock`: `{held, unreadable, path, error, pid, token, at, alive, ageMs, heartbeatAgeMs,
+staleAfterMs, stale}`. This mutex fences one serialise→rename→read-back window, so a record that
+outlives its process is a leftover fence and every later state write fails with `state-commit-busy`.
+A dead holder is reclaimed atomically by the next mutation; a live-but-silent holder is never
+reclaimed automatically. After confirming the writer is gone (or stopping it), run
+`tower_recover clear-stale-lock force:true` with `confirm:"CLEAR_STALE_LOCK"`; the record is renamed
+to a unique numeric `.recovered-<timestamp><tick>` backup (`commitBackup` in the recover output),
+never deleted.
+An unreadable mutex — a prefix of the JSON record left by a crash — is reported with
+`unreadable: true` and its `error`, and its check is a `warn`, not a `pass`: the file is still a
+fence that every write keeps failing on. Without `force` the recovery refuses it with
+`state-commit-lock-unreadable`; with `force` the exact bytes are renamed to the same kind of backup.
+Doctor only reports this record; it never clears it. Clearing the mutex does not weaken the writer
+fence: every commit still verifies the state-lock token and the exact `state.json` bytes before the
+rename and classifies the landed revision afterwards, so a stale writer that lost a race fails
+closed instead of overwriting the successor's document.
 
 `ownership` (and the `tower-owner`/`workspace-lock` checks) is the same read-only ownership snapshot
 `tower_inspect` with `view: "status"` returns, or `null` when the state or ownership facts could not be read. It contains
@@ -216,17 +250,47 @@ The `warn` action names both `mode.ralphPolicy` outcomes; the loop itself is not
 
 ### Host version provenance
 
-The `host-version` check (and `environmentContract.hostVersion`/`hostCompatibility`) compares the
-running DeepSeek Harness version with the rows in `COMPATIBILITY.md`; doctor reads that file from the
-installed package and never touches the network. The version is resolved in order from `DSH_VERSION`,
-`DSH_HOST_VERSION`, `npm_config_dsh_version`, then the `version` field of the `package.json` in
-`DSH_INSTALL_DIR` and in its parent directory, then the mounted `app`, `runtime` or `host` service's
-`version`/`build.version`. Every source is probed defensively: a missing file, unreadable directory or
-unparsable version is ignored, never thrown. When no source yields a parsable version, the check is a
-`warn` whose detail names the probed sources, `environmentContract.hostVersion` is `null`, and the
-action tells the operator to set `DSH_VERSION` or `DSH_INSTALL_DIR` and re-run doctor. A detected
-version is `pass` only when it exactly matches a row (`verdict: "verified"`); newer, older and
-unparsable versions are advisory `warn`s (`untested-newer`, `untested-older`, `unknown`). This
+The `host-version` check compares the running DeepSeek Harness version with the rows in `COMPATIBILITY.md`;
+doctor reads that file from the installed package and never touches the network. The version is resolved in
+trust order:
+
+1. `DSH_VERSION`, `DSH_HOST_VERSION`, then `npm_config_dsh_version`. Each value is trimmed and must parse as a
+   version; unset, empty and whitespace-only values are treated as absent, never as a version. The desktop
+   host exports both version variables as empty strings, so that is the normal desktop shape, not a version.
+2. The `version` field of the `package.json` in `DSH_INSTALL_DIR` and in its parent directory. The probes run
+   in that order and **the first readable path answers**: `DSH_INSTALL_DIR` outranks its parent, so a parent's
+   older, already-verified row can never stand in for a newer untested install. When `DSH_INSTALL_DIR` points
+   inside an `app.asar` archive — as the desktop install does — ordinary fs cannot read through the container,
+   so doctor substitutes the matching `app.asar.unpacked` path (the packager's readable sibling) and records
+   one probe per path: the asar path itself, its parent, the unpacked substitution, and the unpacked parent
+   (the unpacked package outranks the unpacked parent). Later readable candidates stay in the provenance as
+   recorded-but-not-used probes.
+3. The mounted `app`, `runtime` or `host` service's `version`/`build.version`.
+4. Last, as a labelled **secondary source only**, a profile-installed `@deepseek-ai/dsh*` dependency
+   (`@deepseek-ai/dsh` first — that is the host package itself — then `@deepseek-ai/dsh-tool-subagent` as the
+   known lockstep package, then any other sibling; never this plugin's own `tower` package) under
+   `DSH_HOME/profiles/*/node_modules/@deepseek-ai`. Those packages ship in lockstep with the host but are only
+   a dependency and may lag it, so a hit from this source is never authoritative.
+
+Every source is probed defensively: a missing file, unreadable directory, unparsable version or a lookup that
+throws is recorded as a failed probe, never thrown. That includes a throwing `os.homedir()` while locating the
+profile fallback: the profile is simply not scanned and the failure is a `miss` probe. `resolveHostVersion`
+returns the provenance: `source` and `detail` name the source that answered (or an unknown report says why each
+source failed), `authoritative` is `false` for the profile fallback, `probes` lists every attempt with `target`,
+`status` (`hit`/`miss`/`skipped`), `reason` and `authoritative` — a readable candidate that a higher-precedence
+source displaced keeps `status: "hit"` and says so in `reason` — and `asar` describes the container, install dir
+and unpacked substitution plus whether the archive was directly readable and whether the unpacked copy
+answered.
+
+Doctor surfaces that provenance in the `host-version` detail (`<version>: <verdict>. Source: <detail>`), in
+`environmentContract.hostVersionSource`/`hostVersionSourceDetail`/`hostVersionAuthoritative`/
+`hostVersionProbes`/`hostAsar`, and in the action. A detected version is `pass` only when it is authoritative
+and exactly matches a row (`verdict: "verified"`). A profile-fallback hit is always a `warn` — even when its
+version matches a row — because that dependency may lag the host; its detail says so and its action asks for
+`DSH_VERSION` or a readable install package. When no source answers, the check is a `warn` whose detail names
+the asar container when relevant and every probed source, `environmentContract.hostVersion` is `null`, and the
+action tells the operator to set `DSH_VERSION`, make the install package readable, or add a row. Newer, older
+and unparsable versions are likewise advisory `warn`s (`untested-newer`, `untested-older`, `unknown`). This
 contract is informational: doctor never blocks a tool on it.
 
 Checks cover: git availability, repository identity, state schema/load, bounded activity-log rotation,

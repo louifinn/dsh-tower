@@ -107,16 +107,24 @@ export function normalizeChecks(checks) {
 /**
  * Resolve and validate the reporting worker and the mission's completion
  * preconditions that need no repository access.
- * @param {{ mission: Mission, roster: RosterEntry[] | undefined, input: any, maxReportBytes?: number }} params
+ *
+ * `allowStaleSelfReport` is the F73 admission: a worker that is calling
+ * `tower_complete` is alive, so its own `stale` row may proceed — the
+ * completion transaction revives and closes it under the same state lock that
+ * commits the mission. Every other terminal state, and every other row, still
+ * refuses; callers that omit the option keep the strict refusal (the guard
+ * proof in `tests/roster-watchdog.test.mjs` drives that path directly).
+ * @param {{ mission: Mission, roster: RosterEntry[] | undefined, input: any, maxReportBytes?: number, allowStaleSelfReport?: boolean }} params
  * @returns {RosterEntry}
  */
-export function assertCompletionRequest({ mission, roster, input, maxReportBytes }) {
+export function assertCompletionRequest({ mission, roster, input, maxReportBytes, allowStaleSelfReport = false }) {
   const worker = (roster ?? []).find((entry) => entry.agentId === input.agentId)
   if (!worker || worker.missionId !== mission.id) {
     fail(`agent ${input.agentId} is not assigned to mission ${mission.id}`)
   }
   if (!isWorkerRole(worker.role)) fail(`agent ${worker.name} is a ${worker.role}, not a worker`)
-  if (['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(worker.state)) {
+  const stopped = ['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(worker.state)
+  if (stopped && !(worker.state === 'stale' && allowStaleSelfReport === true)) {
     fail(`agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`)
   }
   if (mission.owner && mission.owner !== worker.name) {

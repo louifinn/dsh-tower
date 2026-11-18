@@ -449,13 +449,19 @@ test('tower_doctor reports state-lock age and heartbeat freshness (#92)', async 
     assert.ok(doctor.stateLock.ageMs >= 50000)
     assert.ok(doctor.stateLock.staleAfterMs > 0)
 
-    // A fresh heartbeat is reported as held, not stale.
+    // A fresh heartbeat is reported as held, not stale. The record is stamped
+    // in the future on purpose: this assertion is about the doctor's stale
+    // classification, not about how long a loaded machine takes to reach the
+    // inspection, so a scheduling stall longer than the stale window must not
+    // age a fresh record past it (#F20). A future `at` clamps to age zero.
+    const freshAt = Date.now() + 600_000
     fs.writeFileSync(
       tower.paths.lock,
-      JSON.stringify({ token: 'fresh', pid: process.pid, since: Date.now(), at: Date.now() }),
+      JSON.stringify({ token: 'fresh', pid: process.pid, since: freshAt, at: freshAt }),
     )
     const fresh = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(fresh.stateLock.stale, false)
+    assert.equal(fresh.stateLock.heartbeatAgeMs, 0, 'a future heartbeat clamps to a zero age')
     assert.match(fresh.checks.find((entry) => entry.id === 'state-lock').detail, /held by pid/i)
   } finally {
     removeTemp(root)

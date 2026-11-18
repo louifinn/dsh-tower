@@ -1,14 +1,17 @@
-// #137: component labels are user-facing copy, not a config dump. These are the
-// unit proofs for the copy gate that `docs:check:components` runs over the root
-// locale, the generated row locales and the ui-bundle meta label:
+// #137/#F22: component labels are user-facing copy, not a config dump. These
+// are the unit proofs for the copy gate that `docs:check:components` runs over
+// the root locale, the generated row locales, the ui-bundle meta label, the Web
+// client string catalogue and the preset runtime failures:
 //
-//   - a config key, tool id, slash command or module specifier in a label fails;
+//   - a config key, tool id, slash command or module specifier in copy fails;
 //   - an English noun left untranslated in Chinese fails;
 //   - the recorded glossary is enforced in both directions;
-//   - zh/en field paths and non-empty text must agree.
+//   - zh/en field paths and non-empty text must agree;
+//   - a preset failure names the plugin-page row and a remedy, and leaves no
+//     placeholder unfilled.
 //
 // Each negative fixture is paired with the shipped copy passing, so the tests
-// prove both "the leak is caught" and "the current labels are clean".
+// prove both "the leak is caught" and "the current copy is clean".
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -16,12 +19,26 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  CLIENT_CATALOG_FILE,
+  CLIENT_COMMAND_KEYS,
   COMPONENT_GLOSSARY,
+  DOCTOR_ACTION_MODULES,
   GLOSSARY_FILE,
+  PRESET_ERROR_FILE,
+  actionCopyFindings,
+  capabilityRowTitles,
+  checkClientCopy,
+  checkClientDictionaries,
+  checkCopyGateSelfTest,
+  checkDoctorActionCopy,
   checkGlossaryFile,
   checkLocaleCopy,
   checkMetaRowCopy,
+  checkPresetErrorCopy,
+  loadClientCatalog,
   normalizeCopy,
+  parseErrorCopy,
+  presetCopyFindings,
 } from '../scripts/check-components.mjs'
 import { OFF_EFFECT_LABEL, ROW_LOCALES, rowLocalePaths } from '../scripts/generate-capability-locale.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
@@ -39,23 +56,23 @@ const hasMessage = (findings, code, pattern) =>
   findings.some((entry) => entry.code === code && pattern.test(entry.message))
 
 // The client-side dictionary is shipped as a browser chunk, not JSON, so the
-// copy gate has to load it the same way the Web client does. Each dictionary
-// entry is rendered into all three label fields; the gate then sees the same
-// keys on both sides and can enforce parity, emptiness and the glossary.
+// copy gate has to load it the same way the Web client does.
 function loadClientLocales() {
-  let definition = null
-  const window = { __ModuleLoader__: { load(value) { definition = value } } }
-  new Function('window', read('ui-bundle/client.locales.js'))(window)
-  assert.ok(definition, 'client.locales.js must register through __ModuleLoader__')
-  return definition.factory()
+  const loaded = loadClientCatalog(root)
+  assert.equal(loaded.error, undefined, loaded.error)
+  return { EN: loaded.EN, ZH: loaded.ZH }
 }
-function clientCopyPayload(dictionary, language) {
-  const components = {}
-  for (const [key, text] of Object.entries(dictionary)) components[key] = { title: text, summary: text, disables: text }
-  const description = language === 'zh' ? 'Tower UI 客户端词典。' : 'Tower UI client copy.'
-  return { meta: { title: 'Tower UI', description }, components }
+// A throwaway root holding one planted client catalogue, so the planted leak is
+// exercised through the real file-loading path (not only the pure dictionary
+// check).
+function clientRoot(transform) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-client-copy-'))
+  fs.mkdirSync(path.join(dir, 'ui-bundle'), { recursive: true })
+  fs.writeFileSync(path.join(dir, CLIENT_CATALOG_FILE), transform(read(CLIENT_CATALOG_FILE)))
+  return dir
 }
-const CLIENT_LOCALES_FILE = 'ui-bundle/client.locales.js'
+const presetSource = () => read(PRESET_ERROR_FILE)
+const presetTitles = () => capabilityRowTitles(readJson('locale/en.json'))
 const cleanPair = () =>
   pair(meta('Tower', 'Missions and worktrees.'), meta('Tower', '任务线与工作树。'))
 
@@ -88,48 +105,129 @@ test('the shipped root, ui-bundle and generated row copy passes the copy gate (#
   for (const file of rowLocalePaths()) assert.ok(fs.existsSync(path.join(root, file)), file)
 })
 
-test('the ui-bundle client dictionaries pass parity, emptiness and glossary checks (#137)', () => {
+test('the Web client catalogue and preset failure copy pass the copy gate (#F22)', () => {
   const { EN, ZH } = loadClientLocales()
-  assert.deepEqual(Object.keys(EN), Object.keys(ZH), 'client dictionary key sets must match')
-  const findings = checkLocaleCopy([
-    pair(
-      clientCopyPayload(EN, 'en'),
-      clientCopyPayload(ZH, 'zh'),
-      CLIENT_LOCALES_FILE,
-      CLIENT_LOCALES_FILE,
-    ),
-  ])
-  // The dictionary intentionally names its own commands and tool ids in a few
-  // tooltips (`/tower off`, `tower_mode`), so the banned-syntax rules do not
-  // apply here; parity, non-emptiness and the glossary do.
-  const copyCodes = new Set(['locale-copy-parity', 'locale-copy-empty', 'locale-glossary', 'locale-copy-untranslated'])
-  const relevant = findings.filter((entry) => copyCodes.has(entry.code))
-  assert.deepEqual(relevant, [], JSON.stringify(relevant.slice(0, 20)))
+  assert.deepEqual(checkClientDictionaries(EN, ZH), [])
+  assert.deepEqual(checkClientCopy(root), [])
+  assert.deepEqual(checkPresetErrorCopy(root, presetTitles()), [])
+  // The self-test is part of the shipped gate: a green result here proves the
+  // planted fixtures below still trip their codes.
+  assert.deepEqual(checkCopyGateSelfTest(), [])
 })
 
-test('the client-copy gate catches glossary drift and a missing dictionary key (#137)', () => {
+test('a planted config key or tool id in the client catalogue fails the gate (#F22)', () => {
+  for (const [from, to, code] of [
+    ["'card.title': ['Tower', 'Tower']", "'card.title': ['Gates.requireTests is on', 'Tower']", 'client-copy-config-key'],
+    ["'tool.batch': ['Batch', '批次']", "'tool.batch': ['Batch', 'tower_batch 批次']", 'client-copy-tool-id'],
+  ]) {
+    const dir = clientRoot((source) => {
+      assert.ok(source.includes(from), from)
+      return source.replace(from, to)
+    })
+    try {
+      const findings = checkClientCopy(dir)
+      assert.ok(findings.some((entry) => entry.code === code), `${to}: ${JSON.stringify(findings)}`)
+    } finally {
+      removeTemp(dir)
+    }
+  }
+})
+
+test('the client-copy gate catches glossary drift and a missing dictionary key (#F22)', () => {
   const { EN, ZH } = loadClientLocales()
-  const drift = checkLocaleCopy([
-    pair(
-      clientCopyPayload(EN, 'en'),
-      clientCopyPayload({ ...ZH, 'tool.review': '评审' }, 'zh'),
-      CLIENT_LOCALES_FILE,
-      CLIENT_LOCALES_FILE,
-    ),
-  ])
-  assert.ok(drift.some((entry) => entry.code === 'locale-glossary'), JSON.stringify(drift.slice(0, 5)))
+  const drifted = checkClientDictionaries(EN, { ...ZH, 'tool.review': '复核' })
+  assert.ok(drifted.some((entry) => entry.code === 'client-copy-glossary'), JSON.stringify(drifted.slice(0, 5)))
 
   const missing = { ...ZH }
   delete missing['tool.batch']
-  const parity = checkLocaleCopy([
-    pair(
-      clientCopyPayload(EN, 'en'),
-      clientCopyPayload(missing, 'zh'),
-      CLIENT_LOCALES_FILE,
-      CLIENT_LOCALES_FILE,
+  const parity = checkClientDictionaries(EN, missing)
+  assert.ok(parity.some((entry) => entry.code === 'client-copy-parity'), JSON.stringify(parity.slice(0, 5)))
+})
+
+test('a command is allowed only in the documented instruction keys (#F22)', () => {
+  const allowed = checkClientDictionaries(
+    { 'dock.mode.tooltip': 'Run /tower to check Tower mode' },
+    { 'dock.mode.tooltip': '运行 /tower 检查 Tower 模式' },
+  )
+  assert.equal(
+    allowed.filter((entry) => entry.code === 'client-copy-command').length,
+    0,
+    JSON.stringify(allowed),
+  )
+  const denied = checkClientDictionaries(
+    { 'card.title': 'Run /tower off first' },
+    { 'card.title': '先运行 /tower off' },
+  )
+  assert.ok(denied.some((entry) => entry.code === 'client-copy-command'), JSON.stringify(denied))
+})
+
+test('a planted tool id or config key in a preset failure message fails the gate (#F22)', () => {
+  const presetWith = (text) =>
+    [
+      'const ERROR_COPY = Object.freeze({',
+      `  requireTests: ${JSON.stringify(text)},`,
+      '})',
+      "export function boom() { throw new TowerToolError('config-invalid', fillCopy(ERROR_COPY.requireTests)) }",
+    ].join('\n')
+  const clean =
+    'Test evidence is required before merging, but the Test evidence capability is switched off. ' +
+    'Switch the Test evidence capability back on in the plugin page.'
+  assert.deepEqual(presetCopyFindings(presetWith(clean), ['Test evidence']), [])
+  for (const [label, text, code] of [
+    [
+      'tool id',
+      'The tower_resource tool is missing. Switch the Test evidence capability back on in the plugin page.',
+      'preset-copy-tool-id',
+    ],
+    [
+      'config key',
+      'gates.requireTests is on. Switch the Test evidence capability back on in the plugin page.',
+      'preset-copy-config-key',
+    ],
+    [
+      'module specifier',
+      'Import dsh-tower/presets to check. Switch the Test evidence capability back on in the plugin page.',
+      'preset-copy-module',
+    ],
+  ]) {
+    const findings = presetCopyFindings(presetWith(text), ['Test evidence'])
+    assert.ok(findings.some((entry) => entry.code === code), `${label}: ${JSON.stringify(findings)}`)
+  }
+})
+
+test('preset failure copy must stay in the table, name a row and a remedy (#F22)', () => {
+  const base = (entries) =>
+    [
+      'const ERROR_COPY = Object.freeze({',
+      ...entries,
+      '})',
+      "export function boom() { throw new TowerToolError('config-invalid', fillCopy(ERROR_COPY.requireTests)) }",
+    ].join('\n')
+  const rowAndRemedy = 'Switch the Test evidence capability back on in the plugin page.'
+  assert.deepEqual(checkCopyGateSelfTest(), [])
+  assert.ok(
+    presetCopyFindings(base(["  requireTests: 'Test evidence is switched off.',"]), ['Test evidence']).some(
+      (entry) => entry.code === 'preset-copy-remedy',
     ),
-  ])
-  assert.ok(parity.some((entry) => entry.code === 'locale-copy-parity'), JSON.stringify(parity.slice(0, 5)))
+  )
+  assert.ok(
+    presetCopyFindings(
+      base(["  requireTests: 'The capability is off; switch it back on in the plugin page.',"]),
+      ['Test evidence'],
+    ).some((entry) => entry.code === 'preset-copy-row'),
+  )
+  assert.ok(
+    presetCopyFindings(base([`  requireTests: 'Test evidence is off for {name}; ${rowAndRemedy}',`]), ['Test evidence']).some(
+      (entry) => entry.code === 'preset-copy-placeholder',
+    ),
+  )
+  const unparsed = [
+    'const ERROR_COPY = Object.freeze({',
+    `  requireTests: 'Test evidence is off; ${rowAndRemedy}',`,
+    '})',
+    "export function boom() { throw new TowerToolError('config-invalid', 'Something went wrong') }",
+  ].join('\n')
+  assert.ok(presetCopyFindings(unparsed, ['Test evidence']).some((entry) => entry.code === 'preset-copy-unparsed'))
 })
 
 test('config-key syntax fails in both languages (#137)', () => {
@@ -389,5 +487,58 @@ test('the glossary document exists and names every canonical term pair (#137)', 
     assert.ok(findings.some((entry) => entry.code === 'glossary-term'), JSON.stringify(findings))
   } finally {
     removeTemp(empty)
+  }
+})
+
+test('environment-health actions injected beside the doctor are gated too (#F75)', () => {
+  // The doctor's sibling modules hand their remedy to check(...) as a value, and
+  // that value used to bypass the copy gate entirely. A tool id planted in the
+  // table must fail with the doctor's own finding code.
+  const source = [
+    'const DOCTOR_ACTION_COPY = Object.freeze({',
+    "  restart: 'restart DSH so the new capability takes effect',",
+    '})',
+    'export function fact() { return { row: { status: "warn", detail: "a capability needs a restart", action: DOCTOR_ACTION_COPY.restart } } }',
+  ].join('\n')
+  assert.deepEqual(actionCopyFindings(source, 'host/doctor-acceptance.js'), [])
+  const planted = source.replace(
+    'restart DSH so the new capability takes effect',
+    'finish the loop with tower_recover, then restart DSH',
+  )
+  const findings = actionCopyFindings(planted, 'host/ralph-stance.js')
+  assert.ok(
+    findings.some((entry) => entry.code === 'doctor-copy-tool-id' && entry.message.includes('tower_recover')),
+    JSON.stringify(findings),
+  )
+  // Inline copy cannot dodge the scan: an injected action must resolve to the
+  // module's copy table, so a raw string fails even when its text is clean.
+  const inline = [
+    "const DOCTOR_ACTION_COPY = Object.freeze({ restart: 'restart DSH' })",
+    'export const row = { action: "restart DSH" }',
+  ].join('\n')
+  assert.ok(
+    actionCopyFindings(inline, 'host/compatibility.js').some((entry) => entry.code === 'doctor-action-copy-literal'),
+  )
+  // The shipped package carries every action-copy surface, and the gate reports
+  // the union clean.
+  assert.deepEqual(checkDoctorActionCopy(root), [])
+  for (const entry of DOCTOR_ACTION_MODULES) {
+    assert.ok(fs.existsSync(path.join(root, entry.file)), `${entry.file} is missing from the package`)
+  }
+  // A root that ships only the doctor table is a fixture, not a package: the
+  // sibling group is skipped instead of demanding files the fixture never copies.
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-doctor-actions-'))
+  try {
+    assert.deepEqual(checkDoctorActionCopy(fixture), [])
+    // Half a group is a broken package: the gate fails closed by name.
+    fs.mkdirSync(path.join(fixture, 'host'), { recursive: true })
+    fs.copyFileSync(path.join(root, DOCTOR_ACTION_MODULES[0].file), path.join(fixture, DOCTOR_ACTION_MODULES[0].file))
+    const missing = checkDoctorActionCopy(fixture)
+    assert.ok(
+      missing.some((entry) => entry.code === 'doctor-action-copy-missing'),
+      JSON.stringify(missing),
+    )
+  } finally {
+    removeTemp(fixture)
   }
 })

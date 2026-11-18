@@ -9,6 +9,7 @@ import {
   applyCompletion,
 } from '../domain/missions/completion.js'
 import { completionFor, shapeFor } from '../domain/shapes/index.js'
+import { reviveSelfReportedEntry, settleSelfReportedCompletion } from '../domain/collab/roster.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
 import { sweepArchive } from './archive.js'
@@ -102,7 +103,7 @@ async function completionFacts(tower, mission, invariants, caseInsensitive = fal
   return facts
 }
 
-export async function checkCompletion(tower, input) {
+export async function checkCompletion(tower, input, options = {}) {
   const state = await tower.load()
   const mission = state.missions.find((entry) => entry.id === input.missionId)
   if (!mission) {
@@ -113,6 +114,7 @@ export async function checkCompletion(tower, input) {
     roster: state.roster,
     input,
     maxReportBytes: tower.config.gates?.maxReportBytes,
+    allowStaleSelfReport: options.allowStaleSelfReport === true,
   })
   const shape = shapeFor(mission.kind)
   const invariants = completionFor(shape, mission, tower.config)
@@ -129,20 +131,57 @@ export async function checkCompletion(tower, input) {
   return { state, mission, worker, commits }
 }
 
-export async function complete(tower, input) {
-  // Two-phase pilot (#51): expensive git/state checks run before the lock;
-  // the lock only revalidates the state revision and commits the transition.
-  const prepared = await tower.checkCompletion(input)
-  const result = await tower.withStateLock(async (_paths, held) => {
+/**
+ * How many times one completion may re-prepare after a concurrent state write.
+ *
+ * F73: the roster watchdog writes `state.json` on its own interval (and only
+ * roster observation/staleness fields, never the mission's git facts). If its
+ * sweep wins the state lock between the two-phase check and this commit, the
+ * revision guard would turn a live worker's own completion into `stale-base`
+ * — the very failure the mission fixes. Re-running the whole check and commit
+ * is safe: each attempt revalidates everything, and the sweep can only fire
+ * once per watchdog interval, so three attempts cover a sweep that lands
+ * inside the (millisecond) check-to-lock window.
+ */
+const COMPLETION_LOCK_ATTEMPTS = 3
+
+/**
+ * Commit one prepared completion under the state lock.
+ *
+ * F73 invariant: a self-reporting worker's revival and its roster settle are
+ * part of THIS transaction. A watchdog sweep therefore observes either the
+ * pre-completion row or the closed (`inactive`) one — never an `active` row
+ * that the sweep's own snapshot never observed and that would be marked stale
+ * again, leaving a completed mission blocked by `worker-stale`.
+ * @param {any} tower
+ * @param {any} input
+ * @param {{ state: any, mission: any, worker: any, commits: number }} prepared
+ */
+async function commitCompletion(tower, input, prepared) {
+  return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     if (state.revision !== prepared.state.revision) {
       throw new TowerToolError('stale-base', 'tower state changed while completion was being prepared; retry')
     }
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) throw new TowerToolError('mission-not-found', `unknown mission "${input.missionId}"`)
-    const { worker, commits } = prepared
+    const commits = prepared.commits
     const checks = normalizeChecks(input.checks)
     const now = Date.now()
+    // The revision guard above proves the roster is exactly what the admission
+    // check saw; revive a mis-marked stale row and close it in the same write.
+    // Only a row the watchdog had staled is closed here: a normal completion
+    // keeps its live row until the catalog reports the child inactive, which is
+    // the long-standing release path. Closing the revived row is what makes the
+    // sweep and this completion mutually exclusive.
+    const roster = state.roster ?? []
+    const revived = reviveSelfReportedEntry(roster, { missionId: input.missionId, agentId: input.agentId, now })
+    const settled = revived.revived
+      ? settleSelfReportedCompletion(roster, { missionId: input.missionId, agentId: input.agentId, now })
+      : { marked: false }
+    // The revision guard proves the row is the one admission saw; keep the
+    // prepared reference as a fallback so a report can never lose its author.
+    const worker = roster.find((entry) => String(entry.agentId) === String(input.agentId)) ?? prepared.worker
     const storedReport = completionReport({
       report: input.report,
       worker,
@@ -157,15 +196,49 @@ export async function complete(tower, input) {
 
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
+    if (revived.revived) {
+      await tower.appendActivity({
+        at: now,
+        type: 'roster',
+        missionId: mission.id,
+        text: `revived ${revived.name} from stale: it called tower_complete itself, so the child is alive (F73)`,
+      })
+    }
     await tower.appendActivity({
       at: now,
       type: 'complete',
       missionId: mission.id,
       text: `${worker.name} reported completion (${commits} commit(s))`,
     })
+    if (settled.marked) {
+      await tower.appendActivity({
+        at: now,
+        type: 'roster',
+        missionId: mission.id,
+        text: `marked ${settled.name} inactive after self-reported completion (F73)`,
+      })
+    }
     tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return { mission: fullMission(mission), commits, unread: 0 }
   })
+}
+
+export async function complete(tower, input, options = {}) {
+  // Two-phase pilot (#51): expensive git/state checks run before the lock;
+  // the lock only revalidates the state revision and commits the transition.
+  let result
+  for (let attempt = 1; ; attempt += 1) {
+    const prepared = await tower.checkCompletion(input, options)
+    try {
+      result = await commitCompletion(tower, input, prepared)
+      break
+    } catch (error) {
+      // #F73: a watchdog sweep only writes roster staleness, so a revision
+      // change is not a reason to refuse a live worker's completion. Retry the
+      // whole two-phase check, which revalidates every fact on the new state.
+      if (/** @type {any} */ (error)?.code !== 'stale-base' || attempt >= COMPLETION_LOCK_ATTEMPTS) throw error
+    }
+  }
   // The completion transition is durable at this point. Removing the disposable
   // sandbox is advisory: a failed cleanup is reported, never rolled back into
   // the mission state or allowed to fail the completion.

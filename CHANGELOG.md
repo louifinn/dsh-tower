@@ -4,6 +4,85 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.2（2026-11-18）
+
+### 变更
+
+- **`tower_plan` 的目录形 scope 现在覆盖整棵子树（F18）**：scope 条目此前按纯文件 glob 匹配，
+  规划 `docs/guide` 不会覆盖 `docs/guide/quickstart.md`，任务只能越出围栏去改门禁要求的文件。规划
+  （以及 `tower_mission` 的 scope 放宽）现在会在规划检出里对每个裸条目探测一次：命中目录时存成
+  `docs/guide/**`；带显式尾分隔符的条目即使目录尚未存在也按目录处理，`.` 展开为整棵树 `**`。glob、
+  文件、未知路径与无法 `stat` 的条目保持原样；已存在 mission 上的 scope 永远不会被重写，
+  `fileInScope` 仍是纯 glob 匹配器。
+- **随包与默认的 `spawn.staleMs` 提高到 30s（F73）**：默认值从 15000 改为 30000，随包
+  `cordis.patch.yml` 同步为 30000，长于三次 10s 看门狗轮询；配置参考已重新生成。缺席判定改为
+  “连续 2 次缺失、跨 2× 窗口”（见修复节）。
+- **发布类型面开始被真实检查（F12）**：新增 `tsconfig.types.json`（`skipLibCheck:false`，只包含
+  `types/index.d.ts`，`types:["node"]`、`lib:["ES2022"]`），`types:check` 增加
+  `types:check:declarations` 一步并纳入静态门禁链。新检查立刻发现一个发布缺陷：
+  `@deepseek-ai/schemastery` 只在全局 `Schemastery` 命名空间声明 `TypeS`，旧的
+  `import('@deepseek-ai/schemastery').TypeS` 解析不到成员，`TowerConfig` 实际是 `any`；别名改为
+  `Schemastery.TypeS` 并 `import type {}` 载入声明。别名不再是 `any` 后 `tsc --noEmit` 又暴露三处被
+  掩盖的可空性错误，仅在类型层修正。
+
+### 修复
+
+- **状态锁被强制接管时静默丢失更新（F24、F15、F20）**：状态锁被接管（操作者恢复、锁回收，或迟到的
+  心跳复活旧记录）后，写入会基于另一个写入者已替换的 revision 发布文档：八个并发写入者最终只落地
+  七个 revision。互斥仍是快路径，保证改为文档 CAS——`withLock` 记录本次事务可能替换的
+  `state.json` 字节，`writeStateLocked` 在原子 rename 前（verify 钩子内）与 rename 后分别校验锁记录
+  与落地字节，冲突时报可重试的 `state-lock-lost-update` 或 `state-lock-ownership-lost`。锁心跳
+  `touchLock` 在 rename 前后比对记录字节，失败返回 `false` 并清掉临时文件；handle 的 `lost` 只在
+  记录可读且不再携带本进程 token 时置位，心跳只为自己的 token 发布字节。
+- **提交窗口仍有盲区：`state.commit.lock` 与按 revision 判读（F24、R123）**：`state.json` 的校验
+  结束于一次盲 rename，强制状态锁恢复可以在校验与 rename 之间落地一整份外来提交，随后读取回自己的
+  payload，两个写入者都报成功。`writeStateLocked` 现在在最终校验前获取短命的 `state.commit.lock`
+  （O_EXCL；只回收可证明已死的 PID；≤2 s 重试预算；失败返回带持有者 PID/token 与路径的可重试
+  `state-commit-busy`），并在 `finally` 中覆盖原子写与回读；锁序固定为 state lock → commit mutex。
+  回读按 revision 判定：字节相同为 `ok`；磁盘 revision 更高说明本次提交已落地、后继者在其上继续，
+  记为 `superseded` 且不再重试；其余才是可重试的 `state-lock-lost-update`。`writeJsonAtomic` 增加
+  仅测试使用的 rename 前后接缝，回归测试在接缝中执行强制接管；去掉互斥即可复现“B 的更新被吞掉”。
+- **`tower_recover` 现在也回收 `state.commit.lock`（F71、F70、F68）**：`status` 与
+  `clear-stale-lock` 复用同一确认串与 force 语义检查并移动提交互斥，结果返回 `commitBackup`；记录在
+  读取后变化时以 `expectedRaw` 拒绝移动，活 PID 没有显式 opt-in 绝不强制清除，`force` 先清提交互斥
+  再移动状态锁。不可读的状态锁/提交互斥报告为 `{unreadable:true,path,error}`（不再折叠成 `null`），
+  需要 force，且只把原始字节重命名到唯一的 `.recovered-<timestamp><tick>` 备份，从不删除；doctor
+  只读地报告 `commitLock`/`commit-lock`。`StorePort.stat` 正式声明 `{mtimeMs,isDirectory()}`，scope
+  围栏改读这个已声明能力而不是鸭子类型；`git-mutex-budget` 的加速心跳 CAS 改为可重试，消除测试竞态。
+- **活 worker 不再被判死（F73）**：空的 `listDescendants` 回答不再具有权威性——看门狗只有在每个父
+  会话都至少返回一行时才扫掠；一次缺席需要“连续 2 次缺失、跨 2× `spawn.staleMs`”，计数持久化在
+  名册行上，未确认的缺失以 unknown 交给扫掠。worker 自己的 `tower_complete` 到达宿主时，会在完成
+  任务自己的状态锁事务内复活自己的 stale 行（并发扫掠使 revision 失效时最多重试 3 次），接纳后按
+  `completed (self-report)` 映射为 inactive；其他终态仍然拒绝，接纳只容忍调用者自己的 stale 行。
+  看门狗记录观测后会重读名册，把未判定的行按 unknown 传递，避免“没有观测”被当成“观测到缺席”。
+- **`tower_init({op:"adopt"})` 不再把空 catalog 当成缺席证据（F83）**：只有至少一行返回的
+  `listDescendants` 回答才算权威；空回答或抛错时，相关行既不算在场也不算缺席，而是连
+  `parentStatus` 原因进入新的 `unjudged` 列表，观测计数保持不变。`retire_missing` 在权威 catalog 下
+  保持原义（仍需两次观测），否则走 `missing`。
+- **桌面宿主（asar）的版本识别（F65）**：桌面宿主位于 `resources/app.asar`，普通 fs 读不进去。
+  版本来源现在的可信顺序为：非空的 `DSH_VERSION`/`DSH_HOST_VERSION`/`npm_config_dsh_version`；
+  `DSH_INSTALL_DIR` 及其父目录、以及 asar 容器对应的 `app.asar.unpacked` 副本中**首个可读**的
+  `package.json`；已挂载的 `app`/`runtime`/`host` 服务；最后才是 profile 安装的
+  `@deepseek-ai/dsh*` 依赖，且明确是非权威来源。空/纯空白环境变量视为缺失，不再遮蔽后面的来源；
+  可读的父目录包不能再覆盖安装包（此前最后一个可读候选会赢）；profile 命中即使版本匹配也永远只报
+  warn，不会判 pass。doctor 的 `environmentContract` 新增
+  `hostVersionSource`/`hostVersionSourceDetail`/`hostVersionAuthoritative`/`hostVersionProbes`/
+  `hostAsar`，探测逐条记录 hit/miss/skipped、原因与被更高优先级顶掉的候选；定位 profile 时
+  `os.homedir()` 抛错也记为 miss，不再冒泡。
+- **用户可见文案不再出现内部标识（F22、F69、F82、F84、F79、F80、F77、F75）**：客户端字符串目录与
+  preset 运行时错误改写成“用户能开关的能力 + 插件页处置办法”，不再点名配置键、工具 id 或命令；
+  `tower_spawn` 预检与 doctor 错误改称插件页可见行（如 Lease coordination）并给出具体下一步；
+  preset 错误、计划拒绝、审查提醒与健康提醒同样去掉内部 id；审查关闭（review-disabled）剩下的
+  三个渲染面也收口。`check-components` 增加客户端目录加载器、`ERROR_COPY` 解析器与自测，任一表面
+  出现配置键、工具 id、命令或术语漂移都会让 `docs:check:components` 失败；自定义 preset id 属于
+  操作者，按原样展示。预检不再覆写 review-disabled 那一句，角色契约是唯一来源（错误码与 next 步骤
+  不变）。
+- **两个会制造假红/假阻塞的测试与文档面（F29、F72、F78、F74、F76、F81）**：events 生命周期夹具的
+  每个 git 调用都带 `-c core.autocrlf=false`，种子 README 写显式 LF 字节，并断言 checkout、提交后
+  状态干净且 mission 分支只带 `src/a.txt`，不再因宿主 `core.autocrlf=true` 报假 out-of-scope；类型
+  测试恢复被字面换行吞掉的断言；退役过时的 preset-id 断言并刷新验证清单；`tower_recover` 描述同时
+  说明状态锁与提交互斥两道闸门；README 与 README.en 的 stale 窗口与随包 30s 一致，并新增防漂移守卫。
+
 ## 2.9.1（2026-11-17）
 
 ### 变更

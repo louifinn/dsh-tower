@@ -131,7 +131,7 @@ the push gates; CI schedules it nightly.
 - `host/` — the composition root and session/process glue (`tool-registry.js` facade over `tool-runtime.js`/`tool-capabilities.js`/`tool-observers.js`, `mode-state.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `host/preset-worker.js` / `host/preset-reviewer.js` — the two Tower-owned preset declaration rows (`dsh-tower/preset-*`). They keep the row config in `cordis.patch.yml`, forward it to `ctx.agentPresets.register()`, and give each preset row its own Plugins-page label; do not mount the shared `@deepseek-ai/dsh-agent-preset` for these rows.
-- `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; an invariant over a pure domain function belongs in `tests/property/*.prop.mjs` (fast-check) rather than a hand-rolled randomized loop, and `tests/no-random.test.mjs` enforces that. Live-runtime scripts are documented in `tests/README.md`. Current suite totals (files, declarations, the single skip) are recorded in [tests/README.md](tests/README.md#291-release-evidence-2026-11-17) rather than duplicated here, so this file cannot drift from a measured run.
+- `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; an invariant over a pure domain function belongs in `tests/property/*.prop.mjs` (fast-check) rather than a hand-rolled randomized loop, and `tests/no-random.test.mjs` enforces that. Live-runtime scripts are documented in `tests/README.md`. Current suite totals (files, declarations, the single skip) are recorded in [tests/README.md](tests/README.md#292-release-evidence-2026-11-18) rather than duplicated here, so this file cannot drift from a measured run.
 - `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, The three layering rules that keep the core pure — `domain-pure`, `host-scope`, and `no-lib-from-core` — cannot be waived at all. The `let` scan behind `host-scope` is statement-aware: every binding of every top-level declaration is recorded, and only `host/**` may hold ambient state.
 - `types/` — the published declaration surface (`package.json` `types` is `types/index.d.ts`). The vocabulary block in that file is generated from the runtime constants by `npm run types:generate` and gated by `npm run docs:check:generated:types`; never edit it by hand. `tsconfig.strict.json` turns `noImplicitAny` on for an explicit file list that may grow but never silently shrink: add a file, then record it with `npm run types:strict:write` (a removal also needs `--allow-shrink`). `npm run types:coverage` fails when a shipped runtime `.js` file is outside the `tsc` program.
 
@@ -267,6 +267,20 @@ The `regression` label means **"worked in a released version, then stopped"**. I
 narrower than `bug` and mutually exclusive with it for a shipped break: a user
 could rely on the old behavior, so the record must say which release broke it and
 which test prevents it from happening again.
+
+Roster truth is the load-bearing incident rule (F73): absence of a catalog
+observation is not death. A live roster row may only become stale after
+consecutive missing observations spanning twice `spawn.staleMs`, never from an
+empty or partial catalog; a row already marked stale that calls
+`tower_complete` itself must be revived, because a stopped worker cannot call
+tools. Revival and the roster settle are not a separate bookkeeping step: they
+run inside the completion's own state-lock transaction, so an in-flight
+watchdog sweep sees either the row before the completion or the closed
+(`inactive`) one — never an `active` row its snapshot never observed. A sweep
+that still wins the lock makes the completion re-prepare instead of failing
+with `stale-base`. Keep the default `spawn.staleMs` at least three times the
+watchdog poll interval (10 s); `tests/roster-watchdog.test.mjs` pins these
+guards, including the interleavings.
 
 A closed `regression` issue carries the six-field record from
 [docs/operations/incident.md](docs/operations/incident.md) (symptom, introduced in,

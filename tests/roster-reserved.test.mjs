@@ -101,18 +101,31 @@ async function precheck(tower, { takeover = false } = {}) {
   })
 }
 
-/** The real adopt view body with its composition-root deps stubbed. */
-function adopt(tower, repo) {
+/**
+ * The real adopt view body with its composition-root deps stubbed.
+ *
+ * `descendants` is what the parent catalog answers (an array, or a function
+ * called per observation, which may throw). F83: an empty answer is not
+ * authoritative, so tests that expect a retirement must pass at least one
+ * unrelated row. `args` are merged over `repoRoot`, e.g. `retire_missing:false`.
+ */
+function adopt(tower, repo, { descendants = [], args = {} } = {}) {
   const ctx = {
-    get: (name) => (name === 'subagents' ? { listDescendants: async () => [] } : undefined),
+    get: (name) =>
+      name === 'subagents'
+        ? { listDescendants: async () => (typeof descendants === 'function' ? descendants() : descendants) }
+        : undefined,
   }
   const deps = {
     openTower: async () => tower,
     actorFor: async () => ({ name: 'tower', id: 'tower-agent', role: 'tower' }),
     requireTowerActor: () => {},
   }
-  return runAdoptView(ctx, { repoRoot: repo }, { agent: { id: 'tower-agent' } }, deps)
+  return runAdoptView(ctx, { repoRoot: repo, ...args }, { agent: { id: 'tower-agent' } }, deps)
 }
+
+/** An authoritative catalog that does not list the row under test. */
+const UNRELATED_CATALOG = [{ id: 'agent-unrelated', activity: 'running' }]
 
 /** The JSONL activity log the tower appended to. */
 function activityText(tower) {
@@ -364,13 +377,130 @@ test('adopt still retires a worker whose catalog entry is gone after two rounds'
       agentId: 'ghost-1',
       spawnedAt: Date.now(),
     })
-    const first = await adopt(tower, repo)
+    // F83: the catalog must positively answer with at least one descendant for
+    // an absence to count. The unrelated row makes the answer authoritative
+    // while `ghost-1` stays outside it.
+    const first = await adopt(tower, repo, { descendants: UNRELATED_CATALOG })
     assert.deepEqual(first.retired, [], 'one absence observation is not enough')
     assert.deepEqual(first.unconfirmed, ['ghost-1'])
-    const second = await adopt(tower, repo)
+    const second = await adopt(tower, repo, { descendants: UNRELATED_CATALOG })
     assert.deepEqual(second.retired, ['ghost-1'])
     const state = await assertValidState(tower)
     assert.equal(state.roster[0].state, 'retired')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('adopt leaves a live worker alone when the catalog answers empty', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    await seedRow(tower, {
+      name: 'worker-m1',
+      role: 'worker',
+      missionId: 'M1',
+      parentSessionId: 'tower-agent',
+      state: 'active',
+      agentId: 'live-1',
+      spawnedAt: Date.now(),
+    })
+    const first = await adopt(tower, repo)
+    const second = await adopt(tower, repo)
+    const state = await assertValidState(tower)
+    assert.equal(state.roster[0].state, 'active', 'two empty-catalog adopts must leave the worker active')
+    for (const result of [first, second]) {
+      assert.deepEqual(result.retired, [], 'an empty catalog is never evidence of absence (F83)')
+      assert.deepEqual(result.missing, [])
+      assert.deepEqual(result.unconfirmed, [], 'an unjudged row is not an absence observation')
+      assert.match(String(result.parentStatus['tower-agent']), /^empty:/, 'the status names the empty answer')
+      assert.equal(result.unjudged.length, 1, 'the unjudged row is reported with its reason')
+      assert.equal(result.unjudged[0].name, 'worker-m1')
+      assert.equal(result.unjudged[0].missionId, 'M1')
+      assert.equal(result.unjudged[0].agentId, 'live-1')
+      assert.match(String(result.unjudged[0].reason), /^empty:/)
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('adopt leaves a live worker alone when the catalog throws', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    await seedRow(tower, {
+      name: 'worker-m1',
+      role: 'worker',
+      missionId: 'M1',
+      parentSessionId: 'tower-agent',
+      state: 'active',
+      agentId: 'live-1',
+      spawnedAt: Date.now(),
+    })
+    const throwing = () => {
+      throw new Error('catalog unavailable')
+    }
+    const first = await adopt(tower, repo, { descendants: throwing })
+    const second = await adopt(tower, repo, { descendants: throwing })
+    for (const result of [first, second]) {
+      assert.deepEqual(result.retired, [], 'a failing catalog is never evidence of absence (F83)')
+      assert.match(String(result.parentStatus['tower-agent']), /^unavailable:/)
+      assert.equal(result.unjudged.length, 1)
+      assert.equal(result.unjudged[0].agentId, 'live-1')
+      assert.match(String(result.unjudged[0].reason), /^unavailable:/)
+    }
+    const state = await assertValidState(tower)
+    assert.equal(state.roster[0].state, 'active')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('adopt keeps a worker present while an authoritative catalog lists it', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    await seedRow(tower, {
+      name: 'worker-m1',
+      role: 'worker',
+      missionId: 'M1',
+      parentSessionId: 'tower-agent',
+      state: 'active',
+      agentId: 'live-1',
+      spawnedAt: Date.now(),
+    })
+    const catalog = [{ id: 'live-1', activity: 'running' }]
+    for (let round = 0; round < 3; round += 1) {
+      const result = await adopt(tower, repo, { descendants: catalog })
+      assert.deepEqual(result.retired, [], 'a present row is never a retirement candidate')
+      assert.deepEqual(result.unconfirmed, [])
+      assert.deepEqual(result.unjudged, [], 'an authoritative catalog judges every row')
+      assert.equal(result.parentStatus['tower-agent'], 'ok')
+      assert.equal((await tower.load()).roster[0].state, 'active')
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('adopt marks an authoritative absence missing when retire_missing is false', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    await seedRow(tower, {
+      name: 'worker-m1',
+      role: 'worker',
+      missionId: 'M1',
+      parentSessionId: 'tower-agent',
+      state: 'active',
+      agentId: 'ghost-1',
+      spawnedAt: Date.now(),
+    })
+    const options = { descendants: UNRELATED_CATALOG, args: { retire_missing: false } }
+    const first = await adopt(tower, repo, options)
+    assert.deepEqual(first.missing, [], 'one absence observation is not enough')
+    const second = await adopt(tower, repo, options)
+    assert.deepEqual(second.retired, [], 'the operator opted out of retirement')
+    assert.deepEqual(second.missing, ['ghost-1'])
+    const state = await assertValidState(tower)
+    assert.equal(state.roster[0].state, 'missing')
   } finally {
     removeTemp(root)
   }

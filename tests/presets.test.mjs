@@ -144,11 +144,12 @@ test('#131: spawn.requireLease with the tower-leases row off is refused at runti
       () => assertRuntimePreconditions(ctx, { spawn: { requireLease: 'heavy-ci' } }),
       (error) => {
         assert.equal(error.code, 'config-invalid')
-        // The error must name the row *and* both ways out: the config side and the
-        // component side are equally plausible mistakes.
-        assert.match(error.message, /tower-leases/)
-        assert.match(error.message, /tower_resource is not registered/)
-        assert.match(error.message, /Re-enable the tower-leases component or clear spawn\.requireLease/)
+        // The error must name the row *and* both ways out by their user-visible
+        // names: the config side and the component side are equally plausible
+        // mistakes, and neither may be spelled as an internal id.
+        assert.match(error.message, /Lease coordination/)
+        assert.match(error.message, /plugin page/)
+        assert.match(error.message, /clear the lease requirement/)
         return true
       },
     )
@@ -179,21 +180,25 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     exec: { agent: { id: 'session-1' } },
     inspectLeases: async () => ({ leases: [] }),
   }
-  // Row off: name the cause and both remedies, never "acquire it with tower_resource".
+  // Row off: name the cause and both remedies in the plugin page's vocabulary,
+  // never the internal row id or the unregistered tool (#F69).
   await assert.rejects(
     () => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: false, reason: 'disabled by component tower-leases' }) }),
     (error) => {
       assert.equal(error.code, 'lease-busy')
-      assert.match(error.message, /disabled by component tower-leases/)
-      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
-      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      assert.match(error.message, /cannot be satisfied/)
+      assert.match(error.message, /Lease coordination is switched off in the plugin page/)
+      assert.match(error.message, /clear the lease requirement on the plugin configuration form/)
+      assert.doesNotMatch(error.message, /spawn\.requireLease|tower_resource|tower-leases|disabled by component/)
       return true
     },
   )
-  // Row on: the original advice is still correct and still offered.
+  // Row on: the remedy is the lease action, still without the tool id.
   await assert.rejects(() => precheckSpawnServices({ ...base, leaseComponent: () => ({ enabled: true, reason: '' }) }), (error) => {
     assert.equal(error.code, 'lease-busy')
-    assert.match(error.message, /acquire it with tower_resource before spawning/)
+    assert.match(error.message, /no live lease "heavy-ci" is held/)
+    assert.match(error.message, /lease action before starting an agent/)
+    assert.doesNotMatch(error.message, /tower_resource|spawn\.requireLease/)
     return true
   })
   // Row off: a lease left over from when the row was on must not let the spawn
@@ -208,9 +213,9 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     (error) => {
       assert.equal(error.code, 'lease-busy')
       assert.match(error.message, /cannot be satisfied/)
-      assert.match(error.message, /disabled by component tower-leases/)
-      assert.match(error.message, /re-enable the tower-leases row or clear spawn\.requireLease/)
-      assert.doesNotMatch(error.message, /acquire it with tower_resource/)
+      assert.match(error.message, /Lease coordination is switched off in the plugin page/)
+      assert.match(error.message, /clear the lease requirement on the plugin configuration form/)
+      assert.doesNotMatch(error.message, /spawn\.requireLease|tower_resource|tower-leases|disabled by component/)
       return true
     },
   )
@@ -232,7 +237,83 @@ test('#131: a missing lease names the disabled row instead of advising an unregi
     (error) => {
       assert.equal(error.code, 'lease-busy')
       assert.match(error.message, /held by "someone-else", not by this tower/)
-      assert.doesNotMatch(error.message, /disabled by component/)
+      assert.doesNotMatch(error.message, /disabled by component|tower-leases/)
+      return true
+    },
+  )
+})
+
+test('#F69: a missing preset names the visible preset row and offers both preset remedies', async () => {
+  const { precheckSpawnServices } = await import('../app/spawn-prechecks.js')
+  const ctxWith = (ids) => ({
+    get: (name) =>
+      name === 'subagents'
+        ? { list: () => ['spawn'] }
+        : name === 'agentPresets'
+          ? { list: async () => ids.map((id) => ({ id })) }
+          : undefined,
+  })
+  const base = {
+    tower: { commonDir: '.' },
+    config: { spawn: {} },
+    actor: { name: 'worker-m' },
+    exec: { agent: { id: 'session-1' } },
+    inspectLeases: async () => ({ leases: [] }),
+  }
+  // The preset registry is reachable but does not list the requested preset, so
+  // the precheck throw itself is what these cases exercise (#F69). The visible
+  // row title must render, and the internal preset id must not.
+  for (const [preset, label, available] of [
+    ['tower-worker', 'Tower Worker preset', ['tower-reviewer']],
+    ['tower-reviewer', 'Tower Reviewer preset', ['tower-worker']],
+    ['tower-survey', 'Tower Survey preset', ['tower-worker']],
+    ['tower-survey-sandbox', 'Tower Survey Sandbox preset', ['tower-worker']],
+  ]) {
+    await assert.rejects(
+      () => precheckSpawnServices({ ...base, ctx: ctxWith(available), preset }),
+      (error) => {
+        assert.equal(error.code, 'preset-missing')
+        assert.match(error.message, new RegExp(`the ${label} is not registered`))
+        assert.match(error.nextAction, new RegExp(`switch the ${label} row back on in the plugin page and restart DSH`))
+        assert.match(error.nextAction, /choose a registered preset on the plugin configuration form/)
+        assert.doesNotMatch(
+          `${error.message} ${error.nextAction}`,
+          /tower-worker|tower-reviewer|tower-survey/,
+          'a built-in preset id must never reach the operator',
+        )
+        return true
+      },
+    )
+  }
+  // The requested preset is registered: the branch passes and spawn continues.
+  const ok = await precheckSpawnServices({ ...base, ctx: ctxWith(['tower-worker']), preset: 'tower-worker' })
+  assert.equal(ok.provider, 'spawn')
+})
+
+test('#F69: a missing custom preset names the configured value and the remedy that exists', async () => {
+  const { precheckSpawnServices } = await import('../app/spawn-prechecks.js')
+  // A custom preset is any configured id that is not a built-in row: there is no
+  // plugin-page row to switch back on, so only the configuration-form remedy is
+  // truthful (#F69 review P2).
+  await assert.rejects(
+    () =>
+      precheckSpawnServices({
+        tower: { commonDir: '.' },
+        ctx: {
+          get: (name) =>
+            name === 'subagents' ? { list: () => ['spawn'] } : name === 'agentPresets' ? { list: async () => [] } : undefined,
+        },
+        config: { spawn: {} },
+        preset: 'my-custom-worker',
+        actor: { name: 'worker-m' },
+        exec: { agent: { id: 'session-1' } },
+        inspectLeases: async () => ({ leases: [] }),
+      }),
+    (error) => {
+      assert.equal(error.code, 'preset-missing')
+      assert.match(error.message, /the configured preset "my-custom-worker" is not registered/)
+      assert.match(error.nextAction, /choose a registered preset on the plugin configuration form/)
+      assert.doesNotMatch(error.nextAction, /switch the .* row back on/, 'a custom preset has no plugin-page row')
       return true
     },
   )
@@ -245,9 +326,13 @@ test('preset validation fails closed before work starts (#64)', async () => {
     () => assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'required' } }),
     (error) => {
       assert.equal(error.code, 'preset-missing')
-      assert.match(error.message, /tower-reviewer/)
-      assert.match(error.message, /preset-tower-reviewer/)
-      assert.match(error.message, /review\.mode is required/)
+      assert.match(error.message, /Tower Reviewer preset/)
+      assert.match(error.message, /plugin page/)
+      assert.match(error.message, /review before merging is set to required/)
+      // #F79: the planning/mode-entry path passes the visible row as the next
+      // step; the registry fallback never names the registered preset ids.
+      assert.match(error.nextAction, /switch the Tower Reviewer preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
       return true
     },
   )
@@ -262,7 +347,15 @@ test('preset validation fails closed before work starts (#64)', async () => {
     await assertPresetsAvailable(ctxWith(['tower-worker']), { review: { mode: 'optional' } }),
     { checked: true, missing: [] },
   )
-  await assert.rejects(() => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}), /preset-tower-worker/)
+  await assert.rejects(
+    () => assertPresetsAvailable(ctxWith(['tower-reviewer']), {}),
+    (error) => {
+      assert.match(error.message, /Tower Worker preset/)
+      assert.match(error.nextAction, /switch the Tower Worker preset row back on in the plugin page/)
+      assert.doesNotMatch(`${error.message} ${error.nextAction}`, /tower-worker|tower-reviewer/)
+      return true
+    },
+  )
   assert.deepEqual(await assertPresetsAvailable(ctxWith(['tower-worker', 'tower-reviewer']), {}), { checked: true, missing: [] })
   assert.deepEqual(await assertPresetsAvailable({ get: () => undefined }, {}), { checked: false, missing: [] })
 })

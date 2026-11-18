@@ -435,11 +435,11 @@ test('client locale copy uses the glossary terms and localizes known enums', asy
     'tool.inspect': ['Inspect', '查看'],
     'card.batchLine': ['batch {status}', '批次 {status}'],
     'dock.batch': ['batch {status}', '批次 {status}'],
-    'card.reviewLine': ['review {status} · merge {merge} · round {round}', '审查 {status} · 合并建议 {merge} · 第 {round} 轮'],
+    'card.reviewLine': ['review {status} · merge verdict {merge} · round {round}', '审查 {status} · 合并结论 {merge} · 第 {round} 轮'],
     'card.reviewPolicy': ['review policy: {policy}', '审查策略：{policy}'],
     'card.missionLine': ['mission {id} {status}', '任务线 {id} {status}'],
-    'enum.mergeVerdict.fix-then-merge': ['fix then merge', '先修复再合并'],
-    'enum.reviewStatus.p1': ['{count} P1 finding(s)', '{count} 个 P1 问题'],
+    'enum.mergeVerdict.fix-then-merge': ['fix first, then merge', '先修复再合并'],
+    'enum.reviewStatus.p1': ['{count} blocking problem(s)', '{count} 个阻塞性问题'],
     'enum.reviewPolicy.required-clean': ['clean review expected', '需要干净审查'],
     'enum.role.worker': ['worker', '执行代理'],
     'enum.role.reviewer': ['reviewer', '审查代理'],
@@ -451,6 +451,24 @@ test('client locale copy uses the glossary terms and localizes known enums', asy
   for (const [key, value] of Object.entries(en)) {
     if (key.startsWith('enum.reviewStatus.')) assert.doesNotMatch(value, /^p[12]-\d+items$/)
     if (key.startsWith('enum.mergeVerdict.')) assert.doesNotMatch(value, /^[a-z]+-[a-z-]+$/)
+  }
+})
+
+test('rendered client copy avoids internal ids and names the composer command (#F22)', async () => {
+  const { localeRegistrations } = await registerAll()
+  const { en, zh } = localeRegistrations[0].dictionaries
+  const configKey = /\b(?:gates|review|spawn|tests|docs|mode|merge|git|worktrees|archive|leases|dev)\.[A-Za-z]/
+  for (const [key, value] of [...Object.entries(en), ...Object.entries(zh)]) {
+    assert.doesNotMatch(value, /\btower_[a-z][a-z0-9_]*/, `${key} names a tool id`)
+    assert.doesNotMatch(value, configKey, `${key} names a config key`)
+  }
+  // The dock chip is a status display, not a control: it may quote the composer
+  // command, but it must never surface the host-side tool name.
+  for (const key of ['dock.mode.tooltip', 'dock.mode.lastKnown', 'dock.mode.unknownTooltip']) {
+    assert.match(en[key], /\/tower/, `en ${key} must name the composer command`)
+    assert.match(zh[key], /\/tower/, `zh ${key} must name the composer command`)
+    assert.doesNotMatch(en[key], /tower_mode/, `en ${key} must not name the internal tool id`)
+    assert.doesNotMatch(zh[key], /tower_mode/, `zh ${key} must not name the internal tool id`)
   }
 })
 
@@ -615,7 +633,7 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
     t: zhT,
   })
   const text = textOf(card)
-  assert.match(text, /2 个 P1 问题/)
+  assert.match(text, /2 个阻塞性问题/)
   assert.match(text, /先修复再合并/)
   assert.match(text, /审查/)
   assert.doesNotMatch(text, /p1-2items|fix-then-merge/)
@@ -623,8 +641,8 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
   assert.ok(toned, 'a review finding row must carry its tone as data, not only colour')
   assert.equal(toned.props.role, 'note')
   assert.match(toned.props['aria-label'], /警告/)
-  assert.equal(en['enum.reviewStatus.p1'], '{count} P1 finding(s)')
-  assert.equal(en['card.reviewLine'], 'review {status} · merge {merge} · round {round}')
+  assert.equal(en['enum.reviewStatus.p1'], '{count} blocking problem(s)')
+  assert.equal(en['card.reviewLine'], 'review {status} · merge verdict {merge} · round {round}')
 
   // An explicit off command lets the dock summary (rather than the chip) show.
   let rawSelector = null
@@ -637,7 +655,7 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
   assert.equal(summary.props.role, 'status')
   assert.equal(summary.props['aria-label'], summary.props.title)
   assert.match(summary.props['aria-label'], /审查/)
-  assert.match(summary.props['aria-label'], /2 个 P1 问题/)
+  assert.match(summary.props['aria-label'], /2 个阻塞性问题/)
 })
 
 test('toolview stays defensive for errors, plain text, and partial/absent blocks', async () => {

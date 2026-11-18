@@ -189,7 +189,11 @@ export function roleMissionBlockers(role, { shape, mission, reviewAvailable = tr
   if (spec.requires.review && !reviewAvailable) {
     blockers.push({
       code: 'review-disabled',
-      message: 'review.mode is off, so review is unavailable and a reviewer cannot be spawned',
+      // #F82/#F84: operator copy, and the only copy of it — the spawn precheck
+      // passes this sentence through unchanged, so the role contract is the
+      // single source. No configuration key, no tool id.
+      message:
+        'review before merging is turned off in this project\'s plugin configuration, so a reviewer cannot be started and a review cannot be recorded',
     })
   }
   if (spec.requires.canMerge && !shape?.canMerge) {

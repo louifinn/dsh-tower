@@ -82,7 +82,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | 工具 | 参数 | 用途 / 说明 |
 |---|---|---|
 | `tower_init` | `op?`（`init` 默认 / `adopt`）、`repoRoot`、`base?`、`auto_git_init?`、`snapshot_dirty?`、`reanchor?`、`retire_missing?` | `op:"init"` 创建 `<git-common-dir>/dsh-tower/state.json`。唯一声明 `repoRoot` 的工具（引导）；它优先于会话目录，以便显式初始化指定目标。`auto_git_init` 执行 `git init` 并创建空的初始提交；`snapshot_dirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。`op:"adopt"` 把 roster 与持久目录对账：可证明已消失的 agent 会被标记为 retired（默认），或标记为 `missing`（`retire_missing:false`）。两个 op 都仅限控制塔。 |
-| `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`——`build`/`survey`/`artifact`、`artifacts[]?` ≤20、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`kind:"artifact"` 在 `artifacts[]` 声明具体的交付物路径（不能是 glob，且必须位于 scope 内）；完成前这些路径必须已提交在分支末端，合并还要求人类接受该末端。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。 |
+| `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`——`build`/`survey`/`artifact`、`artifacts[]?` ≤20、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`kind:"artifact"` 在 `artifacts[]` 声明具体的交付物路径（不能是 glob，且必须位于 scope 内）；完成前这些路径必须已提交在分支末端，合并还要求人类接受该末端。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。`scope` 是相对仓库根目录的文件 glob 列表；目录形态的条目（`docs/guide/`，或规划时已存在的裸 `docs/guide`）会存成显式的子树 glob `docs/guide/**`——见下文“scope 条目”。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?`、`accept?`、`accept_note?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。`accept:true` 记录人类对 artifact mission 已提交末端的接受：工具会通过 DSH 审批通道询问人类，并把当前分支末端写入记录；没有该通道时以 `approval-unavailable` 拒绝，任何参数都不能让接受变成 agent 自批（worker 调用会以 `acceptance-human-only` 拒绝）。 |
 | `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings；artifact mission 报 `acceptance-missing`/`acceptance-stale`，而不是 review blockers）、`doctor`（环境与 state/git 锁健康，含 Ralph 姿态）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。报告在 `worktree` 里给出放置方式：分支工作树为 `{path, branch, baseCommit}`，读取共享检出或游离 sandbox 的 survey 为 `null`。 |
@@ -99,11 +99,38 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `/tower takeover <reason>` | — | 人类专用的所有权转移命令；即使 `mode.allowAgentControl:false` 也可用。 |
 | `/tasks`、`/tower tasks` | — | 人类可用的只读实时 roster 面板：每个存活 roster agent 一行（mission、角色、名称、短分支名、状态、距其最近一条记录事件的静默时长、该事件本身），最静默者在前，最多 20 行，页脚给出 `N live, M stale` 计数与 `tower_interrupt` 处置提示。不消耗模型回合，也不做任何写入（不触碰 `state.json`、activity 日志或 modes store）。过期判定与 `tower_inspect` 的 `roster` 视图及合并门禁使用同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时插件才注册 `/tasks`；`/tower tasks` 是始终可用的别名，当前 profile 实际采用哪个会在命令描述中说明（#160）。 |
 | `tower_reload` | — | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。它在 `host/tool-profiles.js` 中登记为唯一的仓库可选工具，因此可以在没有仓库时修复损坏的 profile；决定这一路径的是工具身份，而不是调用者是否传了 `repoRoot`。 |
-| `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断与显式 stale state-lock 修复。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已死的锁改名为 `.recovered-<ts>` 备份。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用）的锁：输出 `{pid, startedAt, ageMs, heartbeatAgeMs}`，记录仍只改名、绝不 unlink。不会重置状态或 worktree。 |
+| `tower_recover` | `action`（`status`/`clear-stale-lock`）、`confirm?`、`force?` | 恢复诊断，以及针对 state 写锁和短暂存在的 state 提交互斥锁（`state.commit.lock`）的显式 stale 锁修复。当变更报 `state-locked`/`state-commit-busy`，或 `tower_inspect` 的 doctor 报告遗留 `commit-lock` 时，用 `status` 查看 `stateLock` 与 `commitLock`：能解析时返回持有者 `{pid, startedAt, ageMs, heartbeatAgeMs, stale}`，文件存在但无法解析（撕裂写入）时返回 `{unreadable:true, path, error}`（不可读记录是死锁，不是“没有锁”）。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已被证明死亡的记录改名为唯一的数字备份 `.recovered-<timestamp><tick>`（同一毫秒内的两次恢复也不会互相覆盖；输出中的 `backup` 为 state 锁备份，`commitBackup` 为提交互斥锁备份）。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用或进程已停止）的记录以及不可读记录；不带 `force` 时不可读记录会以 `state-commit-lock-unreadable`/`state-lock-unreadable` 拒绝并给出可执行的 `nextAction`。被移动的记录始终只改名、绝不 unlink。恢复不会重置状态或 worktree；清理提交互斥锁不替代写者围栏：每次提交仍会校验 state 锁 token 与 `state.json` 的确切字节并对落地修订号分类，因此竞争失败的写者会失败关闭。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |
 | `tower_resource` | `action`（`acquire`/`release`/`status`）、`name?`、`holder?`、`token?`、`ttlMs?`、`force?` | 每个仓库的咨询式租约，位于 `<common>/dsh-tower/leases.json`。没有 OS CPU/内存硬上限；过期的租约需要显式 `force` 与正确 token。 |
 | `tower_import` | `op?`（有 `sourcePath` 时推断为 `snapshot`，否则 `map`）、`sourcePath?`、`action?`（`map`/`status`）、`sourceHash?`、`oldId?`、`newMissionId?` | 一个遗留资源工具（#163 Phase 4）。`snapshot`：只读导入 Tower Codex `schemaVersion:1` 或 DSH 旧版 state，完整 payload 存到 `<common>/dsh-tower/legacy/<sha256>.json`，state 中只保存摘要。`map`：仅审计用途的旧 id 映射，映射只追加；`action:"status"` 列出映射。绝不激活/接管/恢复暂停的 mission。除只读 `status` 动作外仅限控制塔。 |
+
+## scope 条目
+
+`scope` 条目是相对仓库根目录的**文件 glob**，由 `fileInScope` 作为纯 glob 匹配：
+`*` 只匹配同一路径段内的字符，`**` 匹配任意深度（包括零层），`?` 匹配一个非分隔符
+字符，其余字符都按字面处理。因此 scope 条目命名的是文件，而不是目录：字面条目
+`docs/guide` 只匹配名字恰好是 `docs/guide` 的文件，不会匹配该目录下的任何文件。
+
+`tower_plan` 不改变这个匹配器，只在保存新计划时把目录形态的条目规范化；通过
+`tower_mission` 扩大 scope 时也做同样处理：
+
+| 写入的条目 | 存储的 scope | 原因 |
+|---|---|---|
+| `docs/guide/` | `docs/guide/**` | 尾部分隔符明确表示“目录”，即使它尚不存在。 |
+| `docs/guide` | `docs/guide/**` | 规划时所在的 checkout 在该路径上确有目录（规划时探测一次）。 |
+| `docs/guide`（不存在该目录） | `docs/guide` | 它可能是已有文件，也可能是 mission 将要创建的文件；保持字面。 |
+| `docs/guide/**` | `docs/guide/**` | 已经是显式的子树 glob；保持不变。 |
+| `docs/*.md` | `docs/*.md` | glob 条目是文件模式；保持不变。 |
+| `.` | `**` | 仓库根就是整棵树。 |
+
+存储的 scope 始终是显式 glob，而不是目录写法，因此门禁、briefing 和
+`tower_inspect` 看到的围栏完全一致。只有**新输入**会被规范化：mission 上已经存储的
+scope 永远不会被改写，因此在新规则之前规划、仍保存字面条目的 mission 会继续拒绝该
+目录下的文件，直到控制塔显式扩大 scope。目录探测失败时条目保持字面，不会让规划失败。
+
+目录子树推荐写成 `docs/guide/**` 或 `docs/guide/`。避免只写裸 `docs/guide`：它只有在
+规划时该目录已经存在才会展开，因此同一段文本可能随仓库状态代表一个文件或整棵子树。
 
 ## workspace 锁
 

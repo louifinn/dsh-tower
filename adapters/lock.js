@@ -522,22 +522,51 @@ export function removeLockIfMatchesSync(file, expectedToken, expectedRaw, option
  * through a temp file + rename so a reader never sees a torn record. The temp
  * name is per-process, so two holders that briefly overlap (a reclaimed record
  * whose old process is still alive) never overwrite each other's heartbeat.
+ *
+ * Invariant: a heartbeat only ever publishes a record for the token it read
+ * from the lock path. The rename is a blind replace, so between reading the
+ * record and renaming the temp file over it an operator recovery (or a reclaim)
+ * can remove this record and a successor can install its own. The compare
+ * before the rename catches that takeover and a final compare catches a record
+ * replaced again after the rename; both report false instead of claiming a
+ * fresh heartbeat. A takeover landing *exactly inside* the rename syscall
+ * cannot be observed from the lock layer — that is why the state store fences
+ * the document itself: a state write replaces only the exact bytes it loaded,
+ * so even a resurrected record cannot produce a lost update (#F24). Do not
+ * close the remaining window by moving the record aside and recreating it: the
+ * path's free window would then let a poller acquire a lock that is still
+ * live, and the holder would fail a healthy mutation as "ownership lost".
+ *
+ * @returns {Promise<boolean>} true only when the landed record is this token's
+ *   heartbeat; false means the record moved and the caller no longer owns it.
  */
 export async function touchLock(lockPath, token, options = {}) {
   const tmp = `${lockPath}.heartbeat-${process.pid}-${crypto.randomUUID()}`
+  let renamed = false
   try {
     const raw = await fsp.readFile(lockPath, 'utf8')
     const record = JSON.parse(raw)
     if (!record || record.token !== token) return false
-    const next = { ...record, at: nowValue(options) }
-    await fsp.writeFile(tmp, JSON.stringify(next), 'utf8')
-    await renameWithRetry(tmp, lockPath)
-    return true
+    const payload = JSON.stringify({ ...record, at: nowValue(options) })
+    await fsp.writeFile(tmp, payload, 'utf8')
+    // Byte CAS: if the path no longer holds the record inspected above, a
+    // successor owns it and this heartbeat must not replace it.
+    const current = await fsp.readFile(lockPath, 'utf8')
+    if (current !== raw) return false
+    await renameWithRetry(tmp, lockPath, options)
+    renamed = true
+    // The rename itself is atomic, but it can land after a successor replaced
+    // the path. Only the successor's own bytes are acceptable as the result.
+    const written = await fsp.readFile(lockPath, 'utf8')
+    return written === payload
   } catch {
     // A failed heartbeat must never throw into the lock holder; the next
     // interval retries, and a genuinely stuck holder is reported by a waiter.
-    await fsp.unlink(tmp).catch(() => {})
     return false
+  } finally {
+    // The rename consumes the temp file; a refused CAS or a failed write
+    // leaves it behind and it must not accumulate next to the lock.
+    if (!renamed) await fsp.unlink(tmp).catch(() => {})
   }
 }
 
@@ -545,18 +574,34 @@ export async function touchLock(lockPath, token, options = {}) {
  * Start the unref'd heartbeat timer for a held lock. Returns a stop function
  * that also waits for an in-flight refresh, so release cannot unlink the lock
  * only to have a late heartbeat recreate it.
+ *
+ * `health.lost` is the holder's only observable signal that a refresh found a
+ * readable record which is no longer this token's. It flips at the first such
+ * observation and is never cleared: the caller (the state store) then refuses
+ * further writes instead of publishing under a lock it no longer owns.
+ *
+ * @param {{ lost: boolean }} [health] shared with the lock handle
  */
-function startHeartbeat(lockPath, token, options) {
+function startHeartbeat(lockPath, token, options, health = { lost: false }) {
   if (options.heartbeat === false) return async () => {}
   const intervalMs = lockHeartbeatMs(options)
   const setIntervalFn = options.setInterval ?? setInterval
   const clearIntervalFn = options.clearInterval ?? clearInterval
   let stopped = false
   let inFlight = null
+  const refresh = () =>
+    touchLock(lockPath, token, options).then(async (kept) => {
+      if (kept || health.lost) return
+      // A refresh can fail for a transient reason (a sharing violation, a full
+      // disk) while the record is still ours; only a readable record carrying
+      // another token (or no record at all) proves the lock moved away.
+      const current = await readLock(lockPath, options)
+      if (!('error' in current) && current.record?.token !== token) health.lost = true
+    })
   const timer = setIntervalFn(() => {
     if (stopped || inFlight) return
-    inFlight = touchLock(lockPath, token, options)
-      .catch(() => false)
+    inFlight = refresh()
+      .catch(() => {})
       .finally(() => {
         inFlight = null
       })
@@ -573,11 +618,15 @@ function startHeartbeat(lockPath, token, options) {
 // Lock acquire / token-checked release
 // ---------------------------------------------------------------------------
 
-function handleFor(lockPath, token, record, stopHeartbeat = async () => {}) {
+function handleFor(lockPath, token, record, stopHeartbeat = async () => {}, health = { lost: false }) {
   return {
     path: lockPath,
     token,
     record,
+    /** True once a heartbeat observed that the record is no longer ours. */
+    get lost() {
+      return health.lost === true
+    },
     async release() {
       await stopHeartbeat()
       return releaseLock(lockPath, token)
@@ -590,6 +639,10 @@ function syncHandleFor(lockPath, token, record) {
     path: lockPath,
     token,
     record,
+    // A synchronous caller cannot run the heartbeat timer, so it never learns
+    // about a takeover here; its mutations are short and the store's document
+    // CAS still fences the write.
+    lost: false,
     release() {
       return releaseLockSync(lockPath, token)
     },
@@ -615,8 +668,9 @@ export async function acquireLock(lockPath, options = {}) {
   for (;;) {
     try {
       await fsp.writeFile(lockPath, JSON.stringify(record), { flag: 'wx' })
-      const stopHeartbeat = startHeartbeat(lockPath, token, options)
-      const held = handleFor(lockPath, token, record, stopHeartbeat)
+      const health = { lost: false }
+      const stopHeartbeat = startHeartbeat(lockPath, token, options, health)
+      const held = handleFor(lockPath, token, record, stopHeartbeat, health)
       held.reclaimed = reclaimed
       return held
     } catch (error) {
