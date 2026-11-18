@@ -74,7 +74,7 @@ function createFakeReact() {
   }
 }
 
-function loadBundle(react) {
+function loadBundle(react, options = {}) {
   let loaded = null
   const chunkDefinitions = new Map()
   const window = {
@@ -93,12 +93,51 @@ function loadBundle(react) {
   // eslint-disable-next-line no-new-func -- the bundle is a plain browser script
   new Function('window', SOURCE)(window)
   assert.ok(loaded, 'client.js must call window.__ModuleLoader__.load')
+  // The Web shell's static module table also seeds the UI-primitives namespace.
+  // The fake mirrors the slice the bundle uses: a DisclosureRow that renders
+  // `open && children` and keeps the collapsed summary while open, plus the
+  // icon family.
+  const primitives = {
+    DisclosureRow(props) {
+      const children = []
+      if (props.icon !== undefined) children.push(props.icon)
+      children.push(react.createElement('span', { key: 'title', 'data-primitives-title': '' }, props.title))
+      if (props.keepContentWhenOpen === true || props.open !== true) children.push(props.collapsedContent)
+      if (props.open === true) children.push(props.children)
+      return react.createElement(
+        'div',
+        {
+          'data-primitives-disclosure': '',
+          'data-open': props.open === true ? 'true' : 'false',
+          'data-expandable': props.expandable === true ? 'true' : 'false',
+          role: props.expandable === true ? 'button' : undefined,
+          'aria-expanded': props.expandable === true ? props.open === true : undefined,
+          onClick: props.expandable === true && props.expandOnRowClick === true ? props.onToggle : undefined,
+          onKeyDown: props.expandable === true && props.expandOnRowClick === true ? props.onToggle : undefined,
+        },
+        children,
+      )
+    },
+    IconChecklistOutlineRegular(props) {
+      return react.createElement('svg', { 'data-primitives-icon': '', width: props.size })
+    },
+  }
   const required = []
   const asyncRequired = []
   const fakeRequire = (id) => {
     required.push(id)
     if (id === 'react') return react
-    throw new Error(`unexpected require("${id}") — plugin bundles may only require react`)
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+      if (options.missingPrimitives === true) {
+        throw new Error(
+          'client-modules: require("@deepseek-ai/dsh-client-ui-primitives") missed the module table — not a platform seed word',
+        )
+      }
+      return primitives
+    }
+    throw new Error(
+      `unexpected require("${id}") — plugin bundles may only require react and the declared UI-primitives static-table word`,
+    )
   }
   const materialized = new Map()
   // Real DSH `require.async("./client.<name>.js")` fetches and registers the
@@ -265,10 +304,41 @@ test('client chunks are plain-JS __ModuleLoader__ modules and syntax-check', () 
 
   const { loaded, plugin, required } = loadBundle(createFakeReact())
   assert.equal(loaded.id, 'dsh-tower-ui')
-  assert.deepEqual(required, ['react'], 'the Client half may only require react')
+  assert.deepEqual(required, ['react'], 'the entry factory may only require react')
   assert.ok(Array.isArray(plugin.inject))
   assert.deepEqual(plugin.inject, ['slots', 'locale'])
   assert.equal(typeof plugin.apply, 'function')
+})
+
+test('the entry resolves the declared UI-primitives static-table word exactly once', async () => {
+  const { required } = await registerAll()
+  assert.deepEqual(
+    required,
+    ['react', '@deepseek-ai/dsh-client-ui-primitives'],
+    'the entry may only resolve react plus the declared UI-primitives static-table word',
+  )
+})
+
+test('a shell without the UI-primitives word leaves the host native tool rows alone', async () => {
+  const react = createFakeReact()
+  const bundle = loadBundle(react, { missingPrimitives: true })
+  const fakeCtx = createFakeContext()
+  CLEANUPS.push(fakeCtx)
+  await bundle.plugin.apply(fakeCtx.ctx)
+  fakeCtx.runInjections()
+  const toolviews = fakeCtx.registrations.filter((entry) => entry.options.name === 'tool.call.toolview')
+  assert.deepEqual(toolviews, [], 'without the native row component no keyed card may replace the host row')
+  assert.equal(
+    fakeCtx.registrations.filter((entry) => entry.options.name === 'conversation.composer.dock').length,
+    1,
+    'the other surfaces still register',
+  )
+  const diagnostics = bundle.window.__TOWER_UI_DIAG__
+  assert.ok(
+    diagnostics.errors.some((error) => error.where === 'primitives'),
+    'the missing static-table word must be recorded, not thrown',
+  )
+  assert.ok(diagnostics.errors.every((error) => /DisclosureRow|primitives/i.test(error.message) || error.where === 'primitives'))
 })
 
 test('client logic stays within 10% of the 1980-line #71 budget and every file at most 400 lines', () => {
@@ -408,6 +478,11 @@ test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(pkg.dsh.client.platform, 'web')
   assert.equal(pkg.dsh.client.immediately, true)
+  assert.deepEqual(
+    pkg.dsh.client.external,
+    ['@deepseek-ai/dsh-client-ui-primitives'],
+    'the native row component is a static module-table word, not an installed package',
+  )
   assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
   assert.ok(
     pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-tool'),
@@ -437,7 +512,16 @@ test('client code contains no DOM writes, iframe, host.call, or client package i
   assert.doesNotMatch(ALL_SOURCE, /\bdocument\./)
   assert.doesNotMatch(ALL_SOURCE, /\bhost\.call\b/)
   assert.doesNotMatch(ALL_SOURCE, /<iframe|createElement\(\s*'iframe'/i)
-  assert.doesNotMatch(ALL_SOURCE, /require\(\s*'@deepseek-ai\//)
+  assert.doesNotMatch(
+    ALL_SOURCE,
+    /require\(\s*'@deepseek-ai\/(?!dsh-client-ui-primitives')/,
+    'only the declared UI-primitives static-table word may be required from @deepseek-ai/',
+  )
+  assert.match(
+    SOURCE,
+    /require\('@deepseek-ai\/dsh-client-ui-primitives'\)/,
+    'the native row chrome must come from the UI-primitives static-table word',
+  )
   assert.doesNotMatch(ALL_SOURCE, /from\s*'@deepseek-ai\//)
   assert.match(SOURCE, /ctx\.locale\.register/)
   assert.match(SOURCE, /ctx\.effect/)
@@ -609,9 +693,28 @@ function t(key, params) {
   return key + ':' + Object.keys(params).sort().map((name) => `${name}=${params[name]}`).join(',')
 }
 
-test('toolview renders a compact card and publishes start/result notices', async () => {
+// The native row contract: the outer element carries only the two data
+// attributes, and every piece of chrome is the primitives DisclosureRow. The
+// fake DisclosureRow renders `open && children`, so these assertions also prove
+// the curated detail body does not exist while the row is collapsed.
+function disclosureRow(layout) {
+  return findNode(
+    layout,
+    (node) => node.props && Object.prototype.hasOwnProperty.call(node.props, 'data-primitives-disclosure'),
+  )
+}
+
+function disclosureSeat(expanded, toggle) {
+  return () => ({ expanded, toggle })
+}
+
+test('toolview renders the native DisclosureRow and publishes start/result notices', async () => {
   const { react, toolviews, noticeSource } = await components()
   const Card = toolviews.get('tower_inspect')
+  let toggles = 0
+  const collapsedSeat = disclosureSeat(false, () => {
+    toggles += 1
+  })
 
   const startElement = render(react, Card, {
     toolName: 'tower_inspect',
@@ -619,45 +722,89 @@ test('toolview renders a compact card and publishes start/result notices', async
     callId: 'call-1',
     block: { callId: 'call-1', name: 'tower_inspect' },
     t,
+    useDisclosure: collapsedSeat,
   })
+  assert.deepEqual(Object.keys(startElement.props).sort(), ['data-tower-phase', 'data-tower-toolview'])
   assert.equal(startElement.props['data-tower-toolview'], 'tower_inspect')
   assert.equal(startElement.props['data-tower-phase'], 'start')
-  assert.equal(startElement.props.role, 'group')
-  assert.equal(startElement.props['aria-label'], startElement.props.title)
-  assert.equal(startElement.props['aria-busy'], 'true')
+  const startRow = disclosureRow(startElement)
+  assert.ok(startRow, 'the card must render the primitives DisclosureRow')
+  assert.equal(startRow.props['data-open'], 'false')
+  assert.equal(startRow.props['data-expandable'], 'false', 'a running row is not expandable')
+  assert.equal(startRow.props.role, undefined)
+  assert.equal(startRow.props['aria-expanded'], undefined)
+  assert.match(textOf(startElement), /tool\.inspect/, 'the title is the localized tool label')
   assert.match(textOf(startElement), /card\.running/)
+  assert.ok(
+    findNode(startElement, (node) => node.props && node.props['data-primitives-icon'] !== undefined),
+    'the icon comes from the primitives icon family, not an asset',
+  )
   assert.equal(noticeSource.getSnapshot().tool, 'tower_inspect')
   assert.equal(noticeSource.getSnapshot().running, true)
+  assert.equal(toggles, 0)
 
-  const resultElement = render(react, Card, {
+  const block = {
+    kind: 'tool/result',
+    callId: 'call-1',
+    call: { name: 'tower_inspect' },
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          view: 'status',
+          counts: { planned: 0, active: 1, completed: 0 },
+          openTasks: 2,
+          roster: 1,
+          findings: 0,
+          revision: 3,
+          missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
+        }),
+      },
+    ],
+  }
+  const collapsedElement = render(react, Card, {
     toolName: 'tower_inspect',
     phase: 'result',
     callId: 'call-1',
-    block: {
-      kind: 'tool/result',
-      callId: 'call-1',
-      call: { name: 'tower_inspect' },
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            view: 'status',
-            counts: { planned: 0, active: 1, completed: 0 },
-            openTasks: 2,
-            roster: 1,
-            findings: 0,
-            revision: 3,
-            missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
-          }),
-        },
-      ],
-    },
+    block,
     t,
+    useDisclosure: collapsedSeat,
   })
-  assert.equal(resultElement.props['data-tower-phase'], 'result')
-  const resultText = textOf(resultElement)
-  assert.match(resultText, /card\.statusHeadline/)
-  assert.match(resultText, /card\.openTasks/)
+  assert.equal(collapsedElement.props['data-tower-phase'], 'result')
+  const collapsedRow = disclosureRow(collapsedElement)
+  assert.equal(collapsedRow.props['data-open'], 'false')
+  assert.equal(collapsedRow.props['data-expandable'], 'true')
+  assert.equal(collapsedRow.props.role, 'button', 'expandOnRowClick makes the settled row a button')
+  assert.equal(collapsedRow.props['aria-expanded'], false)
+  const collapsedText = textOf(collapsedElement)
+  assert.match(collapsedText, /card\.statusHeadline/)
+  assert.doesNotMatch(collapsedText, /card\.openTasks/, 'the curated body must not exist while collapsed')
+  assert.equal(
+    findNode(collapsedElement, (node) => node.props && node.props['data-tower-tone'] !== undefined),
+    null,
+    'curated rows belong to the expanded body only',
+  )
+  collapsedRow.props.onClick()
+  assert.equal(toggles, 1, 'the row must route its click through the host DisclosureRow seat')
+
+  const openElement = render(react, Card, {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-1',
+    block,
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  })
+  const openRow = disclosureRow(openElement)
+  assert.equal(openRow.props['data-open'], 'true')
+  assert.equal(openRow.props['aria-expanded'], true)
+  const openText = textOf(openElement)
+  assert.match(openText, /card\.statusHeadline/)
+  assert.match(openText, /card\.openTasks/)
+  assert.ok(
+    findNode(openElement, (node) => node.props && node.props['data-tower-tone'] === 'warn'),
+    'the expanded body keeps the curated tone rows',
+  )
   const notice = noticeSource.getSnapshot()
   assert.equal(notice.tool, 'tower_inspect')
   assert.equal(notice.running, false)
@@ -686,10 +833,14 @@ test('toolview cards render review, preflight, merge, roster, complete and block
       callId: 'call-' + tool,
       block: { kind: 'tool/result', callId: 'call-' + tool, call: { name: tool }, content: [{ type: 'text', text: JSON.stringify(payload) }] },
       t,
+      useDisclosure: disclosureSeat(true, () => {}),
     })
     assert.equal(element.props['data-tower-toolview'], tool)
-    assert.equal(element.props.role, 'group')
-    assert.equal(element.props['aria-label'], element.props.title)
+    assert.deepEqual(Object.keys(element.props).sort(), ['data-tower-phase', 'data-tower-toolview'])
+    const row = disclosureRow(element)
+    assert.ok(row, `${tool} must render the primitives DisclosureRow`)
+    assert.equal(row.props['data-open'], 'true')
+    assert.equal(row.props['data-expandable'], 'true')
     assert.ok(textOf(element).length > 0)
     if (expectedKey) assert.match(textOf(element), expectedKey)
   }
@@ -719,6 +870,7 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
       content: [{ type: 'text', text: JSON.stringify(reviewPayload) }],
     },
     t: zhT,
+    useDisclosure: disclosureSeat(true, () => {}),
   })
   const text = textOf(card)
   assert.match(text, /2 个阻塞性问题/)
