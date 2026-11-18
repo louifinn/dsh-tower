@@ -21,6 +21,7 @@ alternatives, Date and Status.
 | [0008](0008-process-local-advisory-budgets.md) | Spawn backoff and send rate limits are process-local advisory budgets | 2026-11-12 |
 | [0009](0009-role-phase-exposure.md) | Tool exposure is a role × phase gate on step-time conditions | 2026-11-12 |
 | [0010](0010-tower-ralph-mutual-exclusion.md) | Tower and a Ralph loop are mutually exclusive per repository | 2026-11-12 |
+| [0011](0011-client-budget-covers-logic-not-locale-data.md) | The client size ratchet covers logic; the locale catalogue gets data guards | 2026-11-18 |
 
 ## Template
 

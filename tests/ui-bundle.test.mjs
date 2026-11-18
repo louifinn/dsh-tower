@@ -20,6 +20,7 @@ const CLIENT_PATH = path.join(CLIENT_DIR, 'client.js')
 const PACKAGE_PATH = path.join(CLIENT_DIR, 'package.json')
 const EN_PATH = path.join(CLIENT_DIR, 'locale', 'en.json')
 const ZH_PATH = path.join(CLIENT_DIR, 'locale', 'zh.json')
+const LOCALES_PATH = path.join(CLIENT_DIR, 'client.locales.js')
 const SOURCE = fs.readFileSync(CLIENT_PATH, 'utf8')
 // The bundle is split into an entry plus package-local chunks (#71); the
 // loader-format, theme-token and no-DOM checks cover every client source file.
@@ -270,11 +271,14 @@ test('client chunks are plain-JS __ModuleLoader__ modules and syntax-check', () 
   assert.equal(typeof plugin.apply, 'function')
 })
 
-test('client surfaces are split into files of at most 400 lines within 10% of 1980', () => {
-  // #71: the pre-split client.js was 1,980 lines. Every surface file must stay
-  // under the 400-line split target and the total must stay within 10%, so a
-  // future addition cannot quietly rebuild one large file.
+test('client logic stays within 10% of the 1980-line #71 budget and every file at most 400 lines', () => {
+  // #71: the pre-split client.js was 1,980 lines. #F67: the ratchet covers
+  // client *logic*; client.locales.js is the bilingual translation catalogue,
+  // whose copy must grow with the surface, so it is excluded from the sum and
+  // measured by the data guards below. Every file, the catalogue included,
+  // still has to stay under the 400-line split target.
   const BASELINE = 1980
+  const CATALOGUE = 'client.locales.js'
   const files = fs
     .readdirSync(CLIENT_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
@@ -286,9 +290,19 @@ test('client surfaces are split into files of at most 400 lines within 10% of 19
   for (const file of sizes) {
     assert.ok(file.lines <= 400, `${file.name} is ${file.lines} lines (split target: <= 400)`)
   }
-  const total = sizes.reduce((sum, file) => sum + file.lines, 0)
-  assert.ok(total >= BASELINE * 0.9, `client total ${total} lines fell below 90% of ${BASELINE}`)
-  assert.ok(total <= BASELINE * 1.1, `client total ${total} lines exceeds 110% of ${BASELINE}`)
+  assert.ok(
+    sizes.some((file) => file.name === CATALOGUE),
+    `${CATALOGUE} must be one of the declared client files`,
+  )
+  const total = sizes.reduce((sum, file) => sum + (file.name === CATALOGUE ? 0 : file.lines), 0)
+  assert.ok(
+    total >= BASELINE * 0.9,
+    `client logic total ${total} lines fell below 90% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+  )
+  assert.ok(
+    total <= BASELINE * 1.1,
+    `client logic total ${total} lines exceeds 110% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+  )
   // The chunk list is the shipped surface list; every client.<surface>.js file
   // is a real chunk the entry loads exactly once.
   const chunks = CLIENT_FILES.filter((name) => name !== 'client.js')
@@ -306,6 +320,80 @@ test('client surfaces are split into files of at most 400 lines within 10% of 19
   for (const name of chunks) {
     assert.ok(SOURCE.includes(`'./${name}'`), `${name} must be loaded by the entry`)
   }
+})
+
+// The catalogue is a plain browser chunk: load it the way the Web client (and
+// scripts/check-components.mjs) does — `window.__ModuleLoader__.load` then
+// `factory()` — so the guards read the rendered dictionaries instead of
+// scraping string literals out of the source.
+function loadClientCatalog() {
+  const source = fs.readFileSync(LOCALES_PATH, 'utf8')
+  let definition = null
+  const window = {
+    __ModuleLoader__: {
+      load(value) {
+        definition = value
+      },
+    },
+  }
+  // eslint-disable-next-line no-new-func -- the chunk is a plain browser script
+  new Function('window', source)(window)
+  assert.ok(definition && typeof definition.factory === 'function', 'client.locales.js must register a factory')
+  assert.equal(definition.id, 'dsh-tower-ui')
+  assert.equal(definition.chunk, 'client.locales.js')
+  const catalog = definition.factory()
+  assert.ok(
+    catalog && typeof catalog.EN === 'object' && typeof catalog.ZH === 'object',
+    'the catalogue factory must return { EN, ZH }',
+  )
+  return { source, EN: catalog.EN, ZH: catalog.ZH }
+}
+
+test('the client locale catalogue is bounded data, not a logic escape hatch (#F67)', () => {
+  const { source, EN, ZH } = loadClientCatalog()
+  const enKeys = Object.keys(EN).sort()
+  const zhKeys = Object.keys(ZH).sort()
+  // 133 entries today: one [English, Chinese] pair per key. The floor keeps a
+  // copy collapse from passing as a "smaller budget"; the ceiling (~2x today)
+  // lets the surface grow without turning the catalogue into a second product.
+  const KEY_FLOOR = 133
+  const KEY_CEILING = 260
+  // Today's longest value is 162 characters; 240 leaves ~48% headroom for a
+  // normal sentence while a pasted paragraph still trips the guard.
+  const VALUE_MAX = 240
+  assert.deepEqual(
+    {
+      missingInZh: enKeys.filter((key) => !(key in ZH)),
+      missingInEn: zhKeys.filter((key) => !(key in EN)),
+    },
+    { missingInZh: [], missingInEn: [] },
+    'en/zh key sets must match',
+  )
+  assert.ok(enKeys.length >= KEY_FLOOR, `client catalogue has ${enKeys.length} keys (floor ${KEY_FLOOR})`)
+  assert.ok(enKeys.length <= KEY_CEILING, `client catalogue has ${enKeys.length} keys (ceiling ${KEY_CEILING})`)
+  for (const [lang, dictionary] of [
+    ['en', EN],
+    ['zh', ZH],
+  ]) {
+    for (const [key, value] of Object.entries(dictionary)) {
+      assert.equal(typeof value, 'string', `${lang} "${key}" must be a string`)
+      assert.ok(value.trim() !== '', `${lang} "${key}" must not be empty`)
+      assert.ok(value.length <= VALUE_MAX, `${lang} "${key}" is ${value.length} characters (cap ${VALUE_MAX})`)
+    }
+  }
+  // The exemption is for data: the catalogue region (the loader registration,
+  // the [English, Chinese] pairs and the enum table) may carry no executable
+  // construct, and the chunk may not require or import. Its fixed
+  // translation-helper tail (fill/translate/seatT/toolLabel) is support code
+  // outside the catalogue, not a place the ratchet exempted.
+  const helperTail = source.indexOf('    function fill(')
+  assert.ok(helperTail > 0, 'client.locales.js must keep its translation-helper tail')
+  assert.doesNotMatch(
+    source.slice(0, helperTail),
+    /\bfunction\b|=>|\brequire\s*\(|\bimport\b/,
+    'the client catalogue must stay data: no function, arrow, require or import',
+  )
+  assert.doesNotMatch(source, /\brequire\s*\(|^\s*import\s/m, 'client.locales.js must not require or import modules')
 })
 
 test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
