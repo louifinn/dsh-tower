@@ -543,7 +543,7 @@ async function registerAll() {
   return { react, ...bundle, ...fakeCtx }
 }
 
-test('registers the twelve keyed tool.call.toolview entries', async () => {
+test('registers the nine keyed tool.call.toolview entries', async () => {
   const { registrations } = await registerAll()
   const toolviews = registrations.filter((entry) => entry.options.name === 'tool.call.toolview')
   assert.equal(toolviews.length, TOOL_NAMES.length)
