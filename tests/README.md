@@ -155,6 +155,26 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.3 release evidence (2026-11-18)
+
+The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
+batches through the bounded runner (`npm run test:shards`, 25 files per batch) on Windows 11 with Node
+`v25.8.1` (never an unbounded `npm test`). Declarations are counted, so the one skip is included in the
+total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1267** | 1266 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.3` (65.5 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
+passed. These are the current totals; the W5 table below is the historical record of
+`feat/2.8.0-structure` at `bad249c` and is kept as written.
+
 ### 2.9.2 release evidence (2026-11-18)
 
 The bounded suite is **125 `tests/*.test.mjs` files**, run as five sequential `node --test <files...>`
@@ -170,8 +190,8 @@ the one skip is included in the total:
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
-`git-mutex-budget.test.mjs` and `roster-watchdog.test.mjs` run inside them and passed. These are the
-current totals; the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is
+`git-mutex-budget.test.mjs` and `roster-watchdog.test.mjs` run inside them and passed. These were the
+2.9.2 totals; the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is
 kept as written.
 
 ### 2.9.1 release evidence (2026-11-17)
@@ -190,7 +210,7 @@ the one skip is included in the total:
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs` and
-`git-mutex-budget.test.mjs` run inside them and passed. These are the current totals; the W5 table
+`git-mutex-budget.test.mjs` run inside them and passed. These were the 2.9.1 totals; the W5 table
 below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### W5 integration evidence (#M77, v2.8.0 debt close-out)
@@ -200,7 +220,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.2 release evidence](#292-release-evidence-2026-11-18) above.
+[2.9.3 release evidence](#293-release-evidence-2026-11-18) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
