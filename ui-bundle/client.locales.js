@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
     }
     const COPY = {
       'card.title': ['Tower', 'Tower'],
+      'card.detail': ['Details', '详情'],
       'card.running': ['running…', '运行中…'],
       'card.done': ['done', '已完成'],
       'card.failed': ['failed', '失败'],

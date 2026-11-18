@@ -36,9 +36,42 @@ window.__ModuleLoader__.load({
         lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
       },
       header: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 },
-      // Expanded body: the curated rows sit under the title (leading icon box
-      // 16px + its 6px gap), one per line, with room below the row.
-      body: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, padding: '4px 0 6px 22px' },
+      // Expanded body: the native generic tool-result surface, token for token
+      // from the host `ToolRow.module.css` (`bodyWrap`/`ioCard`/`ioSection`/
+      // `ioLabel`/`ioText`/`ioDivider`). The open card must look like the row
+      // the host renders for a generic tool result: the border, code-block
+      // background and `font` shorthand are what give it the native surface and
+      // type scale. Never pin a px font size or a hex/rgb colour here — the
+      // `font` shorthand and the `--dsw-*` tokens follow the appearance
+      // text-size setting and the light/dark theme.
+      bodyWrap: { display: 'flex', flexDirection: 'column' },
+      ioCard: {
+        border: '.5px solid var(--dsw-alias-border-l1)',
+        borderRadius: 'var(--dsw-radius-lg)',
+        background: 'var(--dsw-alias-markdown-code-block)',
+        font: 'var(--dsw-font-markdown-code-block-small)',
+        flexDirection: 'column',
+        margin: '4px 0 4px 4px',
+        display: 'flex',
+      },
+      ioSection: {
+        gridTemplateColumns: 'max-content 1fr',
+        alignItems: 'baseline',
+        columnGap: '14px',
+        maxHeight: '150px',
+        padding: '12px 16px',
+        display: 'grid',
+        overflowY: 'auto',
+      },
+      ioLabel: { color: 'var(--dsw-alias-label-caption)', alignSelf: 'start', position: 'sticky', top: 0 },
+      ioText: {
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        minWidth: 0,
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      ioTextError: { color: 'var(--dsw-alias-state-error-primary)' },
+      ioDivider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
       title: { color: 'var(--dsw-alias-label-primary)', flex: 'none' },
       dim: {
         color: 'var(--dsw-alias-label-tertiary)',
@@ -49,8 +82,6 @@ window.__ModuleLoader__.load({
       },
       row: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       rowError: { color: 'var(--dsw-alias-state-error-primary)' },
-      rowWarn: { color: 'var(--dsw-alias-state-warn-primary)' },
-      rowOk: { color: 'var(--dsw-alias-state-success-primary)' },
       hint: {
         display: 'inline-flex',
         alignItems: 'center',
