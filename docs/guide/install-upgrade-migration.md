@@ -30,6 +30,36 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.9.1 → 2.9.2 — patch release, no migration required**: the config surface is unchanged (58 keys in
+  16 sections) and the state schema stays v5. What an operator will observe:
+  - **Plan scopes cover their subtree.** A bare directory entry, or one with a trailing separator, now
+    expands to its subtree in `tower_plan` (and in a `tower_mission` scope widening): `docs/guide/` is
+    stored as `docs/guide/**`, and `.` becomes the whole tree (`**`). Globs, files and unknown paths keep
+    their literal spelling, and a scope already stored on a mission is never rewritten.
+  - **Worker staleness is judged on sustained evidence.** `spawn.staleMs` now defaults to 30000 and the
+    bundled patch sets the same 30 s window. The watchdog marks an absence only after two consecutive
+    misses spanning twice the window, and an empty or unreadable parent catalog proves nothing. A worker
+    whose own `tower_complete` reaches the host is revived inside the completion transaction and recorded
+    as `completed (self-report)`; every other terminal state is still refused.
+  - **`tower_init({op: "adopt"})` does not retire on an empty catalog.** Only a non-empty
+    `listDescendants` answer is evidence of absence; rows under an empty or failing parent are reported
+    in the new `unjudged` list with the `parentStatus` reason, and their observation counters are left
+    untouched. `retire_missing` keeps its meaning for an authoritative catalog.
+  - **`tower_recover` also recovers the state-commit mutex.** `status` and `clear-stale-lock` inspect
+    `state.commit.lock` as well as the state lock, return `commitBackup`, refuse a record that changed
+    after it was read, and with `force` clear the commit mutex before moving the state lock. An unreadable
+    record is reported as `{unreadable: true, path, error}` and renamed to a backup, never deleted.
+  - **Host version sources have an explicit trust order.** Non-empty `DSH_VERSION`, `DSH_HOST_VERSION`
+    and `npm_config_dsh_version` come first; then the first readable `package.json` under
+    `DSH_INSTALL_DIR`/its parent and the corresponding `app.asar.unpacked` copies; then a mounted
+    service; last, a profile-installed dependency as a labelled non-authoritative hint. A parent package
+    can no longer stand in for the package `DSH_INSTALL_DIR` names, and a profile hit is always a warning,
+    never a pass.
+  - **The published type surface is checked for real.** `types:check` now runs
+    `types:check:declarations` against `types/index.d.ts` with `skipLibCheck: false`. `TowerConfig` now
+    resolves to the actual config type instead of `any`, so a consumer may see stricter, correct types.
+  - No state or config migration is required. Update the plugin and **restart DSH**.
+
 - **2.9.0 → 2.9.1 — patch release, no migration required**: the config surface is unchanged (58 keys in
   16 sections) and the state schema stays v5. The only state-shape change is the optional
   `reservationId` on the roster row a spawn reserves; a 2.9.0 reader ignores it, so rolling back is
