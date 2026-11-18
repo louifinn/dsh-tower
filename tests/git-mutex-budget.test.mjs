@@ -59,6 +59,45 @@ async function waitFor(predicate, timeoutMs = 3000) {
   return false
 }
 
+// F10: a loaded Windows host can spend many seconds between a merge's gate and
+// its first `git merge --no-ff` (the M114 reproduction measured more than 5 s on
+// a 24-core box with concurrent test suites), so a fixed wall-clock bound turns
+// a slow but healthy run red against a file the change never touched. These
+// waits are settled by observable state first and bounded only to keep a
+// genuinely wedged process from hanging the file: the `done` promise makes a
+// real failure (an out-of-scope gate blocker, a failed checkout) surface at once
+// instead of waiting out the guard.
+const SETTLE_LIMIT_MS = 60_000
+
+/**
+ * Resolve as soon as `reached` fires or `done` settles, whichever happens first.
+ * @param {Promise<unknown>} reached an observable event on the success path
+ * @param {Promise<unknown>} done the operation itself (settles on success or failure)
+ * @param {number} [limitMs] wedged-process guard only
+ * @returns {Promise<'reached'|'settled'|'timeout'>}
+ */
+function settleOrReach(reached, done, limitMs = SETTLE_LIMIT_MS) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), limitMs)
+    if (typeof timer.unref === 'function') timer.unref()
+    let settled = false
+    const finish = (outcome) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(outcome)
+    }
+    reached.then(
+      () => finish('reached'),
+      () => finish('settled'),
+    )
+    done.then(
+      () => finish('settled'),
+      () => finish('settled'),
+    )
+  })
+}
+
 /** An injected clock shared by the merge holder and the waiting init. */
 function createClock() {
   let value = Date.now()
@@ -250,8 +289,9 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
   // `core.autocrlf=true` (the machine-level default Tower inherits) while the
   // fixture git is pinned to no conversion. Before the adapter fix the gate
   // rejected the mission for an out-of-scope README.md and this test waited on
-  // `mergeReached` forever; the bounded wait below turns that into an
-  // immediate, self-describing failure.
+  // `mergeReached` forever; the `settleOrReach` wait below fails fast on a real
+  // gate blocker and bounds only a genuinely wedged process (F10), so a slow
+  // host no longer fails the file while the merge is still on its way.
   const ctx = await mergeReadyMission('dsh-tower-git-mutex-budget-', { autocrlf: true })
   try {
     const clock = createClock()
@@ -277,22 +317,28 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
 
     /** @type {any} */
     let mergeSettled = null
+    let markMergeDone
+    const mergeDone = new Promise((resolve) => {
+      markMergeDone = resolve
+    })
     const mergePromise = mergeTower.merge({ missionId: 'M1', activity: {} }).then(
       (result) => {
         mergeSettled = result
+        markMergeDone()
         return result
       },
       (error) => {
         mergeSettled = { error: String(error?.message ?? error) }
+        markMergeDone()
         throw error
       },
     )
     try {
-      const reached = await Promise.race([mergeReached.then(() => true), sleep(5000).then(() => false)])
+      const reached = await settleOrReach(mergeReached, mergeDone)
       assert.equal(
         reached,
-        true,
-        `the merge must reach "git merge --no-ff"; a gate blocker would otherwise hang this test: ${JSON.stringify(mergeSettled)}`,
+        'reached',
+        `the merge must reach "git merge --no-ff" (wait ended: ${reached}); a gate blocker would otherwise hang this test: ${JSON.stringify(mergeSettled)}`,
       )
       const holder = readGitLockRecord(mergeTower)
       assert.ok(holder, 'the merge must hold the git mutex')
@@ -335,11 +381,16 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
       // path (and therefore the real git mutex) against the same repository.
       initTower.paths = { ...initTower.paths, state: path.join(ctx.root, 'init-only-state.json') }
       let initSettled = false
+      let markInitDone
+      const initDone = new Promise((resolve) => {
+        markInitDone = resolve
+      })
       const initPromise = initTower.init({}).finally(() => {
         initSettled = true
+        markInitDone()
       })
       assert.ok(
-        await waitFor(() => initClockCalls >= 3, 5000),
+        await waitFor(() => initClockCalls >= 3, SETTLE_LIMIT_MS),
         'the init must enter the git-mutex wait loop before virtual time advances',
       )
       assert.equal(initSettled, false)
@@ -360,13 +411,15 @@ test('a tower_init waits out a simulated 90 s merge, and status/doctor expose th
       assert.equal(readGitLockRecord(mergeTower)?.at, clock.now() + 90000)
       clock.advance(90000)
       // Wait for the init's wait loop to observe the advanced clock instead of
-      // betting on a fixed 150 ms sleep. The race keeps a genuinely stuck waiter
-      // from hanging the whole file; the assertion below is unchanged.
-      const advanced = await Promise.race([
-        advancedSeen.then(() => true),
-        sleep(5000).then(() => false),
-      ])
-      assert.equal(advanced, true, 'the init must re-check its budget after virtual time advances')
+      // betting on a fixed 150 ms sleep. The wait also ends as soon as the init
+      // itself settles, so a failed init is reported immediately and the guard
+      // only covers a genuinely stuck waiter; the assertion is unchanged.
+      const advanced = await settleOrReach(advancedSeen, initDone)
+      assert.equal(
+        advanced,
+        'reached',
+        `the init must re-check its budget after virtual time advances (wait ended: ${advanced})`,
+      )
       assert.equal(initSettled, false, 'the waiter must outlive the old 60 s budget')
 
       releaseMerge()
