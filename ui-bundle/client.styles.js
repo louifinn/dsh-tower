@@ -13,23 +13,32 @@ window.__ModuleLoader__.load({
       none: 'var(--dsw-alias-label-tertiary)',
     }
     const ST = {
-      card: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
+      // Native row summary geometry: the 2px caption dot between the title and
+      // a one-line ellipsized summary whose type scales with the appearance
+      // text-size setting (the live variables the native `ToolRow.module.css`
+      // uses), so the row stays pixel-identical at any content font size.
+      sep: {
+        flex: 'none',
+        width: '2px',
+        height: '2px',
+        margin: '0 8px',
+        borderRadius: '1px',
+        background: 'var(--dsw-alias-label-caption)',
+      },
+      summary: {
+        flex: 'auto',
         minWidth: 0,
-        maxWidth: '100%',
-        boxSizing: 'border-box',
-        margin: '2px 0 2px 4px',
-        padding: '8px 10px',
-        border: '0.5px solid var(--dsw-alias-border-l1)',
-        borderRadius: '8px',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: '12px',
-        lineHeight: '18px',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        color: 'var(--dsw-alias-label-tertiary)',
+        fontSize: 'var(--dsh-content-font-size-secondary, 13px)',
+        lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
       },
       header: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 },
+      // Expanded body: the curated rows sit under the title (leading icon box
+      // 16px + its 6px gap), one per line, with room below the row.
+      body: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, padding: '4px 0 6px 22px' },
       title: { color: 'var(--dsw-alias-label-primary)', flex: 'none' },
       dim: {
         color: 'var(--dsw-alias-label-tertiary)',
