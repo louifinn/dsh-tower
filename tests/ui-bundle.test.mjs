@@ -108,6 +108,7 @@ function loadBundle(react, options = {}) {
         'div',
         {
           'data-primitives-disclosure': '',
+          'data-primitives-running': props.running === true ? 'true' : 'false',
           'data-open': props.open === true ? 'true' : 'false',
           'data-expandable': props.expandable === true ? 'true' : 'false',
           role: props.expandable === true ? 'button' : undefined,
@@ -730,6 +731,7 @@ test('toolview renders the native DisclosureRow and publishes start/result notic
   const startRow = disclosureRow(startElement)
   assert.ok(startRow, 'the card must render the primitives DisclosureRow')
   assert.equal(startRow.props['data-open'], 'false')
+  assert.equal(startRow.props['data-primitives-running'], 'true', 'a non-result phase must render the native running row')
   assert.equal(startRow.props['data-expandable'], 'false', 'a running row is not expandable')
   assert.equal(startRow.props.role, undefined)
   assert.equal(startRow.props['aria-expanded'], undefined)
@@ -773,9 +775,17 @@ test('toolview renders the native DisclosureRow and publishes start/result notic
   assert.equal(collapsedElement.props['data-tower-phase'], 'result')
   const collapsedRow = disclosureRow(collapsedElement)
   assert.equal(collapsedRow.props['data-open'], 'false')
+  assert.equal(collapsedRow.props['data-primitives-running'], 'false', 'a settled result clears the native running row')
   assert.equal(collapsedRow.props['data-expandable'], 'true')
   assert.equal(collapsedRow.props.role, 'button', 'expandOnRowClick makes the settled row a button')
   assert.equal(collapsedRow.props['aria-expanded'], false)
+  // The collapsed headline is styled with the live appearance font-size
+  // variables the native row uses, so it scales with the text-size setting
+  // instead of pinning the default 13px/24px.
+  const collapsedSummary = findNode(collapsedElement, (node) => node.props && node.props.key === 'headline')
+  assert.ok(collapsedSummary, 'the collapsed row must render its one-line summary')
+  assert.equal(collapsedSummary.props.style.fontSize, 'var(--dsh-content-font-size-secondary, 13px)')
+  assert.equal(collapsedSummary.props.style.lineHeight, 'calc(24px + var(--dsh-content-font-delta, 0px))')
   const collapsedText = textOf(collapsedElement)
   assert.match(collapsedText, /card\.statusHeadline/)
   assert.doesNotMatch(collapsedText, /card\.openTasks/, 'the curated body must not exist while collapsed')

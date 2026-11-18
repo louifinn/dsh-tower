@@ -14,7 +14,9 @@ window.__ModuleLoader__.load({
     }
     const ST = {
       // Native row summary geometry: the 2px caption dot between the title and
-      // a one-line, 13px/24px ellipsized summary (ToolRow.module.css).
+      // a one-line ellipsized summary whose type scales with the appearance
+      // text-size setting (the live variables the native `ToolRow.module.css`
+      // uses), so the row stays pixel-identical at any content font size.
       sep: {
         flex: 'none',
         width: '2px',
@@ -30,8 +32,8 @@ window.__ModuleLoader__.load({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         color: 'var(--dsw-alias-label-tertiary)',
-        fontSize: '13px',
-        lineHeight: '24px',
+        fontSize: 'var(--dsh-content-font-size-secondary, 13px)',
+        lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
       },
       header: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 },
       // Expanded body: the curated rows sit under the title (leading icon box
