@@ -35,7 +35,10 @@ window.__ModuleLoader__.load({
         fontSize: 'var(--dsh-content-font-size-secondary, 13px)',
         lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
       },
-      header: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 },
+      // The mode-blocked row summary keeps the native row geometry and takes
+      // the state text tokens the host uses for warning/error captions.
+      summaryWarn: { color: 'var(--dsw-alias-state-warn-label)' },
+      summaryError: { color: 'var(--dsw-alias-state-error-primary)' },
       // Expanded body: the native generic tool-result surface, token for token
       // from the host `ToolRow.module.css` (`bodyWrap`/`ioCard`/`ioSection`/
       // `ioLabel`/`ioText`/`ioDivider`). The open card must look like the row
@@ -72,7 +75,6 @@ window.__ModuleLoader__.load({
       },
       ioTextError: { color: 'var(--dsw-alias-state-error-primary)' },
       ioDivider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
-      title: { color: 'var(--dsw-alias-label-primary)', flex: 'none' },
       dim: {
         color: 'var(--dsw-alias-label-tertiary)',
         minWidth: 0,
@@ -80,7 +82,6 @@ window.__ModuleLoader__.load({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
       },
-      row: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       rowError: { color: 'var(--dsw-alias-state-error-primary)' },
       hint: {
         display: 'inline-flex',
@@ -157,24 +158,6 @@ window.__ModuleLoader__.load({
       },
       modeChipLabel: { color: 'var(--dsw-alias-label-primary)' },
       modeChipOn: { color: 'var(--dsw-alias-state-success-primary)' },
-      denyCard: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
-        minWidth: 0,
-        maxWidth: '100%',
-        boxSizing: 'border-box',
-        margin: '2px 0 2px 4px',
-        padding: '8px 10px',
-        border: '0.5px solid var(--dsw-alias-border-l2)',
-        borderRadius: '8px',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: '12px',
-        lineHeight: '18px',
-      },
-      denyLabel: { color: 'var(--dsw-alias-state-warn-primary)', flex: 'none' },
-      denyHint: { color: 'var(--dsw-alias-label-tertiary)' },
     }
     function dotStyle(tone) {
       return {

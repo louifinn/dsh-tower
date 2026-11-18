@@ -2,14 +2,49 @@
 //
 // The entries exist only while the session is in Tower mode and register at a
 // negative priority so the native toolviews return when the mode turns off.
-// Package-local chunk (#71).
+// A denied tool is still an ordinary tool row: the primitives `DisclosureRow`
+// is the collapsed (and running) chrome, and only the explanation — the
+// localized reason and the `/tower off` next step — lives in the native
+// io-card body while the row is expanded. The raw host denial sentence is a
+// detection signal, never visible copy. Package-local chunk (#71).
 window.__ModuleLoader__.load({
   id: 'dsh-tower-ui',
   chunk: 'client.denied.js',
   factory() {
     function createDenied(env) {
-      const { h, translate, seatT, ST, dotStyle, helpers } = env
+      const { h, translate, seatT, ST, helpers, primitives } = env
       const { isPlainObject, textOfBlock, truncate, firstLine, parsePayload, DEFAULT_DENIED_TOOLS } = helpers
+      const DisclosureRow = primitives && primitives.DisclosureRow
+      const RowIcon = primitives && primitives.IconChecklistOutlineRegular
+      // The default deny list is a set of foreign orchestration tools whose wire
+      // names are not user-facing copy. Every one of them gets a localized name
+      // here; a custom denied tool keeps its own name, exactly like the native
+      // row renders an unknown foreign tool.
+      const FRIENDLY_NAMES = {
+        wait_agent: 'deny.tool.wait_agent',
+        send_message: 'deny.tool.send_message',
+        list_agents: 'deny.tool.list_agents',
+        interrupt_agent: 'deny.tool.interrupt_agent',
+        spawn_teammate: 'deny.tool.spawn_teammate',
+        subagent: 'deny.tool.subagent',
+        subagent_fork: 'deny.tool.subagent_fork',
+        workflow: 'deny.tool.workflow',
+        ralph: 'deny.tool.ralph',
+        todo_write: 'deny.tool.todo_write',
+        create_goal: 'deny.tool.create_goal',
+        get_goal: 'deny.tool.get_goal',
+        update_goal: 'deny.tool.update_goal',
+        team_task_create: 'deny.tool.team_task_create',
+        team_task_get: 'deny.tool.team_task_get',
+        team_task_list: 'deny.tool.team_task_list',
+        team_task_update: 'deny.tool.team_task_update',
+      }
+      function noop() {}
+      function friendlyName(t, toolName) {
+        if (typeof toolName !== 'string' || toolName === '') return translate(t, 'card.title')
+        const key = FRIENDLY_NAMES[toolName]
+        return key === undefined ? toolName : translate(t, key)
+      }
 
       function denialMessageOf(block) {
         if (!isPlainObject(block)) return null
@@ -60,79 +95,103 @@ window.__ModuleLoader__.load({
         if (!names.includes('update_goal')) names.push('update_goal')
         return names
       }
+
+      // One native ioSection: the ioLabel caption plus the ioText value. An
+      // error value is marked with `data-error`, like the native generic row.
+      function sectionElement(t, key, labelKey, value, error) {
+        return h(
+          'div',
+          { key, style: ST.ioSection },
+          h('span', { key: 'label', style: ST.ioLabel }, translate(t, labelKey)),
+          h(
+            'span',
+            {
+              key: 'text',
+              style: error === true ? Object.assign({}, ST.ioText, ST.ioTextError) : ST.ioText,
+              'data-error': error === true ? true : undefined,
+            },
+            value,
+          ),
+        )
+      }
+      function bodyOf(t, children) {
+        return h('div', { key: 'body', style: ST.bodyWrap }, h('div', { key: 'card', style: ST.ioCard }, children))
+      }
+      function denialBody(t) {
+        return bodyOf(t, [
+          sectionElement(t, 'reason', 'deny.reasonLabel', translate(t, 'deny.reason'), false),
+          h('span', { key: 'divider', 'aria-hidden': true, style: ST.ioDivider }),
+          sectionElement(t, 'next', 'deny.nextLabel', translate(t, 'deny.hint'), false),
+        ])
+      }
+      function errorBody(t, reason) {
+        return bodyOf(t, [sectionElement(t, 'error', 'card.error', reason, true)])
+      }
+      function errorReasonOf(error) {
+        if (!isPlainObject(error)) return ''
+        if (typeof error.message === 'string' && error.message.trim() !== '') return firstLine(error.message, 400)
+        if (typeof error.code === 'string' && error.code.trim() !== '') return firstLine(error.code, 120)
+        return ''
+      }
+
       function DeniedToolRow(props) {
+        // The keyed entry replaces the host row, so without the native row
+        // component the host's own row must stay in place (client.js does not
+        // register these entries then); rendering nothing is the defensive
+        // equivalent of that fallback, never a hand-built lookalike.
+        if (!DisclosureRow) return null
         const t = seatT(props)
         const toolName = props && typeof props.toolName === 'string' ? props.toolName : ''
         const phase = props && typeof props.phase === 'string' ? props.phase : 'start'
-        if (phase !== 'result') {
-          return h(
-            'div',
-            { 'data-tower-toolview': toolName, 'data-tower-denied-view': 'running', style: ST.denyCard },
-            h(
-              'div',
-              { style: ST.header },
-              h('span', { 'aria-hidden': true, style: dotStyle('idle') }),
-              h('span', { style: ST.denyLabel }, translate(t, 'deny.label')),
-              h('span', { style: ST.dim }, '·'),
-              h('span', { style: ST.title }, toolName),
-              h('span', { style: ST.dim }, translate(t, 'deny.running')),
-            ),
-          )
+        const running = phase !== 'result'
+        const block = props ? props.block : undefined
+        const disclosure = typeof props.useDisclosure === 'function' ? props.useDisclosure() : null
+        const expanded = Boolean(disclosure && disclosure.expanded === true)
+        const toggle = disclosure && typeof disclosure.toggle === 'function' ? disclosure.toggle : noop
+        const denial = running ? null : denialMessageOf(block)
+        const payload = running ? null : parsePayload(block)
+        const failed = isPlainObject(payload) && payload.__error === true
+        let view = 'generic'
+        let summary = translate(t, 'card.done')
+        let summaryStyle = ST.summary
+        let expandable = false
+        let body = undefined
+        if (running) {
+          view = 'running'
+          summary = translate(t, 'deny.running')
+          summaryStyle = Object.assign({}, ST.summary, ST.summaryWarn)
+        } else if (denial !== null) {
+          view = 'denied'
+          summary = translate(t, 'deny.summary')
+          summaryStyle = Object.assign({}, ST.summary, ST.summaryWarn)
+          expandable = true
+          if (expanded) body = denialBody(t)
+        } else if (failed) {
+          summary = translate(t, 'deny.error')
+          summaryStyle = Object.assign({}, ST.summary, ST.summaryError)
+          expandable = true
+          const reason = errorReasonOf(payload.error)
+          if (expanded) body = errorBody(t, reason === '' ? translate(t, 'deny.error') : reason)
         }
-        const denial = denialMessageOf(props ? props.block : undefined)
-        if (denial !== null) {
-          return h(
-            'div',
-            {
-              'data-tower-toolview': toolName,
-              'data-tower-denied-view': 'denied',
-              role: 'note',
-              style: ST.denyCard,
-              title: denial,
-            },
-            h(
-              'div',
-              { style: ST.header },
-              h('span', { 'aria-hidden': true, style: dotStyle('warn') }),
-              h('span', { style: ST.denyLabel }, translate(t, 'deny.label')),
-              h('span', { style: ST.dim }, '·'),
-              h('span', { style: ST.title }, toolName),
-            ),
-            h('div', { style: ST.row }, denial),
-            h('div', { style: ST.denyHint }, translate(t, 'deny.hint')),
-          )
-        }
-        // Defensive fallback: the slot is ours only while Tower mode is on, so
-        // a non-denial result here has no native view to delegate to.
-        const payload = parsePayload(props ? props.block : undefined)
-        const error =
-          isPlainObject(props) && isPlainObject(props.block) && isPlainObject(props.block.error) ? props.block.error : null
-        let text = translate(t, 'deny.generic', { tool: toolName })
-        let tone = 'ok'
-        if (isPlainObject(payload) && payload.__error === true) {
-          tone = 'error'
-          const reason =
-            error !== null && typeof error.message === 'string'
-              ? error.message
-              : error !== null && typeof error.code === 'string'
-                ? error.code
-                : 'error'
-          text = translate(t, 'deny.error') + ': ' + firstLine(reason)
-        } else if (isPlainObject(payload) && typeof payload.text === 'string' && payload.text.trim() !== '') {
-          text = translate(t, 'deny.generic', { tool: toolName }) + translate(t, 'card.sep') + firstLine(payload.text)
-        }
+        const open = expanded && expandable
         return h(
           'div',
-          { 'data-tower-toolview': toolName, 'data-tower-denied-view': 'generic', style: ST.denyCard },
-          h(
-            'div',
-            { style: ST.header },
-            h('span', { 'aria-hidden': true, style: dotStyle(tone) }),
-            h('span', { style: ST.title }, translate(t, 'card.title')),
-            h('span', { style: ST.dim }, '·'),
-            h('span', { style: ST.title }, toolName),
-            h('span', { style: tone === 'error' ? ST.rowError : ST.dim }, truncate(text, 120)),
-          ),
+          { 'data-tower-toolview': toolName, 'data-tower-denied-view': view },
+          h(DisclosureRow, {
+            icon: RowIcon ? h(RowIcon, { size: 14 }) : undefined,
+            title: friendlyName(t, toolName),
+            running,
+            open,
+            expandable,
+            expandOnRowClick: true,
+            keepContentWhenOpen: true,
+            onToggle: toggle,
+            collapsedContent: [
+              h('span', { key: 'sep', 'aria-hidden': true, 'data-shimmer-decoration': true, style: ST.sep }),
+              h('span', { key: 'summary', style: summaryStyle }, summary),
+            ],
+            children: open ? body : undefined,
+          }),
         )
       }
 

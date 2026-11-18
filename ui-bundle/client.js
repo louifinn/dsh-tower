@@ -262,6 +262,11 @@ window.__ModuleLoader__.load({
           return ctx.slots.inject(
             'tool.call.toolview',
             guardedCallback('denied-toolviews', function () {
+              // The denied row is the native `DisclosureRow` too. Without the
+              // primitives word there is no native row to render, so leave the
+              // host's own rows in place (a hand-built lookalike is never the
+              // fallback — the static toolviews above follow the same rule).
+              if (env.primitives === undefined) return undefined
               const disposers = new Map()
               let currentKey = null
               const reconcile = function () {
