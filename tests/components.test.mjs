@@ -1299,6 +1299,31 @@ test('integration: a spawn-precondition message outside the copy table fails the
   }
 })
 
+// #F84: the review-disabled refusal belongs to the role contract now. The gate's
+// unused-entry rule is what makes "keep the duplicate in the table so the gate
+// stays quiet" impossible: re-adding it without a reader turns the gate red.
+test('integration: a re-added review-disabled copy entry with no reader fails the gate (#F84)', async () => {
+  const anchor = `  leaseForeignHolder: 'lease "{lease}" is held by "{holder}", not by this tower',`
+  const planted =
+    "  reviewDisabled: 'review before merging is turned off in this project\\'s plugin configuration, so a reviewer cannot be started and a review cannot be recorded',"
+  const dir = gateRoot({
+    'app/spawn-prechecks.js': (text) => {
+      assert.ok(text.includes(anchor), anchor)
+      return text.replace(anchor, `${anchor}\n${planted}`)
+    },
+  })
+  try {
+    const report = await checkComponents(dir)
+    assert.equal(report.ok, false, 'an unused copy entry must fail the gate')
+    assert.ok(
+      report.findings.some((entry) => entry.code === 'precheck-copy-unused'),
+      JSON.stringify(report.findings, null, 2),
+    )
+  } finally {
+    removeTemp(dir)
+  }
+})
+
 // #F69: the doctor remedy is the action a reader follows. A tool id, config key
 // or row id planted in it must be caught by the action scanner, not excused as
 // if it were a diagnostic detail.
