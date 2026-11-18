@@ -78,6 +78,41 @@ export async function renameWithRetry(tmp, file, options = {}) {
   }
 }
 
+// F10: a Windows create can fail transiently while an antivirus filter, the
+// indexer or a concurrent reader holds the name (EPERM/EBUSY/EACCES); retry
+// exactly those and rethrow everything else unchanged. EEXIST is never retried:
+// it is the single-flight signal. The schedule sums to 1270 ms, inside 1500 ms.
+export const LOCK_CREATE_TRANSIENT_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
+export const LOCK_CREATE_BUDGET_MS = 1500
+export const LOCK_CREATE_DELAYS = [10, 20, 40, 80, 160, 320, 640]
+export const LOCK_CREATE_ATTEMPTS = LOCK_CREATE_DELAYS.length + 1
+/** Create the record exclusively; the syscall and wait are injectable. */
+export async function createLockFile(lockPath, payload, options = {}) {
+  const create = options.create ?? ((file, data) => fsp.writeFile(file, data, { flag: 'wx' }))
+  const wait = options.sleep ?? sleep
+  for (const delay of [...LOCK_CREATE_DELAYS, null]) {
+    try {
+      return await create(lockPath, payload)
+    } catch (error) {
+      if (!LOCK_CREATE_TRANSIENT_ERRORS.has(error?.code) || delay === null) throw error
+      await wait(delay)
+    }
+  }
+}
+/** Synchronous twin of `createLockFile` (the mode store's caller). */
+export function createLockFileSync(lockPath, payload, options = {}) {
+  const create = options.createSync ?? ((file, data) => fs.writeFileSync(file, data, { flag: 'wx' }))
+  const wait = options.sleepSync ?? sleepSync
+  for (const delay of [...LOCK_CREATE_DELAYS, null]) {
+    try {
+      return create(lockPath, payload)
+    } catch (error) {
+      if (!LOCK_CREATE_TRANSIENT_ERRORS.has(error?.code) || delay === null) throw error
+      wait(delay)
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Liveness
 // ---------------------------------------------------------------------------
@@ -667,7 +702,10 @@ export async function acquireLock(lockPath, options = {}) {
   let reclaimed = false
   for (;;) {
     try {
-      await fsp.writeFile(lockPath, JSON.stringify(record), { flag: 'wx' })
+      await createLockFile(lockPath, JSON.stringify(record), {
+        create: options.create,
+        sleep: options.createSleep,
+      })
       const health = { lost: false }
       const stopHeartbeat = startHeartbeat(lockPath, token, options, health)
       const held = handleFor(lockPath, token, record, stopHeartbeat, health)
@@ -695,10 +733,13 @@ export function acquireLockSync(lockPath, options = {}) {
   let reclaimed = false
   for (;;) {
     try {
-      fs.writeFileSync(lockPath, JSON.stringify(record), { flag: 'wx' })
       // Synchronous callers (the mode store) hold the lock for a short, fixed
       // critical section and cannot run a timer; the record's `at` is its only
       // heartbeat and a stale one is diagnostic only.
+      createLockFileSync(lockPath, JSON.stringify(record), {
+        createSync: options.createSync,
+        sleepSync: options.createSleepSync,
+      })
       const held = syncHandleFor(lockPath, token, record)
       held.reclaimed = reclaimed
       return held

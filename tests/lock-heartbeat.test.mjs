@@ -425,43 +425,85 @@ test('tower_doctor reports state-lock age and heartbeat freshness (#92)', async 
   try {
     await call(tools, 'tower_init', { repoRoot: repo })
     const tower = await Tower.open(repo)
-    fs.writeFileSync(
-      tower.paths.lock,
-      JSON.stringify({
-        token: 'silent-holder',
-        pid: process.pid,
-        startedAt: Date.now() - 60000,
-        since: Date.now() - 60000,
-        at: Date.now() - 10000,
-      }),
+
+    // Case 1: a live holder with an old heartbeat. Every expectation is derived
+    // from the numbers the doctor itself reports, never from a fixed wall-clock
+    // window: a loaded host only makes the reported age larger, so scheduling
+    // delay cannot flip this verdict (F10).
+    const since = Date.now() - 60_000
+    const at = Date.now() - 10_000
+    writeLock(tower.paths.lock, { token: 'silent-holder', pid: process.pid, startedAt: since, since, at })
+
+    const silent = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const silentCheck = silent.checks.find((entry) => entry.id === 'state-lock')
+    assert.equal(silentCheck.status, 'warn')
+    assert.match(silentCheck.detail, /heartbeat/i)
+
+    assert.equal(silent.stateLock.held, true)
+    assert.equal(silent.stateLock.pid, process.pid)
+    assert.equal(silent.stateLock.alive, true)
+    assert.ok(silent.stateLock.staleAfterMs > 0)
+    // The verdict must be the doctor's own arithmetic, not a wall-clock bound.
+    assert.equal(
+      silent.stateLock.stale,
+      silent.stateLock.heartbeatAgeMs > silent.stateLock.staleAfterMs,
+      'staleness must be exactly the reported heartbeat age against the reported window',
     )
+    assert.equal(silent.stateLock.stale, true)
+    // `since + ageMs` reconstructs the instant the doctor sampled, so the
+    // heartbeat age it reports is fully determined by the record this fixture
+    // wrote — the assertion cannot drift with load.
+    assert.equal(silent.stateLock.heartbeatAgeMs, Math.max(0, since + silent.stateLock.ageMs - at))
+    assert.ok(silent.stateLock.heartbeatAgeMs >= 9000)
+    assert.ok(silent.stateLock.ageMs >= 50000)
 
-    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
-    const check = doctor.checks.find((entry) => entry.id === 'state-lock')
-    assert.equal(check.status, 'warn')
-    assert.match(check.detail, /heartbeat/i)
-
-    assert.equal(doctor.stateLock.held, true)
-    assert.equal(doctor.stateLock.pid, process.pid)
-    assert.equal(doctor.stateLock.alive, true)
-    assert.equal(doctor.stateLock.stale, true)
-    assert.ok(doctor.stateLock.heartbeatAgeMs >= 9000)
-    assert.ok(doctor.stateLock.ageMs >= 50000)
-    assert.ok(doctor.stateLock.staleAfterMs > 0)
-
-    // A fresh heartbeat is reported as held, not stale. The record is stamped
-    // in the future on purpose: this assertion is about the doctor's stale
-    // classification, not about how long a loaded machine takes to reach the
-    // inspection, so a scheduling stall longer than the stale window must not
-    // age a fresh record past it (#F20). A future `at` clamps to age zero.
-    const freshAt = Date.now() + 600_000
-    fs.writeFileSync(
-      tower.paths.lock,
-      JSON.stringify({ token: 'fresh', pid: process.pid, since: freshAt, at: freshAt }),
+    // Case 2 (deterministic stale-by-heartbeat): the holder PID is alive and the
+    // record itself is fresh enough to be held, yet its heartbeat is older than
+    // the window the doctor just reported. Load only ages it further, so this
+    // stale verdict is structural rather than a race with the check.
+    const staleAfterMs = silent.stateLock.staleAfterMs
+    const staleSince = Date.now() - staleAfterMs * 4
+    const staleAt = Date.now() - staleAfterMs * 2
+    writeLock(tower.paths.lock, { token: 'silent-holder', pid: process.pid, startedAt: staleSince, since: staleSince, at: staleAt })
+    const staleByHeartbeat = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.equal(staleByHeartbeat.stateLock.alive, true, 'the holder PID is alive; only its heartbeat is old')
+    assert.ok(
+      staleByHeartbeat.stateLock.heartbeatAgeMs > staleByHeartbeat.stateLock.staleAfterMs,
+      'the fixture heartbeat must be older than the reported window',
     )
+    assert.equal(staleByHeartbeat.stateLock.stale, true)
+    assert.equal(
+      staleByHeartbeat.stateLock.heartbeatAgeMs,
+      Math.max(0, staleSince + staleByHeartbeat.stateLock.ageMs - staleAt),
+    )
+    assert.ok(staleByHeartbeat.stateLock.ageMs > staleByHeartbeat.stateLock.heartbeatAgeMs)
+
+    // Case 3: a genuinely refreshed heartbeat must flip the verdict back. The
+    // refreshed stamp is placed `staleAfterMs * 200` ahead of this process, so
+    // the residual assumption is derived from the doctor's own window instead
+    // of a hard-coded future offset — and the reported arithmetic is checked
+    // against the record the refresh actually wrote (F10 replaced the fixed
+    // "under 10 s" freshness window this test used to assume).
+    const refreshedAt = Date.now() + staleAfterMs * 200
+    assert.equal(await touchLock(tower.paths.lock, 'silent-holder', { now: refreshedAt }), true, 'the heartbeat CAS must land on the record it read')
+    const onDisk = JSON.parse(fs.readFileSync(tower.paths.lock, 'utf8'))
+    assert.equal(onDisk.at, refreshedAt, 'the heartbeat refresh must land on the record')
+    assert.equal(onDisk.since, staleSince, 'a heartbeat must not rewrite the record age')
+
     const fresh = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
-    assert.equal(fresh.stateLock.stale, false)
-    assert.equal(fresh.stateLock.heartbeatAgeMs, 0, 'a future heartbeat clamps to a zero age')
+    assert.equal(fresh.stateLock.staleAfterMs, staleAfterMs)
+    assert.equal(
+      fresh.stateLock.heartbeatAgeMs,
+      Math.max(0, staleSince + fresh.stateLock.ageMs - refreshedAt),
+      'the reported heartbeat age must follow the record the heartbeat wrote',
+    )
+    assert.equal(fresh.stateLock.stale, fresh.stateLock.heartbeatAgeMs > fresh.stateLock.staleAfterMs)
+    assert.equal(fresh.stateLock.stale, false, 'a refreshed heartbeat must clear the stale verdict')
+    assert.equal(fresh.stateLock.heartbeatAgeMs, 0, 'a refreshed heartbeat is younger than the sampling instant')
+    assert.ok(
+      fresh.stateLock.heartbeatAgeMs < staleByHeartbeat.stateLock.heartbeatAgeMs,
+      'the refresh must lower the reported heartbeat age',
+    )
     assert.match(fresh.checks.find((entry) => entry.id === 'state-lock').detail, /held by pid/i)
   } finally {
     removeTemp(root)

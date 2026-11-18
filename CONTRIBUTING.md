@@ -115,6 +115,13 @@ npm test        # no dependencies to install; Node's built-in test runner only
 Requirements: Node.js 24.9+ (the supported floor), Git. No package installation is needed for the
 offline example suite.
 
+`npm test` is the canonical full suite and CI runs it inside `npm run check`. On a constrained Windows
+machine — or when several agents share the host and the unbounded parallel run makes untouched files
+flaky — run the same files through the bounded runner: `npm run test:shards` (sequential batches of 25)
+or `npm run test:shards -- --size 10`. It enumerates exactly `tests/*.test.mjs`, runs every batch even
+after a failure, and exits 1 if any batch failed; `tests/test-shards.test.mjs` pins the file-set
+equality. The runner only changes how a loaded local machine runs the suite, never what CI runs.
+
 The property-based PR tier (`npm run test:property`) does need the dev dependencies: run `npm ci` once, then `npm run test:property`. It is part of `npm run check` and runs on every CI matrix leg; the nightly long tier is `npm run test:property:long`. See [tests/README.md](tests/README.md#property-based-tests-fast-check-130).
 
 The opt-in live suite is the exception: install it once with
@@ -137,7 +144,7 @@ the push gates; CI schedules it nightly.
 
 ## Pull request checklist
 
-1. `npm run check` passes locally — it is the canonical gate, and the `canonical` CI legs run exactly that once per leg (the offline suite, the property PR tier, `npm run support:check`, `npm run workflow:check`, the docs/pack/architecture/types/domain gates).
+1. `npm run check` passes locally — it is the canonical gate, and the `canonical` CI legs run exactly that once per leg (the offline suite, the property PR tier, `npm run support:check`, `npm run workflow:check`, the docs/pack/architecture/types/domain gates). On a constrained Windows host, `npm run test:shards` is the documented way to run that offline-suite portion without oversubscribing the machine.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.
