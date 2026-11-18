@@ -11,6 +11,13 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { fsp } from '../adapters/store-fs.js'
 import {
   acquireLock,
+  acquireLockSync,
+  createLockFile,
+  createLockFileSync,
+  LOCK_CREATE_ATTEMPTS,
+  LOCK_CREATE_BUDGET_MS,
+  LOCK_CREATE_DELAYS,
+  LOCK_CREATE_TRANSIENT_ERRORS,
   lockLiveness,
   lockRecord,
   readLock,
@@ -492,3 +499,175 @@ test('lock kernel: a resurrected record cannot publish state after the loss was 
     removeTemp(root)
   }
 })
+
+// ---------------------------------------------------------------------------
+// F10: the exclusive create of a lock record must survive the transient Windows
+// sharing errors (antivirus/indexer holds the name for a few milliseconds), and
+// must fail loudly and immediately for every other error.
+// ---------------------------------------------------------------------------
+
+/** A sharing violation as Windows reports it: EPERM on open, errno -4048. */
+function sharingViolation(code = 'EPERM') {
+  return Object.assign(new Error(`${code}: operation not permitted, open 'git.lock'`), {
+    code,
+    errno: -4048,
+    syscall: 'open',
+  })
+}
+
+test('lock kernel: a create retries the transient sharing errors and still takes the lock (#F10)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const failures = [sharingViolation('EPERM'), sharingViolation('EBUSY')]
+    const waits = []
+    let creates = 0
+    const create = async (file, payload) => {
+      creates += 1
+      const failure = failures.shift()
+      if (failure) throw failure
+      await fsp.writeFile(file, payload, { flag: 'wx' })
+    }
+    await createLockFile(paths.lock, JSON.stringify(lockRecord('retried')), {
+      create,
+      sleep: async (ms) => waits.push(ms),
+    })
+    assert.deepEqual(waits, [LOCK_CREATE_DELAYS[0], LOCK_CREATE_DELAYS[1]])
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, 'retried')
+    assert.equal(creates, 3)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: acquireLock survives the same failures and keeps single-flight semantics (#F10)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    const waits = []
+    let creates = 0
+    const create = async (file, payload) => {
+      creates += 1
+      if (creates <= 2) throw sharingViolation('EACCES')
+      await fsp.writeFile(file, payload, { flag: 'wx' })
+    }
+    const held = await acquireLock(paths.lock, {
+      token: 'retry-owner',
+      heartbeat: false,
+      timeoutMs: 0,
+      create,
+      createSleep: async (ms) => waits.push(ms),
+    })
+    assert.ok(held, 'two transient failures must not lose the lock')
+    assert.equal(creates, 3)
+    assert.deepEqual(waits, [10, 20])
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, 'retry-owner')
+
+    // A retried create is still one exclusive owner: a rival cannot slip in.
+    const rival = await acquireLock(paths.lock, { token: 'rival', heartbeat: false, timeoutMs: 0 })
+    assert.equal(rival, null)
+    assert.equal(creates, 3, 'the retry created exactly one record, on the third attempt')
+    assert.equal(await held.release(), true)
+    assert.equal(fs.existsSync(paths.lock), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('lock kernel: only EPERM/EBUSY/EACCES are retried, and the retry is bounded (#F10)', async () => {
+  for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+    let creates = 0
+    const failure = sharingViolation(code)
+    await assert.rejects(
+      () =>
+        createLockFile('unused', 'x', {
+          create: async () => {
+            creates += 1
+            throw failure
+          },
+          sleep: async () => {},
+        }),
+      (error) => {
+        assert.equal(error, failure, `${code} must surface unchanged`)
+        return true
+      },
+    )
+    assert.equal(creates, LOCK_CREATE_ATTEMPTS, `${code} must exhaust the bounded attempts`)
+  }
+
+  // Every other code is a real failure: one attempt, no wait, no masking.
+  for (const code of ['EEXIST', 'ENOENT', 'EIO', 'EROFS', 'ENOSPC']) {
+    const failure = Object.assign(new Error(`${code}: nope`), { code })
+    let creates = 0
+    let waits = 0
+    await assert.rejects(
+      () =>
+        createLockFile('unused', 'x', {
+          create: async () => {
+            creates += 1
+            throw failure
+          },
+          sleep: async () => {
+            waits += 1
+          },
+        }),
+      (error) => {
+        assert.equal(error, failure, `${code} must be rethrown unchanged`)
+        return true
+      },
+    )
+    assert.deepEqual([creates, waits], [1, 0], `${code} must fail immediately`)
+  }
+})
+
+test('lock kernel: an exhausted retry rethrows the last error and respects the time budget (#F10)', async () => {
+  const failures = Array.from({ length: LOCK_CREATE_ATTEMPTS + 2 }, (_, index) =>
+    Object.assign(new Error(`EPERM: attempt ${index}`), { code: 'EPERM' }),
+  )
+  const waits = []
+  let creates = 0
+  await assert.rejects(
+    () =>
+      createLockFile('unused', 'x', {
+        create: async () => {
+          creates += 1
+          throw failures[creates - 1]
+        },
+        sleep: async (ms) => waits.push(ms),
+      }),
+    (error) => {
+      assert.equal(error, failures[LOCK_CREATE_ATTEMPTS - 1], 'the last observed error is the one rethrown')
+      return true
+    },
+  )
+  assert.equal(creates, LOCK_CREATE_ATTEMPTS)
+  const waitedMs = waits.reduce((sum, ms) => sum + ms, 0)
+  assert.ok(waitedMs <= LOCK_CREATE_BUDGET_MS, `${waitedMs} ms must fit the ${LOCK_CREATE_BUDGET_MS} ms budget`)
+  assert.deepEqual(waits, LOCK_CREATE_DELAYS, 'the backoff must be the published schedule')
+  assert.equal(waitedMs, 1270, 'the full retry spends less than the budget, never more')
+  assert.equal(LOCK_CREATE_TRANSIENT_ERRORS.size, 3)
+})
+
+test('lock kernel: the synchronous create retries the same codes (#F10)', () => {
+  const { root, paths } = tempPaths()
+  try {
+    const failure = sharingViolation('EPERM')
+    const waits = []
+    let creates = 0
+    const outcome = createLockFileSync(paths.lock, JSON.stringify(lockRecord('sync-retried')), {
+      createSync: (file, payload) => {
+        creates += 1
+        if (creates === 1) throw failure
+        fs.writeFileSync(file, payload, { flag: 'wx' })
+      },
+      sleepSync: (ms) => waits.push(ms),
+    })
+    assert.equal(outcome, undefined, 'the create reports success by returning, not by a result object')
+    assert.deepEqual(waits, [LOCK_CREATE_DELAYS[0]])
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, 'sync-retried')
+
+    const held = acquireLockSync(paths.lock, { token: 'sync-owner', timeoutMs: 0 })
+    assert.equal(held, null, 'single-flight must still hold after a retried create')
+  } finally {
+    removeTemp(root)
+  }
+})
+

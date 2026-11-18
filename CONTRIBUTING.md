@@ -115,6 +115,13 @@ npm test        # no dependencies to install; Node's built-in test runner only
 Requirements: Node.js 24.9+ (the supported floor), Git. No package installation is needed for the
 offline example suite.
 
+`npm test` is the canonical full suite and CI runs it inside `npm run check`. On a constrained Windows
+machine — or when several agents share the host and the unbounded parallel run makes untouched files
+flaky — run the same files through the bounded runner: `npm run test:shards` (sequential batches of 25)
+or `npm run test:shards -- --size 10`. It enumerates exactly `tests/*.test.mjs`, runs every batch even
+after a failure, and exits 1 if any batch failed; `tests/test-shards.test.mjs` pins the file-set
+equality. The runner only changes how a loaded local machine runs the suite, never what CI runs.
+
 The property-based PR tier (`npm run test:property`) does need the dev dependencies: run `npm ci` once, then `npm run test:property`. It is part of `npm run check` and runs on every CI matrix leg; the nightly long tier is `npm run test:property:long`. See [tests/README.md](tests/README.md#property-based-tests-fast-check-130).
 
 The opt-in live suite is the exception: install it once with
@@ -131,13 +138,13 @@ the push gates; CI schedules it nightly.
 - `host/` — the composition root and session/process glue (`tool-registry.js` facade over `tool-runtime.js`/`tool-capabilities.js`/`tool-observers.js`, `mode-state.js`, `config.js`, `hmr.js`, `modeStore.js`, `doctor.js`); `adapters/` — the only I/O implementations (store, git, archive, leases, locks); `app/` — use cases; `domain/` — the pure core.
 - `worker.js` — the `tower-worker` preset policy (tool surface + protocol text).
 - `host/preset-worker.js` / `host/preset-reviewer.js` — the two Tower-owned preset declaration rows (`dsh-tower/preset-*`). They keep the row config in `cordis.patch.yml`, forward it to `ctx.agentPresets.register()`, and give each preset row its own Plugins-page label; do not mount the shared `@deepseek-ai/dsh-agent-preset` for these rows.
-- `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; an invariant over a pure domain function belongs in `tests/property/*.prop.mjs` (fast-check) rather than a hand-rolled randomized loop, and `tests/no-random.test.mjs` enforces that. Live-runtime scripts are documented in `tests/README.md`. Current suite totals (files, declarations, the single skip) are recorded in [tests/README.md](tests/README.md#292-release-evidence-2026-11-18) rather than duplicated here, so this file cannot drift from a measured run.
+- `tests/` — add a regression test for every behavior change. The offline suite is `tests/*.test.mjs`; an invariant over a pure domain function belongs in `tests/property/*.prop.mjs` (fast-check) rather than a hand-rolled randomized loop, and `tests/no-random.test.mjs` enforces that. Live-runtime scripts are documented in `tests/README.md`. Current suite totals (files, declarations, the single skip) are recorded in [tests/README.md](tests/README.md#293-release-evidence-2026-11-18) rather than duplicated here, so this file cannot drift from a measured run.
 - `scripts/architecture.mjs` — the fitness rules; `scripts/architecture-waivers.json` — the only exemptions, each with a `reason` and an `owner`/`ref`. An entry without a reason fails the blocking `waiver-contract` rule, The three layering rules that keep the core pure — `domain-pure`, `host-scope`, and `no-lib-from-core` — cannot be waived at all. The `let` scan behind `host-scope` is statement-aware: every binding of every top-level declaration is recorded, and only `host/**` may hold ambient state.
 - `types/` — the published declaration surface (`package.json` `types` is `types/index.d.ts`). The vocabulary block in that file is generated from the runtime constants by `npm run types:generate` and gated by `npm run docs:check:generated:types`; never edit it by hand. `tsconfig.strict.json` turns `noImplicitAny` on for an explicit file list that may grow but never silently shrink: add a file, then record it with `npm run types:strict:write` (a removal also needs `--allow-shrink`). `npm run types:coverage` fails when a shipped runtime `.js` file is outside the `tsc` program.
 
 ## Pull request checklist
 
-1. `npm run check` passes locally — it is the canonical gate, and the `canonical` CI legs run exactly that once per leg (the offline suite, the property PR tier, `npm run support:check`, `npm run workflow:check`, the docs/pack/architecture/types/domain gates).
+1. `npm run check` passes locally — it is the canonical gate, and the `canonical` CI legs run exactly that once per leg (the offline suite, the property PR tier, `npm run support:check`, `npm run workflow:check`, the docs/pack/architecture/types/domain gates). On a constrained Windows host, `npm run test:shards` is the documented way to run that offline-suite portion without oversubscribing the machine.
 2. New behavior has a test. Bug fixes should add a test that fails before the fix.
 3. No secrets, tokens, personal paths, session logs, or generated artifacts are added. `.gitignore` covers local acceptance output; do not force-add it.
 4. Keep the public API and state-file formats compatible; if a change is breaking, call it out in `CHANGELOG.md` and bump the version.

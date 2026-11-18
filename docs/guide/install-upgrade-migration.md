@@ -30,6 +30,23 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.9.2 → 2.9.3 — patch release, no migration required**: the config surface is unchanged (58 keys in
+  16 sections) and the state schema stays v5. Nothing an operator configured needs to move:
+  - **No UI, tool or wire-format change.** The client size budget now ratchets client *logic* separately
+    from the bilingual translation catalogue, and the catalogue has its own data guards (en/zh key-set
+    parity, a 133-key floor and 260-key ceiling, 240-character values, no executable code). The same nine
+    chunks ship, the loader is untouched, and every tool schema and output is unchanged; this is an
+    internal budget decision recorded in ADR 0011.
+  - **Windows test runs are load-insensitive.** The exclusive lock-record create retries only the
+    transient `EPERM`/`EBUSY`/`EACCES` sharing errors within a 1.5 s budget (`EEXIST` is still never
+    retried), and the heartbeat/merge tests now wait on observable state instead of a fixed wall clock.
+    A slow host no longer turns untouched test files red.
+  - **Developers have an optional bounded runner.** `npm run test:shards` runs exactly
+    `tests/*.test.mjs` in sequential batches of 25 (`npm run test:shards -- --size 10` for a busier
+    host). It is a local convenience for constrained machines, not a new requirement: CI keeps running
+    `npm run check`, which runs `npm test`.
+  - No state or config migration is required. Update the plugin and **restart DSH**.
+
 - **2.9.1 → 2.9.2 — patch release, no migration required**: the config surface is unchanged (58 keys in
   16 sections) and the state schema stays v5. What an operator will observe:
   - **Plan scopes cover their subtree.** A bare directory entry, or one with a trailing separator, now

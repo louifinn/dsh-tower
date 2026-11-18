@@ -50,8 +50,14 @@ root: `client-no-node` (no `node:*` imports; DOM globals are fine),
 `client-size` (800-line ceiling per file) and `client-ambient` (no module-level
 `let`; state lives in the `create*` closure), each with a seeded fixture in
 `tests/architecture.test.mjs`. Every client source file stays under 400 lines
-and the split preserves the pre-split line total within 10%
-(`tests/ui-bundle.test.mjs`).
+and the split-size ratchet measures client **logic** — the sum of
+`ui-bundle/*.js` excluding the translation catalogue `client.locales.js` —
+within 10% of the pre-split 1,980-line `client.js` (#71; today 1,996 lines
+against the 2,178 ceiling). The catalogue is data, not logic:
+`tests/ui-bundle.test.mjs` guards it with en/zh key-set parity, a 133-key floor
+and 260-key ceiling, non-empty string values of at most 240 characters, and a
+no-executable-construct check on the catalogue region. See
+[ADR 0011](../docs/adr/0011-client-budget-covers-logic-not-locale-data.md).
 
 ## Persistent Tower-mode indicator (#11)
 

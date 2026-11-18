@@ -55,14 +55,27 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `ui-bundle.test.mjs` — plain-JS UI chunk format/syntax, the 400-line split budget, toolview/dock/overlay registrations, locale parity and glossary terms, localized enum labels, `/tower` command-semantics no-ops, dock storage validation/failure containment, accessibility labels/roles/live regions, theme tokens and defensive rendering.
 - `locale-copy.test.mjs` — the copy gate over the root locale, generated row locales, ui-bundle meta and the `ui-bundle/client.locales.js` client dictionary (en/zh parity, emptiness, glossary, untranslated English); banned config/tool/command/module syntax is applied to page copy and intentionally not to client tooltips that quote `/tower` and `tower_mode`.
 - `plugin-config-client.test.mjs` — the review-policy settings control: registration, three native radio options, save/refuse/restart states, and its labelled-group/described-option/live-status accessibility contract.
+- `test-shards.test.mjs` — the bounded local runner (`scripts/test-shards.mjs`): its planned file set equals the live `tests/*.test.mjs` set exactly (no duplicates, no silent skips), batch sizes respect the limit and reconstruct the input order, a failing batch still runs the remaining batches and yields exit code 1, and the CLI forwards `node --test` arguments after `--`.
+
+> CI keeps running `npm run check` (and therefore `npm test`). On a constrained Windows machine, or when several
+> agents share the host, run the same suite through the bounded runner instead:
+>
+> ```powershell
+> npm run test:shards                # tests/*.test.mjs in sequential batches of 25
+> npm run test:shards -- --size 10   # smaller batches on a busier host
+> ```
+>
+> It binds the same file set, puts at most `--size` files in flight, runs every batch even after a failure, and
+> exits 1 if any batch failed. `tests/test-shards.test.mjs` pins the file-set equality, so the fallback cannot
+> silently skip a file. This changes only how a loaded local machine runs the suite; CI behaviour is untouched.
 
 All temporary repositories and state are created under the OS temp directory and cleaned up automatically. Teardown goes through `tests/helpers/cleanup.mjs`: it retries transient `EPERM`/`EBUSY`/`EACCES` failures with bounded backoff, moves the tree to a fresh sibling name after the first one, and refuses any target that is not a strict child of `os.tmpdir()`. Do not delete a test-owned tree directly — Windows can still hold a handle after the test that created it has finished, and a bare recursive delete turns a green suite red at random. The retry path is proven by `tests/cleanup.test.mjs`, including a real Windows handle.
 
 ### Windows fallback
 
-Parallel file execution is the default and stays the default: `npm test` runs one process per file, exactly as CI does. If a Windows machine still fails because another program (antivirus, the search indexer) is holding a temp tree for longer than the bounded retry, `node --test --test-concurrency=1 tests/*.test.mjs` serialises the files to confirm that hypothesis. It is a diagnostic fallback, not the fix: a green run that only passes with `--test-concurrency=1` still has a teardown problem.
+Parallel file execution is the default and stays the default: `npm test` runs one process per file, exactly as CI does. The supported constrained-machine fallback is [`npm run test:shards`](#1-offline-suite-run-before-every-change) — the same file set in sequential batches of 25, with every batch reported and a failing batch never skipping the rest. If a single file still fails, `node --test tests/<file>.test.mjs` isolates it; `node --test --test-concurrency=1 tests/*.test.mjs` serialises the whole suite to confirm a resource hypothesis. Those are diagnostics, not the fix: a green run that only passes when serialised still has a real teardown or resource problem, so report it instead of weakening the test.
 
-Load-sensitive tests wait on observable state, not fixed sleeps: the lock-heartbeat case polls the rewritten record and checks the release through one event-loop turn, the parallel-writer case raises `mode.lockTimeoutMs` — the budget `Tower.withStateLock` passes to the state lock — so a loaded runner does not time out while the exact revision delta is still asserted, and the git-mutex case waits for the waiting init to re-read the advanced clock before asserting it is still blocked. Residual constraint: on Windows the filesystem can still hold a handle after a child process exits, so a full parallel `npm test` can accumulate rename/unlink pressure even when each file passes; `tests/git-mutex-budget.test.mjs` is verified in isolation on Windows rather than inside the bounded parallel run, and no assertion is weakened to make the parallel run green.
+Load-sensitive tests wait on observable state, not fixed sleeps: the lock-heartbeat case derives its freshness expectations from the doctor's own reported `heartbeatAgeMs`/`staleAfterMs` (so a slow inspection cannot age a fresh record past a fixed window), the parallel-writer case raises `mode.lockTimeoutMs` — the budget `Tower.withStateLock` passes to the state lock — so a loaded runner does not time out while the exact revision delta is still asserted, and the git-mutex case waits for the merge to reach `git merge --no-ff` or the operation to settle, with a 60 s guard only against a wedged process, instead of betting on 5 s of wall clock. Residual constraint: on Windows the filesystem can still hold a handle after a child process exits, so a full parallel `npm test` can accumulate rename/unlink pressure even when each file passes; that is what `npm run test:shards` bounds. The exclusive lock-record create also retries the transient `EPERM`/`EBUSY`/`EACCES` sharing violations inside a 1.5 s budget (proven by `tests/lock-kernel.test.mjs`), so an antivirus or indexer hold on `git.lock` is waited out rather than surfacing as a false red. No assertion is weakened to make either run green.
 
 ### Coverage and watch mode
 
@@ -142,6 +155,26 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.3 release evidence (2026-11-18)
+
+The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
+batches through the bounded runner (`npm run test:shards`, 25 files per batch) on Windows 11 with Node
+`v25.8.1` (never an unbounded `npm test`). Declarations are counted, so the one skip is included in the
+total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1267** | 1266 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.3` (65.5 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
+passed. These are the current totals; the W5 table below is the historical record of
+`feat/2.8.0-structure` at `bad249c` and is kept as written.
+
 ### 2.9.2 release evidence (2026-11-18)
 
 The bounded suite is **125 `tests/*.test.mjs` files**, run as five sequential `node --test <files...>`
@@ -157,8 +190,8 @@ the one skip is included in the total:
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
-`git-mutex-budget.test.mjs` and `roster-watchdog.test.mjs` run inside them and passed. These are the
-current totals; the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is
+`git-mutex-budget.test.mjs` and `roster-watchdog.test.mjs` run inside them and passed. These were the
+2.9.2 totals; the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is
 kept as written.
 
 ### 2.9.1 release evidence (2026-11-17)
@@ -177,7 +210,7 @@ the one skip is included in the total:
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs` and
-`git-mutex-budget.test.mjs` run inside them and passed. These are the current totals; the W5 table
+`git-mutex-budget.test.mjs` run inside them and passed. These were the 2.9.1 totals; the W5 table
 below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### W5 integration evidence (#M77, v2.8.0 debt close-out)
@@ -187,7 +220,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.2 release evidence](#292-release-evidence-2026-11-18) above.
+[2.9.3 release evidence](#293-release-evidence-2026-11-18) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

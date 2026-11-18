@@ -1,6 +1,6 @@
 {
   "name": "dsh-tower",
-  "version": "2.9.2",
+  "version": "2.9.3",
   "type": "module",
   "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",
@@ -84,6 +84,7 @@
     "!scripts/check-workflow.mjs",
     "!scripts/support.json",
     "!scripts/generate-deny-surface.mjs",
+    "!scripts/test-shards.mjs",
     "!scripts/lib/owner-surface.mjs",
     "locale/",
     "icon.svg",
@@ -112,6 +113,7 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
+    "test:shards": "node scripts/test-shards.mjs",
     "test:property": "node --test tests/property/*.prop.mjs",
     "test:property:long": "node --env-file=tests/property/tiers/long.env --test tests/property/*.prop.mjs",
     "test:watch": "node --test --watch tests/*.test.mjs",

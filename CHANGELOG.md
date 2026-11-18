@@ -4,6 +4,37 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.3（2026-11-18）
+
+### 变更
+
+- **客户端体积预算改为只量逻辑，翻译目录有了自己的数据守卫（F67）**：2.9.2 的客户端总量停在
+  2,177/2,178 行，只差一行；其中 `client.locales.js` 是 133 个键的中英对照目录（181 行数据），
+  每加一条界面文案都要增长，而预算内唯一能腾出空间的办法却是删代码或注释。体积棘轮现在对客户端
+  **逻辑**求和——排除 `client.locales.js`，仍须落在 1980 行的 90%–110%（1,782–2,178）之间，今天是
+  1,996 行，余 182 行；单个文件（含目录）仍不超过 400 行，随包的九个 chunk 列表不变。目录改由数据
+  守卫约束：en/zh 键集一致、133 键下限与 260 键上限、每个值是非空字符串且不超过 240 字符、目录区域
+  不得出现 `function`/`=>`/`require`/`import`，整个文件不得 `require`/`import`。取舍记入
+  `docs/adr/0011-client-budget-covers-logic-not-locale-data.md`，`ui-bundle/README.md` 的预算段落
+  同步改写。无加载器、宿主或表面改动，没有新的配置键或状态字段。
+
+### 修复
+
+- **忙碌的 Windows 主机不再把没碰过的测试文件判红（F10）**：独占创建锁记录时，杀毒过滤、索引器或
+  并发读取可能短暂占用文件名，Windows 返回 `EPERM`/`EBUSY`/`EACCES`，此前一次失败就冒泡成假红。
+  `adapters/lock.js` 的 `createLockFile`/`createLockFileSync` 现在只重试这三个瞬时错误，退避表为
+  `[10,20,40,80,160,320,640]`（合计 1,270 ms，含在 1,500 ms 预算内）：其他错误原样抛出，`EEXIST`
+  永不重试——它仍是单飞信号；`adapters/persistence.js` 转出这些常量与函数。`#92` 的心跳断言不再
+  押注固定墙上时钟，而是用 doctor 自己报告的 `heartbeatAgeMs`/`staleAfterMs`/`ageMs` 推导陈旧性，
+  并新增“PID 存活、只因心跳过期而判陈旧”的确定性用例；`#93` 的 git 互斥用例改用 `settleOrReach`，
+  等可观察的合并/初始化事件或操作本身落定，60 s 只作为进程卡死的护栏。新增的
+  `tests/lock-kernel.test.mjs` 钉住“只重试这三个错误码、且重试有界”。
+- **受限 Windows 主机多了有界的本地套件入口（F10）**：`npm test` 仍按 CI 的方式并行跑，一个文件
+  一个进程；但在多代理共用或资源紧张的主机上，并行压力会让与改动无关的文件变红。新增
+  `npm run test:shards`，把 `tests/*.test.mjs` 按 25 个文件一批顺序执行（`-- --size N` 可调），
+  不 fail-fast，逐批与总计都有汇总，任一批失败即退出 1；`tests/test-shards.test.mjs` 钉住它与
+  `npm test` 完全相同的文件集。CI 行为不变，仍运行 `npm run check`。
+
 ## 2.9.2（2026-11-18）
 
 ### 变更
