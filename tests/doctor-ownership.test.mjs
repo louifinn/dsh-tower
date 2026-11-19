@@ -1066,3 +1066,61 @@ test('detectHostVersion: a throwing os.homedir() is a failed probe, never a thro
     os.homedir = savedHomedir
   }
 })
+
+test('doctor: a terminal mission with a live worktree and no live agent prompts for teardown (#182)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await tower.plan({ missions: [{ title: 'Awaiting teardown', scope: ['src/**'], tasks: ['write'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const now = Date.now()
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === 'M1')
+    mission.status = 'merged'
+    mission.mergedCommit = 'a'.repeat(40)
+    mission.mergedAt = now
+    mission.updatedAt = now
+    state.roster = []
+    state.revision += 1
+    validateState(state, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, state)
+
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const worktrees = doctor.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(worktrees.status, 'warn')
+    assert.equal(worktrees.detail, '1 terminal mission worktree(s) awaiting teardown; run tower_teardown')
+    assert.match(worktrees.action, /worktree teardown step/)
+    assert.match(worktrees.action, /nothing is removed automatically/)
+    assert.doesNotMatch(worktrees.action, /tower_teardown/, 'the remedy copy never names a tool id')
+    assert.equal(fs.existsSync(provisioned.worktree.path), true, 'doctor never removes a worktree')
+    assert.equal(doctor.ok, true, 'the prompt is advisory, not a failure')
+
+    // Dirtiness is orthogonal: a dirty terminal checkout is still a finished
+    // mission waiting for teardown, so both advisory lines appear together.
+    fs.writeFileSync(path.join(provisioned.worktree.path, 'scratch.txt'), 'scratch\n')
+    const dirty = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const dirtyWorktrees = dirty.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(dirtyWorktrees.status, 'warn')
+    assert.match(dirtyWorktrees.detail, /1 terminal mission worktree\(s\) awaiting teardown; run tower_teardown/)
+    assert.match(dirtyWorktrees.detail, /1 worktree\(s\) have uncommitted changes/)
+    assert.equal(dirty.ok, true)
+    fs.rmSync(path.join(provisioned.worktree.path, 'scratch.txt'))
+
+    // A live roster row on the mission suppresses the prompt: the agent may
+    // still be finishing work in that checkout.
+    const withAgent = await tower.load()
+    withAgent.roster = [{ name: 'worker-m1', agentId: 'agent-m1', missionId: 'M1', state: 'active', spawnedAt: now }]
+    withAgent.revision += 1
+    validateState(withAgent, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, withAgent)
+
+    const rechecked = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const recheckedWorktrees = rechecked.checks.find((entry) => entry.id === 'worktrees')
+    assert.equal(recheckedWorktrees.status, 'pass')
+    assert.doesNotMatch(recheckedWorktrees.detail, /awaiting teardown/)
+  } finally {
+    removeTemp(root)
+  }
+})

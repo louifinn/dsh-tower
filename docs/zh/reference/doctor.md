@@ -110,7 +110,9 @@ takeover 会 fail closed，而不会把不可读的模式存储误判为属主�
 检查覆盖：git 可用性、仓库身份、state schema/加载、仓库配置是否存在、worker/reviewer preset 名称、
 subagents 与 HMR 服务、workspace 锁持有者/是否过期、实时 roster、worktree 是否存在/归属/是否脏、
 test-discovery 策略、完成报告大小、归档健康度、旧版快照、batch 与租约。被 `tower_teardown` 正常清理的 mission worktree 会被
-跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+跳过（检查中会注明已移除数量），不会被误报为 missing。仍持有 worktree 且没有实时 roster 行的终态 mission 会得到
+`N terminal mission worktree(s) awaiting teardown; run tower_teardown` 提示；doctor 不会自动移除 worktree，
+也没有自动 teardown 策略或配置键。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 
 `caseInsensitive` 是 `tower_init` 在检出目录所在文件系统上一次性探测的结果；`null` 表示“尚未探测”，
 此时 `case-mode` 检查为 `warn`。`comparisonMode` 是 scope 匹配实际使用的比较方式：
@@ -128,7 +130,9 @@ test-discovery 策略、完成报告大小、归档健康度、旧版快照、ba
 检查覆盖：git 可用性、仓库身份、state schema/加载、已探测的大小写模式、仓库配置是否存在、
 worker/reviewer preset 名称、subagents 与 HMR 服务、state 锁年龄/心跳、workspace 锁持有者/是否过期、实时 roster、
 worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、batch 与租约。被 `tower_teardown`
-正常清理的 mission worktree 会被跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+正常清理的 mission worktree 会被跳过（检查中会注明已移除数量），不会被误报为 missing。仍持有 worktree 且没有实时
+roster 行的终态 mission 会得到 `N terminal mission worktree(s) awaiting teardown; run tower_teardown` 提示；
+doctor 不会自动移除 worktree，也没有自动 teardown 策略或配置键。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 处理。state 加载失败会作为失败的检查报告而不是抛出，因此 doctor 在损坏的仓库上仍然有用。
 
 `reports` 检查会指出仓库中最大的完成报告（`<bytes> B on <mission>`，对照 `gates.maxReportBytes` 上限），

@@ -20,9 +20,93 @@ import {
   teardownRemoveDecision,
   teardownRemovedDecision,
 } from '../domain/integration/teardown.js'
-import { sweepArchive } from './archive.js'
+import { previewArchive, sweepArchive } from './archive.js'
 import { cleanupSandbox } from './sandbox.js'
 import { cleanupReviewCheckout } from './reviewCheckout.js'
+
+// #184: `git worktree remove` retries a transient Windows lock (a terminal or
+// job tool still holding a directory handle) with the same bounded pattern as
+// sandbox/review-checkout cleanup: the attempt count is reported in the decision
+// and a permanent failure keeps the mission record instead of failing the call.
+export const WORKTREE_CLEANUP_ATTEMPTS = 3
+export const WORKTREE_RETRY_DELAY_MS = 50
+
+const TRANSIENT_WORKTREE_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+// `adapters/git.js` keeps a spawn error's string code only in the message (a
+// numeric exit status becomes `error.code`), so the text is matched as well.
+const TRANSIENT_WORKTREE_MESSAGE =
+  /EPERM|EBUSY|EACCES|permission denied|access is denied|being used by another process|resource busy/i
+
+/** @param {unknown} error */
+export function isTransientWorktreeRemoveError(error) {
+  const code = typeof /** @type {any} */ (error)?.code === 'string' ? /** @type {any} */ (error).code.toUpperCase() : ''
+  if (TRANSIENT_WORKTREE_CODES.has(code)) return true
+  return TRANSIENT_WORKTREE_MESSAGE.test(String(/** @type {any} */ (error)?.message ?? error))
+}
+
+/** @param {number} ms */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Remove one worktree checkout with a bounded retry over transient failures.
+ * Runs inside the caller's git-lock section. A checkout that disappears between
+ * attempts is reported as removed: the retry loop is what released the handle.
+ * @param {any} tower
+ * @param {string} worktreePath
+ * @param {{ dirty?: boolean, attempts?: number, delayMs?: number }} [options]
+ * @returns {Promise<{ ok: boolean, attempts: number, repaired?: boolean, error?: string }>}
+ */
+async function removeWorktree(tower, worktreePath, options = {}) {
+  const attempts = Number.isInteger(options.attempts) && /** @type {number} */ (options.attempts) > 0 ? /** @type {number} */ (options.attempts) : WORKTREE_CLEANUP_ATTEMPTS
+  const delayMs = Number.isInteger(options.delayMs) && /** @type {number} */ (options.delayMs) >= 0 ? /** @type {number} */ (options.delayMs) : WORKTREE_RETRY_DELAY_MS
+  const args = ['worktree', 'remove', ...(options.dirty ? ['--force'] : []), worktreePath]
+  let lastError = null
+  let used = 0
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    used = attempt
+    try {
+      await tower.git(tower.root, args)
+      return { ok: true, attempts: used }
+    } catch (error) {
+      lastError = error
+      if (!(await tower.deps.store.exists(worktreePath))) return { ok: true, attempts: used, repaired: true }
+      if (!isTransientWorktreeRemoveError(error)) break
+      if (attempt < attempts) await delay(delayMs)
+    }
+  }
+  return { ok: false, attempts: used, error: String(/** @type {any} */ (lastError)?.message ?? lastError).slice(0, 400) }
+}
+
+/**
+ * #186: name every requested `exclude` id that matches no mission or roster row,
+ * so a typo is visible instead of silently keeping nothing. A matched id is
+ * already reported by the decision of the mission it protected.
+ * @param {any} state
+ * @param {unknown[] | undefined} exclude
+ * @returns {{ ids: string[], decisions: any[] }}
+ */
+function unmatchedExclusions(state, exclude) {
+  const requested = []
+  const seen = new Set()
+  for (const value of exclude ?? []) {
+    const id = String(value)
+    if (seen.has(id)) continue
+    seen.add(id)
+    requested.push(id)
+  }
+  if (requested.length === 0) return { ids: [], decisions: [] }
+  const known = new Set((state.missions ?? []).map((mission) => String(mission.id)))
+  for (const entry of state.roster ?? []) {
+    if (entry.missionId != null) known.add(String(entry.missionId))
+  }
+  const ids = requested.filter((id) => !known.has(id))
+  return {
+    ids,
+    decisions: ids.map((missionId) => ({ missionId, action: 'keep', reason: 'exclude did not match any mission' })),
+  }
+}
 
 /**
  * Disposable review checkouts (#149 W3). A reviewer works in a detached checkout
@@ -186,7 +270,7 @@ async function prepareTeardown(tower, input) {
     candidates.push({ missionId: mission.id, worktree: mission.worktree, decision })
   }
 
-  return { stateRevision: state.revision, decisions, candidates, dryRun }
+  return { state, stateRevision: state.revision, decisions, candidates, dryRun }
 }
 
 /** Short state lock: reject a stale decision before any git mutation. */
@@ -209,14 +293,33 @@ export async function teardown(tower, input) {
   const reviews = await teardownReviewCheckouts(tower, input)
   const sandboxes = await teardownSandboxes(tower, input)
   const prepared = await prepareTeardown(tower, input)
+  const unmatched = unmatchedExclusions(prepared.state, input.exclude)
   if (prepared.dryRun) {
+    // #183: the preview is computed from the same policy inputs as the real
+    // sweep, on the state projected after the planned removals and sandbox
+    // cleanups. Nothing here writes: a real run of the same inputs archives
+    // exactly these missions.
+    const plannedRemovals = prepared.decisions
+      .filter((decision) => decision.action === 'remove')
+      .map((decision) => decision.missionId)
+    const plannedCleanups = sandboxes.decisions
+      .filter((decision) => decision.action === 'remove')
+      .map((decision) => decision.missionId)
+    const archivePreview = previewArchive(tower, prepared.state, {
+      now: Date.now(),
+      activity: input.activity ?? {},
+      removeWorktreeIds: plannedRemovals,
+      removeSandboxIds: plannedCleanups,
+    })
     return {
       ok: true,
       dryRun: true,
       removed: [],
-      decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions],
+      decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions, ...unmatched.decisions],
       reviewCheckoutsRemoved: [],
       sandboxesRemoved: [],
+      archivePreview,
+      unmatchedExclude: unmatched.ids,
     }
   }
 
@@ -254,6 +357,7 @@ export async function teardown(tower, input) {
       // have vanished between prepare and this lock, so the check is repeated
       // here where it protects the git mutation.
       let repaired = false
+      let attempts = 0
       if (await tower.deps.store.exists(worktree.path)) {
         let dirty = true
         try {
@@ -263,10 +367,23 @@ export async function teardown(tower, input) {
         }
         const dirtyKeep = teardownDirtyDecision(dirty, input.force)
         if (dirtyKeep) return { phase: 'skip', reason: dirtyKeep.reason }
-        try {
-          await tower.git(tower.root, ['worktree', 'remove', ...(dirty ? ['--force'] : []), worktree.path])
-        } catch (error) {
-          return { phase: 'remove-failed', reason: `remove failed: ${String(error?.message ?? error)}` }
+        const removal = await removeWorktree(tower, worktree.path, { dirty })
+        if (!removal.ok) {
+          return {
+            phase: 'remove-failed',
+            attempts: removal.attempts,
+            reason: `remove failed after ${removal.attempts} attempt(s): ${removal.error}`,
+          }
+        }
+        attempts = removal.attempts
+        if (removal.repaired) {
+          // The checkout vanished while the retry waited out a Windows handle.
+          repaired = true
+          try {
+            await tower.git(tower.root, ['worktree', 'prune'])
+          } catch {
+            // nothing to remove: the directory is gone
+          }
         }
       } else {
         // Best-effort prune of a stale registration; the checkout is already
@@ -287,14 +404,18 @@ export async function teardown(tower, input) {
       } catch (error) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
-      return { phase: 'removed', branch: worktree.branch, branchDeleteError, repaired }
+      return { phase: 'removed', branch: worktree.branch, branchDeleteError, repaired, attempts }
     }, tower.gitMutexOptions({ phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
       throw new TowerToolError('stale-base', `${STALE}: ${outcome.detail}. No worktree was removed.`)
     }
     if (outcome.phase !== 'removed') {
-      setDecision(candidate.decision, { action: 'keep', reason: outcome.reason })
+      setDecision(candidate.decision, {
+        action: 'keep',
+        reason: outcome.reason,
+        ...(Number.isInteger(outcome.attempts) ? { attempts: outcome.attempts } : {}),
+      })
       continue
     }
 
@@ -328,6 +449,7 @@ export async function teardown(tower, input) {
     removed.push(candidate.missionId)
     setDecision(candidate.decision, {
       ...teardownRemovedDecision(outcome),
+      ...(outcome.attempts > 0 ? { attempts: outcome.attempts } : {}),
       ...(outcome.repaired
         ? { repaired: true, reason: 'worktree directory was already gone; the removal was recorded' }
         : {}),
@@ -351,9 +473,10 @@ export async function teardown(tower, input) {
     ok: true,
     dryRun: false,
     removed,
-    decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions],
+    decisions: [...reviews.decisions, ...sandboxes.decisions, ...prepared.decisions, ...unmatched.decisions],
     reviewCheckoutsRemoved: reviews.removed,
     sandboxesRemoved: sandboxes.removed,
+    unmatchedExclude: unmatched.ids,
     archived: archive.archived,
     ...(archive.error ? { archiveError: archive.error } : {}),
   }

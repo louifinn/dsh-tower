@@ -305,6 +305,15 @@ never fails the check merely because its directory was deleted. A missing or inv
 **non-terminal** mission still fails: a live worker cannot work in it. `tower_teardown` repairs the
 terminal case by pruning any surviving registration, deleting the branch when it still exists, and
 stamping `worktreeRemovedAt`; the removal decision carries `repaired: true`.
+
+A terminal mission that still owns its checkout while no live roster row names it is also a prompt
+rather than a fault: the `worktrees` check reports `N terminal mission worktree(s) awaiting
+teardown; run tower_teardown` and names the teardown step as the action. That keeps a finished
+mission from sitting hot forever without a hook (#182). Two limits are deliberate: doctor never
+removes a worktree itself, and there is no automatic teardown policy or config key — the operator
+runs the teardown step when the finished mission's checkout can go. A mission whose roster row is
+still live is never counted, and a checkout already removed by teardown is reported by the removed
+count instead.
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,

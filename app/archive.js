@@ -110,17 +110,15 @@ function archiveEnabled(tower) {
 }
 
 /**
- * Move the eligible terminal missions out of `state` and into the archive.
- * Mutates `state` in memory (missions, linked reviews and closed findings) and
- * leaves the caller to validate/persist it under the lock it already holds.
- *
+ * The policy inputs shared by the real sweep and its dry-run preview (#183):
+ * the batch/live-agent protection set, the policy selection, and the missions a
+ * still-present sandbox keeps hot. Pure: it never writes, so teardown can reuse
+ * it to project what a real sweep would archive.
  * @param {any} tower
  * @param {TowerState} state
  * @param {{ now?: number, force?: boolean, activity?: Record<string, string | undefined> }} [options]
- * @returns {Promise<{ archived: string[], written: boolean, files?: string[], error: string | null, year?: number }>}
  */
-export async function sweepArchive(tower, state, options = {}) {
-  if (!archiveEnabled(tower)) return { archived: [], written: false, error: null }
+function archiveSelection(tower, state, options = {}) {
   const policy = tower.config.archive ?? {}
   const now = options.now ?? Date.now()
   const activity = options.activity ?? {}
@@ -153,6 +151,119 @@ export async function sweepArchive(tower, state, options = {}) {
     .map((mission) => ({ missionId: mission.id, sandbox: /** @type {any} */ (mission).sandbox }))
   const pendingIds = new Set(sandboxPending.map((entry) => entry.missionId))
   const archivable = selected.filter((mission) => !pendingIds.has(mission.id))
+  return { policy, now, protectedIds, selected, sandboxPending, archivable }
+}
+
+/**
+ * Project the state after teardown's commit phase stamps the planned removals
+ * with `worktreeRemovedAt`/`updatedAt`. That field is the only eligibility gate
+ * a removal changes, so the projection is enough to preview the sweep.
+ * @param {TowerState} state
+ * @param {string[]} missionIds
+ * @param {number} now
+ */
+function projectRemovedWorktrees(state, missionIds, now) {
+  const targets = new Set(missionIds)
+  if (targets.size === 0) return state
+  return {
+    ...state,
+    missions: state.missions.map((mission) => {
+      if (!targets.has(mission.id)) return mission
+      const record = /** @type {Record<string, any>} */ (mission)
+      return /** @type {Mission} */ (
+        /** @type {unknown} */ ({
+          ...record,
+          worktreeRemovedAt: record.worktreeRemovedAt ?? now,
+          updatedAt: now,
+        })
+      )
+    }),
+  }
+}
+
+/**
+ * Project the state after teardown's planned sandbox cleanups succeed. A
+ * successful cleanup deletes `sandbox`/`sandboxCleanupError` and stamps
+ * `sandboxRemovedAt`; archival only cares whether the path is still recorded, so
+ * projecting those fields keeps a dry-run preview equal to the real sweep that
+ * follows the cleanup.
+ * @param {TowerState} state
+ * @param {string[]} missionIds
+ * @param {number} now
+ */
+function projectRemovedSandboxes(state, missionIds, now) {
+  const targets = new Set(missionIds)
+  if (targets.size === 0) return state
+  return {
+    ...state,
+    missions: state.missions.map((mission) => {
+      const record = /** @type {Record<string, any>} */ (mission)
+      if (!targets.has(mission.id)) return mission
+      if (typeof record.sandbox !== 'string' || record.sandbox.length === 0) return mission
+      const next = { ...record }
+      delete next.sandbox
+      delete next.sandboxCleanupError
+      next.sandboxRemovedAt = record.sandboxRemovedAt ?? now
+      next.updatedAt = now
+      return /** @type {Mission} */ (next)
+    }),
+  }
+}
+
+/**
+ * #183: predict the archive sweep a real `tower_teardown` would run after the
+ * worktree removals and sandbox cleanups it planned. Writes nothing: the caller
+ * passes the result out of a dry run. `missions` names each id the policy would
+ * archive and the trigger that selected it; `sandboxPending` lists missions a
+ * still-detached sandbox would defer instead (a sandbox the run does not plan to
+ * clean, e.g. one excluded from teardown).
+ *
+ * @param {any} tower
+ * @param {TowerState} state
+ * @param {{ now?: number, activity?: Record<string, string | undefined>, removeWorktreeIds?: string[], removeSandboxIds?: string[] }} [options]
+ * @returns {{ missions: Array<{ missionId: string, reason: 'afterDays' | 'maxMissions' }>, year: number, sandboxPending?: Array<{ missionId: string, sandbox: string }> }}
+ */
+export function previewArchive(tower, state, options = {}) {
+  const now = options.now ?? Date.now()
+  if (!archiveEnabled(tower)) return { missions: [], year: archiveYearFor(now) }
+  const projected = projectRemovedSandboxes(
+    projectRemovedWorktrees(state, options.removeWorktreeIds ?? [], now),
+    options.removeSandboxIds ?? [],
+    now,
+  )
+  const selection = archiveSelection(tower, projected, { now, activity: options.activity ?? {} })
+  // An unbounded cap disables the hot-terminal trigger, so a mission still
+  // selected there was selected by age; anything else came from the cap.
+  const ageOnly = new Set(
+    selectForArchive(
+      projected.missions,
+      { ...selection.policy, maxMissions: Number.MAX_SAFE_INTEGER },
+      { now, protectedIds: selection.protectedIds },
+    ).map((mission) => mission.id),
+  )
+  return {
+    missions: selection.archivable.map((mission) => ({
+      missionId: mission.id,
+      reason: ageOnly.has(mission.id) ? 'afterDays' : 'maxMissions',
+    })),
+    year: archiveYearFor(now),
+    ...(selection.sandboxPending.length > 0 ? { sandboxPending: selection.sandboxPending } : {}),
+  }
+}
+
+/**
+ * Move the eligible terminal missions out of `state` and into the archive.
+ * Mutates `state` in memory (missions, linked reviews and closed findings) and
+ * leaves the caller to validate/persist it under the lock it already holds.
+ *
+ * @param {any} tower
+ * @param {TowerState} state
+ * @param {{ now?: number, force?: boolean, activity?: Record<string, string | undefined> }} [options]
+ * @returns {Promise<{ archived: string[], written: boolean, files?: string[], error: string | null, year?: number }>}
+ */
+export async function sweepArchive(tower, state, options = {}) {
+  if (!archiveEnabled(tower)) return { archived: [], written: false, error: null }
+  const { now, sandboxPending, archivable } = archiveSelection(tower, state, options)
   for (const entry of sandboxPending) {
     await tower.appendActivity({
       at: now,
