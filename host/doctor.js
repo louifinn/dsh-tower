@@ -21,7 +21,7 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck, commitLockFacts, stateLockFacts } from './doctor-acceptance.js'
+import { artifactAcceptanceCheck, commitLockFacts, orphanWorktreeCheck, stateLockFacts } from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -566,6 +566,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     const problem = problems.length > 0 ? problems.join('; ') : null
     const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : awaitingTeardown > 0 ? 'run the worktree teardown step for the finished mission; nothing is removed automatically' : undefined
     checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
+
+    // #187: the mission loop only sees recorded worktrees. A checkout created
+    // outside Tower (an allowed `create_worktree` call), or one whose record was
+    // lost, is listed here so it cannot stay invisible; the explicit orphan
+    // sweep is the only thing that removes one, and doctor never does.
+    checks.push(await orphanWorktreeCheck(tower, state))
 
     const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))
     // #136: the `tower-tests` component row is the only switch (there is no

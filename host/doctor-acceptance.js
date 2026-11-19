@@ -11,6 +11,7 @@
 // are described by one module: the doctor never reclaims or writes anything.
 import { shapeFor } from '../domain/shapes/index.js'
 import { lockTiming } from '../adapters/persistence.js'
+import { inventoryOrphanWorktrees } from '../app/teardown.js'
 
 // #F75: the remedy an artifact acceptance row injects is user-facing copy. The
 // component gate reads this table, so the sentence names the human decision and
@@ -18,6 +19,11 @@ import { lockTiming } from '../adapters/persistence.js'
 const DOCTOR_ACTION_COPY = Object.freeze({
   artifactAcceptance:
     'the human accepts through the approval channel; no agent may self-accept and the merge gate refuses without it',
+  // #187: `create_worktree` is allowed and not denied; its checkouts become
+  // visible here instead. The copy names the explicit sweep, never a tool id,
+  // and states the boundary the sweep cannot cross (outside the worktree root).
+  orphanWorktrees:
+    'run the worktree teardown step with its orphan option; it removes only clean checkouts inside the worktree root, never the main checkout or a path outside it, and nothing is removed automatically',
 })
 
 /**
@@ -43,6 +49,70 @@ export function artifactAcceptanceCheck(state) {
       accepted.length > 0
         ? `${accepted.length} artifact mission(s) with a recorded human acceptance`
         : 'no artifact missions pending acceptance',
+  }
+}
+
+/**
+ * #187: report the checkouts git knows that no mission, sandbox or review row
+ * records. `create_worktree` stays allowed (Tower does not deny the capability)
+ * and this check is what makes its checkouts visible; a lost state file or a
+ * crashed provision shows up the same way. Doctor is read-only — only the
+ * explicit orphan sweep in `tower_teardown` removes anything, and only a clean
+ * checkout strictly inside the worktree root. A checkout outside that root is
+ * reported but can never be removed by the sweep, so the limitation is stated in
+ * the row instead of hidden.
+ * @param {any} tower
+ * @param {any} state
+ */
+export async function orphanWorktreeCheck(tower, state) {
+  let inventory
+  try {
+    inventory = await inventoryOrphanWorktrees(tower, state)
+  } catch (error) {
+    return {
+      id: 'worktrees-orphans',
+      status: 'warn',
+      detail: `could not inventory git worktrees: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 240)}`,
+      action: DOCTOR_ACTION_COPY.orphanWorktrees,
+    }
+  }
+  // A reserved path belongs to a mission that may be recording its checkout
+  // right now. It is read-only noise rather than an unrecorded checkout, but it
+  // must still be named (#187): a bare "no unrecorded worktrees" would hide a
+  // checkout the sweep is deliberately keeping.
+  const inflight = inventory.inflight.length
+  const inflightNote = inflight > 0 ? `${inflight} checkout(s) in flight (kept)` : ''
+  const externalNote =
+    inventory.external.length > 0
+      ? `; ${inventory.external.length} checkout(s) outside the worktree root are unrecorded too and are never removed by Tower`
+      : ''
+  if (inventory.orphans.length === 0 && inventory.external.length === 0) {
+    return {
+      id: 'worktrees-orphans',
+      status: 'pass',
+      detail: inflight > 0 ? `no unrecorded worktrees; ${inflightNote}` : 'no unrecorded worktrees',
+    }
+  }
+  if (inventory.orphans.length === 0) {
+    return {
+      id: 'worktrees-orphans',
+      status: 'warn',
+      detail: `no unrecorded worktree inside the worktree root${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}`,
+      action: DOCTOR_ACTION_COPY.orphanWorktrees,
+    }
+  }
+  const dirty = inventory.orphans.filter((entry) => entry.action === 'keep').length
+  const prunable = inventory.orphans.filter((entry) => entry.action === 'prune').length
+  const removable = inventory.orphans.length - dirty - prunable
+  const parts = []
+  if (removable > 0) parts.push(`${removable} clean`)
+  if (dirty > 0) parts.push(`${dirty} with uncommitted changes (kept)`)
+  if (prunable > 0) parts.push(`${prunable} with a stale registration`)
+  return {
+    id: 'worktrees-orphans',
+    status: 'warn',
+    detail: `${inventory.orphans.length} unrecorded worktree(s) under the worktree root (${parts.join(', ')})${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}; run the worktree teardown step with its orphan option`,
+    action: DOCTOR_ACTION_COPY.orphanWorktrees,
   }
 }
 

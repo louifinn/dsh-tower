@@ -12,6 +12,10 @@
 //
 // #184/#186: mission-worktree teardown lives in `app/teardown.js`, so its
 // bounded-retry and `exclude` reporting contracts are pinned here too.
+// #185/#187: the explicit opt-in orphan sweep and its three hard protections
+// (the main checkout, state-recorded paths, paths outside the worktree root)
+// are pinned here; the doctor report over the same inventory lives in
+// tests/doctor-ownership.test.mjs.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
@@ -21,6 +25,8 @@ import path from 'node:path'
 
 import { CLEANUP_ATTEMPTS, TRANSIENT_CLEANUP_ERRORS, assertTempPath, removeOnce, removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
+import { inventoryOrphanWorktrees, teardownWorktreeRoot } from '../app/teardown.js'
+import { worktreePath } from '../domain/integration/provision.js'
 
 function tempDir(prefix = 'dsh-tower-cleanup-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -396,3 +402,283 @@ test('teardown: an exclude id that matches nothing is named in the result (#186)
     removeTemp(root)
   }
 })
+
+// ---------------------------------------------------------------------------
+// #185/#187: an explicit, opt-in orphan sweep over the git registrations Tower
+// never recorded. `create_worktree` stays allowed; the sweep is how an operator
+// reclaims a checkout a lost record (or a crashed run) left behind. Three hard
+// protections — the main checkout, every state-recorded path and every path
+// outside the worktree root — are pinned here, as are the default-off stance,
+// the dry-run preview and the stale-registration prune.
+// ---------------------------------------------------------------------------
+
+/** Path equality that matches Windows' case-insensitive filesystem. */
+function samePath(left, right) {
+  return path.relative(path.resolve(left), path.resolve(right)) === ''
+}
+
+/** Create a real linked checkout under the configured worktree root, unrecorded. */
+function addOrphanWorktree(tower, name) {
+  const root = teardownWorktreeRoot(tower)
+  fs.mkdirSync(root, { recursive: true })
+  const checkout = path.join(root, name)
+  git(tower.root, ['worktree', 'add', '-b', `orphan-${name}`, checkout, 'HEAD'])
+  return checkout
+}
+
+/** Create a linked checkout next to the worktree root (outside it). */
+function addExternalWorktree(tower, name) {
+  const parent = path.dirname(teardownWorktreeRoot(tower))
+  fs.mkdirSync(parent, { recursive: true })
+  const checkout = path.join(parent, name)
+  git(tower.root, ['worktree', 'add', '-b', `external-${name}`, checkout, 'HEAD'])
+  return checkout
+}
+
+/** A planned, provisioned mission with a live recorded checkout (no teardown policy applies). */
+async function activeMission(tower, title = 'Protected checkout') {
+  const planned = await tower.plan({ missions: [{ title, scope: ['src/**'] }] })
+  const mission = planned.missions[0]
+  const provisioned = await tower.provision({ missionId: mission.id })
+  return { mission, worktree: provisioned.worktree }
+}
+
+test('teardown: the orphan sweep is opt-in and a normal teardown leaves an unrecorded checkout alone (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-optin-')
+  try {
+    const orphan = addOrphanWorktree(tower, 'unrecorded-clean')
+    const result = await tower.teardown({})
+
+    assert.equal(Object.hasOwn(result, 'orphanWorktrees'), false, 'a normal teardown returns no orphan report')
+    const listed = await tower.deps.vcs.listWorktrees(tower.root)
+    assert.ok(listed.some((entry) => samePath(entry.path, orphan)), 'the registration is still there')
+    assert.equal(fs.existsSync(orphan), true, 'the checkout is untouched without the opt-in')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode removes a clean unrecorded checkout inside the root and keeps its branch (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-clean-')
+  try {
+    const orphan = addOrphanWorktree(tower, 'unrecorded-clean')
+    const before = await tower.load()
+
+    const result = await tower.teardown({ orphans: true })
+    const report = result.orphanWorktrees
+    assert.ok(report, 'the opt-in adds the orphan report')
+    assert.equal(samePath(report.root, teardownWorktreeRoot(tower)), true)
+    const decision = report.decisions.find((entry) => samePath(entry.path, orphan))
+    assert.equal(decision.action, 'removed')
+    assert.equal(decision.reason, 'eligible')
+    assert.equal(decision.name, 'orphan-unrecorded-clean')
+    assert.deepEqual(report.removed.map((entry) => path.resolve(entry)), [path.resolve(orphan)])
+    assert.deepEqual(report.pruned, [])
+    assert.equal(fs.existsSync(orphan), false, 'the clean checkout is removed')
+    assert.match(git(tower.root, ['branch', '--list', 'orphan-unrecorded-clean']), /orphan-unrecorded-clean/, 'the branch is not Tower\'s to delete')
+
+    // An unrecorded checkout has no mission to stamp: a successful sweep writes
+    // no state record at all.
+    const after = await tower.load()
+    assert.equal(after.revision, before.revision)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode keeps a dirty unrecorded checkout even with force (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-dirty-')
+  try {
+    const orphan = addOrphanWorktree(tower, 'unrecorded-dirty')
+    fs.writeFileSync(path.join(orphan, 'scratch.txt'), 'scratch\n')
+
+    const result = await tower.teardown({ orphans: true, force: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, orphan))
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'uncommitted changes')
+    assert.deepEqual(result.orphanWorktrees.removed, [])
+    assert.equal(fs.existsSync(orphan), true, 'only a clean checkout is removed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode never removes the main checkout, a recorded worktree or an outside path (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-protect-')
+  try {
+    const { worktree } = await activeMission(tower)
+    const external = addExternalWorktree(tower, 'outside-checkout')
+
+    const result = await tower.teardown({ orphans: true })
+    const decisions = result.orphanWorktrees.decisions
+    const main = decisions.find((entry) => samePath(entry.path, tower.root))
+    const recorded = decisions.find((entry) => samePath(entry.path, worktree.path))
+    const outside = decisions.find((entry) => samePath(entry.path, external))
+    assert.equal(main.action, 'keep')
+    assert.equal(main.reason, 'main checkout')
+    assert.equal(recorded.action, 'keep')
+    assert.equal(recorded.reason, 'referenced by state')
+    assert.equal(outside.action, 'keep')
+    assert.equal(outside.reason, 'outside the worktree root')
+    assert.deepEqual(result.orphanWorktrees.removed, [])
+    assert.equal(fs.existsSync(worktree.path), true)
+    assert.equal(fs.existsSync(external), true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a lost state file exposes its old checkout to a re-init, and orphan mode reclaims it (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-lost-state-')
+  try {
+    const { worktree } = await mergedMission(tower)
+    // A lost state file is the scenario the issue names: the checkout survives,
+    // the record that pointed at it does not.
+    fs.rmSync(tower.paths.state)
+    await tower.init({})
+    assert.deepEqual((await tower.load()).missions, [], 'the re-initialised state knows no mission')
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, worktree.path))
+    assert.equal(decision.action, 'removed')
+    assert.equal(fs.existsSync(worktree.path), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan dry_run previews decisions and prunes nothing (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-dryrun-')
+  try {
+    const clean = addOrphanWorktree(tower, 'preview-clean')
+    const dirty = addOrphanWorktree(tower, 'preview-dirty')
+    fs.writeFileSync(path.join(dirty, 'scratch.txt'), 'scratch\n')
+
+    const result = await tower.teardown({ orphans: true, dryRun: true })
+    const decisions = result.orphanWorktrees.decisions
+    const cleanRow = decisions.find((entry) => samePath(entry.path, clean))
+    const dirtyRow = decisions.find((entry) => samePath(entry.path, dirty))
+    assert.equal(cleanRow.action, 'remove', 'a dry run predicts the removal')
+    assert.equal(dirtyRow.action, 'keep')
+    assert.equal(dirtyRow.reason, 'uncommitted changes')
+    assert.deepEqual(result.orphanWorktrees.removed, [])
+    assert.deepEqual(result.orphanWorktrees.pruned, [])
+    assert.equal(fs.existsSync(clean), true, 'a dry run removes nothing')
+    assert.equal(fs.existsSync(dirty), true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode prunes a stale registration whose directory is gone (#185)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-prune-')
+  try {
+    const orphan = addOrphanWorktree(tower, 'stale-registration')
+    fs.rmSync(orphan, { recursive: true, force: true, maxRetries: 3 })
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, orphan))
+    assert.equal(decision.action, 'pruned')
+    assert.deepEqual(result.orphanWorktrees.pruned.map((entry) => path.resolve(entry)), [path.resolve(orphan)])
+    const listed = await tower.deps.vcs.listWorktrees(tower.root)
+    assert.equal(listed.some((entry) => samePath(entry.path, orphan)), false, 'git worktree prune cleared the registration')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// The in-flight reservation is narrow on purpose (#185 R1). A mission only
+// reserves `<root>/<id>` while it can still be about to provision it: the shape
+// must declare a worktree and the status must not have closed the mission.
+// Otherwise the reservation hides a checkout from the orphan sweep forever and
+// the doctor can print a bare "no unrecorded worktrees" while it exists.
+// ---------------------------------------------------------------------------
+
+test('teardown: a survey mission does not reserve the worktree path, so orphan mode reclaims it (#185 R1)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-survey-reservation-')
+  try {
+    const planned = await tower.plan({ missions: [{ title: 'Read the seed commit', kind: 'survey' }] })
+    const mission = planned.missions[0]
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = worktreePath(checkoutRoot, mission.id)
+    git(tower.root, ['worktree', 'add', '-b', 'survey-unrecorded', checkout, 'HEAD'])
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, checkout))
+    assert.equal(decision.action, 'removed', 'a survey never provisions a branch worktree, so that path is not in flight')
+    assert.equal(fs.existsSync(checkout), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a completed mission with no recorded worktree does not reserve its path either (#185 R1)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-completed-reservation-')
+  try {
+    const planned = await tower.plan({ missions: [{ title: 'Closed build', scope: ['src/**'] }] })
+    const mission = planned.missions[0]
+    editState(tower, (state) => {
+      const record = state.missions.find((entry) => entry.id === mission.id)
+      record.status = 'completed'
+      record.updatedAt = Date.now()
+    })
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = worktreePath(checkoutRoot, mission.id)
+    git(tower.root, ['worktree', 'add', '-b', 'completed-unrecorded', checkout, 'HEAD'])
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, checkout))
+    assert.equal(decision.action, 'removed', 'a completed mission is past provisioning, so its path is not in flight')
+    assert.equal(fs.existsSync(checkout), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a provisionable mission with no record yet keeps its in-flight checkout (#185 R1)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-inflight-')
+  try {
+    const planned = await tower.plan({ missions: [{ title: 'Live build', scope: ['src/**'] }] })
+    const mission = planned.missions[0]
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = worktreePath(checkoutRoot, mission.id)
+    git(tower.root, ['worktree', 'add', '-b', 'inflight-unrecorded', checkout, 'HEAD'])
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, checkout))
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'a checkout is being provisioned and is not recorded by state yet')
+    assert.deepEqual(result.orphanWorktrees.removed, [])
+    assert.equal(fs.existsSync(checkout), true, 'a provisionable mission still owns the in-flight window')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: an unreadable mission kind keeps its reservation with a reason instead of throwing (#185 R1)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-orphan-unknown-kind-')
+  try {
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = path.join(checkoutRoot, 'M404')
+    git(tower.root, ['worktree', 'add', '-b', 'unknown-kind-checkout', checkout, 'HEAD'])
+    // A state document the loader refuses cannot be produced through the tools;
+    // hand the inventory the mission directly to pin the fail-closed shape read.
+    const state = { missions: [{ id: 'M404', kind: 'mystery', status: 'planned' }], roster: [] }
+
+    const inventory = await inventoryOrphanWorktrees(tower, state)
+    const decision = inventory.decisions.find((entry) => samePath(entry.path, checkout))
+    assert.equal(decision.action, 'keep')
+    assert.match(decision.reason, /mission kind could not be read/)
+    assert.match(decision.reason, /unknown mission kind "mystery"/)
+    assert.equal(inventory.orphans.length, 0)
+    assert.equal(inventory.inflight.length, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+

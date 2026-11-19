@@ -314,6 +314,34 @@ removes a worktree itself, and there is no automatic teardown policy or config k
 runs the teardown step when the finished mission's checkout can go. A mission whose roster row is
 still live is never counted, and a checkout already removed by teardown is reported by the removed
 count instead.
+
+Git registrations that no state record owns are reported separately by the `worktrees-orphans`
+check (#185): a `warn` names the count and the remedy — the teardown step's `orphans` option — while
+zero is a `pass` reading `no unrecorded worktrees`. The check splits clean checkouts (removable),
+dirty ones (kept) and registrations whose directory is gone (prunable), and it never removes
+anything itself; only the explicit `orphans` option does, and only for clean paths inside the
+worktree root. The main checkout, every path state references (mission worktree, sandbox, review
+checkout) and every path outside the root are hard exclusions, so a checkout can be listed without
+being removable. A checkout git records **outside** the worktree root is reported in the same check
+and is never removed by Tower: that is the documented limit, and the operator either reclaims it
+out of band or accepts it.
+
+A checkout at the path a mission is expected to provision is reported as in flight, never as an
+unrecorded defect: while a mission with no recorded worktree can still start a provision (planned,
+active, paused or blocked), the check adds `N checkout(s) in flight (kept)` to its detail and applies
+no remedy. A mission closed as `completed`, `merged` or `abandoned` cannot provision again and does
+not reserve its path; neither does a shape that declares no worktree (a survey), so a clean checkout
+left at `<worktree root>/<mission id>` is an ordinary removable orphan. The reservation also fails
+closed: if a mission's kind cannot be read, its expected path is kept with the reason stated in the
+decision instead of being removed. The bare `pass` text is used only when nothing is reserved;
+otherwise the detail names the in-flight count while a reserved checkout exists.
+
+Tower mode does not deny the worktree tool's `create_worktree` (#187). The stance is allow and make
+visible: an unrecorded checkout is a fact this check reports, not an operation Tower tries to
+forbid. A deny entry would break that tool for every repository regardless of mission need and still
+would not give Tower a record of the checkout; orphan mode is the cleanup path, and it is opt-in.
+Nothing here removes a checkout automatically.
+
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,
