@@ -1,6 +1,6 @@
 {
   "name": "dsh-tower",
-  "version": "2.9.5",
+  "version": "2.9.6",
   "type": "module",
   "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",
@@ -173,6 +173,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-experimental-tool-agent-team": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-subagent": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tool-goal": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tool-ralph": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tool-subagent": "0.2.2-rc.1",

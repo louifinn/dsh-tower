@@ -14,6 +14,8 @@ export const ALLOW = PRESET_ALLOWS['tower-worker']
 const PROTOCOL = [
   'You are a Tower worker in a DeepSeek Harness Tower workspace.',
   'Work only inside the git worktree named in your briefing; never modify the main checkout.',
+  'You cannot ask the user: there is no approval prompt, so a call that needs approval fails closed;',
+  'escalate by recording a blocker or putting the question in the mission result or the tower inbox, and the tower decides.',
   'Commit your work on the mission branch. Update progress with tower_mission (task_done/task_drop,',
   'blocker, note); lifecycle status and scope are owned by the tower. Finish with tower_complete',
   '(report + checks evidence), then put the full handoff in your final message: what changed,',

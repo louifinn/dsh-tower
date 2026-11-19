@@ -15,7 +15,7 @@ npm test
 
 The offline suites are grouped by concern; each file runs as its own process with real temporary Git repositories and cleans them up:
 
-- `cleanup.test.mjs` — the shared teardown helper: bounded retry/backoff for `EPERM`/`EBUSY`/`EACCES`, the quarantine rename after the first transient failure, the `os.tmpdir()` isolation guard, and a seeded real Windows `FileShare.None` handle that must be released before the tree can be removed (declared with `skip:` off Windows, so Linux reports it as `# SKIP`).
+- `cleanup.test.mjs` — the shared teardown helper: bounded retry/backoff for `EPERM`/`EBUSY`/`EACCES`, the quarantine rename after the first transient failure, the `os.tmpdir()` isolation guard, and a seeded real Windows `FileShare.None` handle that must be released before the tree can be removed (declared with `skip:` off Windows, so Linux reports it as `# SKIP`). It also covers `tower_teardown`'s mission-worktree removal with the same bounded retry (the decision reports `attempts`; a permanent failure keeps the mission record and the final error), its `exclude` reporting (matched ids stay protected, unmatched ids appear in `unmatchedExclude` with a `keep` decision whose reason is `exclude did not match any mission`), and its explicit `orphans: true` sweep (#185): git worktrees under the root that no mission, sandbox or review row references get one decision each, only clean checkouts are removed (a dirty one is kept, a registration whose directory is gone is pruned), and the main checkout, every state-referenced path and every path outside the root are always kept. A normal teardown never looks at them, and a `dry_run` previews the decisions without removing or pruning anything.
 - `unit.test.mjs` — pure helpers: scope overlap, scope validation, printable-Unicode titles (NFC, 120-character bound), glob matching.
 - `unicode-titles.test.mjs` — a non-ASCII title round-trips `tower_plan` → state → `tower_inspect` with `view: "status"` → `MISSIONS.md` → briefing, the board table stays aligned, and invisible/over-long titles are rejected.
 - `platform.test.mjs` — the platform branches, asserted on every OS: win32 path case folding (`isInside`), the `pwsh`/`bash` discovery shell (`shellSpec`), the transient rename/unlink retry loops via injected syscalls, and worktree path identity (`compareKey`). The one real-Windows case (renaming over an open destination) is declared with `skip:` so Linux reports it as `# SKIP` rather than dropping it.
@@ -155,6 +155,32 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.6 release evidence (2026-11-20)
+
+The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
+batches through the bounded runner (`npm run test:shards`, 25 files per batch) on Windows 11 with Node
+`v25.8.1` (never an unbounded `npm test`). Declarations are counted, so the one skip is included in the
+total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1342** | 1341 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.5` (71.1 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
+passed. The 2.9.6 cases run inside the batch as well: the bounded worktree-removal retry, the dry-run
+`archivePreview`, unmatched `exclude` ids and the opt-in orphan sweep with its protections in
+[`cleanup.test.mjs`](cleanup.test.mjs) and [`archive.test.mjs`](archive.test.mjs); the awaiting-teardown,
+`worktrees-orphans` and `foreign-capabilities` advisories, the capability stance inventory and the
+shared cordis loader reader in [`doctor-ownership.test.mjs`](doctor-ownership.test.mjs); the
+reviewed-pin deny guard in [`deny-surface.test.mjs`](deny-surface.test.mjs); the subagent package that
+the auto-review stance imports; and the native tool-card, toast and dock chrome in
+[`ui-bundle.test.mjs`](ui-bundle.test.mjs).
+
 ### 2.9.5 release evidence (2026-11-19)
 
 The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
@@ -175,9 +201,9 @@ excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (recovery through the real
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
-`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These are the current totals;
-the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as
-written.
+`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
+the current totals are in [2.9.6 release evidence](#296-release-evidence-2026-11-20) above, and the W5
+table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
 
@@ -265,7 +291,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.5 release evidence](#295-release-evidence-2026-11-19) above.
+[2.9.6 release evidence](#296-release-evidence-2026-11-20) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
@@ -346,7 +372,7 @@ $env:DSH_HOME=(New-Item -ItemType Directory "$env:TEMP\dsh-live-$(Get-Random)").
 # The tokenized URL printed by the isolated server in step 3:
 $env:DSH_TEST_URL='http://127.0.0.1:59001/?token=<token printed at boot>'
 # Optional: the host build under test, named on the first output line:
-$env:DSH_HOST_VERSION='0.2.2-rc.3'
+$env:DSH_HOST_VERSION='0.2.2-rc.5'
 # Optional: the writable documents directory used to seed the first-use
 # Workspace (absolute). Defaults to <DSH_HOME>/documents.
 $env:DSH_LIVE_DOCUMENTS_DIR="$env:DSH_HOME\documents"
@@ -357,11 +383,11 @@ npm run test:live -- --script command   # the /tower command acceptance
 npm run test:live -- --list             # the selectable scripts
 ```
 
-`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.2-rc.3`.
+`DSH_HOME` must exist and resolve under `os.tmpdir()`. The guard refuses the operator's real `DSH_HOME` and any profile under `$DSH_HOME/profiles`; the error names `npm run test:live`. The first line of live output names the resolved home and host version, for example `live: DSH_HOME=/tmp/dsh-live-abc host=0.2.2-rc.5`.
 
 Browsers come from Playwright by default; set `DSH_TEST_CHROME` to force a specific executable. The individual scripts still run with `node tests/live/<name>.cjs` once the same environment is exported.
 
-The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.2-rc.3)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
+The browser run is **nightly-only** in CI: `.github/workflows/test.yml` schedules it against a pinned host matrix (`live (0.2.2-rc.5)`) and keeps only `npm run test:live -- --check` on push (no browser). The `nightly` script is the CI orchestrator that provisions the throwaway profile, boots the server, and runs `boot-smoke`.
 
 `nightly` also seeds a default Workspace for a first-use CI runner (#47). An Ubuntu runner has no xdg Documents directory, so `@deepseek-ai/dsh-api-workspace-controller` cannot resolve its first-use workspace: the Web shell parks on the Preview Notice / "Choose workspace" state and the composer never renders (a Windows machine resolves Documents, which is why this was CI-only). The orchestrator creates a writable documents directory — `DSH_LIVE_DOCUMENTS_DIR` when set (must be absolute), otherwise `<DSH_HOME>/documents` — and writes a loader overlay at `<DSH_HOME>/workspace-override.patch.yml`:
 

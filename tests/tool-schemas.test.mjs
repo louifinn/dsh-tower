@@ -13,6 +13,8 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
 import { SCHEMAS } from '../domain/contracts/outputs.js'
+import { Tower } from '../host/tower.js'
+import { teardownWorktreeRoot } from '../app/teardown.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {
@@ -272,6 +274,81 @@ test('a survey spawn reports worktree: null and satisfies the real spawn schema 
     assert.equal(value.preset, 'tower-survey')
     const violations = validateJsonSchema(spawn.output.schema, value)
     assert.deepEqual(violations, [], `survey spawn output violates its schema: ${violations.join('; ')}`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// F88: the opt-in orphan sweep lives in app/teardown.js and is gated on
+// `orphans === true`, but the tool contract was still the closed
+// `{force, exclude, dry_run}` object. A caller therefore could not reach the
+// capability at all: the host's closed-schema admission rejected `orphans`
+// before the app saw it. This walks the registered definition (not
+// `tower.teardown`) so the regression is the one a tool caller would hit, and
+// proves the opt-in reaches the app by observing the sweep.
+test('tower_teardown admits the opt-in orphan sweep through its registered contract (F88)', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const towerExec = { agent: { id: 'tower-agent' } }
+  const teardown = tools.get('tower_teardown')
+  assert.ok(teardown, 'tower_teardown is registered')
+
+  try {
+    // The schema stays closed: `orphans` is admitted as the one new optional
+    // boolean, an unknown key and a wrong-typed value are still rejected.
+    assert.equal(teardown.parameters.additionalProperties, false, 'the contract stays closed')
+    assert.ok(teardown.parameters.properties.orphans, 'the contract advertises the orphans option')
+    assert.equal(teardown.parameters.properties.orphans.type, 'boolean')
+    assert.deepEqual(validateJsonSchema(teardown.parameters, { orphans: true }), [])
+    assert.deepEqual(validateJsonSchema(teardown.parameters, { orphans: false }), [])
+    const unknownKey = validateJsonSchema(teardown.parameters, { orphans: true, bogus: 1 })
+    assert.ok(
+      unknownKey.some((entry) => entry.includes('"value.bogus"') && entry.includes('not allowed')),
+      `an unknown key is still rejected: ${unknownKey.join('; ')}`,
+    )
+    const wrongType = validateJsonSchema(teardown.parameters, { orphans: 'yes' })
+    assert.ok(
+      wrongType.some((entry) => entry.includes('"value.orphans"') && entry.includes('boolean')),
+      `orphans must be a boolean: ${wrongType.join('; ')}`,
+    )
+    // The advertised description tells the caller the sweep exists and is opt-in.
+    assert.match(teardown.description, /orphan sweep/)
+    assert.match(teardown.description, /opt-in/)
+
+    await tools.get('tower_init').execute({ repoRoot: repo }, towerExec)
+    const tower = await Tower.open(repo)
+    const worktreeRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(worktreeRoot, { recursive: true })
+    const orphan = path.join(worktreeRoot, 'unrecorded-clean')
+    git(repo, ['worktree', 'add', '-b', 'orphan-unrecorded-clean', orphan, 'HEAD'])
+
+    // Default-off: the same registered tool leaves the unrecorded checkout alone
+    // and reports no orphan block.
+    const plain = await teardown.execute({ repoRoot: repo }, towerExec)
+    assert.equal(Object.hasOwn(plain, 'orphanWorktrees'), false, 'the sweep is opt-in')
+    assert.equal(fs.existsSync(orphan), true, 'a default teardown touches no unrecorded checkout')
+
+    // Opt-in through the tool surface: the app receives `orphans: true`, sweeps
+    // the clean unrecorded checkout and returns the report.
+    const swept = await teardown.execute({ repoRoot: repo, orphans: true }, towerExec)
+    assert.ok(swept.orphanWorktrees, 'the opt-in reaches app/teardown.js')
+    assert.equal(
+      path.resolve(swept.orphanWorktrees.root),
+      path.resolve(worktreeRoot),
+      'the report names the resolved worktree root',
+    )
+    const decision = swept.orphanWorktrees.decisions.find(
+      (entry) => path.resolve(entry.path) === path.resolve(orphan),
+    )
+    assert.ok(decision, 'the sweep inventories the unrecorded checkout')
+    assert.equal(decision.action, 'removed')
+    assert.equal(fs.existsSync(orphan), false, 'only clean unrecorded checkouts are removed')
+    assert.deepEqual(
+      validateJsonSchema(teardown.output.schema, swept),
+      [],
+      'the opt-in report still satisfies the declared teardown output schema',
+    )
   } finally {
     removeTemp(root)
   }

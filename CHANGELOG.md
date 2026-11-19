@@ -4,6 +4,59 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.6（2026-11-20）
+
+### 新增
+
+- **工具卡片接回原生 affordance，长结果不再被硬截断（#195）**：Tower 的 `tower_*` 工具卡片重新消费宿主
+  提供的 `openFile`、`loadImage`、`inspect` 与 `useDisclosure` 座位：结果里的文件路径是可点击的链接
+  （带行号），图片可以预览，卡片有 inspect 入口和带 `aria-expanded` 的展开/收起。正文超过可视高度时
+  在固定 260 px 的滚动区内换行滚动，先前「最多六行 + `nowrap` 省略号」的硬截断被删除，长 blocker、
+  审查发现与完成报告可以读完；收起态仍是宿主原生的一行，不使用自绘标题栏。
+- **孤立工作树有了显式的清理入口（#185）**：`tower_teardown({orphans:true})` 会扫描工作树根目录下没有
+  mission、沙箱或审查记录引用的 checkout，并为每一个给出一条决定。只删除干净的检出；脏检出保留，注册
+  仍在但目录已消失的条目执行一次 `git worktree prune`；主检出、任何被 state 引用的路径与根目录之外的
+  路径永远保留。普通 teardown 不会看它们，`dry_run` 只预览决定，不删除也不 prune。doctor 新增
+  `worktrees-orphans` 检查，列出未被记录的检出。
+- **每一种外部非工具能力都有记录在案的立场与代价（#188、#189）**：forge、liveshare、plugin-manager 与
+  auto review 不经过工具拒绝面，现在各自在能力立场清单里有一条 `warn+allow` 记录，写明检测方式、Tower
+  中可用的替代以及拒绝会失去什么。doctor 的 `foreign-capabilities` 检查会列出当前挂载的组合并给出处理
+  方式；auto review 与委派子代理固定 `never` 审批的冲突由测试钉住——Tower 不默认拒绝该预设，因为拒绝会
+  拿走一个 Tower 并不替代的逐调用评估能力。
+- **拒绝能力 → 替代路径的单一页面（#191）**：新增中英双语的「Tower 模式拒绝的能力与替代」页面，逐条
+  记录每个被拒绝或仅警告的能力、替代路径、覆盖程度（full / partial / none）与用户代价。文档检查会在
+  拒绝面新增属主或工具时要求同步一行，避免清单与实现分叉。
+
+### 变更
+
+- **支持宿主提升到 DSH 0.2.2-rc.5**：支持清单、mount smoke 宿主 pin、CI live matrix、COMPATIBILITY
+  最新行与拒绝清单的「已审查 pin」一起移动到 `0.2.2-rc.5`。`support:check` 要求这些位置逐字一致，
+  `deny:check` 在支持 pin 前移而清单未重新审查时失败并点名两处构建。Node.js 下限仍是 24.9，`engines`
+  与其他下限未变。
+- **teardown 的机械行为更可预测（#182–#184、#186）**：mission 工作树的删除与沙箱/审查 checkout 一致，
+  对 `EPERM`/`EBUSY`/`EACCES` 做有界重试（最多 3 次，退避后仍失败才报错），结果记录实际 `attempts`；
+  `dry_run` 现在预览到期 mission 的归档动作（`archivePreview`）；`exclude` 中未匹配任何 mission 的 id
+  会作为 `keep` 决定返回（`unmatchedExclude`），不再被静默忽略；doctor 对「N 个终态 mission 的工作树
+  仍在等待 teardown」给出建议。这里没有新增配置键，也不会自动删除任何工作树。
+- **`create_worktree` 保持可用，但不再隐形（#187）**：Tower 模式继续允许工作树工具，同时 doctor 的
+  `worktrees-orphans` 会把未被 state 记录的外部 checkout 列出来。Tower 不承诺管理这些检出，但不再让
+  它们无声存在。
+- **停靠 chip 与浮层条对齐原生 chrome（#196、#197）**：状态浮层移到顶部，采用原生 toast 的位置、
+  radius / shadow / 字体 token 与 160 ms 入场，`prefers-reduced-motion` 下关闭动画，并移除字面量
+  z-index；composer 停靠的 chip、mode 与结果摘要共用一个无边框的 StatsPills 基座（原生 `1px 8px`
+  内边距、20 px 行框、`radius-sm` 与随外观缩放的字号），以「圆点 + 文本」呈现，不画边框、填充或
+  hover 效果，不再像另一个组件家族。
+
+### 修复
+
+- **拒绝清单不再落后于受支持的宿主构建（#190）**：清单枚举所用的构建、已审查的支持 pin 与每个属主的
+  构建例外现在分开记录并互相校验。支持 pin 前移而清单未重新审查时，`deny:check` 会同时点名两个构建并
+  要求重新生成，而不是留下一个悄悄过期的工具清单；`0.2.2-rc.3` 之后六个 tool-* 属主继续跟进，agent-team
+  属主因安装约束留在完整的 rc.1 构建，例外逐包记录原因。
+- **doctor 的外部能力检测读取真实的加载树（#188、#189）**：外部能力的检测不再依赖对加载行的假定，而是
+  从真实的 cordis loader 行与服务名读取（包括 liveshare 的实际服务名）；检测结果因此与宿主实际挂载的
+  内容一致，而不是与一份手写猜测一致。
+
 ## 2.9.5（2026-11-19）
 
 ### 修复

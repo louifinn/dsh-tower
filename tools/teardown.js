@@ -1,6 +1,6 @@
 // tower_teardown — remove eligible mission worktrees.
 // 
-// Input: TeardownInput (dryRun, force, exclude) from contracts.
+// Input: TeardownInput (dryRun, force, exclude, orphans) from contracts.
 // Output: removed/kept decisions for every mission.
 // Authorization: tower only; live agents always keep their worktree.
 // Side effects: removes worktrees/branches, persists activity.
@@ -20,7 +20,7 @@ export function registerTeardownTool(ctx, deps) {
   define(ctx, {
     name: 'tower_teardown',
     description:
-      'Remove eligible merged/abandoned mission worktrees. A running agent is always kept; dirty worktrees need force; exclude skips named missions; dry_run previews. Due terminal missions are archived under dsh-tower/archive, never deleted.',
+      'Remove eligible merged/abandoned mission worktrees. A running agent is always kept; dirty worktrees need force; exclude skips named missions; dry_run previews; opt-in orphan sweep of clean unrecorded checkouts in the root. Due terminal missions are archived under dsh-tower/archive, never deleted.',
     parameters: TeardownInput,
     aliases: {"dry_run":["dryRun"]},
     board: true,
@@ -33,6 +33,7 @@ export function registerTeardownTool(ctx, deps) {
       return tower.teardown({
         force: args.force === true,
         exclude: args.exclude,
+        orphans: args.orphans === true,
         dryRun: args.dry_run === true,
         activity,
       })

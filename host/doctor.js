@@ -21,7 +21,14 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck, commitLockFacts, stateLockFacts } from './doctor-acceptance.js'
+import {
+  artifactAcceptanceCheck,
+  commitLockFacts,
+  foreignCapabilityCheck,
+  orphanWorktreeCheck,
+  readLoaderRows,
+  stateLockFacts,
+} from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -172,14 +179,11 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     ? loaderRows
     : (() => {
         try {
-          const loader = ctx?.get?.('loader') ?? ctx?.loader
-          const source = loader?.entries ?? loader?.rows ?? loader?.store?.entries
-          if (Array.isArray(source)) return source
-          if (source && typeof source === 'object') return Object.values(source)
+          return readLoaderRows(ctx?.get?.('loader') ?? ctx?.loader)
         } catch {
           // loader inventory is optional
+          return null
         }
-        return null
       })()
   if (rows === null) {
     checks.push(check('loader-conflicts', 'warn', 'loader inventory unavailable; cannot detect co-installed Tower packages'))
@@ -532,7 +536,13 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         : check('roster', 'pass', 'no live workers'),
     )
 
-    let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0
+    // #182: a terminal mission whose checkout is still on disk and whose agent
+    // is gone is waiting for teardown. The roster approximation is deliberate:
+    // doctor has no activity map, so any non-inactive roster row counts as live.
+    const liveMissionIds = new Set(
+      live.map((entry) => entry.missionId).filter((missionId) => typeof missionId === 'string'),
+    )
+    let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0, awaitingTeardown = 0
     for (const mission of state.missions ?? []) {
       if (!mission.worktree) continue
       if (mission.worktreeRemovedAt) { removedWorktrees += 1; continue }
@@ -541,15 +551,31 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       if (!(await exists(mission.worktree.path)) && isTerminalMission(mission)) { terminalMissingWorktrees += 1; continue }
       try {
         await tower.assertWorktree(mission.worktree)
+        // Dirtiness and "waiting for teardown" are independent signals: a dirty
+        // terminal checkout is still a finished mission whose disk usage the
+        // operator should reclaim, so it is counted in both places.
         if ((await git(mission.worktree.path, ['status', '--porcelain'])).trim()) dirtyWorktrees += 1
+        if (isTerminalMission(mission) && !liveMissionIds.has(mission.id)) awaitingTeardown += 1
       } catch { missingWorktrees += 1 }
     }
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
     const terminalSummary = `${terminalMissingWorktrees} terminal mission worktree(s) are no longer on disk; run the mission teardown step to record the removal`
-    const terminalNote = terminalMissingWorktrees > 0 ? `; ${terminalSummary}` : ''
-    const problem = missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid${terminalNote}` : terminalMissingWorktrees > 0 ? terminalSummary : dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null
-    const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : undefined
+    const awaitingSummary = `${awaitingTeardown} terminal mission worktree(s) awaiting teardown; run tower_teardown`
+    const problems = [
+      missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid` : null,
+      terminalMissingWorktrees > 0 ? terminalSummary : null,
+      awaitingTeardown > 0 ? awaitingSummary : null,
+      dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null,
+    ].filter((entry) => entry !== null)
+    const problem = problems.length > 0 ? problems.join('; ') : null
+    const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : awaitingTeardown > 0 ? 'run the worktree teardown step for the finished mission; nothing is removed automatically' : undefined
     checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
+
+    // #187: the mission loop only sees recorded worktrees. A checkout created
+    // outside Tower (an allowed `create_worktree` call), or one whose record was
+    // lost, is listed here so it cannot stay invisible; the explicit orphan
+    // sweep is the only thing that removes one, and doctor never does.
+    checks.push(await orphanWorktreeCheck(tower, state))
 
     const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))
     // #136: the `tower-tests` component row is the only switch (there is no
@@ -703,6 +729,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const ralphLoop = ralphStance.ralphLoop
   checks.push(check('ralph-stance', ralphStance.row.status, ralphStance.row.detail, ralphStance.row.action))
 
+  // #188/#189: the stance inventory for non-Tower capabilities that can
+  // orchestrate agents or land changes. It is a report, not a guard: Tower does
+  // not deny what it does not replace, and a type it cannot detect is a warning.
+  const foreign = foreignCapabilityCheck({ ctx, agent, rows })
+  checks.push(foreign.check)
+
   const failed = checks.filter((item) => item.status === 'fail').length
   return {
     ok: failed === 0,
@@ -720,6 +752,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     activityLog,
     review: reviewPolicy,
     components,
+    // #188/#189: each non-Tower capability, its stance and the cost of denying it.
+    foreignCapabilities: foreign.report,
     // Every default-off subsystem, with the tool it owns and the exact enable
     // step, so a client can render "off, and here is how to turn it on".
     subsystems: Object.keys(COMPONENT_ENABLE_HINTS).map((id) => ({

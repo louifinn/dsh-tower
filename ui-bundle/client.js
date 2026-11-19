@@ -119,7 +119,7 @@ window.__ModuleLoader__.load({
         ] = loaded
 
         const { translate, toolLabel, seatT, EN, ZH } = locales
-        const { ST, dotStyle } = styles
+        const { ST, dotStyle, STRIP_CLASS } = styles
         const helpers = helpersModule.createHelpers(translate)
         const mode = modeModule.createModeStore(diagnostics, helpers)
         // The native row chrome is the shell's UI-primitives namespace, a static
@@ -135,7 +135,7 @@ window.__ModuleLoader__.load({
           }
           return namespace
         })
-        const env = { React, h, translate, toolLabel, seatT, ST, dotStyle, helpers, mode }
+        const env = { React, h, translate, toolLabel, seatT, ST, dotStyle, STRIP_CLASS, helpers, mode }
         if (primitives !== undefined) env.primitives = primitives
         env.modeModelFromLegacy = modeModule.modeModelFromLegacy
         env.cards = cardsModule.createCards(env)

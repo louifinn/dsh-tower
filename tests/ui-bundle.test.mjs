@@ -124,6 +124,9 @@ function loadBundle(react, options = {}) {
     IconChecklistOutlineRegular(props) {
       return react.createElement('svg', { 'data-primitives-icon': '', width: props.size })
     },
+    IconInspectOutlineRegular(props) {
+      return react.createElement('svg', { 'data-primitives-icon': 'inspect', width: props.size })
+    },
   }
   const required = []
   const asyncRequired = []
@@ -143,6 +146,9 @@ function loadBundle(react, options = {}) {
     )
   }
   const materialized = new Map()
+  // A test may load one mutated chunk source (the #195 negative proofs load a
+  // copy with the affordance wiring deleted) without touching the shipped file.
+  const chunkSources = options.chunkSources || {}
   // Real DSH `require.async("./client.<name>.js")` fetches and registers the
   // sibling chunk script, then materializes its factory once.
   fakeRequire.async = async (spec) => {
@@ -151,7 +157,8 @@ function loadBundle(react, options = {}) {
     const file = spec.slice(2)
     if (!chunkDefinitions.has(file)) {
       // eslint-disable-next-line no-new-func -- the chunk is a plain browser script
-      new Function('window', fs.readFileSync(path.join(CLIENT_DIR, file), 'utf8'))(window)
+      const source = typeof chunkSources[file] === 'string' ? chunkSources[file] : fs.readFileSync(path.join(CLIENT_DIR, file), 'utf8')
+      new Function('window', source)(window)
     }
     const definition = chunkDefinitions.get(file)
     assert.ok(definition, `${file} must register through window.__ModuleLoader__.load`)
@@ -367,13 +374,18 @@ test('a shell without the UI-primitives word leaves the host native tool rows al
   )
 })
 
-test('client logic stays within 10% of the 1980-line #71 budget and every file at most 400 lines', () => {
+test('client logic stays within the #71 budget and every file at most 400 lines', () => {
   // #71: the pre-split client.js was 1,980 lines. #F67: the ratchet covers
   // client *logic*; client.locales.js is the bilingual translation catalogue,
   // whose copy must grow with the surface, so it is excluded from the sum and
   // measured by the data guards below. Every file, the catalogue included,
   // still has to stay under the 400-line split target.
-  const BASELINE = 1980
+  // #195: the native-affordance work (file links, inspect accessory, image
+  // preview, scroll region instead of a 6-row slice) is logic, so ADR 0011's
+  // 2026-11-19 amendment moves the ceiling from 2,178 to 2,420; the 1,782
+  // floor and the 400-line per-file target are unchanged.
+  const FLOOR = 1782
+  const CEILING = 2420
   const CATALOGUE = 'client.locales.js'
   const files = fs
     .readdirSync(CLIENT_DIR, { withFileTypes: true })
@@ -392,12 +404,12 @@ test('client logic stays within 10% of the 1980-line #71 budget and every file a
   )
   const total = sizes.reduce((sum, file) => sum + (file.name === CATALOGUE ? 0 : file.lines), 0)
   assert.ok(
-    total >= BASELINE * 0.9,
-    `client logic total ${total} lines fell below 90% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+    total >= FLOOR,
+    `client logic total ${total} lines fell below the ${FLOOR}-line #71 floor (excluding ${CATALOGUE} translation data)`,
   )
   assert.ok(
-    total <= BASELINE * 1.1,
-    `client logic total ${total} lines exceeds 110% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+    total <= CEILING,
+    `client logic total ${total} lines exceeds the ${CEILING}-line ceiling from ADR 0011's 2026-11-19 amendment (excluding ${CATALOGUE} translation data)`,
   )
   // The chunk list is the shipped surface list; every client.<surface>.js file
   // is a real chunk the entry loads exactly once.
@@ -527,9 +539,15 @@ test('locale metadata is present in en/zh', () => {
 })
 
 // The expanded io-card reproduces the host `ToolRow.module.css` verbatim, and
-// that native surface uses two non-alias design tokens for the card's corner
-// radius and type scale. Everything else stays on the --dsw-alias-* family.
-const NATIVE_NON_ALIAS_TOKENS = new Set(['--dsw-radius-lg', '--dsw-font-markdown-code-block-small'])
+// that native surface uses non-alias design tokens for the card's corner
+// radius and type scale. #196/#197 add the native toast radius/shadow and the
+// native StatsPills pill radius; everything else stays on --dsw-alias-*.
+const NATIVE_NON_ALIAS_TOKENS = new Set([
+  '--dsw-radius-lg',
+  '--dsw-radius-sm',
+  '--dsw-font-markdown-code-block-small',
+  '--dsw-shadow-lv3',
+])
 
 test('theme references are limited to --dsw-alias-* plus the native io-card radius/font tokens', () => {
   const tokens = ALL_SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
@@ -542,8 +560,18 @@ test('theme references are limited to --dsw-alias-* plus the native io-card radi
   }
 })
 
-test('client code contains no DOM writes, iframe, host.call, or client package imports', () => {
-  assert.doesNotMatch(ALL_SOURCE, /\bdocument\./)
+test('client code touches the DOM only through the sanctioned style-tag injection', () => {
+  // #196: the motion stylesheet needs @keyframes/@media, which inline styles
+  // cannot carry. The native static bundles inject their module CSS from the
+  // chunk factory as a tagged <style> at materialization; this is the only
+  // DOM write in the client half, and it never reads or mutates app markup.
+  assert.match(ALL_SOURCE, /typeof document !== 'undefined'/, 'the style-tag injection must be document-guarded')
+  assert.match(ALL_SOURCE, /document\.head\.appendChild\(tag\)/, 'the injected stylesheet must be the tagged <style>')
+  const withoutStyleTag = ALL_SOURCE.replace(
+    /if \(\s*typeof document !== 'undefined' &&[\s\S]*?document\.head\.appendChild\(tag\)\s*\}/,
+    '',
+  )
+  assert.doesNotMatch(withoutStyleTag, /\bdocument\./, 'no DOM access outside the sanctioned style-tag injection')
   assert.doesNotMatch(ALL_SOURCE, /\bhost\.call\b/)
   assert.doesNotMatch(ALL_SOURCE, /<iframe|createElement\(\s*'iframe'/i)
   assert.doesNotMatch(
@@ -802,16 +830,27 @@ test('the entry loads every split chunk through the module system exactly once',
 // 3. Component behaviour (fake hooks, no browser).
 // ---------------------------------------------------------------------------
 async function components() {
-  const bundle = await registerAll()
+  return componentsFrom({})
+}
+
+// Load one bundle instance with test options (mutated chunk source or a missing
+// primitives word); the full registration path is the same as `components()`.
+async function componentsFrom(options) {
+  const react = createFakeReact()
+  const bundle = loadBundle(react, options)
+  const fakeCtx = createFakeContext()
+  CLEANUPS.push(fakeCtx)
+  await bundle.plugin.apply(fakeCtx.ctx)
+  fakeCtx.runInjections()
   const toolviews = new Map()
-  for (const entry of bundle.registrations) {
+  for (const entry of fakeCtx.registrations) {
     if (entry.options.name === 'tool.call.toolview') toolviews.set(entry.options.key, entry.component)
   }
-  const dock = bundle.registrations.find((entry) => entry.options.name === 'conversation.composer.dock').component
-  const overlayEntry = bundle.registrations.find((entry) => entry.options.name === 'shell.overlay')
+  const dock = fakeCtx.registrations.find((entry) => entry.options.name === 'conversation.composer.dock').component
+  const overlayEntry = fakeCtx.registrations.find((entry) => entry.options.name === 'shell.overlay')
   const overlay = overlayEntry.component
   const noticeSource = overlayEntry.options.inject().hooks.towerNotice
-  return { ...bundle, toolviews, dock, overlay, noticeSource }
+  return { react, ...bundle, ...fakeCtx, toolviews, dock, overlay, noticeSource }
 }
 
 function t(key, params) {
@@ -952,6 +991,9 @@ test('toolview renders the native DisclosureRow and publishes start/result notic
 // `ioDivider`), in CSS-in-JS form.
 const NATIVE_IO = {
   bodyWrap: { display: 'flex', flexDirection: 'column' },
+  // #195: the expanded body is a native-like scroll region, not a truncated
+  // list; the cap is the host's `bodyScroll` height.
+  bodyScroll: { maxHeight: '260px', overflowY: 'auto' },
   card: {
     border: '.5px solid var(--dsw-alias-border-l1)',
     borderRadius: 'var(--dsw-radius-lg)',
@@ -974,12 +1016,15 @@ const NATIVE_IO = {
   text: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    // #195: an unbroken path must wrap inside the scroll region, never widen it.
+    overflowWrap: 'anywhere',
     minWidth: 0,
     color: 'var(--dsw-alias-label-secondary)',
   },
   textError: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
     minWidth: 0,
     color: 'var(--dsw-alias-state-error-primary)',
   },
@@ -994,6 +1039,108 @@ function isIoSection(node) {
 }
 function isIoDivider(node) {
   return Boolean(node.props && node.props.style && node.props.style.height === '.5px')
+}
+
+// #195: the native ToolRow affordances. A file value is the native fileLink
+// (dotted underline, inherited type, no local chrome); inspect is the native
+// pill; an image is the native image block. These are the token sets the
+// expanded body must use instead of dead text.
+const NATIVE_FILE_LINK = {
+  font: 'inherit',
+  color: 'inherit',
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  textAlign: 'left',
+  textDecoration: 'underline dotted',
+  textUnderlineOffset: '2px',
+  cursor: 'pointer',
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+}
+const NATIVE_INSPECT = {
+  alignSelf: 'flex-start',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  margin: '4px 0 2px 4px',
+  padding: '2px 8px',
+  border: '.5px solid var(--dsw-alias-border-l3)',
+  borderRadius: '999px',
+  background: 'var(--dsw-alias-bg-base)',
+  color: 'var(--dsw-alias-label-secondary)',
+  cursor: 'pointer',
+  font: 'inherit',
+  lineHeight: '16px',
+}
+const NATIVE_IMAGE = { maxWidth: '100%', maxHeight: '240px', display: 'block', objectFit: 'contain' }
+const NATIVE_IMAGE_META = { color: 'var(--dsw-alias-label-tertiary)', overflowWrap: 'anywhere' }
+
+function isFileButton(node) {
+  return node.tag === 'button' && Boolean(node.props) && node.props['data-tower-file'] !== undefined
+}
+function isInspectButton(node) {
+  return node.tag === 'button' && Boolean(node.props) && node.props['data-tower-inspect'] === 'true'
+}
+function isImageNode(node) {
+  return node.tag === 'img'
+}
+
+// The settled-result props `ToolCall` hands the toolview owner.
+function resultProps(toolName, payload, extra) {
+  const callId = 'call-' + toolName
+  return Object.assign(
+    {
+      toolName,
+      phase: 'result',
+      callId,
+      block: {
+        kind: 'tool/result',
+        callId,
+        call: { name: toolName },
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
+      },
+      t,
+      useDisclosure: disclosureSeat(true, () => {}),
+    },
+    extra,
+  )
+}
+
+// Named assertions shared by the positive tests and the mutated-chunk negative
+// proof: deleting the wiring must make these exact messages fail.
+function assertEveryRow(open, count) {
+  assert.equal(findAll(open, isIoSection).length, count, 'every curated row renders — no six-row cut')
+}
+function assertFileLinks(open, expected) {
+  const buttons = findAll(open, isFileButton)
+  assert.equal(buttons.length, expected.length, 'every path with an owner openFile is a native file button')
+  buttons.forEach((button, index) => {
+    assert.equal(button.props.type, 'button', 'a file link is a button, not a span with an onClick')
+    assert.deepEqual(
+      button.props.style,
+      Object.assign({}, NATIVE_IO.text, NATIVE_FILE_LINK),
+      'a file link takes the native fileLink tokens on top of ioText',
+    )
+    assert.equal(button.props['data-tower-file'], expected[index].path, 'the button names the repo-relative path')
+    assert.equal(button.props.title, expected[index].path, 'the native title is the path')
+    assert.equal(button.props['aria-label'], 'card.openFile:path=' + expected[index].path, 'the accessible name is localized')
+    assert.equal(textOf(button), expected[index].text, 'the visible value is the payload text, not a rewritten path')
+  })
+}
+function assertInspectAccessory(open) {
+  const button = findNode(open, isInspectButton)
+  assert.ok(button, 'an owner-supplied inspect callback renders the native inspect accessory')
+  assert.equal(button.props.type, 'button')
+  assert.equal(button.props['aria-label'], 'card.inspectPayload', 'the inspect button has a localized accessible name')
+  assert.equal(button.props.title, 'card.inspectPayload', 'the inspect button has a localized tooltip')
+  assert.deepEqual(button.props.style, NATIVE_INSPECT, 'inspect is the native pill, not local chrome')
+  assert.match(textOf(button), /tool\.inspect/, 'the visible label is the localized Inspect word')
+}
+function assertImagePreview(open, name) {
+  const image = findNode(open, isImageNode)
+  assert.ok(image, 'a declared image result renders through loadImage')
+  assert.equal(image.props.alt, name, 'the image carries the declared name as alt text')
 }
 
 test('expanded toolview body is the native io-card surface, token for token', async () => {
@@ -1135,6 +1282,295 @@ test('expanded toolview body is the native io-card surface, token for token', as
   assert.equal(findAll(collapsed, isIoCard).length, 0, 'the expanded ioCard must not exist while collapsed')
   assert.equal(findAll(collapsed, isIoSection).length, 0, 'no curated section may exist while collapsed')
   assert.equal(findAll(collapsed, isIoDivider).length, 0, 'no divider may exist while collapsed')
+})
+
+test('expanded cards render every curated row in the native scroll region, not six (#195)', async () => {
+  const { react, toolviews } = await components()
+  const files = Array.from({ length: 12 }, (_, index) => 'src/changed-' + index + '.js')
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: files }),
+  )
+  // One changed-files count row plus all twelve paths: thirteen curated rows,
+  // so the twelfth path is reachable (the old `slice(0, 6)` hid seven of them).
+  assertEveryRow(open, 13)
+  const scroll = findNode(
+    open,
+    (node) => Boolean(node.props && node.props.style && node.props.style.maxHeight === '260px' && node.props.style.overflowY === 'auto'),
+  )
+  assert.ok(scroll, 'the ioCard sits in the native bodyScroll region')
+  assert.deepEqual(scroll.props.style, NATIVE_IO.bodyScroll, 'the scroll cap is the native 260px bodyScroll box')
+  assert.ok(findNode(scroll, isIoCard), 'the native ioCard is inside the scroll region, not beside it')
+  for (const file of files) assert.ok(textOf(open).includes(file), 'every changed path stays reachable: ' + file)
+
+  let toggled = 0
+  const collapsed = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: files },
+      { useDisclosure: disclosureSeat(false, () => { toggled += 1 }) },
+    ),
+  )
+  assert.equal(findAll(collapsed, isIoSection).length, 0, 'collapsed rows keep no detail body')
+  assert.equal(findAll(collapsed, isIoCard).length, 0, 'collapsed rows keep no ioCard')
+  const row = disclosureRow(collapsed)
+  assert.ok(row)
+  assert.equal(row.props['data-open'], 'false')
+  assert.equal(row.props['aria-expanded'], false, 'the primitives row owns aria-expanded while collapsed')
+  row.props.onClick()
+  assert.equal(toggled, 1, 'the native row click still routes to the disclosure toggle')
+})
+
+test('file-like values are native file links only when the owner supplies openFile (#195)', async () => {
+  const { react, toolviews } = await components()
+  const files = [
+    { text: 'src/a.js', path: 'src/a.js' },
+    { text: 'src/b.js:12', path: 'src/b.js' },
+    { text: 'README.md', path: 'README.md' },
+  ]
+  const calls = []
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: files.map((file) => file.text) },
+      { openFile: (filePath, options) => calls.push([filePath, options]) },
+    ),
+  )
+  assertFileLinks(open, files)
+  const buttons = findAll(open, isFileButton)
+  let stopped = 0
+  buttons[1].props.onClick({
+    stopPropagation() {
+      stopped += 1
+    },
+  })
+  assert.equal(stopped, 1, 'opening a file must not also toggle the disclosure row')
+  assert.deepEqual(calls, [['src/b.js', { line: 12 }]], 'the native argument shape is (path, { line }?)')
+  buttons[0].props.onClick({ stopPropagation() {} })
+  assert.deepEqual(calls[1], ['src/a.js', undefined], 'a path without a line passes undefined, like the native row')
+
+  // No owner handler: the same payload stays plain text (no dead affordance).
+  const plain = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: ['src/a.js'] }),
+  )
+  assert.equal(findAll(plain, isFileButton).length, 0, 'without openFile a path stays plain text')
+  const plainValue = findAll(plain, isIoSection)[1].children.filter((child) => child && child.tag === 'span')[1]
+  assert.deepEqual(plainValue.props.style, NATIVE_IO.text, 'the plain value keeps the ioText tokens')
+  assert.ok(textOf(plain).includes('src/a.js'))
+
+  // The native ToolRow spells the prop `onOpenFile`; the native name is a
+  // defensive alias for the slot's documented `openFile`.
+  const aliasCalls = []
+  const alias = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: ['src/a.js'] },
+      { onOpenFile: (filePath) => aliasCalls.push(filePath) },
+    ),
+  )
+  assertFileLinks(alias, [{ path: 'src/a.js', text: 'src/a.js' }])
+  findNode(alias, isFileButton).props.onClick({ stopPropagation() {} })
+  assert.deepEqual(aliasCalls, ['src/a.js'], 'the native onOpenFile name is accepted as an alias')
+})
+
+test('the native inspect accessory is reachable only through the owner callback (#195)', async () => {
+  const { react, toolviews } = await components()
+  const payload = { view: 'status', counts: { planned: 0, active: 1, completed: 0 }, openTasks: 1, missions: [] }
+  let inspected = 0
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', payload, { inspect: () => { inspected += 1 } }),
+  )
+  assertInspectAccessory(open)
+  findNode(open, isInspectButton).props.onClick()
+  assert.equal(inspected, 1, 'the accessory calls the owner inspect callback')
+  const icon = findNode(
+    findNode(open, isInspectButton),
+    (node) => node.tag === 'svg' && Boolean(node.props) && node.props['data-primitives-icon'] === 'inspect',
+  )
+  assert.ok(icon, 'when the primitives namespace exposes the inspect icon the pill uses it')
+
+  const without = render(react, toolviews.get('tower_inspect'), resultProps('tower_inspect', payload))
+  assert.equal(findNode(without, isInspectButton), null, 'without inspect no button is rendered (no dead affordance)')
+
+  // A text result has no curated rows, but the owner callback is still a real
+  // affordance: the open body is the accessory alone, not an empty card.
+  const inspectOnly = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { text: 'plain result' }, { inspect: () => { inspected += 1 } }),
+  )
+  assertInspectAccessory(inspectOnly)
+  assert.equal(findAll(inspectOnly, isIoCard).length, 0, 'inspect alone does not fabricate an ioCard')
+  assert.equal(findAll(inspectOnly, isIoSection).length, 0)
+})
+
+test('image results preview through the owner loadImage and degrade to text (#195)', async () => {
+  const { react, toolviews } = await components()
+  const attachment = { attachmentId: 'att-1', mediaType: 'image/png', name: 'shot.png', width: 640, height: 480, bytes: 2048 }
+  const block = {
+    kind: 'tool/result',
+    callId: 'call-image',
+    call: { name: 'tower_inspect' },
+    content: [
+      { type: 'text', text: JSON.stringify({ view: 'status', counts: { total: 1, active: 0 }, missions: [] }) },
+      { type: 'image', attachment },
+    ],
+  }
+  const imageProps = {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-image',
+    block,
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  }
+  let peekedCalls = 0
+  const peekedLoader = (value) => {
+    peekedCalls += 1
+    return Promise.resolve('blob:async')
+  }
+  peekedLoader.peek = () => 'blob:peek'
+  const open = render(react, toolviews.get('tower_inspect'), Object.assign({}, imageProps, { loadImage: peekedLoader }))
+  assertImagePreview(open, 'shot.png')
+  const image = findNode(open, isImageNode)
+  assert.equal(image.props.src, 'blob:peek', 'a peeked URL paints on the first render, like the native message image')
+  assert.deepEqual(image.props.style, NATIVE_IMAGE, 'the preview keeps the native image sizing')
+  const meta = findNode(
+    open,
+    (node) =>
+      Boolean(node.props && node.props.style) &&
+      node.props.style.color === 'var(--dsw-alias-label-tertiary)' &&
+      node.props.style.overflowWrap === 'anywhere',
+  )
+  assert.ok(meta, 'the image block carries the native meta line')
+  assert.deepEqual(meta.props.style, NATIVE_IMAGE_META)
+  assert.ok(textOf(open).includes('card.imageMeta:height=480,name=shot.png,width=640'))
+  assert.equal(
+    findNode(open, (node) => Boolean(node.props && node.props['data-tower-images'] !== undefined)).props['data-tower-images'],
+    '1',
+  )
+  assert.equal(peekedCalls, 0, 'a peeked URL does not await the loader again')
+  assert.doesNotMatch(textOf(open), /att-1/, 'the attachment id is never dumped as body text')
+
+  // No peek: the loader is consulted once; while it settles the native meta
+  // line carries the localized loading word (never the payload bytes).
+  const pendingCalls = []
+  const pending = render(
+    react,
+    toolviews.get('tower_inspect'),
+    Object.assign({}, imageProps, {
+      loadImage: (value) => {
+        pendingCalls.push(value)
+        return Promise.resolve('blob:async')
+      },
+    }),
+  )
+  assert.equal(pendingCalls.length, 1, 'the loader is called once for a declared image')
+  assert.equal(pendingCalls[0], attachment, 'the loader receives the declared attachment, not a URL or base64')
+  assert.ok(textOf(pending).includes('card.imageLoading'))
+  assert.equal(findAll(pending, isImageNode).length, 0, 'no image element until a URL is available')
+
+  // No loader: a localized warning row instead of an empty hole.
+  const degraded = render(react, toolviews.get('tower_inspect'), Object.assign({}, imageProps, { loadImage: undefined }))
+  const degradedSections = findAll(degraded, isIoSection)
+  assert.equal(degradedSections.length, 1, 'the unavailable-image warning is a curated row')
+  assert.ok(textOf(degradedSections[0]).includes('card.imageUnavailable'))
+  assert.ok(textOf(degradedSections[0]).includes('card.tone.warn'))
+  assert.equal(findAll(degraded, isImageNode).length, 0)
+
+  // A result with no image part never touches the loader.
+  let nonImageCalls = 0
+  const nonImage = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 },
+      { loadImage: () => { nonImageCalls += 1; return Promise.resolve('blob:x') } },
+    ),
+  )
+  assert.equal(nonImageCalls, 0, 'the loader is never called for a result that declares no image')
+  assert.equal(findNode(nonImage, (node) => Boolean(node.props && node.props['data-tower-images'] !== undefined)), null)
+})
+
+test('the #195 affordance wiring is load-bearing (mutated-chunk negative proof)', async () => {
+  const files = Array.from({ length: 12 }, (_, index) => 'src/changed-' + index + '.js')
+  const attachment = { attachmentId: 'att-2', mediaType: 'image/png', name: 'proof.png', width: 10, height: 10 }
+  const imageBlock = {
+    kind: 'tool/result',
+    callId: 'call-image',
+    call: { name: 'tower_inspect' },
+    content: [
+      { type: 'text', text: JSON.stringify({ view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 }) },
+      { type: 'image', attachment },
+    ],
+  }
+  const mutations = [
+    {
+      chunk: 'client.toolview.js',
+      from: 'const rows = showBody ? model.rows.slice() : []',
+      to: 'const rows = showBody ? model.rows.slice(0, 6) : []',
+      props: resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: files }),
+      check: (open) => assertEveryRow(open, 13),
+      failure: /no six-row cut/,
+    },
+    {
+      chunk: 'client.cards.js',
+      from: 'const target = fileTargetOf(row, openFile)',
+      to: 'const target = null',
+      props: resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: ['src/a.js'] }, { openFile: () => {} }),
+      check: (open) => assertFileLinks(open, [{ path: 'src/a.js', text: 'src/a.js' }]),
+      failure: /native file button/,
+    },
+    {
+      chunk: 'client.toolview.js',
+      from: "const inspect = props && typeof props.inspect === 'function' ? props.inspect : null",
+      to: 'const inspect = null',
+      props: resultProps('tower_inspect', { view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 }, { inspect: () => {} }),
+      check: assertInspectAccessory,
+      failure: /native inspect accessory/,
+    },
+    {
+      chunk: 'client.toolview.js',
+      from: 'const images = running ? [] : imagesOfBlock(props ? props.block : undefined)',
+      to: 'const images = []',
+      props: {
+        toolName: 'tower_inspect',
+        phase: 'result',
+        callId: 'call-image',
+        block: imageBlock,
+        t,
+        useDisclosure: disclosureSeat(true, () => {}),
+        loadImage: Object.assign((value) => Promise.resolve('blob:x'), { peek: () => 'blob:peek' }),
+      },
+      check: (open) => assertImagePreview(open, 'proof.png'),
+      failure: /declared image result renders/,
+    },
+  ]
+  for (const mutation of mutations) {
+    const source = fs.readFileSync(path.join(CLIENT_DIR, mutation.chunk), 'utf8')
+    assert.ok(source.includes(mutation.from), 'the negative proof anchors on ' + mutation.chunk)
+    const { react, toolviews } = await componentsFrom({
+      chunkSources: { [mutation.chunk]: source.replace(mutation.from, mutation.to) },
+    })
+    const open = render(react, toolviews.get('tower_inspect'), mutation.props)
+    assert.throws(
+      () => mutation.check(open),
+      mutation.failure,
+      'deleting the ' + mutation.chunk + ' wiring must redden the named assertion',
+    )
+  }
 })
 
 test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', async () => {
@@ -1433,6 +1869,309 @@ test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss
   // registered with ctx.effect; freeing effects must be safe and idempotent.
   assert.ok(effects.some((effect) => effect.label === 'tower-ui: status strip timer'))
   assert.doesNotThrow(() => freeTimer({ effects }))
+})
+
+// ---------------------------------------------------------------------------
+// 3b. #196/#197: native toast + StatsPills chrome contracts.
+// ---------------------------------------------------------------------------
+// The installed shell's Toast.module.css, in CSS-in-JS form: fixed top-center
+// at 40px, toast tokens, 14px/22px type, the lv3 shadow, and the native width
+// cap. The overlay layer (z-index 20 in the shell layout) owns stacking, so the
+// strip itself carries no z-index.
+const NATIVE_TOAST_WRAP = {
+  position: 'fixed',
+  top: '40px',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  width: 'max-content',
+  maxWidth: 'min(640px, calc(100vw - 48px))',
+  pointerEvents: 'none',
+}
+const NATIVE_TOAST_CARD = {
+  pointerEvents: 'none',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  maxWidth: '100%',
+  minWidth: 0,
+  padding: '12px 16px',
+  border: 'none',
+  borderRadius: 'var(--dsw-radius-lg)',
+  background: 'var(--dsw-alias-toast-bg)',
+  color: 'var(--dsw-alias-toast-label)',
+  fontSize: '14px',
+  lineHeight: '22px',
+  boxShadow: 'var(--dsw-shadow-lv3)',
+  overflow: 'hidden',
+}
+// The installed shell's StatsPills.module.css pill + anchor, merged: a
+// borderless, transparent inline-flex pill at the appearance caption scale.
+const NATIVE_DOCK_PILL = {
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  maxWidth: '100%',
+  minWidth: 0,
+  padding: '1px 8px',
+  border: 'none',
+  borderRadius: 'var(--dsw-radius-sm)',
+  background: '0 0',
+  color: 'var(--dsw-alias-label-tertiary)',
+  font: 'inherit',
+  fontVariantNumeric: 'tabular-nums',
+  fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+  lineHeight: 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
+  whiteSpace: 'nowrap',
+}
+
+function assertNoStackingLevel(style) {
+  assert.equal(style.zIndex, undefined, 'the overlay layer owns stacking: no literal z-index')
+}
+
+function assertToastGeometry(strip) {
+  assertNoStackingLevel(strip.props.style)
+  assert.deepEqual(
+    strip.props.style,
+    NATIVE_TOAST_WRAP,
+    'the strip is the native toast geometry: top-center, never over the composer',
+  )
+  assert.equal(strip.props.style.bottom, undefined, 'the strip must not anchor to the composer')
+  const card = findNode(strip, (node) => Boolean(node.props && node.props.style && node.props.style.boxShadow !== undefined))
+  assert.ok(card, 'the strip renders the native toast card')
+  assertNoStackingLevel(card.props.style)
+  assert.deepEqual(card.props.style, NATIVE_TOAST_CARD, 'the card takes the native toast tokens, shadow and 14px/22px type')
+}
+
+function assertToastTokens(strip) {
+  const card = findNode(
+    strip,
+    (node) => Boolean(node.props && node.props.style && node.props.style.borderRadius === 'var(--dsw-radius-lg)'),
+  )
+  assert.ok(card, 'the native toast card exists')
+  assert.equal(card.props.style.background, 'var(--dsw-alias-toast-bg)', 'the native toast background token')
+  assert.equal(card.props.style.color, 'var(--dsw-alias-toast-label)', 'the native toast label token')
+  assert.equal(card.props.style.boxShadow, 'var(--dsw-shadow-lv3)', 'the native toast shadow token')
+  assert.equal(card.props.style.fontSize, '14px', 'the native toast type size')
+  assert.equal(card.props.style.lineHeight, '22px', 'the native toast line box')
+}
+
+function assertDockPill(style, what) {
+  // The hint and the mode chip add `userSelect: 'none'` (they are read-only
+  // labels the user may try to select); everything else is the native pill.
+  const base = Object.assign({}, style)
+  delete base.userSelect
+  assert.deepEqual(base, NATIVE_DOCK_PILL, what + ' takes the native StatsPills pill geometry, token for token')
+  assert.equal(style.border, 'none', what + ' has no border: a non-interactive status is not a control')
+  assert.equal(style.background, '0 0', what + ' has no fill')
+  assert.equal(style.borderRadius, 'var(--dsw-radius-sm)', what + ' uses the native pill radius')
+  assert.equal(style.fontSize, 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)')
+  assert.equal(style.lineHeight, 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))')
+}
+
+function assertStripMotion(css) {
+  assert.match(css, /@keyframes dsh-tower-strip-in/, 'the native entry keyframes exist')
+  assert.match(css, /\.16s ease-out/, 'the native 160ms entry')
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'the reduced-motion branch exists')
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+  assert.doesNotMatch(reduced, /dsh-tower-strip-in/, 'reduced motion drops the entry animation')
+  assert.match(reduced, /dsh-tower-strip-fade/, 'reduced motion keeps only the opacity fade')
+}
+
+function publishAndRenderStrip(bundle) {
+  const useTowerNotice = (selector) => selector(bundle.noticeSource.getSnapshot())
+  const Card = bundle.toolviews.get('tower_spawn')
+  render(bundle.react, Card, {
+    toolName: 'tower_spawn',
+    phase: 'start',
+    callId: 'call-spawn',
+    block: { callId: 'call-spawn', name: 'tower_spawn' },
+    t,
+  })
+  return render(bundle.react, bundle.overlay, { t, useTowerNotice })
+}
+
+test('overlay strip is the native toast surface: top-center, toast tokens, no z-index (#196)', async () => {
+  const bundle = await components()
+  const strip = publishAndRenderStrip(bundle)
+  assert.equal(strip.props['data-tower-ui'], 'status-strip')
+  assert.equal(
+    strip.props.className,
+    bundle.materialized.get('client.styles.js').STRIP_CLASS,
+    'the strip opts into the injected motion class',
+  )
+  assertToastGeometry(strip)
+  assertToastTokens(strip)
+  assert.equal(strip.props.role, 'status')
+  assert.equal(strip.props['aria-live'], 'polite')
+  assert.match(textOf(strip), /strip\.started/)
+  const overlaySource = fs.readFileSync(path.join(CLIENT_DIR, 'client.overlay.js'), 'utf8')
+  const stylesSource = fs.readFileSync(path.join(CLIENT_DIR, 'client.styles.js'), 'utf8')
+  assert.doesNotMatch(overlaySource, /zIndex/, 'the overlay chunk declares no stacking level')
+  assert.doesNotMatch(stylesSource, /zIndex/, 'the overlay styles declare no literal z-index')
+})
+
+test('the strip stylesheet carries the native 160ms entry, fade and reduced-motion branch (#196)', async () => {
+  const bundle = await components()
+  const styles = bundle.materialized.get('client.styles.js')
+  assertStripMotion(styles.STRIP_CSS)
+  assert.match(
+    styles.STRIP_CSS,
+    /dsh-tower-strip-fade 1s ease var\(--dsh-toast-hold, 3s\) forwards/,
+    'the native hold-then-fade exit',
+  )
+  assert.ok(styles.STRIP_CSS.includes('.' + styles.STRIP_CLASS + '{'), 'the rendered class is the animated class')
+})
+
+test('the strip stylesheet is injected once and only once per page (#196)', async () => {
+  const appended = []
+  const tags = []
+  globalThis.document = {
+    querySelector(selector) {
+      return tags.find((tag) => selector.includes(JSON.stringify(tag.dataset.pluginCss))) || null
+    },
+    createElement(tagName) {
+      assert.equal(tagName, 'style', 'the only created element is the module stylesheet')
+      return { dataset: {}, textContent: '' }
+    },
+    head: {
+      appendChild(node) {
+        appended.push(node)
+        tags.push(node)
+      },
+    },
+  }
+  try {
+    const first = await components()
+    assert.equal(appended.length, 1, 'the factory injects exactly one style tag')
+    const tag = appended[0]
+    assert.equal(tag.dataset.plugin, 'dsh-tower-ui', 'the tag is owned by this bundle for unload cleanup')
+    assert.equal(tag.dataset.pluginCss, 'dsh-tower-ui/status-strip.css')
+    assert.equal(tag.textContent, first.materialized.get('client.styles.js').STRIP_CSS)
+    assertStripMotion(tag.textContent)
+    await components()
+    assert.equal(appended.length, 1, 'the injection is idempotent by data-plugin-css')
+  } finally {
+    delete globalThis.document
+  }
+})
+
+test('composer dock states are the native StatsPills pill, not a control-shaped chip (#197)', async () => {
+  const bundle = await components()
+  const { react, dock, materialized } = bundle
+  const styles = materialized.get('client.styles.js')
+
+  const hint = render(react, dock, { t })
+  assert.equal(hint.props['data-tower-ui'], 'dock-hint')
+  assertDockPill(hint.props.style, 'the hint')
+  assert.equal(hint.props.style.userSelect, 'none')
+  assert.equal(hint.props.onClick, undefined, 'the hint is a label, not a button')
+  assert.match(hint.props.title, /dock\.hint\.title/)
+
+  const chip = render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  assert.equal(chip.props['data-tower-ui'], 'dock-mode')
+  assertDockPill(chip.props.style, 'the mode chip')
+  assert.equal(chip.props.onClick, undefined, 'the mode chip stays non-interactive')
+  assert.match(chip.props.title, /dock\.mode\.tooltip/, 'the tooltip stays')
+  const dot = findNode(
+    chip,
+    (node) => Boolean(node.props && node.props.style) && node.props.style.width === '6px' && node.props.style.borderRadius === '999px',
+  )
+  assert.ok(dot, 'a non-interactive status is a dot + text, not an icon-button')
+
+  const review = {
+    review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: 'two problems' },
+    round: 2,
+    branchTip: 'abcdef1234567',
+  }
+  const summary = render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([commandNode('off'), toolResultNode('tower_review', review)])),
+  })
+  assert.equal(summary.props['data-tower-ui'], 'dock')
+  assertDockPill(summary.props.style, 'the latest-result summary')
+  assert.equal(summary.props.onClick, undefined, 'the summary is a label, not a control')
+  assert.equal(styles.ST.dockTool.color, 'var(--dsw-alias-label-secondary)')
+  assert.equal(styles.ST.dockText.textOverflow, 'ellipsis')
+  assert.equal(styles.ST.dockText.minWidth, 0)
+})
+
+test('a narrow composer width keeps the dock row on one line (#197)', async () => {
+  const bundle = await components()
+  const { react, dock, materialized } = bundle
+  const styles = materialized.get('client.styles.js')
+  const long = 'p1 '.repeat(200)
+  const review = {
+    review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: long },
+    round: 2,
+    branchTip: 'abcdef1234567',
+  }
+  const summary = render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([commandNode('off'), toolResultNode('tower_review', review)])),
+  })
+  assert.equal(summary.props['data-tower-ui'], 'dock')
+  // The pill caps at its slot and the only shrinkable child ellipsizes, so the
+  // row never wraps or widens the composer.
+  assert.equal(summary.props.style.maxWidth, '100%')
+  assert.equal(summary.props.style.minWidth, 0)
+  assert.equal(summary.props.style.whiteSpace, 'nowrap')
+  const text = findAll(summary, (node) => Boolean(node.props && node.props.style === styles.ST.dockText))
+  assert.equal(text.length, 1, 'the summary text is the single shrinkable child')
+  assert.equal(text[0].props.style.overflow, 'hidden')
+  assert.equal(text[0].props.style.textOverflow, 'ellipsis')
+  assert.equal(text[0].props.style.minWidth, 0)
+  assert.equal(findAll(summary, (node) => node.tag === 'br').length, 0, 'no line break is rendered')
+})
+
+test('the #196/#197 native-chrome contract is load-bearing (mutated-chunk negative proof)', async () => {
+  const mutations = [
+    {
+      label: 'toast background token reverted',
+      from: "background: 'var(--dsw-alias-toast-bg)',",
+      to: "background: 'var(--dsw-alias-bg-overlay)',",
+      failure: /native toast background token/,
+      check: (strip) => assertToastTokens(strip),
+    },
+    {
+      label: 'literal z-index re-added',
+      from: "        pointerEvents: 'none',\n      },\n      stripCard:",
+      to: "        pointerEvents: 'none',\n        zIndex: 9100,\n      },\n      stripCard:",
+      failure: /no literal z-index/,
+      check: (strip) => assertNoStackingLevel(strip.props.style),
+    },
+    {
+      label: 'dock radius reverted to the 999px chip',
+      from: "borderRadius: 'var(--dsw-radius-sm)',",
+      to: "borderRadius: '999px',",
+      failure: /StatsPills pill geometry/,
+      check: (strip, bundle) =>
+        assertDockPill(
+          render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) }).props.style,
+          'the mode chip',
+        ),
+    },
+    {
+      label: 'native 160ms entry removed',
+      from: '{animation:dsh-tower-strip-in .16s ease-out,',
+      to: '{animation:dsh-tower-strip-in .2s ease-out,',
+      failure: /native 160ms entry/,
+      check: (strip, bundle) => assertStripMotion(bundle.materialized.get('client.styles.js').STRIP_CSS),
+    },
+  ]
+  const source = fs.readFileSync(path.join(CLIENT_DIR, 'client.styles.js'), 'utf8')
+  for (const mutation of mutations) {
+    assert.ok(source.includes(mutation.from), 'the negative proof anchors on client.styles.js: ' + mutation.label)
+    const bundle = await componentsFrom({
+      chunkSources: { 'client.styles.js': source.replace(mutation.from, mutation.to) },
+    })
+    const strip = publishAndRenderStrip(bundle)
+    assert.throws(
+      () => mutation.check(strip, bundle),
+      mutation.failure,
+      'mutating ' + mutation.label + ' must redden the named assertion',
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------

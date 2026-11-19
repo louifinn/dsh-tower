@@ -48,6 +48,55 @@ keys, tool ids); these guards are about the catalogue's shape and size, and
 load the chunk through the same `window.__ModuleLoader__` seam the Web client
 and that gate already use.
 
+## Amendment 2026-11-19 (#195): a dated ceiling for the native row affordances
+
+**Context.** Issue #195 restores the native tool-row interactions a keyed card
+otherwise drops: file-like values become the native `openFile` file link, an
+owner-supplied `inspect` becomes the native pill, a declared image result is
+previewed through `loadImage`, and the old `slice(0, 6)` is replaced by the
+native 260 px `bodyScroll`. That is logic, not translation data: it adds 219
+logic lines (2,375 today, from 2,156 at the 2.9.6 base), exceeding the 2,178
+ceiling by 197. The only ways to stay inside it would be deleting context
+comments or dropping an affordance — both hide the price of a feature the
+issue explicitly requires.
+
+**Decision.** From this date the logic ceiling moves to 2,420 (today's 2,375
+plus ~2% headroom). The 1,782 floor, the data-exclusion rule, the catalogue
+guards and the 400-line per-file cap are unchanged. This is a one-time,
+feature-sized, dated ceiling move, pinned by `CEILING = 2420` in
+`tests/ui-bundle.test.mjs`; the next growth is still a deliberate budget
+decision.
+
+**Consequences.** The split still bounds logic (45 lines of headroom, under one
+file's margin), and the ceiling no longer sits below a required native
+affordance. The 400-line cap is now the binding constraint for
+`client.cards.js` (400 lines), which is the signal to split the card models in
+a follow-up rather than to raise the cap.
+
+**Rejected alternatives.** Compressing comments to fit 2,178 (loses the
+affordance rationale and sets a precedent for hiding growth); raising the
+400-line cap (no file needs it, and it would relax every file); excluding the
+affordance chunks from the ratchet (creates a second exemption and defeats
+#71).
+
+## Amendment 2026-11-19 (#196/#197): the native chrome fixes spend the #195 headroom
+
+**Context.** #196 and #197 replace the ad-hoc overlay strip with the native
+toast surface and the bordered dock chip with the native `StatsPills` pill.
+Both are presentation contracts, and the new guards make them exact (token
+equality, geometry, the motion stylesheet), so the stylesheet plus the class
+wiring cost 32 logic lines.
+
+**Decision.** No ceiling move: the logic total is 2,407 of the 2,420 ceiling,
+so the fixes consume 32 of the 45 lines the #195 amendment left and leave 13.
+The 1,782 floor, the 400-line per-file cap, the data exclusion and the
+catalogue guards are unchanged.
+
+**Consequences.** The headroom is now smaller than one surface chunk's margin,
+so the next logic change is again a deliberate budget decision (an amendment or
+a split), which is the ratchet working as intended. The binding per-file
+constraint stays `client.cards.js` (399 lines).
+
 ## Consequences
 
 - A new user-facing string no longer has to pay for itself by deleting code or

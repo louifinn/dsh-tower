@@ -11,7 +11,8 @@
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
-    { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" }
+    { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
+    { "id": "foreign-capabilities", "status": "pass", "detail": "no non-Tower capability is available; 4 known types checked" }
   ],
   "stateLock": {
     "held": true,
@@ -110,7 +111,9 @@ takeover 会 fail closed，而不会把不可读的模式存储误判为属主�
 检查覆盖：git 可用性、仓库身份、state schema/加载、仓库配置是否存在、worker/reviewer preset 名称、
 subagents 与 HMR 服务、workspace 锁持有者/是否过期、实时 roster、worktree 是否存在/归属/是否脏、
 test-discovery 策略、完成报告大小、归档健康度、旧版快照、batch 与租约。被 `tower_teardown` 正常清理的 mission worktree 会被
-跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+跳过（检查中会注明已移除数量），不会被误报为 missing。仍持有 worktree 且没有实时 roster 行的终态 mission 会得到
+`N terminal mission worktree(s) awaiting teardown; run tower_teardown` 提示；doctor 不会自动移除 worktree，
+也没有自动 teardown 策略或配置键。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 
 `caseInsensitive` 是 `tower_init` 在检出目录所在文件系统上一次性探测的结果；`null` 表示“尚未探测”，
 此时 `case-mode` 检查为 `warn`。`comparisonMode` 是 scope 匹配实际使用的比较方式：
@@ -127,9 +130,77 @@ test-discovery 策略、完成报告大小、归档健康度、旧版快照、ba
 
 检查覆盖：git 可用性、仓库身份、state schema/加载、已探测的大小写模式、仓库配置是否存在、
 worker/reviewer preset 名称、subagents 与 HMR 服务、state 锁年龄/心跳、workspace 锁持有者/是否过期、实时 roster、
-worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、batch 与租约。被 `tower_teardown`
-正常清理的 mission worktree 会被跳过（检查中会注明已移除数量），不会被误报为 missing。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
+worktree 是否存在/归属/是否脏、test-discovery 策略、旧版快照、batch、租约，以及可编排代理或落地变更的非 Tower 能力姿态。被 `tower_teardown`
+正常清理的 mission worktree 会被跳过（检查中会注明已移除数量），不会被误报为 missing。仍持有 worktree 且没有实时
+roster 行的终态 mission 会得到 `N terminal mission worktree(s) awaiting teardown; run tower_teardown` 提示；
+doctor 不会自动移除 worktree，也没有自动 teardown 策略或配置键。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 处理。state 加载失败会作为失败的检查报告而不是抛出，因此 doctor 在损坏的仓库上仍然有用。
+
+没有任何 state 记录持有的 git 登记由独立的 `worktrees-orphans` 检查报告（#185）：发现时 `warn`
+并给出数量与处置方式（teardown 步骤的 `orphans` 选项），为零时 `pass` 且 detail 为
+`no unrecorded worktrees`。该检查把干净检出（可移除）、脏检出（保留）和目录已消失的登记（可
+prune）分开，自身从不移除任何东西；只有显式的 `orphans` 选项会移除，且只处理 worktree root 内的
+干净路径。主检出、所有被 state 引用的路径（mission worktree、sandbox、review checkout）以及 root
+之外的路径都是硬性排除，因此一个检出可以被列出却仍然不可移除。git 记录在 worktree root **之外**
+的检出也会出现在同一检查中，并且永远不会被 Tower 移除：这是有文档记录的边界，操作者要么在
+Tower 之外回收它，要么接受它。
+
+位于 mission 待 provision 路径上的检出会被报告为 in flight，而不会被当作未登记的缺陷：当一个
+尚无 worktree 记录的 mission 仍可能开始 provision（planned、active、paused 或 blocked）时，该检查
+会在 detail 中追加 `N checkout(s) in flight (kept)`，并且不给出处置动作。以 `completed`、`merged`
+或 `abandoned` 关闭的 mission 不会再次 provision，因此不再保留其路径；声明不创建 worktree 的
+shape（survey）同样不会保留，所以留在 `<worktree root>/<mission id>` 的干净检出就是普通的可移除
+orphan。该保留还采用 fail-closed：如果无法读取 mission 的 kind，其预期路径会被保留并在 decision
+中写明原因，而不是被移除。只有当没有任何保留时才会使用裸 `pass` 文本；存在保留检出时，detail
+会写明 in flight 数量。
+
+Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态是“允许并让 Tower 看得见”：
+未登记的检出是这项检查报告的事实，而不是 Tower 试图禁止的操作。deny 条目会破坏该工具在所有仓库
+中的使用，而且仍然不会让 Tower 获得检出记录；orphan 模式是清理路径，并且需要显式启用。这里不会有
+任何自动移除。
+
+### 非 Tower 能力（#188、#189）
+
+其他能力也可以不经过 Tower 编排代理或落地变更。doctor 在 `foreign-capabilities` 检查与
+`foreignCapabilities` 字段中为每种已知类型记录姿态：
+
+| 能力 | 检测方式 | 姿态 | 拒绝的代价 |
+| --- | --- | --- | --- |
+| Forge 变更请求 | `@deepseek-ai/dsh-experimental-forge` 的加载器行，或已挂载的 `forge` 服务 | warn+allow | forge 会失去变更请求与按请求合并的路径，Tower 也不会留下它拒绝了什么的记录 |
+| 实时共享 | `@deepseek-ai/dsh-experimental-liveshare` 的加载器行，或已挂载的 `liveshareShares` 服务 | warn+allow | 共享会话会失去查看与受限写入，Tower 也不会留下共享的记录 |
+| 插件管理器 | 可见的 `plugin_manager` 工具、已挂载的 `pluginManager` 服务，或 `@deepseek-ai/dsh-plugin-manager` 的加载器行 | warn+allow | 该 profile 无法再从会话中安装或启用插件，Tower 也不会留下变更记录 |
+| 自动审查 | 已注册的 `auto` 权限预设，或 `auto-review` 加载器行 | warn+allow | Auto 会从所有会话（包括无人值守运行）中移除，而 Tower 并不替代该审查者 |
+
+拒绝不是默认姿态：Tower 并不替代上述任何一种能力，因此 deny 条目会破坏真实工作流，而且仍然
+不会让 Tower 获得它拒绝了什么的记录。`warn+allow` 报告该能力、写出一行拒绝代价，并让它继续
+工作。每行还带有可行时的处置方式：保留该能力并一次只通过一条路径落地变更，或在其必须通过 Tower
+落地变更的运行中关闭它的行。doctor 在这里是只读的：它从不拒绝、禁用或移除任何能力，只读取下面
+这些探测源。
+
+只有当表面可证明干净且每种类型都可检测时，该检查才通过：加载器清单可读且没有匹配行、工具注册表
+没有列出 `plugin_manager` 工具、权限预设目录没有列出 `auto` 预设、也没有匹配的服务被挂载。存在
+的 `warn+allow` 能力与任何 doctor 无法检测的类型都会让同一个检查成为 `warn`，绝不是
+`pass`——当加载器清单不可用且没有服务被挂载时，该类型会被报告为不可检测，而不是假定不存在。
+被禁用的加载器行属于“已安装但未挂载”：它出现在 `pass` 的 detail 中，不产生告警。姿态集合还包括
+`deny`、`compatibility` 与 `deployment-config`；若存在 `deny` 行会是 `fail`，因为 doctor
+无法强制执行一个它只负责报告的姿态（目前没有能力使用该姿态）。存在的 `compatibility` 行会被
+报告为“supported”；`deployment-config` 行会被报告为“configured at deployment”，因为它的处置
+（如果有）是在构建部署时决定的，而不是在这里。目前没有行使用 `deployment-config`；新增这样一行
+属于同一次清单变更。
+
+自动审查是 #188 固定下来的组合。选择 `auto` 权限预设会让审查者挡在每次原生与 PTC 工具调用之前，
+而 DSH 会把被委派子代理的审批策略固定为 `never`：执行代理被拒绝的调用会 fail closed，既没有审批
+提示也没有升级路径，而父代理中的同样拒绝会询问用户。doctor 把 Auto 报告为 `warn+allow` 而不是
+`compatibility`：compatibility 意味着审查者已经理解 Tower 协议调用，而教会它这一点是
+auto-review 包中的变更，不是 Tower 的变更，因此在这里声称兼容会是 Tower 无法兑现的承诺。该行带有
+`failureMode` 字段记录这句话；当 Auto 是当前选中的预设时，检查 detail 会重复它。
+
+清单只对它列出的类型封闭。一个能够编排代理或落地变更的新能力，必须在引入它的同一次变更中获得
+姿态；在此之前 doctor 无法报告它，而“不可检测”的告警正是让这个缺口保持可见而不是静默的方式。
+当能力自身的契约变化时重新审视姿态——例如审查者学会 Tower 协议调用后，Auto 的姿态可以变为
+`compatibility`。
+
+`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要处理。
 
 `reports` 检查会指出仓库中最大的完成报告（`<bytes> B on <mission>`，对照 `gates.maxReportBytes` 上限），
 同样的数据也以 `reports: { count, largest: { missionId, bytes } | null, capBytes }` 返回。上限生效前写入的

@@ -55,7 +55,7 @@ test('the checkout states one support floor everywhere', () => {
   // #M71: this is the floor the release publishes. Raising it is a deliberate
   // edit here, in scripts/support.json, and in every restatement the gate reads.
   assert.equal(result.facts.node, '>=24.9')
-  assert.equal(result.facts.dsh, '0.2.2-rc.3')
+  assert.equal(result.facts.dsh, '0.2.2-rc.5')
   assert.equal(result.facts.packageEngine, result.facts.node)
   assert.equal(result.facts.lockEngine, result.facts.node)
   assert.equal(result.facts.hostPin, result.facts.dsh)
@@ -109,7 +109,7 @@ test('one manifest catches every disagreeing restatement', (t) => {
       name: 'live matrix pin',
       apply(root) {
         const workflow = read(root, '.github/workflows/test.yml')
-        const next = workflow.replace(/^( {10}- )'0\.2\.2-rc\.3'$/m, "$1'0.2.1-rc.2'")
+        const next = workflow.replace(/^( {10}- )'0\.2\.2-rc\.5'$/m, "$1'0.2.1-rc.2'")
         assert.notEqual(next, workflow, 'fixture must contain the live matrix pin')
         write(root, '.github/workflows/test.yml', next)
       },
@@ -119,7 +119,7 @@ test('one manifest catches every disagreeing restatement', (t) => {
       name: 'live matrix lists two pins',
       apply(root) {
         const workflow = read(root, '.github/workflows/test.yml')
-        const next = workflow.replace(/^( {10}- )'0\.2\.2-rc\.3'$/m, "$1'0.2.2-rc.3'\n$1'0.2.1-rc.2'")
+        const next = workflow.replace(/^( {10}- )'0\.2\.2-rc\.5'$/m, "$1'0.2.2-rc.5'\n$1'0.2.1-rc.2'")
         assert.notEqual(next, workflow, 'fixture must contain the live matrix pin')
         write(root, '.github/workflows/test.yml', next)
       },
@@ -129,7 +129,7 @@ test('one manifest catches every disagreeing restatement', (t) => {
       name: 'newest compatibility row host',
       apply(root) {
         const compatibility = read(root, 'COMPATIBILITY.md')
-        const next = compatibility.replace('| 0.2.2-rc.3 |', '| 0.2.1-rc.2 |')
+        const next = compatibility.replace('| 0.2.2-rc.5 |', '| 0.2.1-rc.2 |')
         assert.notEqual(next, compatibility, 'fixture must contain the newest compatibility row')
         write(root, 'COMPATIBILITY.md', next)
       },
@@ -203,7 +203,7 @@ test('the CLI is green on the checkout and fails on a tampered copy', (t) => {
     `v${readJson(repoRoot, 'package.json').version}`,
     'the newest COMPATIBILITY row must name the version being released',
   )
-  const agreement = `support ok: Node >=24.9, DSH 0.2.2-rc.3, package engines/lock, host pin, live matrix and COMPATIBILITY ${newest.commit} agree`
+  const agreement = `support ok: Node >=24.9, DSH 0.2.2-rc.5, package engines/lock, host pin, live matrix and COMPATIBILITY ${newest.commit} agree`
   assert.ok(
     ok.stdout.split('\n').includes(agreement),
     `the agreement line must name ${newest.commit}, got:\n${ok.stdout}`,

@@ -7,6 +7,14 @@ function clip(text, max = 2000) {
 }
 
 /**
+ * #191: a delegated child has no approval prompt, so an open question must be
+ * reported instead of becoming a silent stall. Both briefings carry the same
+ * limitation the worker and reviewer protocols state; the tower decides.
+ */
+const NO_ASK_RULE =
+  '- You cannot ask the user: there is no approval prompt, so an approval-gated call fails closed; put an open question in your final report or the tower inbox, and never stall silently.'
+
+/**
  * Dependency lines shared by the worker and reviewer briefings. A survey
  * dependency carries its recorded result (#148 D6) alongside its status, with
  * bounded formatting so a large evidence set cannot crowd out the mission.
@@ -135,6 +143,7 @@ export function workerBriefing({
       '- Make no commits: this mission reads one fixed commit. Do not write, edit, merge, push, rebase, or spawn other agents.',
     )
   }
+  lines.push(NO_ASK_RULE)
   lines.push(
     `- Update progress: tower_mission({repoRoot:"${repoRoot}",id:"${mission.id}",task_done:"..."}) or blocker:"...".`,
   )
@@ -237,6 +246,7 @@ export function reviewerBriefing({
   lines.push('')
   lines.push('Rules:')
   lines.push('- Read-only: do not modify files, commit, or merge.')
+  lines.push(NO_ASK_RULE)
   if (review) {
     lines.push(`- Pass workdir="${review.path}" on every command: the checkout is a detached read of commit ${String(review.commit).slice(0, 12)}, not the mutable mission worktree.`)
     lines.push('- tower_inspect with view: diff shows the recorded commit your verdict will stamp; do not review anything newer.')
