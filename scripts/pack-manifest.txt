@@ -91,6 +91,7 @@ docs/reference/blockers.md
 docs/reference/component-surface.md
 docs/reference/config.generated.md
 docs/reference/config.md
+docs/reference/deny.md
 docs/reference/doctor.md
 docs/reference/errors.generated.md
 docs/reference/errors.md
@@ -110,6 +111,7 @@ docs/zh/guide/scenarios-and-philosophy.md
 docs/zh/operations/security.md
 docs/zh/reference/blockers.md
 docs/zh/reference/config.md
+docs/zh/reference/deny.md
 docs/zh/reference/doctor.md
 docs/zh/reference/errors.md
 docs/zh/reference/events.md

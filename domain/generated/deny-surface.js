@@ -2,8 +2,10 @@
 //
 // Every tool each foreign-orchestration owner registers, enumerated from the
 // pinned upstream packages in devDependencies (see scripts/lib/owner-surface.mjs).
-// domain/deny-owners.js derives the Tower-mode deny set from this table;
-// regenerate with `npm run deny:generate` after bumping the owner pins.
+// Inventory build: 0.2.2-rc.1 (domain/deny-owners.js DENY_OWNER_PACKAGE_BUILD)
+// Supported host pin: 0.2.2-rc.3 (scripts/support.json)
+// A support-pin bump alone changes this header, so `npm run deny:check` fails until
+// `npm run deny:generate` runs and every per-owner exception has been reviewed.
 /** @type {Record<string, string[]>} */
 export const DENY_OWNER_TOOLS = {
   "tool-agent-team": [
