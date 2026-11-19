@@ -1514,6 +1514,89 @@ test('doctor: a legacy dsh-tower row beside the shipped anchor still fails (F89)
   }
 })
 
+test('doctor: a disabled duplicate dsh-tower row is not a loader conflict (F89 R166)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: shippedLoaderFixture([{ id: 'tower-legacy', name: 'dsh-tower', disabled: true }]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'pass', JSON.stringify(row))
+    assert.equal(row.detail, 'no conflicting dsh-tower loader rows')
+    assert.doesNotMatch(row.detail, /tower-legacy/, 'a disabled row is installed but not mounted, never a conflict')
+    assert.equal(row.action, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: two dsh-tower rows pass when the extra one is disabled (F89 R166)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: loaderFixture([
+        { id: 'tower', name: 'dsh-tower' },
+        { id: 'tower-2', name: 'dsh-tower', disabled: true },
+      ]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'pass', JSON.stringify(row))
+    assert.equal(row.detail, 'no conflicting dsh-tower loader rows')
+    assert.doesNotMatch(row.detail, /tower-2/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: an explicitly enabled duplicate dsh-tower row still fails (F89 R166)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: shippedLoaderFixture([{ id: 'tower-legacy', name: 'dsh-tower', disabled: false }]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'fail', 'only a true disabled flag is filtered, never an explicit false')
+    assert.match(row.detail, /another loader row in this repository also resolves to "dsh-tower"/)
+    assert.match(row.detail, /tower-legacy/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: disabled rows in the options and config shapes are not loader conflicts (F89 R166)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: shippedLoaderFixture([
+        { id: 'tower-options', name: 'dsh-tower', options: { disabled: true } },
+        { id: 'tower-config', name: 'dsh-tower', config: { disabled: true } },
+      ]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'pass', JSON.stringify(row))
+    assert.equal(row.detail, 'no conflicting dsh-tower loader rows')
+    assert.doesNotMatch(row.detail, /tower-options|tower-config/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor: an unreadable loader inventory still warns instead of passing (F89)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({

@@ -347,11 +347,12 @@ Nothing here removes a checkout automatically.
 The `loader-conflicts` check reads the mounted loader's configured rows. The shipped
 `cordis.patch.yml` mounts the host plugin as a nested row (`id: tower-host`, `name: dsh-tower`)
 inside the mandatory `tower` `cordis:group` anchor, so the anchor and the rows nested under it are
-Tower itself and never count as a conflict. A single `dsh-tower` row is always Tower's own mount,
-wherever the loader reports it; a second row outside that anchor — another installed package
-declaring the same plugin row — is a `fail` that names the offending row id(s),
+Tower itself and never count as a conflict. A single enabled `dsh-tower` row is always Tower's own
+mount, wherever the loader reports it; a second enabled row outside that anchor — another installed
+package declaring the same plugin row — is a `fail` that names the offending row id(s),
 with the action to remove or disable the duplicate row in the profile's `cordis.patch.yml`,
-restart DSH and re-run the environment health check. When the loader inventory cannot be read the
+restart DSH and re-run the environment health check. A disabled row is installed but not mounted, so
+it is never a conflict. When the loader inventory cannot be read the
 check is a `warn` (`loader inventory unavailable`), never a pass.
 
 ### Non-Tower capabilities (#188, #189)
