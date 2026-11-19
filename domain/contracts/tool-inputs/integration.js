@@ -22,6 +22,12 @@ export const RebaseInput = Type.Object({
 export const TeardownInput = Type.Object({
   force: Type.Optional(Type.Boolean({ description: 'Remove worktrees that contain uncommitted changes (never a live agent).' })),
   exclude: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids to keep.' })),
+  orphans: Type.Optional(
+    Type.Boolean({
+      description:
+        'Sweep git worktrees under the worktree root that no mission, sandbox or review record references (default false). State-referenced worktrees, the main checkout and paths outside the root are never touched; only clean checkouts are removed and stale registrations are pruned.',
+    }),
+  ),
   dry_run: Type.Optional(Type.Boolean({ description: 'Preview remove/keep decisions without changing disk or state.' })),
 }, { additionalProperties: false })
 
