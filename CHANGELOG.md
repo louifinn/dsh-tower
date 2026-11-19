@@ -11,7 +11,7 @@
 - **工具卡片接回原生 affordance，长结果不再被硬截断（#195）**：Tower 的 `tower_*` 工具卡片重新消费宿主
   提供的 `openFile`、`loadImage`、`inspect` 与 `useDisclosure` 座位：结果里的文件路径是可点击的链接
   （带行号），图片可以预览，卡片有 inspect 入口和带 `aria-expanded` 的展开/收起。正文超过可视高度时
-  在 260–320 px 的滚动区内换行滚动，先前「最多六行 + `nowrap` 省略号」的硬截断被删除，长 blocker、
+  在固定 260 px 的滚动区内换行滚动，先前「最多六行 + `nowrap` 省略号」的硬截断被删除，长 blocker、
   审查发现与完成报告可以读完；收起态仍是宿主原生的一行，不使用自绘标题栏。
 - **孤立工作树有了显式的清理入口（#185）**：`tower_teardown({orphans:true})` 会扫描工作树根目录下没有
   mission、沙箱或审查记录引用的 checkout，并为每一个给出一条决定。只删除干净的检出；脏检出保留，注册
@@ -43,8 +43,9 @@
   它们无声存在。
 - **停靠 chip 与浮层条对齐原生 chrome（#196、#197）**：状态浮层移到顶部，采用原生 toast 的位置、
   radius / shadow / 字体 token 与 160 ms 入场，`prefers-reduced-motion` 下关闭动画，并移除字面量
-  z-index；composer 停靠的 chip、mode 与结果摘要共用一个无边框的 StatsPills 基座（12 px / 20 px、
-  `radius-sm`、14 px 图标、hover 背景），不再像另一个组件家族。
+  z-index；composer 停靠的 chip、mode 与结果摘要共用一个无边框的 StatsPills 基座（原生 `1px 8px`
+  内边距、20 px 行框、`radius-sm` 与随外观缩放的字号），以「圆点 + 文本」呈现，不画边框、填充或
+  hover 效果，不再像另一个组件家族。
 
 ### 修复
 
