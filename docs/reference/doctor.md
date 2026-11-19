@@ -14,6 +14,7 @@ It returns:
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
     { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17. Source: 0.2.2-rc.3 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
     { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
+    { "id": "foreign-capabilities", "status": "pass", "detail": "no non-Tower capability is available; 4 known types checked" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
@@ -297,7 +298,8 @@ Checks cover: git availability, repository identity, state schema/load, bounded 
 the detected case mode, repo config presence, worker/reviewer preset names, subagents and HMR services,
 state lock age/heartbeat, workspace lock holder/staleness, live roster, worktree
 existence/ownership/dirtiness, test-discovery policy, completion-report sizes, archive health, legacy
-snapshots, batches, leases and the Ralph stance. Missions intentionally cleaned up by `tower_teardown` are skipped (the
+snapshots, batches, leases, the Ralph stance, and the stance for non-Tower capabilities that can
+orchestrate agents or land changes. Missions intentionally cleaned up by `tower_teardown` are skipped (the
 check notes the removed count) instead of being reported as missing. A **terminal** mission
 (merged/abandoned) whose checkout directory no longer exists is likewise advisory: the `worktrees`
 check is a `warn` naming the count and pointing at `tower_teardown` as the repair, so a merged mission
@@ -341,6 +343,53 @@ visible: an unrecorded checkout is a fact this check reports, not an operation T
 forbid. A deny entry would break that tool for every repository regardless of mission need and still
 would not give Tower a record of the checkout; orphan mode is the cleanup path, and it is opt-in.
 Nothing here removes a checkout automatically.
+
+### Non-Tower capabilities (#188, #189)
+
+Other capabilities can orchestrate agents or land changes without Tower. Doctor records a stance for
+each known type in the `foreign-capabilities` check and in `foreignCapabilities`:
+
+| capability | detection | stance | cost of denying it |
+| --- | --- | --- | --- |
+| Forge change requests | loader row for `@deepseek-ai/dsh-experimental-forge`, or a mounted `forge` service | warn+allow | forge loses its change-request and merge-on-request path, and Tower has no record of what it refused |
+| Live sharing | loader row for `@deepseek-ai/dsh-experimental-liveshare`, or a mounted `liveshareShares` service | warn+allow | a shared session loses viewing and bounded writing, and Tower has no record of the share |
+| Plugin manager | a visible `plugin_manager` tool, a mounted `pluginManager` service, or a loader row for `@deepseek-ai/dsh-plugin-manager` | warn+allow | the profile can no longer install or enable a plugin from a session, and Tower has no record of the change |
+| Auto review | a registered `auto` permission preset, or the `auto-review` loader row | warn+allow | Auto is removed for every session, including unattended runs, and Tower does not replace the reviewer |
+
+Denying is not the default: Tower does not replace any of these capabilities, so a deny entry would
+break a real workflow and still leave Tower with no record of the change it refused. `warn+allow`
+reports the capability, names the one-line cost of denying it, and leaves it working. Each row also
+carries its remedy where an action is possible: keep the capability and land changes through one path
+at a time, or turn its row off for a run that must land through Tower. Doctor is read-only here: it
+never denies, disables or removes a capability, and it reads only the probes below.
+
+The check passes only when the surface is provably clean and every type is detectable: the loader
+inventory answers and lists no matching row, the tool registry lists no `plugin_manager` tool, the
+permission preset catalog lists no `auto` preset, and no matching service is mounted. A present
+`warn+allow` capability and any type doctor cannot detect both make the same check a `warn`, never a
+pass — when the loader inventory is unavailable and no service is mounted, the type is reported as
+undetectable instead of assumed absent. A disabled loader row is installed but not mounted: it is
+reported in the pass detail and does not warn. The stance set also includes `deny`,
+`compatibility` and `deployment-config`; a `deny` row that is present would be a `fail`, because
+doctor cannot enforce a stance it only reports (no capability has that stance today). A present
+`compatibility` row is reported as supported; a `deployment-config` row is reported as configured at
+deployment, because its remedy — if any — was decided where the deployment is built, not here. No
+row uses `deployment-config` today; adding one is a change in the same inventory.
+
+Auto review is the combination #188 pins. Selecting the `auto` permission preset puts the reviewer
+in front of every native and PTC tool call, and DSH pins a delegated child's approval policy to
+`never`: a worker's denied call fails closed, with no approval prompt and no escalation path, while
+the same denial in the parent asks the user. Doctor reports Auto as `warn+allow`, not
+`compatibility`: compatibility would mean the reviewer already understands Tower protocol calls, and
+teaching it that is a change in the auto-review package, not in Tower, so claiming it here would be a
+promise Tower cannot keep. The row carries `failureMode` with that sentence, and when Auto is the
+selected preset the check detail repeats it.
+
+The inventory is closed only for the types it lists. A new capability that can orchestrate agents or
+land changes gets its stance in the same change that introduces it; until then doctor cannot report
+it, and the not-detectable warning is what keeps that gap visible instead of silent. Revisit a stance
+when the capability's own contract changes — for example, if the reviewer learns Tower protocol
+calls, the Auto stance can become compatibility.
 
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 

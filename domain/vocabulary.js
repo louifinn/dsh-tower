@@ -190,3 +190,16 @@ export function isCompletedStopReason(reason) {
 
 // Doctor check severities.
 export const DOCTOR_STATUS = Object.freeze({ pass: 'pass', warn: 'warn', fail: 'fail' })
+
+// #188/#189: the stance Tower records for a non-Tower capability that can
+// orchestrate agents or land changes. "deny" is never the default because Tower
+// does not replace the capability; "warn+allow" reports it and leaves it
+// working; "compatibility" means Tower supports the combination; and
+// "deployment-config" means the decision lives outside the repository.
+export const CAPABILITY_STANCE = Object.freeze({
+  deny: 'deny',
+  warnAllow: 'warn+allow',
+  compatibility: 'compatibility',
+  deploymentConfig: 'deployment-config',
+})
+export const CAPABILITY_STANCES = Object.freeze(Object.values(CAPABILITY_STANCE))
