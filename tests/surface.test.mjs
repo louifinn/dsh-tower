@@ -10,6 +10,12 @@ import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { configSurface, resolveTowerConfig } from '../domain/config/schema.js'
+import { RecoverInput } from '../domain/contracts/tool-inputs/ops.js'
+import {
+  RECOVERY_ACTION,
+  RECOVERY_CONFIRM,
+  RECOVERY_CONFIRM_WORKSPACE_LOCK,
+} from '../domain/vocabulary.js'
 import {
   parseBaseline,
   surfaceLine,
@@ -149,7 +155,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 14, inputBytes: 11608 },
+    tower: { tools: 14, inputBytes: 11812 },
     worker: { tools: 6, inputBytes: 6654 },
     reviewer: { tools: 5, inputBytes: 4371 },
   })
@@ -159,7 +165,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(baseline.profiles.tower.tools.value, 14)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 5)
-  for (const [profile, bytes] of [['tower', 11608], ['worker', 6654], ['reviewer', 4371]]) {
+  for (const [profile, bytes] of [['tower', 11812], ['worker', 6654], ['reviewer', 4371]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)
@@ -170,6 +176,19 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(current.profiles.tower.inputBytes, baseline.profiles.tower.inputBytes.value)
   assert.equal(current.profiles.worker.tools, baseline.profiles.worker.tools.value)
   assert.equal(current.profiles.reviewer.tools, baseline.profiles.reviewer.tools.value)
+  // F87/M120 follow-up: the advertised recover contract described only
+  // clear-stale-lock after clear-workspace-lock joined the enum, so a caller
+  // holding a workspace lock was told the wrong literal. Every clearing action
+  // must be named with its own confirmation, in both fields.
+  const recoverInput = RecoverInput.properties
+  for (const [action, literal] of [
+    [RECOVERY_ACTION.clearStaleLock, RECOVERY_CONFIRM],
+    [RECOVERY_ACTION.clearWorkspaceLock, RECOVERY_CONFIRM_WORKSPACE_LOCK],
+  ]) {
+    assert.ok(recoverInput.confirm.description.includes(action), `confirm describes ${action}`)
+    assert.ok(recoverInput.confirm.description.includes(literal), `confirm names ${literal}`)
+    assert.ok(recoverInput.force.description.includes(action), `force describes ${action}`)
+  }
   const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
   for (const name of current.liveNames.tools) {
     assert.ok(generatedTools.includes(`| \`${name}\` |`), `tools.generated.md lists ${name}`)

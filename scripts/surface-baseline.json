@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 11608,
+        "value": 11812,
         "decisions": [
           {
             "from": 17008,
@@ -260,6 +260,12 @@
             "to": 11608,
             "date": "2026-11-19",
             "note": "#F87/M120: tower_recover's action enum grows clear-workspace-lock, so the one input schema every profile that mounts the tool advertises grows by 23 bytes. The tool count is unchanged; no other schema moves."
+          },
+          {
+            "from": 11608,
+            "to": 11812,
+            "date": "2026-11-19",
+            "note": "#F87/M120 follow-up: the RecoverInput confirm and force descriptions still described clear-stale-lock only, while the enum already carried clear-workspace-lock with the CLEAR_WORKSPACE_LOCK literal. Rewriting both so they are true for both clearing actions grows the one advertised schema by 204 bytes; the tool count is unchanged and no other schema moves. This is confirmation-copy accuracy, not a new capability."
           }
         ]
       }
@@ -396,7 +402,7 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 16058
+        "bytes": 16262
       },
       "preset:worker": {
         "tools": 6,
@@ -435,6 +441,11 @@
         "date": "2026-11-19",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#F87/M120: the torn-workspace-lock fix grows tower_recover's advertised surface in host:active only — its description now covers the workspace lock and names the clear-workspace-lock confirmation, and its action enum grows clear-workspace-lock. host:active becomes 14 tools / 16,058 B (was 16,017). Mode-off, idle, the presets and the tool counts are unchanged; the growth is a bounded repair of an existing tool, not a new capability row."
+      },
+      {
+        "date": "2026-11-19",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#F87/M120 follow-up: the RecoverInput confirm and force descriptions now describe both clearing actions (CLEAR_STALE_LOCK for clear-stale-lock, CLEAR_WORKSPACE_LOCK for clear-workspace-lock) instead of only the state lock, so tower_recover's one advertised schema grows by 204 bytes in host:active: it becomes 14 tools / 16,262 B (was 16,058). Mode-off, idle, the presets and every tool count are unchanged; this is confirmation-copy accuracy for an action the enum already advertised, not a new capability."
       }
     ]
   }
