@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 11585,
+        "value": 11608,
         "decisions": [
           {
             "from": 17008,
@@ -254,6 +254,12 @@
             "to": 11585,
             "date": "2026-11-12",
             "note": "#159: the artifact shape adds two dimensions to two advertised schemas already in this profile — tower_plan's kind enum grows build|survey|artifact and gains artifacts[], and tower_mission gains accept plus accept_note. Both are optional properties inside existing schemas, so the tool count does not move; the schema text is the contract the worker briefing references."
+          },
+          {
+            "from": 11585,
+            "to": 11608,
+            "date": "2026-11-19",
+            "note": "#F87/M120: tower_recover's action enum grows clear-workspace-lock, so the one input schema every profile that mounts the tool advertises grows by 23 bytes. The tool count is unchanged; no other schema moves."
           }
         ]
       }
@@ -390,7 +396,7 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 16017
+        "bytes": 16058
       },
       "preset:worker": {
         "tools": 6,
@@ -424,6 +430,11 @@
         "date": "2026-11-12",
         "adr": "docs/adr/0006-mission-shapes.md",
         "note": "#159: the artifact shape lands on the #163 surface. The plan/mission/complete input schemas grow to advertise the artifact deliverables and the human acceptance, so every profile that mounts those tools grows with them: host:active 14 tools / 16,017 B (was 14/14,977), preset:worker 6/8,646 (was 6/8,127), preset:survey and preset:survey-sandbox 5/7,586 each (were 5/7,067). The artifact worker reuses the mandatory worker preset, so no separate preset row appears. Mode-off, idle and reviewer are unchanged."
+      },
+      {
+        "date": "2026-11-19",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#F87/M120: the torn-workspace-lock fix grows tower_recover's advertised surface in host:active only — its description now covers the workspace lock and names the clear-workspace-lock confirmation, and its action enum grows clear-workspace-lock. host:active becomes 14 tools / 16,058 B (was 16,017). Mode-off, idle, the presets and the tool counts are unchanged; the growth is a bounded repair of an existing tool, not a new capability row."
       }
     ]
   }

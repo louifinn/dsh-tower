@@ -41,7 +41,12 @@ import { registerTasksCommand } from './host/tasks-command.js'
 import { runTowerControl, runTowerMode } from './host/session-tools.js'
 import { isRoleOwnedTool, roleAllowsTool, roleDenialHint } from './host/tool-profiles.js'
 import { TowerToolError } from './domain/errors.js'
-import { inspectWorkspaceLockSync, touchWorkspaceLock } from './adapters/workspaceLock.js'
+import {
+  inspectWorkspaceLockSync,
+  touchWorkspaceLock,
+  workspaceLockCapability,
+  workspaceLockStatus,
+} from './adapters/workspaceLock.js'
 import { resolveCommonDirSync } from './adapters/git.js'
 import {
   RALPH_ROUND_REFUSAL,
@@ -114,13 +119,60 @@ export function apply(ctx, rawConfig) {
 
   const workspace = createWorkspaceHook()
 
+  // #F87: the workspace-busy refusal names the lock file, its size and mtime,
+  // so a torn record is diagnosable from the error alone instead of only from
+  // the generic "unreadable lock" sentence a closed gate used to print.
+  const describeBusy = async (repoRoot, error) => {
+    try {
+      const commonDir = resolveCommonDirSync(repoRoot)
+      const facts = commonDir ? await workspaceLockStatus(commonDir) : null
+      if (!facts?.exists) return error
+      const note = `; lock ${facts.path} (${facts.bytes ?? 'unknown'} bytes, mtime ${facts.mtime ?? 'unknown'})`
+      const rendered = String(error.message).replace(/^\[tower:[a-z-]+\]\s*/, '')
+      const message = rendered.includes(' — next:') ? rendered.replace(' — next:', `${note} — next:`) : `${rendered}${note}`
+      return new TowerToolError('workspace-busy', message, {
+        cause: error,
+        retryable: error.retryable,
+        nextAction: error.nextAction,
+        details: {
+          ...(error.details ?? {}),
+          workspaceLock: { path: facts.path, bytes: facts.bytes, mtime: facts.mtime, torn: facts.torn, unreadable: facts.unreadable },
+        },
+      })
+    } catch {
+      // Diagnostics must never replace the gate's own refusal.
+      return error
+    }
+  }
+
+  // #F87: tower_recover is the documented way out of a torn workspace lock, so
+  // it runs before the gate (and only it — every other tool keeps the gate).
+  // The tool still applies the actor/owner check before it touches a record.
+  const gatedWorkspace = {
+    ...workspace,
+    async ensure(repoRoot, exec, toolName) {
+      if (toolName === 'tower_recover') return undefined
+      try {
+        return await workspace.ensure(repoRoot, exec, toolName)
+      } catch (error) {
+        if (error?.code !== 'workspace-busy') throw error
+        throw await describeBusy(repoRoot, error)
+      }
+    },
+  }
+
   // #69: the host entry is the composition root — the adapters are constructed
   // once here and injected into the tool layer and every Tower instance.
   // #121: only the mandatory host surface is registered here. The optional
   // capability rows (batch/import/leases/tests/hmr) are separate loader entries
   // and register their own tools, so a disabled row removes exactly one
-  // capability.
-  registerCoreTowerTools(ctx, { workspace, deps: createDefaultDeps() })
+  // capability. #F87: the workspace-lock capability rides through deps so
+  // tower_recover can report and clear the record without a tools→adapter
+  // import (composition-root).
+  registerCoreTowerTools(ctx, {
+    workspace: gatedWorkspace,
+    deps: { ...createDefaultDeps(), workspaceLock: workspaceLockCapability },
+  })
 
   // #118/#121: the session tool is registered directly here instead of through
   // define(), so record it through the same recorder the registry uses. The

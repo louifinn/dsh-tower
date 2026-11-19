@@ -11,11 +11,16 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import {
+  WORKSPACE_LOCK_TORN_GRACE_MS,
   acquireWorkspaceLock,
+  clearWorkspaceLock,
   inspectWorkspaceLock,
   releaseWorkspaceLock,
   touchWorkspaceLock,
+  workspaceLockCapability,
+  workspaceLockFacts,
   workspaceLockPath,
+  workspaceLockStatus,
   workspaceLockToken,
 } from '../adapters/workspaceLock.js'
 
@@ -190,6 +195,126 @@ test('workspace lock: touch and release only act on the owning token', async () 
   }
 })
 
+function ageLockFile(commonDir, ageMs) {
+  const file = workspaceLockPath(commonDir)
+  const when = new Date(Date.now() - ageMs)
+  fs.utimesSync(file, when, when)
+}
+
+test('workspace lock: a torn record is reclaimed only after the grace window', async () => {
+  const { root, commonDir } = tempCommonDir()
+  try {
+    const file = workspaceLockPath(commonDir)
+    await acquireWorkspaceLock(commonDir, { token: workspaceLockToken(), sessionId: 'sess-a', agentId: 'agent-a' })
+    fs.writeFileSync(file, ' '.repeat(217))
+    // F87 red proof: with no grace check this fresh torn record would be stolen
+    // from a writer that is still between its exclusive create and its write.
+    const fresh = await acquireWorkspaceLock(commonDir, { token: workspaceLockToken(), sessionId: 'sess-b', agentId: 'agent-b' })
+    assert.equal(fresh.acquired, false)
+    assert.equal(fresh.corrupt, true)
+    assert.equal(fresh.reason, 'torn-fresh')
+    assert.equal(fresh.workspaceLock.torn, true)
+    assert.equal(fresh.workspaceLock.aged, false)
+    assert.equal(fresh.workspaceLock.reclaimable, false)
+    assert.equal(fs.readFileSync(file, 'utf8'), ' '.repeat(217), 'fresh torn bytes are untouched')
+
+    ageLockFile(commonDir, WORKSPACE_LOCK_TORN_GRACE_MS + 5000)
+    const facts = await workspaceLockFacts(commonDir)
+    assert.equal(facts.bytes, 217)
+    assert.equal(typeof facts.mtime, 'string')
+    assert.equal(facts.aged, true)
+    assert.equal(facts.reclaimable, true)
+    const aged = await acquireWorkspaceLock(commonDir, { token: workspaceLockToken(), sessionId: 'sess-b', agentId: 'agent-b' })
+    assert.equal(aged.acquired, true)
+    assert.equal(aged.tookOver, true)
+    assert.equal(readLock(commonDir).sessionId, 'sess-b')
+    assert.ok(aged.backup, 'the torn record is moved to a backup, not deleted')
+    assert.equal(fs.readFileSync(aged.backup, 'utf8'), ' '.repeat(217))
+
+    // Zero bytes are the other common torn shape (created, never written).
+    fs.writeFileSync(file, '')
+    ageLockFile(commonDir, WORKSPACE_LOCK_TORN_GRACE_MS + 5000)
+    const zero = await acquireWorkspaceLock(commonDir, { token: workspaceLockToken(), sessionId: 'sess-c', agentId: 'agent-c' })
+    assert.equal(zero.acquired, true)
+    assert.equal(readLock(commonDir).sessionId, 'sess-c')
+    assert.equal(fs.readFileSync(zero.backup, 'utf8'), '')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('workspace lock: clear refuses fresh torn and live holders, force moves to a backup', async () => {
+  const { root, commonDir } = tempCommonDir()
+  try {
+    const file = workspaceLockPath(commonDir)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, ' '.repeat(217))
+    assert.equal((await workspaceLockStatus(commonDir)).reclaimable, false)
+    const refusedFresh = await clearWorkspaceLock(commonDir, {})
+    assert.equal(refusedFresh.cleared, false)
+    assert.equal(refusedFresh.reason, 'torn-fresh')
+    assert.equal(fs.readFileSync(file, 'utf8'), ' '.repeat(217))
+
+    const record = {
+      token: workspaceLockToken(),
+      pid: process.pid,
+      sessionId: 'sess-live',
+      agentId: 'agent-live',
+      since: Date.now(),
+      at: Date.now(),
+    }
+    fs.writeFileSync(file, JSON.stringify(record))
+    const status = await workspaceLockStatus(commonDir, { sessionId: 'sess-live' })
+    assert.equal(status.held, true)
+    assert.equal(status.self, true)
+    assert.equal(status.pid, process.pid)
+    assert.equal(status.sessionId, 'sess-live')
+    const refusedLive = await clearWorkspaceLock(commonDir, {})
+    assert.equal(refusedLive.cleared, false)
+    assert.equal(refusedLive.reason, 'holder-alive')
+    await assert.rejects(workspaceLockCapability.clear(commonDir, {}), (error) => {
+      assert.equal(error.code, 'workspace-busy')
+      assert.match(error.message, new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      assert.match(error.message, new RegExp(String(fs.statSync(file).size)))
+      assert.match(error.message, /mtime/)
+      return true
+    })
+    const forced = await workspaceLockCapability.clear(commonDir, { force: true })
+    assert.equal(forced.cleared, true)
+    assert.equal(forced.forced, true)
+    assert.ok(fs.existsSync(forced.backup))
+    assert.match(fs.readFileSync(forced.backup, 'utf8'), /"sess-live"/)
+    assert.equal(fs.existsSync(file), false)
+
+    // A provably dead PID is the one parsed record the kernel already clears.
+    fs.writeFileSync(file, JSON.stringify({ ...record, token: workspaceLockToken(), pid: DEAD_PID, sessionId: 'sess-dead' }))
+    const dead = await clearWorkspaceLock(commonDir, {})
+    assert.equal(dead.cleared, true)
+    assert.ok(dead.backup)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('workspace lock: an unreadable record is reported and only force clears it', async () => {
+  const { root, commonDir } = tempCommonDir()
+  try {
+    // A directory at the lock path cannot be read as a record: the same
+    // unreadable shape as a permission error, without relying on chmod.
+    const file = workspaceLockPath(commonDir)
+    fs.mkdirSync(file, { recursive: true })
+    const facts = await workspaceLockStatus(commonDir)
+    assert.equal(facts.held, true)
+    assert.equal(facts.unreadable, true)
+    assert.equal(facts.error !== null, true)
+    const refused = await clearWorkspaceLock(commonDir, {})
+    assert.equal(refused.cleared, false)
+    assert.equal(refused.reason, 'unreadable')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 function makeModeCtx() {
   const tools = new Map()
   const commands = new Map()
@@ -227,6 +352,13 @@ function makeModeCtx() {
   return { ctx, tools, commands, effects, disposeAll: () => effects.forEach((dispose) => dispose()) }
 }
 
+function tornLock(commonDir, bytes = ' '.repeat(217)) {
+  const file = workspaceLockPath(commonDir)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, bytes)
+  return file
+}
+
 function seedRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-mode-'))
   const repo = path.join(root, 'repo')
@@ -239,6 +371,177 @@ function seedRepo() {
   git(repo, ['commit', '-m', 'seed'])
   return { root, repo }
 }
+
+test('mode.workspaceLock: a torn record is visible and recoverable through tower_recover', async () => {
+  const { root, repo } = seedRepo()
+  const storePath = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-store-'))
+  const harness = makeModeCtx()
+  try {
+    apply(harness.ctx, { mode: { workspaceLock: true, storePath } })
+    const agentA = { id: 'session-A' }
+    const command = harness.commands.get('tower')
+    const runCommand = (rawInput) => command.handler({ agent: agentA, rawInput, attachments: [] })
+    const call = (name, args) => harness.tools.get(name).execute(args, { agent: agentA, signal: undefined })
+    const commonDir = path.join(repo, '.git')
+    await call('tower_init', { repoRoot: repo })
+    assert.match((await runCommand('')).text, /Tower mode ON/)
+
+    const lockFile = tornLock(commonDir)
+    const tornMtime = new Date(fs.statSync(lockFile).mtimeMs).toISOString()
+
+    // F87: the documented recovery tool must run while the gate is closed.
+    const status = await call('tower_recover', { action: 'status', repoRoot: repo })
+    assert.equal(status.workspaceLock.path, lockFile)
+    assert.equal(status.workspaceLock.bytes, 217)
+    assert.equal(status.workspaceLock.mtime, tornMtime)
+    assert.equal(status.workspaceLock.held, true)
+    assert.equal(status.workspaceLock.torn, true)
+    assert.equal(status.workspaceLock.reclaimable, false)
+
+    // Every other tool still refuses, and the refusal names the file facts.
+    await assert.rejects(
+      () => call('tower_inspect', { view: 'status', repoRoot: repo }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.ok(error.message.includes(lockFile), error.message)
+        assert.match(error.message, /217 bytes/)
+        assert.match(error.message, /mtime/)
+        return true
+      },
+    )
+
+    // The workspace action needs its own confirmation string.
+    await assert.rejects(
+      () => call('tower_recover', { action: 'clear-workspace-lock', repoRoot: repo, confirm: 'CLEAR_STALE_LOCK' }),
+      /confirm:"CLEAR_WORKSPACE_LOCK"/,
+    )
+    await assert.rejects(
+      () => call('tower_recover', { action: 'clear-workspace-lock', repoRoot: repo, confirm: 'CLEAR_WORKSPACE_LOCK' }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.equal(error.details.reason, 'torn-fresh')
+        return true
+      },
+    )
+
+    const cleared = await call('tower_recover', {
+      action: 'clear-workspace-lock',
+      repoRoot: repo,
+      confirm: 'CLEAR_WORKSPACE_LOCK',
+      force: true,
+    })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.workspaceLock.path, lockFile)
+    assert.equal(cleared.workspaceLock.bytes, 217)
+    assert.ok(fs.existsSync(cleared.backup), 'the torn record is kept at the backup path')
+    assert.equal(fs.readFileSync(cleared.backup, 'utf8'), ' '.repeat(217))
+
+    // The gate is open again: the next tool call acquires a valid record.
+    await call('tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(readLock(commonDir).sessionId, 'session-A')
+    await runCommand('off')
+  } finally {
+    harness.disposeAll()
+    removeTemp(root)
+    removeTemp(storePath)
+  }
+})
+
+test('mode.workspaceLock: a live foreign record still closes the gate and only force clears it', async () => {
+  const { root, repo } = seedRepo()
+  const storePath = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-store-'))
+  const harness = makeModeCtx()
+  try {
+    apply(harness.ctx, { mode: { workspaceLock: true, storePath } })
+    const agentA = { id: 'session-A' }
+    const command = harness.commands.get('tower')
+    const runCommand = (rawInput) => command.handler({ agent: agentA, rawInput, attachments: [] })
+    const call = (name, args) => harness.tools.get(name).execute(args, { agent: agentA, signal: undefined })
+    const commonDir = path.join(repo, '.git')
+    await call('tower_init', { repoRoot: repo })
+    assert.match((await runCommand('')).text, /Tower mode ON/)
+
+    const lockFile = workspaceLockPath(commonDir)
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true })
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        token: workspaceLockToken(),
+        pid: process.pid,
+        sessionId: 'foreign-session',
+        agentId: 'foreign-session',
+        since: Date.now(),
+        at: Date.now(),
+      }),
+    )
+    await assert.rejects(
+      () => call('tower_inspect', { view: 'status', repoRoot: repo }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.match(error.message, /locked by session foreign-sess/)
+        assert.ok(error.message.includes(lockFile), error.message)
+        assert.match(error.message, /mtime/)
+        return true
+      },
+    )
+    const status = await call('tower_recover', { action: 'status', repoRoot: repo })
+    assert.equal(status.workspaceLock.self, false)
+    assert.equal(status.workspaceLock.pid, process.pid)
+    assert.equal(status.workspaceLock.sessionId, 'foreign-session')
+    await assert.rejects(
+      () => call('tower_recover', { action: 'clear-workspace-lock', repoRoot: repo, confirm: 'CLEAR_WORKSPACE_LOCK' }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.equal(error.details.reason, 'holder-alive')
+        return true
+      },
+    )
+    const cleared = await call('tower_recover', {
+      action: 'clear-workspace-lock',
+      repoRoot: repo,
+      confirm: 'CLEAR_WORKSPACE_LOCK',
+      force: true,
+    })
+    assert.equal(cleared.cleared, true)
+    assert.match(fs.readFileSync(cleared.backup, 'utf8'), /foreign-session/)
+    await call('tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(readLock(commonDir).sessionId, 'session-A')
+    await runCommand('off')
+  } finally {
+    harness.disposeAll()
+    removeTemp(root)
+    removeTemp(storePath)
+  }
+})
+
+test('mode.workspaceLock: an aged torn record is reclaimed without a recovery call', async () => {
+  const { root, repo } = seedRepo()
+  const storePath = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-store-'))
+  const harness = makeModeCtx()
+  try {
+    apply(harness.ctx, { mode: { workspaceLock: true, storePath } })
+    const agentA = { id: 'session-A' }
+    const command = harness.commands.get('tower')
+    const runCommand = (rawInput) => command.handler({ agent: agentA, rawInput, attachments: [] })
+    const call = (name, args) => harness.tools.get(name).execute(args, { agent: agentA, signal: undefined })
+    const commonDir = path.join(repo, '.git')
+    await call('tower_init', { repoRoot: repo })
+    assert.match((await runCommand('')).text, /Tower mode ON/)
+
+    const lockFile = tornLock(commonDir)
+    ageLockFile(commonDir, WORKSPACE_LOCK_TORN_GRACE_MS + 5000)
+    await call('tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(readLock(commonDir).sessionId, 'session-A')
+    const backups = fs.readdirSync(path.dirname(lockFile)).filter((name) => name.includes('.recovered-'))
+    assert.equal(backups.length, 1)
+    assert.equal(fs.readFileSync(path.join(path.dirname(lockFile), backups[0]), 'utf8'), ' '.repeat(217))
+    await runCommand('off')
+  } finally {
+    harness.disposeAll()
+    removeTemp(root)
+    removeTemp(storePath)
+  }
+})
 
 test('mode.workspaceLock: the second Tower session is refused until the first leaves', async () => {
   const { root, repo } = seedRepo()

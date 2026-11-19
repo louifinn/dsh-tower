@@ -68,10 +68,15 @@ export const BATCH_ACTION = Object.freeze({
 /** @type {readonly string[]} */
 export const BATCH_ACTIONS = Object.freeze(Object.values(BATCH_ACTION))
 
-export const RECOVERY_ACTION = Object.freeze({ status: 'status', clearStaleLock: 'clear-stale-lock' })
+export const RECOVERY_ACTION = Object.freeze({
+  status: 'status',
+  clearStaleLock: 'clear-stale-lock',
+  clearWorkspaceLock: 'clear-workspace-lock',
+})
 /** @type {readonly string[]} */
 export const RECOVERY_ACTIONS = Object.freeze(Object.values(RECOVERY_ACTION))
 export const RECOVERY_CONFIRM = 'CLEAR_STALE_LOCK'
+export const RECOVERY_CONFIRM_WORKSPACE_LOCK = 'CLEAR_WORKSPACE_LOCK'
 
 export const LEASE_ACTION = Object.freeze({ acquire: 'acquire', release: 'release', status: 'status' })
 /** @type {readonly string[]} */
