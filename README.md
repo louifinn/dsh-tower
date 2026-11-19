@@ -62,7 +62,7 @@ Tower 模式会拒绝 Team/Workflow/Ralph/普通 subagent 工具并清除 plan m
 
 ## 环境要求
 
-- DeepSeek Harness `0.2.2-rc.3`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
+- DeepSeek Harness `0.2.2-rc.5`（已验证的 host 构建见 [COMPATIBILITY.md](COMPATIBILITY.md)）
 - Node.js 24.9+
 - Git（worktree 在本地创建，不需要联网）
 

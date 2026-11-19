@@ -56,7 +56,7 @@ Tower mode refuses Team/Workflow/Ralph/ordinary subagent tools and clears plan m
 
 ## Requirements
 
-- DeepSeek Harness `0.2.2-rc.3` (see [COMPATIBILITY.md](COMPATIBILITY.md) for the verified host builds)
+- DeepSeek Harness `0.2.2-rc.5` (see [COMPATIBILITY.md](COMPATIBILITY.md) for the verified host builds)
 - Node.js 24.9 or newer
 - Git (worktrees are created locally; no network access is required)
 

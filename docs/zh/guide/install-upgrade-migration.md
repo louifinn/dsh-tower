@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-- DSH `0.2.2-rc.3`（rc.1/rc.2 仍通过旧 spawn 契约可用）；每个版本实际验证过的 host 构建见
+- DSH `0.2.2-rc.5`（rc.1/rc.2 仍通过旧 spawn 契约可用）；每个版本实际验证过的 host 构建见
   [COMPATIBILITY.md](../../../COMPATIBILITY.md)
 - Node.js 24.9+
 - Git（本地 worktree；不需要网络访问）
@@ -31,6 +31,31 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 4. 既有 mission state 保持兼容：1.2/1.3 的状态 schema 未变。
 
 ## 迁移说明
+
+- **2.9.5 → 2.9.6 —— 修补版，无需迁移**：state schema 仍为 v5，配置表面未变（仍为 16 个 section、
+  58 个键），也不需要任何迁移步骤。操作者配置的内容都不需要改：
+  - **宿主下限提升到 DSH `0.2.2-rc.5`。** 请先把 DSH 更新到 `0.2.2-rc.5` 或更新版本，再更新 Tower；
+    rc.1/rc.2 仍通过旧 spawn 契约可用，但公开下限与实测构建是 rc.5。`npm run support:check` 会让
+    package engines、mount pin、live CI 矩阵与最新兼容性行保持一致。
+  - **teardown 更不容易被瞬时错误卡住。** 删除 mission 工作树时对 `EPERM`/`EBUSY`/`EACCES` 最多重试
+    三次，并在结果里报告实际尝试次数，而不是第一次失败就报错。`tower_teardown` 的 `dry_run` 还会
+    预览哪些到期 mission 会被归档；`exclude` 中未匹配任何 mission 的 id 会作为 `keep` 决定返回，
+    不再被静默忽略。
+  - **等待 teardown 的状态可见了。** doctor 视图会报告还有多少个终态 mission 的工作树在等待
+    teardown；它不会自动删除任何东西，也没有新增配置键。
+  - **孤立工作树清理是显式可选的。** `tower_teardown({orphans:true})` 会清理由 mission、沙箱或审查
+    记录都未引用的干净 checkout；脏 checkout 保留，主检出与所有已记录路径受保护，dry run 只预览。
+    普通 teardown 不会碰它们。`create_worktree` 在 Tower 模式中仍然可用，未被记录的外部 checkout
+    现在会出现在 doctor 视图里，而不是无声存在。
+  - **新增 doctor 建议页与拒绝清单页。** `worktrees-orphans` 与 `foreign-capabilities` 列出 Tower
+    看得见但并不拥有的东西，并给出记录在案的立场和处理方式；新的「被拒绝的能力与替代」页面逐条
+    记录每个被拒绝或仅警告的能力的代价与替代。没有设置发生变化。
+  - **原生界面 chrome。** 工具卡片重新获得原生的文件链接、图片预览、inspect 入口与展开/收起（用
+    滚动区取代六行截断）；Tower 浮层改用原生 toast 的位置与 token，composer chip 与原生
+    `StatsPills` 共用基座。客户端 bundle 在 DSH 启动时加载，所以更新后请**刷新或重启 DSH** 以加载
+    新 bundle。
+  - **没有新配置键，也没有新状态字段。** state schema 仍为 v5，配置仍为 16 个 section、58 个键。
+    更新插件并**重启 DSH**。
 
 - **2.9.4 → 2.9.5 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
   v5，DSH 下限仍是 `0.2.2-rc.3`。操作者配置的任何内容都不需要迁移：

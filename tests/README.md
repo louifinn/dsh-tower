@@ -155,6 +155,32 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.6 release evidence (2026-11-20)
+
+The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
+batches through the bounded runner (`npm run test:shards`, 25 files per batch) on Windows 11 with Node
+`v25.8.1` (never an unbounded `npm test`). Declarations are counted, so the one skip is included in the
+total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1342** | 1341 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.5` (71.1 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
+passed. The 2.9.6 cases run inside the batch as well: the bounded worktree-removal retry, the dry-run
+`archivePreview`, unmatched `exclude` ids and the opt-in orphan sweep with its protections in
+[`cleanup.test.mjs`](cleanup.test.mjs) and [`archive.test.mjs`](archive.test.mjs); the awaiting-teardown,
+`worktrees-orphans` and `foreign-capabilities` advisories, the capability stance inventory and the
+shared cordis loader reader in [`doctor-ownership.test.mjs`](doctor-ownership.test.mjs); the
+reviewed-pin deny guard in [`deny-surface.test.mjs`](deny-surface.test.mjs); the subagent package that
+the auto-review stance imports; and the native tool-card, toast and dock chrome in
+[`ui-bundle.test.mjs`](ui-bundle.test.mjs).
+
 ### 2.9.5 release evidence (2026-11-19)
 
 The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
@@ -175,9 +201,9 @@ excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (recovery through the real
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
-`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These are the current totals;
-the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as
-written.
+`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
+the current totals are in [2.9.6 release evidence](#296-release-evidence-2026-11-20) above, and the W5
+table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
 
@@ -265,7 +291,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.5 release evidence](#295-release-evidence-2026-11-19) above.
+[2.9.6 release evidence](#296-release-evidence-2026-11-20) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

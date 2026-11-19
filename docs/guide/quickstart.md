@@ -1,6 +1,6 @@
 # Quick start
 
-Prerequisites: DSH `0.2.2-rc.3`+, Node.js 24.9+, Git. Install `dsh-tower` and restart DSH (see
+Prerequisites: DSH `0.2.2-rc.5`+, Node.js 24.9+, Git. Install `dsh-tower` and restart DSH (see
 [install](install-upgrade-migration.md)).
 
 ## 1. Enter Tower mode

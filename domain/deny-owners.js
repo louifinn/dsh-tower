@@ -28,11 +28,13 @@
 // `npm run deny:generate`. A pin bump therefore cannot leave the inventory
 // behind, and an exception cannot linger after its owner is republished.
 //
-// The exception exists for a real install constraint: 0.2.2-rc.3 republishes the
-// six tool-* owners but not `dsh-experimental-tool-agent-team`, and that
+// The exception exists for a real install constraint: 0.2.2-rc.3 republished
+// the six tool-* owners but not `dsh-experimental-tool-agent-team`, and that
 // package's last build imports `dsh-subagent/internal`, which rc.3 removed.
-// Mixed owner pins cannot be installed, so the whole set is held at the complete
-// rc.1 build instead of dropping the agent-team tools from the deny surface.
+// The supported pin has since moved on (0.2.2-rc.5); the owner set stays on the
+// complete rc.1 build until that package is republished. Mixed owner pins
+// cannot be installed, so the whole set is held at the complete rc.1 build
+// instead of dropping the agent-team tools from the deny surface.
 //
 // This module is pure: no fs, no adapters, no top-level mutable state.
 import { DENY_OWNER_TOOLS } from './generated/deny-surface.js'
@@ -54,7 +56,7 @@ export const DENY_OWNER_PACKAGE_BUILD = '0.2.2-rc.1'
  *
  * @type {string}
  */
-export const DENY_INVENTORY_REVIEWED_PIN = '0.2.2-rc.3'
+export const DENY_INVENTORY_REVIEWED_PIN = '0.2.2-rc.5'
 
 /**
  * The foreign orchestration components whose tools Tower mode denies.
