@@ -29,6 +29,7 @@ import {
   resolveHostVersion,
 } from '../host/compatibility.js'
 import { writeJsonAtomic, stateCommitLockPath } from '../adapters/store.js'
+import { FOREIGN_CAPABILITIES, foreignCapabilityStatus } from '../host/doctor-acceptance.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
 import { validateJsonSchema } from './schema-validator.mjs'
@@ -82,6 +83,11 @@ function makeCtx(options = {}) {
       // Only tests that exercise the preset check mount a registry; the default
       // stays absent, which makes that check report it cannot make a claim.
       if (name === 'agentPresets') return options.agentPresets
+      // #188/#189: the foreign capability inventory reads the loader inventory,
+      // the tool registry and the permission preset catalog as named services.
+      if (options.services && Object.prototype.hasOwnProperty.call(options.services, name)) {
+        return options.services[name]
+      }
       return undefined
     },
     tools: {
@@ -92,6 +98,9 @@ function makeCtx(options = {}) {
       guard() {
         return () => {}
       },
+      // A test may mount a readable registry view; the default registers Tower
+      // tools only and exposes none, which the inventory reports as undetectable.
+      ...(options.toolRuntime ?? {}),
     },
     systemPrompt: { section() {} },
     inject(_deps, callback) {
@@ -1266,4 +1275,163 @@ test('doctor: a provisionable mission reports its unrecorded checkout as in flig
   } finally {
     removeTemp(root)
   }
+})
+
+// #188/#189: the foreign capability inventory. Tower does not deny a capability
+// it does not replace, so doctor reports every known type with its stance, how it
+// is detected and the one-line cost of denying it; a type it cannot detect is a
+// warning, never an assumed absence.
+test('the foreign capability inventory covers every known type with a stance, detection and denial cost', () => {
+  assert.deepEqual(
+    FOREIGN_CAPABILITIES.map((row) => row.id),
+    ['forge', 'liveshare', 'plugin-manager', 'auto-review'],
+  )
+  for (const row of FOREIGN_CAPABILITIES) {
+    assert.equal(row.stance, 'warn+allow', `${row.id} is allowed, not denied`)
+    assert.ok(row.name, `${row.id} names itself`)
+    assert.ok(row.detection, `${row.id} names how doctor detects it`)
+    assert.ok(row.denialCost, `${row.id} records the cost of denying it`)
+    assert.ok(row.remedy, `${row.id} records the remedy where an action is possible`)
+  }
+  const auto = FOREIGN_CAPABILITIES.find((row) => row.id === 'auto-review')
+  assert.match(auto.failureMode, /approval policy to never/)
+  assert.match(auto.failureMode, /fails closed/)
+  assert.match(auto.failureMode, /no escalation path/)
+})
+
+test('doctor: an unreadable foreign capability surface is a warning, not an assumed absence (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'warn')
+    assert.equal(doctor.ok, true, 'a warning is advisory')
+    assert.match(row.action, /keep the capability available/)
+    assert.deepEqual(doctor.foreignCapabilities.notDetectable, ['forge', 'liveshare', 'plugin-manager', 'auto-review'])
+    for (const name of ['Forge change requests', 'Live sharing', 'Plugin manager', 'Auto review']) {
+      assert.ok(row.detail.includes(name), `the detail names ${name}`)
+    }
+    assert.match(row.detail, /detection is unavailable/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a provably clean surface passes the foreign capability check (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: { entries: [] },
+      permissionPresets: { names: [], current: () => null },
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'pass')
+    assert.equal(row.action, undefined)
+    assert.match(row.detail, /no non-Tower capability is available; 4 known types checked/)
+    assert.deepEqual(doctor.foreignCapabilities.present, [])
+    assert.deepEqual(doctor.foreignCapabilities.installed, [])
+    assert.deepEqual(doctor.foreignCapabilities.notDetectable, [])
+    assert.deepEqual(doctor.foreignCapabilities.stances, {
+      forge: 'warn+allow',
+      liveshare: 'warn+allow',
+      'plugin-manager': 'warn+allow',
+      'auto-review': 'warn+allow',
+    })
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a visible plugin manager warns with the cost of denying it (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: { entries: [] },
+      permissionPresets: { names: [], current: () => null },
+    },
+    toolRuntime: { definitions: () => [{ name: 'plugin_manager' }] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'warn')
+    assert.match(row.detail, /Plugin manager \(warn\+allow\)/)
+    assert.match(row.detail, /no longer install or enable a plugin from a session/)
+    assert.deepEqual(doctor.foreignCapabilities.present, ['plugin-manager'])
+    const report = doctor.foreignCapabilities.capabilities.find((entry) => entry.id === 'plugin-manager')
+    assert.equal(report.detectable, true)
+    assert.ok(report.evidence.some((entry) => entry.includes('plugin_manager')))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a disabled capability row is installed but not mounted, and does not warn (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const disabledRow = { id: 'tool-plugin-manager', name: '@deepseek-ai/dsh-plugin-manager/tools', disabled: true }
+  const { tools } = makeCtx({
+    services: {
+      loader: { entries: [disabledRow] },
+      permissionPresets: { names: [], current: () => null },
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'pass')
+    assert.match(row.detail, /installed but not mounted: Plugin manager/)
+    assert.deepEqual(doctor.foreignCapabilities.installed, ['plugin-manager'])
+    assert.deepEqual(doctor.foreignCapabilities.present, [])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a selected Auto preset repeats the fail-closed child contract (#188)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: { entries: [] },
+      permissionPresets: { names: ['auto'], current: () => 'auto' },
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'warn')
+    assert.match(row.detail, /Auto review is selected/)
+    assert.match(row.detail, /approval policy to never/)
+    assert.match(row.detail, /no escalation path/)
+    const auto = doctor.foreignCapabilities.capabilities.find((entry) => entry.id === 'auto-review')
+    assert.equal(auto.selected, true)
+    assert.equal(auto.stance, 'warn+allow')
+    assert.match(auto.failureMode, /fails closed/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a deny stance present fails the check while compatibility passes (#188, #189)', () => {
+  const deny = foreignCapabilityStatus([
+    { id: 'x', name: 'X', stance: 'deny', present: true, installed: true, detectable: true, denialCost: 'x' },
+  ])
+  assert.equal(deny.status, 'fail')
+  assert.match(deny.detail, /cannot enforce that stance/)
+  const compatible = foreignCapabilityStatus([
+    { id: 'y', name: 'Y', stance: 'compatibility', present: true, installed: true, detectable: true },
+  ])
+  assert.equal(compatible.status, 'pass')
+  assert.match(compatible.detail, /supported and reported: Y \(compatibility\)/)
 })

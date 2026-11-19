@@ -50,6 +50,8 @@ import { errorNextAction } from '../domain/errors.js'
 import { assertPresetsAvailable } from '../host/presets.js'
 import { definedToolNames, registerTowerTools, __testResetToolSurface } from '../host/tool-registry.js'
 import { __testResetComponentRegistry } from '../host/capability-registry.js'
+import { foreignCapabilityCheck } from '../host/doctor-acceptance.js'
+import { appendDelegatedPolicyOverrides, captureDelegatedPolicyOverrides } from '@deepseek-ai/dsh-subagent'
 
 const TIP = 'a'.repeat(40)
 const OTHER_TIP = 'b'.repeat(40)
@@ -769,4 +771,75 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
   } finally {
     removeTemp(root)
   }
+})
+
+// ---------------------------------------------------------------------------
+// #188: Auto review and the delegated child contract.
+// ---------------------------------------------------------------------------
+
+// Auto review sits in front of every native and PTC tool call. DSH gives a
+// delegated child the `never` approval policy, so a worker call the reviewer
+// denies fails closed: no approval prompt, no escalation path. Tower records
+// Auto under `warn+allow` and surfaces that failure mode rather than claiming
+// compatibility it cannot deliver.
+test('a delegated child of an Auto session pins the never approval policy (#188)', () => {
+  const overrides = captureDelegatedPolicyOverrides({
+    session: { id: 'parent-session' },
+    ctx: {
+      get(name) {
+        if (name === 'permissionPresets') return { current: () => 'auto' }
+        if (name === 'sandboxPolicy') return { overrideOf: () => 'danger-full-access' }
+        if (name === 'approval') return { policy: () => 'ask' }
+        return undefined
+      },
+    },
+  })
+  assert.equal(overrides.permissionPreset, 'auto')
+  assert.equal(overrides.approvalPolicy, 'never', 'the child approval policy is pinned, not inherited')
+  assert.equal(overrides.sandboxMode, 'danger-full-access')
+
+  const appended = []
+  appendDelegatedPolicyOverrides({ append: (type, data) => appended.push({ type, data }) }, overrides)
+  assert.deepEqual(appended, [
+    { type: 'sandbox/mode', data: { mode: 'danger-full-access', source: 'delegation' } },
+    { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
+    { type: 'permission/preset', data: { preset: 'auto' } },
+  ])
+})
+
+test('a delegated child without an approval service captures no approval pin (#188)', () => {
+  const overrides = captureDelegatedPolicyOverrides({
+    session: { id: 'parent-session' },
+    ctx: { get: () => undefined },
+  })
+  assert.equal(overrides.approvalPolicy, undefined)
+  assert.equal(overrides.permissionPreset, undefined)
+  assert.equal(overrides.sandboxMode, undefined)
+  const appended = []
+  appendDelegatedPolicyOverrides({ append: (type, data) => appended.push({ type, data }) }, overrides)
+  assert.deepEqual(appended, [])
+})
+
+test('doctor: Auto under warn+allow surfaces the fail-closed child combination (#188)', () => {
+  const result = foreignCapabilityCheck({
+    ctx: {
+      get(name) {
+        if (name === 'permissionPresets') return { names: ['auto'], current: () => 'auto' }
+        return undefined
+      },
+    },
+    agent: { id: 'tower-agent', session: { id: 's' } },
+    rows: [],
+  })
+  assert.equal(result.check.id, 'foreign-capabilities')
+  assert.equal(result.check.status, 'warn')
+  assert.match(result.check.detail, /Auto review \(warn\+allow\)/)
+  assert.match(result.check.detail, /Auto review is selected/)
+  assert.match(result.check.detail, /approval policy to never/)
+  const auto = result.report.capabilities.find((row) => row.id === 'auto-review')
+  assert.equal(auto.stance, 'warn+allow', 'the pinned stance is warn+allow, not compatibility')
+  assert.notEqual(auto.stance, 'compatibility')
+  assert.equal(auto.selected, true)
+  assert.match(auto.failureMode, /fails closed/)
+  assert.match(auto.failureMode, /no escalation path/)
 })

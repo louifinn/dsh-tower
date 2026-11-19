@@ -10,6 +10,7 @@
 // too, so host/doctor.js stays under its file-size ceiling and the two records
 // are described by one module: the doctor never reclaims or writes anything.
 import { shapeFor } from '../domain/shapes/index.js'
+import { CAPABILITY_STANCE, DOCTOR_STATUS } from '../domain/vocabulary.js'
 import { lockTiming } from '../adapters/persistence.js'
 import { inventoryOrphanWorktrees } from '../app/teardown.js'
 
@@ -24,6 +25,11 @@ const DOCTOR_ACTION_COPY = Object.freeze({
   // and states the boundary the sweep cannot cross (outside the worktree root).
   orphanWorktrees:
     'run the worktree teardown step with its orphan option; it removes only clean checkouts inside the worktree root, never the main checkout or a path outside it, and nothing is removed automatically',
+  // #188/#189: doctor reports the stance for a non-Tower capability and never
+  // denies or removes it. The remedy names the one-path-at-a-time discipline
+  // without a tool id or a config key.
+  foreignCapabilities:
+    'keep the capability available and land changes through one path at a time, or turn its plugin row off for a run that must land changes through Tower; doctor only reports the stance and never denies or removes a capability',
 })
 
 /**
@@ -240,4 +246,394 @@ export function commitLockFacts(lock) {
             `state commit in progress (pid ${lock.record.pid ?? 'unknown'}, held for ${heldText}); retry after it finishes`,
           )
   return { report, check: row }
+}
+
+// #188/#189: the inventory of non-Tower capabilities that can orchestrate agents
+// or land changes. Each row records the stance Tower takes, how doctor detects
+// it, and the one-line cost of denying it. Tower does not deny these by default:
+// denial would break a workflow Tower does not replace while still leaving Tower
+// no record of the change it refused. Doctor reports the inventory and never
+// enforces it; a capability with no readable source is reported as not
+// detectable, never assumed absent.
+const FORGE_PACKAGE = '@deepseek-ai/dsh-experimental-forge'
+const LIVESHARE_PACKAGE = '@deepseek-ai/dsh-experimental-liveshare'
+const AUTO_REVIEW_PACKAGE = '@deepseek-ai/dsh-experimental-auto-review'
+const PLUGIN_MANAGER_PACKAGE = '@deepseek-ai/dsh-plugin-manager'
+const PLUGIN_MANAGER_TOOL = 'plugin_manager'
+const AUTO_PRESET = 'auto'
+
+export const FOREIGN_CAPABILITIES = Object.freeze([
+  Object.freeze({
+    id: 'forge',
+    name: 'Forge change requests',
+    detection: `the loader row for ${FORGE_PACKAGE}, or a mounted forge service`,
+    stance: CAPABILITY_STANCE.warnAllow,
+    denialCost:
+      'forge would lose its change-request and merge-on-request path, and Tower would have no record of what it refused',
+    remedy:
+      'keep forge mounted and land changes through one path at a time, or disable its row for a run that lands through Tower',
+  }),
+  Object.freeze({
+    id: 'liveshare',
+    name: 'Live sharing',
+    detection: `the loader row for ${LIVESHARE_PACKAGE}, or a mounted liveshare service`,
+    stance: CAPABILITY_STANCE.warnAllow,
+    denialCost:
+      'a shared session would lose viewing and bounded writing, and Tower would have no record of the share',
+    remedy:
+      'share with viewing only while Tower owns the repository, or end the share before a run that lands changes',
+  }),
+  Object.freeze({
+    id: 'plugin-manager',
+    name: 'Plugin manager',
+    detection: `a visible ${PLUGIN_MANAGER_TOOL} tool, a mounted plugin manager service, or a loader row for ${PLUGIN_MANAGER_PACKAGE}`,
+    stance: CAPABILITY_STANCE.warnAllow,
+    denialCost:
+      'the profile could no longer install or enable a plugin from a session, and Tower would have no record of the change',
+    remedy: 'keep it available and install or enable plugins outside a Tower run',
+  }),
+  Object.freeze({
+    id: 'auto-review',
+    name: 'Auto review',
+    detection: `a registered ${AUTO_PRESET} permission preset, or the loader row for ${AUTO_REVIEW_PACKAGE}`,
+    stance: CAPABILITY_STANCE.warnAllow,
+    denialCost:
+      'Auto would be removed for every session, including unattended runs, and Tower does not replace the reviewer',
+    remedy:
+      'run Tower sessions under a permission preset other than Auto; if Auto stays selected, expect a denied worker call to fail closed',
+    failureMode:
+      "DSH pins a delegated child's approval policy to never, so a tool call Auto denies fails closed: there is no approval prompt and no escalation path for the worker",
+  }),
+])
+
+// Which probe can see each capability. The loader inventory is authoritative for
+// every row; the tool registry is authoritative for the plugin manager tool and
+// the permission preset catalog for Auto; a named service only proves presence,
+// never absence.
+const CAPABILITY_PROBES = Object.freeze({
+  forge: Object.freeze({ loader: Object.freeze({ ids: ['forge'], packages: [FORGE_PACKAGE] }), services: ['forge'] }),
+  liveshare: Object.freeze({
+    loader: Object.freeze({ ids: ['liveshare'], packages: [LIVESHARE_PACKAGE] }),
+    services: ['liveshare'],
+  }),
+  'plugin-manager': Object.freeze({
+    loader: Object.freeze({ ids: ['tool-plugin-manager', 'plugin-manager'], packages: [PLUGIN_MANAGER_PACKAGE] }),
+    tools: Object.freeze({ name: PLUGIN_MANAGER_TOOL }),
+    services: ['pluginManager'],
+  }),
+  'auto-review': Object.freeze({
+    loader: Object.freeze({ ids: ['auto-review'], packages: [AUTO_REVIEW_PACKAGE] }),
+    presets: Object.freeze({ name: AUTO_PRESET }),
+  }),
+})
+
+/** @param {any} error */
+function errorText(error) {
+  return String(/** @type {any} */ (error)?.message ?? error).slice(0, 200)
+}
+
+/** @param {any} row */
+function loaderLabel(row) {
+  return typeof row?.id === 'string' ? row.id : typeof row?.name === 'string' ? row.name : 'unnamed row'
+}
+
+/** @param {any} row */
+function loaderRowDisabled(row) {
+  return row?.disabled === true || row?.options?.disabled === true || row?.config?.disabled === true
+}
+
+/**
+ * @param {any[]} rows
+ * @param {{ ids?: string[], packages?: string[] }} spec
+ * @returns {any}
+ */
+function findLoaderRow(rows, spec) {
+  const ids = spec.ids ?? []
+  const packages = spec.packages ?? []
+  for (const row of rows) {
+    if (!row) continue
+    const id = typeof row.id === 'string' ? row.id : null
+    const name = typeof row.name === 'string' ? row.name : null
+    if (id && ids.includes(id)) return row
+    if (name && packages.some((pkg) => name === pkg || name.startsWith(`${pkg}/`))) return row
+  }
+  return null
+}
+
+/** @param {any} rows */
+function loaderProbe(rows) {
+  if (!Array.isArray(rows)) return { available: false, reason: 'the loader inventory is unavailable' }
+  return { available: true, rows }
+}
+
+/**
+ * @param {any} ctx
+ * @param {any} agent
+ * @returns {any}
+ */
+function toolsProbe(ctx, agent) {
+  let tools
+  try {
+    tools = ctx?.get?.('tools') ?? ctx?.tools
+  } catch (error) {
+    return { available: false, reason: `the tool registry could not be read (${errorText(error)})` }
+  }
+  if (!tools) return { available: false, reason: 'the tool registry service is not mounted' }
+  if (typeof tools.definitions === 'function') {
+    try {
+      const definitions = tools.definitions(agent ?? undefined)
+      const names = new Set(
+        (Array.isArray(definitions) ? definitions : [])
+          .map((definition) => definition?.name)
+          .filter((name) => typeof name === 'string'),
+      )
+      return { available: true, has: (/** @type {string} */ name) => names.has(name) }
+    } catch (error) {
+      return { available: false, reason: `the tool registry view could not be read (${errorText(error)})` }
+    }
+  }
+  if (typeof tools.get === 'function') {
+    return { available: true, has: (/** @type {string} */ name) => Boolean(tools.get(name, agent ?? undefined)) }
+  }
+  return { available: false, reason: 'the tool registry service exposes no readable view' }
+}
+
+/**
+ * @param {any} ctx
+ * @param {any} agent
+ * @returns {any}
+ */
+function permissionPresetsProbe(ctx, agent) {
+  let presets
+  try {
+    presets = ctx?.get?.('permissionPresets')
+  } catch (error) {
+    return { available: false, reason: `the permission preset service could not be read (${errorText(error)})` }
+  }
+  if (!presets) return { available: false, reason: 'the permission preset service is not mounted' }
+  let names = null
+  try {
+    if (Array.isArray(presets.names)) names = presets.names
+    else if (typeof presets.names === 'function') names = presets.names()
+    else if (typeof presets.catalog === 'function') {
+      const catalog = presets.catalog()
+      names = (catalog?.options ?? []).map((/** @type {any} */ option) => option?.value)
+    }
+  } catch (error) {
+    return { available: false, reason: `the permission preset catalog could not be read (${errorText(error)})` }
+  }
+  if (!Array.isArray(names)) {
+    return { available: false, reason: 'the permission preset service exposes no readable names' }
+  }
+  let selected = null
+  try {
+    selected = typeof presets.current === 'function' ? presets.current(agent?.session) : null
+  } catch {
+    selected = null
+  }
+  return {
+    available: true,
+    names: new Set(names.filter((/** @type {any} */ name) => typeof name === 'string')),
+    selected,
+  }
+}
+
+/** @param {any} ctx */
+function serviceProbe(ctx) {
+  return {
+    available: typeof ctx?.get === 'function',
+    /** @param {string} name */
+    get(name) {
+      try {
+        return ctx.get(name)
+      } catch {
+        return undefined
+      }
+    },
+  }
+}
+
+/**
+ * One inventory row: the table fields plus what the probes could see.
+ * @param {any} capability
+ * @param {any} probes
+ * @returns {any}
+ */
+function describeCapability(capability, probes) {
+  const spec = CAPABILITY_PROBES[capability.id] ?? {}
+  const evidence = []
+  const unavailable = []
+  let installed = false
+  let present = false
+  let selected = null
+  let authoritative = 0
+
+  if (spec.loader) {
+    if (!probes.loader.available) {
+      unavailable.push(probes.loader.reason)
+    } else {
+      authoritative += 1
+      const row = findLoaderRow(probes.loader.rows, spec.loader)
+      if (row) {
+        installed = true
+        const disabled = loaderRowDisabled(row)
+        evidence.push(`loader row "${loaderLabel(row)}"${disabled ? ' (disabled)' : ''}`)
+        if (!disabled) present = true
+      }
+    }
+  }
+  if (spec.tools) {
+    if (!probes.tools.available) {
+      unavailable.push(probes.tools.reason)
+    } else {
+      authoritative += 1
+      if (probes.tools.has(spec.tools.name)) {
+        installed = true
+        present = true
+        evidence.push(`the ${spec.tools.name} tool is visible`)
+      }
+    }
+  }
+  if (spec.presets) {
+    if (!probes.presets.available) {
+      unavailable.push(probes.presets.reason)
+    } else {
+      authoritative += 1
+      if (probes.presets.names.has(spec.presets.name)) {
+        installed = true
+        present = true
+        evidence.push(`the ${spec.presets.name} permission preset is registered`)
+      }
+      selected = probes.presets.selected === spec.presets.name
+    }
+  }
+  for (const serviceName of spec.services ?? []) {
+    if (!probes.services.available) {
+      unavailable.push(`the ${serviceName} service cannot be looked up`)
+      continue
+    }
+    if (probes.services.get(serviceName)) {
+      installed = true
+      present = true
+      evidence.push(`the ${serviceName} service is mounted`)
+    } else {
+      unavailable.push(`the ${serviceName} service is not mounted, which does not prove the package is absent`)
+    }
+  }
+  return {
+    ...capability,
+    present,
+    installed,
+    detectable: present || authoritative > 0,
+    selected,
+    evidence,
+    unavailable,
+  }
+}
+
+/**
+ * The `foreign-capabilities` verdict over the inventory rows.
+ * @param {any[]} capabilities
+ * @returns {{ status: string, detail: string, action?: string }}
+ */
+export function foreignCapabilityStatus(capabilities) {
+  const denied = capabilities.filter((capability) => capability.present && capability.stance === CAPABILITY_STANCE.deny)
+  const warned = capabilities.filter(
+    (capability) => capability.present && capability.stance === CAPABILITY_STANCE.warnAllow,
+  )
+  const compatible = capabilities.filter(
+    (capability) =>
+      capability.present &&
+      (capability.stance === CAPABILITY_STANCE.compatibility ||
+        capability.stance === CAPABILITY_STANCE.deploymentConfig),
+  )
+  const undetectable = capabilities.filter((capability) => !capability.detectable)
+  const dormant = capabilities.filter((capability) => !capability.present && capability.installed)
+  if (denied.length > 0) {
+    return {
+      status: DOCTOR_STATUS.fail,
+      detail: `a capability recorded under a deny stance is available: ${denied
+        .map((capability) => `${capability.name} (${capability.stance})`)
+        .join(', ')}; doctor cannot enforce that stance`,
+      action: DOCTOR_ACTION_COPY.foreignCapabilities,
+    }
+  }
+  const parts = []
+  if (warned.length > 0) {
+    parts.push(
+      `${warned.length} non-Tower ${warned.length === 1 ? 'capability is' : 'capabilities are'} available and allowed: ${warned
+        .map((capability) => `${capability.name} (${capability.stance}): ${capability.denialCost}`)
+        .join('; ')}`,
+    )
+  }
+  // #188: a selected capability with a failure mode is the combination an
+  // operator must see, not a footnote in the report. Auto review is the case:
+  // DSH pins a delegated child's approval policy to never, so a denied worker
+  // call has no escalation path.
+  const selectedFailure = capabilities.filter(
+    (capability) => capability.present && capability.selected === true && capability.failureMode,
+  )
+  if (selectedFailure.length > 0) {
+    parts.push(
+      `${selectedFailure.map((capability) => `${capability.name} is selected`).join(', ')}: ${selectedFailure
+        .map((capability) => capability.failureMode)
+        .join('; ')}`,
+    )
+  }
+  if (undetectable.length > 0) {
+    parts.push(
+      `detection is unavailable for ${undetectable.length} known ${
+        undetectable.length === 1 ? 'capability type' : 'capability types'
+      }: ${undetectable
+        .map((capability) => `${capability.name} (${capability.unavailable[0] ?? 'no readable source'})`)
+        .join('; ')}`,
+    )
+  }
+  if (parts.length > 0) {
+    return { status: DOCTOR_STATUS.warn, detail: parts.join('; '), action: DOCTOR_ACTION_COPY.foreignCapabilities }
+  }
+  const notes = []
+  if (compatible.length > 0) {
+    notes.push(
+      `supported and reported: ${compatible
+        .map((capability) => `${capability.name} (${capability.stance})`)
+        .join(', ')}`,
+    )
+  }
+  if (dormant.length > 0) {
+    notes.push(`installed but not mounted: ${dormant.map((capability) => capability.name).join(', ')}`)
+  }
+  return {
+    status: DOCTOR_STATUS.pass,
+    detail: `no non-Tower capability is available; ${capabilities.length} known ${
+      capabilities.length === 1 ? 'type' : 'types'
+    } checked${notes.length > 0 ? ` (${notes.join('; ')})` : ''}`,
+  }
+}
+
+/**
+ * #188/#189: inventory the non-Tower capabilities that can orchestrate agents or
+ * land changes, and report the stance Tower records for each one.
+ * @param {{ ctx?: any, agent?: any, rows?: any[] | null }} input
+ * @returns {{ check: any, report: any }}
+ */
+export function foreignCapabilityCheck({ ctx, agent, rows }) {
+  const probes = {
+    loader: loaderProbe(rows),
+    tools: toolsProbe(ctx, agent),
+    presets: permissionPresetsProbe(ctx, agent),
+    services: serviceProbe(ctx),
+  }
+  const capabilities = FOREIGN_CAPABILITIES.map((capability) => describeCapability(capability, probes))
+  const verdict = foreignCapabilityStatus(capabilities)
+  return {
+    check: check('foreign-capabilities', verdict.status, verdict.detail, verdict.action),
+    report: {
+      capabilities,
+      present: capabilities.filter((capability) => capability.present).map((capability) => capability.id),
+      installed: capabilities.filter((capability) => capability.installed).map((capability) => capability.id),
+      notDetectable: capabilities.filter((capability) => !capability.detectable).map((capability) => capability.id),
+      stances: Object.fromEntries(capabilities.map((capability) => [capability.id, capability.stance])),
+    },
+  }
 }

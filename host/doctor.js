@@ -21,7 +21,7 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck, commitLockFacts, orphanWorktreeCheck, stateLockFacts } from './doctor-acceptance.js'
+import { artifactAcceptanceCheck, commitLockFacts, foreignCapabilityCheck, orphanWorktreeCheck, stateLockFacts } from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -725,6 +725,12 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const ralphLoop = ralphStance.ralphLoop
   checks.push(check('ralph-stance', ralphStance.row.status, ralphStance.row.detail, ralphStance.row.action))
 
+  // #188/#189: the stance inventory for non-Tower capabilities that can
+  // orchestrate agents or land changes. It is a report, not a guard: Tower does
+  // not deny what it does not replace, and a type it cannot detect is a warning.
+  const foreign = foreignCapabilityCheck({ ctx, agent, rows })
+  checks.push(foreign.check)
+
   const failed = checks.filter((item) => item.status === 'fail').length
   return {
     ok: failed === 0,
@@ -742,6 +748,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     activityLog,
     review: reviewPolicy,
     components,
+    // #188/#189: each non-Tower capability, its stance and the cost of denying it.
+    foreignCapabilities: foreign.report,
     // Every default-off subsystem, with the tool it owns and the exact enable
     // step, so a client can render "off, and here is how to turn it on".
     subsystems: Object.keys(COMPONENT_ENABLE_HINTS).map((id) => ({
