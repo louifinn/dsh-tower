@@ -30,6 +30,11 @@
 // When the bundle is installed, the client module exposes a read-only
 // diagnostic object (window.__TOWER_UI_DIAG__) naming every slot registration
 // it applied; this script asserts the toolview keys, dock id and overlay id.
+// The expected toolview keys are derived from the bundle's own `TOOL_NAMES`
+// literal in ui-bundle/client.helpers.js (#F85) instead of a second hardcoded
+// list, so this check cannot fall behind a bundle that adds or removes a key;
+// tests/ui-bundle.test.mjs requires the derivation and proves the mismatch
+// path reddens when the bundle and the expectation drift.
 // The script binds a fresh session with a bare `/tower` host command when one
 // is available; once bound and the bundle is installed, the history-derived
 // Tower-mode chip (`Tower · on`, #11) must be rendered in the dock.
@@ -45,9 +50,61 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
-const env = require('./_env.cjs')
+const BUNDLE_DIR = path.resolve(__dirname, '..', '..', 'ui-bundle')
 
-env.announce()
+/**
+ * Read the one authoritative key table — `TOOL_NAMES` in the bundle's
+ * client.helpers.js — and return the keys sorted the way the comparison below
+ * sorts the keys reported by the loaded client. The live script is CommonJS and
+ * cannot import the browser chunk, so it parses the literal; the shape is
+ * strict (a plain array of single-quoted strings) and anything else throws
+ * loudly rather than silently comparing against a wrong list (#F85).
+ */
+function readBundleToolNames(dir) {
+  const bundleDir = dir || BUNDLE_DIR
+  const source = fs.readFileSync(path.join(bundleDir, 'client.helpers.js'), 'utf8')
+  const match = /const\s+TOOL_NAMES\s*=\s*\[([\s\S]*?)\]/.exec(source)
+  if (!match) throw new Error('ui-bundle/client.helpers.js must declare const TOOL_NAMES = [...]')
+  const body = match[1]
+  // The array must be data only: single-quoted strings, commas and whitespace.
+  // Anything else (an expression, a comment, a template) is rejected so this
+  // parser cannot silently pick up a computed or partial key table.
+  const remainder = body.replace(/'[^'\n]+'/g, '').replace(/[\s,]/g, '')
+  if (remainder !== '') {
+    throw new Error(`TOOL_NAMES must be a plain array of single-quoted strings (unexpected ${JSON.stringify(remainder.slice(0, 40))})`)
+  }
+  const names = Array.from(body.matchAll(/'([^'\n]+)'/g), (entry) => entry[1]).sort()
+  if (names.length === 0) throw new Error('TOOL_NAMES must not be empty')
+  if (new Set(names).size !== names.length) throw new Error('TOOL_NAMES must not repeat a key')
+  for (const name of names) {
+    if (!/^tower_[a-z][a-z0-9_]*$/.test(name)) throw new Error(`TOOL_NAMES holds an unexpected key ${JSON.stringify(name)}`)
+  }
+  return names
+}
+
+// Keys ui-bundle/client.js registers with the Chat tool-call tree, derived from
+// the bundle instead of duplicated here. tests/ui-bundle.test.mjs compares this
+// list with the keys the loaded client actually registers.
+const EXPECTED_TOOLVIEWS = readBundleToolNames()
+
+/**
+ * Compare the derived expectation with the toolview keys reported by the loaded
+ * client. Returns null on a match and a failure line on drift; the offline test
+ * calls this same function with a mutated copy of the bundle to prove the live
+ * check reddens (#F85).
+ */
+function toolviewMismatch(expected, actual) {
+  const left = Array.isArray(expected) ? [...expected].sort() : []
+  const right = Array.isArray(actual) ? [...actual].sort() : []
+  if (JSON.stringify(left) === JSON.stringify(right)) return null
+  const missing = left.filter((name) => !right.includes(name))
+  const extra = right.filter((name) => !left.includes(name))
+  const detail = []
+  if (missing.length > 0) detail.push(`expected but not registered: ${JSON.stringify(missing)}`)
+  if (extra.length > 0) detail.push(`registered but not expected: ${JSON.stringify(extra)}`)
+  const suffix = detail.length > 0 ? ` (${detail.join('; ')})` : ''
+  return `tower-ui toolview keys mismatch: expected ${JSON.stringify(left)}, got ${JSON.stringify(right)}${suffix}`
+}
 
 const OUT = __dirname
 const LOG = path.join(OUT, 'ui-slots.log')
@@ -55,32 +112,11 @@ const URL = process.env.DSH_TEST_URL
 const EXPECT_HINT = process.env.DSH_TEST_EXPECT_HINT === '1'
 const EXPECT_MODE = process.env.DSH_TEST_EXPECT_MODE === '1'
 
-// Keys ui-bundle/client.js must have registered with the Chat tool-call tree.
-const EXPECTED_TOOLVIEWS = [
-  'tower_batch',
-  'tower_complete',
-  'tower_doctor',
-  'tower_interrupt',
-  'tower_merge',
-  'tower_mission',
-  'tower_preflight',
-  'tower_review',
-  'tower_roster',
-  'tower_spawn',
-  'tower_status',
-  'tower_teardown',
-]
-
 function skip(reason) {
   console.log(`SKIP ui-slots: ${reason}`)
   process.exit(0)
 }
 
-if (!URL) skip('set DSH_TEST_URL to the isolated test server URL printed at boot')
-
-const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
-
-fs.writeFileSync(LOG, '')
 const log = (message) => {
   const line = `[${new Date().toISOString()}] ${message}`
   fs.appendFileSync(LOG, `${line}\n`)
@@ -91,7 +127,18 @@ const log = (message) => {
 // throwaway server may log asset/stream aborts while a turn is idle.
 const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
 
-;(async () => {
+async function main() {
+  // Requiring the shared environment is the opt-in guard (#47); keeping it
+  // inside main() lets the offline test require this file for its derivation
+  // without DSH_LIVE/DSH_HOME set or a live server.
+  const env = require('./_env.cjs')
+  env.announce()
+
+  if (!URL) skip('set DSH_TEST_URL to the isolated test server URL printed at boot')
+
+  const { chromium } = require('./resolve-playwright.cjs').loadOrExit().playwright
+
+  fs.writeFileSync(LOG, '')
   log('launch')
   let browser
   try {
@@ -265,9 +312,8 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
       failures.push(`tower-ui registration error(s): ${JSON.stringify(ui.diag.errors).slice(0, 400)}`)
     }
     const toolviews = Array.isArray(ui.diag.toolviews) ? [...ui.diag.toolviews].sort() : []
-    if (JSON.stringify(toolviews) !== JSON.stringify(EXPECTED_TOOLVIEWS)) {
-      failures.push(`tower-ui toolview keys mismatch: ${JSON.stringify(toolviews)}`)
-    }
+    const mismatch = toolviewMismatch(EXPECTED_TOOLVIEWS, toolviews)
+    if (mismatch !== null) failures.push(mismatch)
     const slots = Array.isArray(ui.diag.slots) ? ui.diag.slots : []
     for (const required of ['tool.call.toolview', 'conversation.composer.dock', 'shell.overlay']) {
       if (!slots.some((entry) => entry && entry.slot === required)) {
@@ -307,7 +353,13 @@ const BENIGN_CONSOLE = [/favicon/i, /ResizeObserver loop/i, /net::ERR_ABORTED/i]
     return
   }
   console.log('PASS ui-slots (dock present, /tower hint rendered, no page/console errors)')
-})().catch((error) => {
-  log(`FATAL ${error && error.stack ? error.stack : error}`)
-  process.exitCode = 1
-})
+}
+
+module.exports = { BUNDLE_DIR, EXPECTED_TOOLVIEWS, readBundleToolNames, toolviewMismatch }
+
+if (require.main === module) {
+  main().catch((error) => {
+    log(`FATAL ${error && error.stack ? error.stack : error}`)
+    process.exitCode = 1
+  })
+}
