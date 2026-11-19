@@ -58,7 +58,7 @@ and claiming compatibility for a tool whose absence changes the outcome.
 
 The per-owner build exceptions follow from the same rule. The inventory is
 enumerated from the owner set recorded in `DENY_OWNER_PACKAGE_BUILD` (`0.2.2-rc.1`),
-while the supported host pin in `scripts/support.json` is newer (`0.2.2-rc.3`).
+while the supported host pin in `scripts/support.json` is newer (`0.2.2-rc.5`).
 The agent-team package was not republished after `0.2.2-rc.1`, so every owner is
 held at the complete rc.1 set and the reason is recorded per package in
 `DENY_OWNER_BUILD_EXCEPTIONS` in `domain/deny-owners.js`. When that package is

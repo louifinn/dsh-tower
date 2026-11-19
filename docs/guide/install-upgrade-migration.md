@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- DSH `0.2.2-rc.3` (rc.1/rc.2 keep working through the legacy spawn contract); see
+- DSH `0.2.2-rc.5` (rc.1/rc.2 keep working through the legacy spawn contract); see
   [COMPATIBILITY.md](../../COMPATIBILITY.md) for the builds actually verified per release
 - Node.js 24.9+
 - Git (local worktrees; no network access is required)
@@ -29,6 +29,37 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 4. Existing mission state stays compatible: the state schema did not change in 1.2/1.3.
 
 ## Migration notes
+
+- **2.9.5 → 2.9.6 — patch release, no migration required**: the state schema stays v5, the config
+  surface is unchanged (58 keys in 16 sections), and there is no migration step. Nothing an operator
+  configured needs to move:
+  - **The host floor moves to DSH `0.2.2-rc.5`.** Update DSH to `0.2.2-rc.5` or newer before you
+    update Tower; rc.1/rc.2 still work through the legacy spawn contract, but the published floor and
+    the tested build are rc.5. `npm run support:check` keeps the package engines, mount pin, live CI
+    matrix and the newest compatibility row in agreement.
+  - **Teardown is harder to surprise.** Removing a mission worktree now retries `EPERM`/`EBUSY`/
+    `EACCES` up to three times and reports the attempts instead of failing on the first transient
+    error. `tower_teardown` with `dry_run` also previews which due missions would be archived, and an
+    `exclude` id that matches no mission is reported as a `keep` decision instead of being ignored.
+  - **Waiting-to-teardown state is visible.** The doctor view reports how many terminal mission
+    worktrees are still waiting for teardown; it does not delete anything automatically and adds no
+    config key.
+  - **The orphan sweep is opt-in.** `tower_teardown({orphans:true})` removes clean checkouts under
+    the worktree root that no mission, sandbox or review row references; dirty checkouts are kept,
+    the main checkout and every recorded path are protected, and a dry run only previews. Normal
+    teardown never touches them. `create_worktree` stays available in Tower mode, and unrecorded
+    external checkouts now show up in the doctor view instead of disappearing.
+  - **New doctor advisories and a deny page.** `worktrees-orphans` and `foreign-capabilities` list
+    what Tower sees but does not own, with the recorded stance and remedy; the new "denied
+    capabilities and replacements" page records what each denied or warned capability costs and what
+    replaces it. No setting changed.
+  - **Native UI chrome.** Tool cards regain the native file link, image preview, inspect entry and
+    expand/collapse (with a scroll region instead of a six-row cut); the Tower overlay uses the
+    native toast position and tokens, and the composer chip shares the native `StatsPills` base.
+    The client bundle is loaded at DSH startup, so **refresh or restart DSH** after updating to load
+    the new one.
+  - **No new config key, no new state field.** The state schema stays v5 and the config stays at 58
+    keys in 16 sections. Update the plugin and **restart DSH**.
 
 - **2.9.4 → 2.9.5 — patch release, no migration required**: the config surface is unchanged (58 keys in
   16 sections), the state schema stays v5, and the DSH floor stays `0.2.2-rc.3`. Nothing an operator

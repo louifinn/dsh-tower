@@ -300,7 +300,8 @@ not applied to this dictionary because a few tooltips intentionally quote
 
 ## Verification status
 
-Verified **statically** against the installed DSH **0.2.2-rc.3** sources:
+Verified **statically** against the installed DSH client sources; the host builds a release actually
+mounted are recorded in [COMPATIBILITY.md](../COMPATIBILITY.md) rather than repeated here:
 
 - `tool.call.toolview`: declared by `@deepseek-ai/dsh-client-ui-tool` as `{ kind: "keyed", scope: "session" }`; the Chat tool-call tree dispatches with `entryKey = toolName` and passes `{ callId, toolName, ...call, openFile, cwd, home, loadImage, useDisclosure, inspect }`, where `call` is `{ phase, block }`. A keyed hit replaces the generic tool row; a miss falls back to it. The card consumes all four interaction props (`useDisclosure`, `openFile`, `loadImage`, `inspect`) one-for-one (#195).
 - Native row chrome: the Web shell's static module table seeds `@deepseek-ai/dsh-client-ui-primitives`. Its `DisclosureRow` renders `open && children`, keeps `collapsedContent` when `keepContentWhenOpen`, and makes the header row a clickable/keyboard `button` when `expandable && expandOnRowClick`. The native `ToolRow` passes `open = expanded && expandable`, `expandOnRowClick: true`, `keepContentWhenOpen: true`, and `onToggle` from the same `useDisclosure()` seat; the Tower cards and the denied rows mirror that contract and reuse the primitives icon family instead of adding assets.

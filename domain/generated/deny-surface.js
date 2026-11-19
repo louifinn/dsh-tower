@@ -3,7 +3,7 @@
 // Every tool each foreign-orchestration owner registers, enumerated from the
 // pinned upstream packages in devDependencies (see scripts/lib/owner-surface.mjs).
 // Inventory build: 0.2.2-rc.1 (domain/deny-owners.js DENY_OWNER_PACKAGE_BUILD)
-// Supported host pin: 0.2.2-rc.3 (scripts/support.json)
+// Supported host pin: 0.2.2-rc.5 (scripts/support.json)
 // A support-pin bump alone changes this header, so `npm run deny:check` fails until
 // `npm run deny:generate` runs and every per-owner exception has been reviewed.
 /** @type {Record<string, string[]>} */

@@ -122,13 +122,13 @@ test('the deny build relationship is green on this checkout', () => {
 
 test('a supported pin past the reviewed pin reddens with both builds and the generate hint', () => {
   const result = evaluateDenyInventoryBuild({
-    supportedBuild: '0.2.2-rc.5',
+    supportedBuild: '0.2.2-rc.6',
     devDependencies: ownerPins(),
   })
   assert.equal(result.ok, false)
   const problem = result.problems.join('\n')
   assert.match(problem, /moved past the reviewed pin/)
-  assert.ok(problem.includes('0.2.2-rc.5'), problem)
+  assert.ok(problem.includes('0.2.2-rc.6'), problem)
   assert.ok(problem.includes(DENY_OWNER_PACKAGE_BUILD), problem)
   assert.ok(problem.includes('npm run deny:generate'), problem)
 })
@@ -170,7 +170,7 @@ test('a stale generated surface reddens deny:check with the generate hint', asyn
 
   fs.copyFileSync(path.join(root, 'domain', 'generated', 'deny-surface.js'), generated)
   const support = JSON.parse(fs.readFileSync(path.join(dir, 'scripts', 'support.json'), 'utf8'))
-  support.dsh = '0.2.2-rc.5'
+  support.dsh = '0.2.2-rc.6'
   fs.writeFileSync(path.join(dir, 'scripts', 'support.json'), JSON.stringify(support, null, 2))
   const bumped = await denySurfaceCheck(dir)
   assert.equal(bumped.ok, false)

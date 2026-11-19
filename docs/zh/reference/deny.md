@@ -50,7 +50,7 @@ Tower 模式会关闭它并不拥有的编排面。外部编排工具会从 work
 （移除了没有对应物的工具），以及为缺失后改变结果的能力声称兼容。
 
 每个 owner 的构建例外遵循同一条规则。清单从 `DENY_OWNER_PACKAGE_BUILD`（`0.2.2-rc.1`）
-记录的 owner 集合枚举，而 `scripts/support.json` 中受支持的宿主 pin 更新（`0.2.2-rc.3`）。
+记录的 owner 集合枚举，而 `scripts/support.json` 中受支持的宿主 pin 更新（`0.2.2-rc.5`）。
 agent-team 包在 `0.2.2-rc.1` 之后未再发布，因此所有 owner 都保持在完整的 rc.1 集合上，
 原因按包记录在 `domain/deny-owners.js` 的 `DENY_OWNER_BUILD_EXCEPTIONS` 中。当该包重新
 发布时，删除这些例外，所有 owner pin 与清单构建版本一起移动，并由 `npm run deny:generate`
