@@ -11,7 +11,10 @@
 // Since #71 the surfaces live in package-local sibling chunks
 // (`client.<surface>.js`) loaded through `require.async`; each registers
 // through this same `__ModuleLoader__` surface with `{ id, chunk, factory }`.
-// React comes from the browser module table, theme references stay on
+// Besides React, the entry resolves exactly one more browser module-table word:
+// the Web shell's `@deepseek-ai/dsh-client-ui-primitives` namespace (declared as
+// a `dsh.client.external` static-table name), which supplies the native
+// `DisclosureRow` the tool cards render. Theme references stay on
 // `--dsw-alias-*` tokens, and `window.__TOWER_UI_DIAG__` is a read-only test
 // seam (not DOM, no state).
 window.__ModuleLoader__.load({
@@ -119,7 +122,21 @@ window.__ModuleLoader__.load({
         const { ST, dotStyle } = styles
         const helpers = helpersModule.createHelpers(translate)
         const mode = modeModule.createModeStore(diagnostics, helpers)
+        // The native row chrome is the shell's UI-primitives namespace, a static
+        // module-table word (`@deepseek-ai/dsh-client-ui-primitives`), not a
+        // package dependency: `dsh.client.external` names it without adding a
+        // module-graph edge. DisclosureRow is a React.memo component, so the
+        // presence check is truthiness. Without it the host renders its own
+        // native rows, which is why toolview registration is skipped below.
+        const primitives = guard('primitives', function () {
+          const namespace = require('@deepseek-ai/dsh-client-ui-primitives')
+          if (!namespace || !namespace.DisclosureRow) {
+            throw new Error('the client module table has no DisclosureRow')
+          }
+          return namespace
+        })
         const env = { React, h, translate, toolLabel, seatT, ST, dotStyle, helpers, mode }
+        if (primitives !== undefined) env.primitives = primitives
         env.modeModelFromLegacy = modeModule.modeModelFromLegacy
         env.cards = cardsModule.createCards(env)
         const overlay = overlayModule.createOverlay(env)
@@ -136,7 +153,9 @@ window.__ModuleLoader__.load({
           }, NOTICE_MS)
         }
         env.notice = { source: overlay.source, publish: publishNotice }
-        const toolview = toolviewModule.createToolview(env)
+        // The tool-card surface is only built when the native row component
+        // resolved; without it the host's own rows render (see the gate below).
+        const toolview = env.primitives !== undefined ? toolviewModule.createToolview(env) : null
         const denied = deniedModule.createDenied(env)
         const dock = dockModule.createDock(env)
 
@@ -164,26 +183,31 @@ window.__ModuleLoader__.load({
         })
 
         // 1. Keyed per-tool cards. `key` is the wire tool name selected by the
-        //    Chat tool-call tree through `entryKey`.
-        for (const tool of helpers.TOOL_NAMES) {
-          guard('toolview:' + tool, function () {
-            return ctx.slots.inject(
-              'tool.call.toolview',
-              guardedCallback('toolview:' + tool, function () {
-                const dispose = ctx.slots.register(
-                  {
-                    name: 'tool.call.toolview',
-                    key: tool,
-                    locale: NS,
-                  },
-                  toolview.TowerToolCard,
-                )
-                if (!diagnostics.toolviews.includes(tool)) diagnostics.toolviews.push(tool)
-                recordSlot('tool.call.toolview', { key: tool })
-                return dispose
-              }),
-            )
-          })
+        //    Chat tool-call tree through `entryKey`. A missing primitives word
+        //    leaves these registrations out entirely: the host then renders its
+        //    native row, which is the fallback the user asked to be identical
+        //    to — never a hand-built lookalike.
+        if (env.primitives !== undefined) {
+          for (const tool of helpers.TOOL_NAMES) {
+            guard('toolview:' + tool, function () {
+              return ctx.slots.inject(
+                'tool.call.toolview',
+                guardedCallback('toolview:' + tool, function () {
+                  const dispose = ctx.slots.register(
+                    {
+                      name: 'tool.call.toolview',
+                      key: tool,
+                      locale: NS,
+                    },
+                    toolview.TowerToolCard,
+                  )
+                  if (!diagnostics.toolviews.includes(tool)) diagnostics.toolviews.push(tool)
+                  recordSlot('tool.call.toolview', { key: tool })
+                  return dispose
+                }),
+              )
+            })
+          }
         }
 
         // 2. Composer dock: hint until this conversation has a Tower tool result.
@@ -238,6 +262,11 @@ window.__ModuleLoader__.load({
           return ctx.slots.inject(
             'tool.call.toolview',
             guardedCallback('denied-toolviews', function () {
+              // The denied row is the native `DisclosureRow` too. Without the
+              // primitives word there is no native row to render, so leave the
+              // host's own rows in place (a hand-built lookalike is never the
+              // fallback — the static toolviews above follow the same rule).
+              if (env.primitives === undefined) return undefined
               const disposers = new Map()
               let currentKey = null
               const reconcile = function () {

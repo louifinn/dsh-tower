@@ -28,18 +28,27 @@ window.__ModuleLoader__.load({
         TOOL_SET,
       } = helpers
 
+      // Expanded-body row: one native ioSection (caption + value), not a local
+      // tone line. The caption is the localized tone word when the row carries a
+      // tone, otherwise the neutral detail label; the value is the row text.
+      // An error row marks its value with `data-error`, so the native
+      // `ioText[data-error]` rule (not a local colour) paints it.
       function rowElement(t, key, row) {
-        const style =
-          row.tone === 'error'
-            ? Object.assign({}, ST.row, ST.rowError)
-            : row.tone === 'warn'
-              ? Object.assign({}, ST.row, ST.rowWarn)
-              : row.tone === 'ok'
-                ? Object.assign({}, ST.row, ST.rowOk)
-                : ST.row
         const tone = ['error', 'warn', 'ok'].includes(row.tone) ? row.tone : null
-        const label = tone === null ? undefined : translate(t, 'card.tone.' + tone) + ': ' + row.text
-        return h('div', { key, style, 'data-tower-tone': tone ?? undefined, role: tone ? 'note' : undefined, 'aria-label': label }, row.text)
+        return h(
+          'div',
+          { key, style: ST.ioSection, 'data-tower-tone': tone ?? undefined },
+          h('span', { key: 'label', style: ST.ioLabel }, translate(t, tone === null ? 'card.detail' : 'card.tone.' + tone)),
+          h(
+            'span',
+            {
+              key: 'text',
+              style: tone === 'error' ? Object.assign({}, ST.ioText, ST.ioTextError) : ST.ioText,
+              'data-error': tone === 'error' ? true : undefined,
+            },
+            row.text,
+          ),
+        )
       }
 
       // Owner props supplied by the Chat tool-call tree: callId, toolName,

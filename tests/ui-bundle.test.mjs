@@ -74,7 +74,7 @@ function createFakeReact() {
   }
 }
 
-function loadBundle(react) {
+function loadBundle(react, options = {}) {
   let loaded = null
   const chunkDefinitions = new Map()
   const window = {
@@ -93,12 +93,52 @@ function loadBundle(react) {
   // eslint-disable-next-line no-new-func -- the bundle is a plain browser script
   new Function('window', SOURCE)(window)
   assert.ok(loaded, 'client.js must call window.__ModuleLoader__.load')
+  // The Web shell's static module table also seeds the UI-primitives namespace.
+  // The fake mirrors the slice the bundle uses: a DisclosureRow that renders
+  // `open && children` and keeps the collapsed summary while open, plus the
+  // icon family.
+  const primitives = {
+    DisclosureRow(props) {
+      const children = []
+      if (props.icon !== undefined) children.push(props.icon)
+      children.push(react.createElement('span', { key: 'title', 'data-primitives-title': '' }, props.title))
+      if (props.keepContentWhenOpen === true || props.open !== true) children.push(props.collapsedContent)
+      if (props.open === true) children.push(props.children)
+      return react.createElement(
+        'div',
+        {
+          'data-primitives-disclosure': '',
+          'data-primitives-running': props.running === true ? 'true' : 'false',
+          'data-open': props.open === true ? 'true' : 'false',
+          'data-expandable': props.expandable === true ? 'true' : 'false',
+          role: props.expandable === true ? 'button' : undefined,
+          'aria-expanded': props.expandable === true ? props.open === true : undefined,
+          onClick: props.expandable === true && props.expandOnRowClick === true ? props.onToggle : undefined,
+          onKeyDown: props.expandable === true && props.expandOnRowClick === true ? props.onToggle : undefined,
+        },
+        children,
+      )
+    },
+    IconChecklistOutlineRegular(props) {
+      return react.createElement('svg', { 'data-primitives-icon': '', width: props.size })
+    },
+  }
   const required = []
   const asyncRequired = []
   const fakeRequire = (id) => {
     required.push(id)
     if (id === 'react') return react
-    throw new Error(`unexpected require("${id}") — plugin bundles may only require react`)
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+      if (options.missingPrimitives === true) {
+        throw new Error(
+          'client-modules: require("@deepseek-ai/dsh-client-ui-primitives") missed the module table — not a platform seed word',
+        )
+      }
+      return primitives
+    }
+    throw new Error(
+      `unexpected require("${id}") — plugin bundles may only require react and the declared UI-primitives static-table word`,
+    )
   }
   const materialized = new Map()
   // Real DSH `require.async("./client.<name>.js")` fetches and registers the
@@ -233,6 +273,17 @@ function findNode(node, predicate) {
   return found
 }
 
+function findAll(node, predicate, out = []) {
+  if (node === null || typeof node !== 'object') return out
+  if (Array.isArray(node)) {
+    for (const child of node) findAll(child, predicate, out)
+    return out
+  }
+  if (node.props && predicate(node)) out.push(node)
+  for (const child of node.children || []) findAll(child, predicate, out)
+  return out
+}
+
 function freeTimer(fakeCtx) {
   for (const effect of fakeCtx.effects) {
     if (typeof effect.cleanup === 'function') effect.cleanup()
@@ -265,10 +316,53 @@ test('client chunks are plain-JS __ModuleLoader__ modules and syntax-check', () 
 
   const { loaded, plugin, required } = loadBundle(createFakeReact())
   assert.equal(loaded.id, 'dsh-tower-ui')
-  assert.deepEqual(required, ['react'], 'the Client half may only require react')
+  assert.deepEqual(required, ['react'], 'the entry factory may only require react')
   assert.ok(Array.isArray(plugin.inject))
   assert.deepEqual(plugin.inject, ['slots', 'locale'])
   assert.equal(typeof plugin.apply, 'function')
+})
+
+test('the entry resolves the declared UI-primitives static-table word exactly once', async () => {
+  const { required } = await registerAll()
+  assert.deepEqual(
+    required,
+    ['react', '@deepseek-ai/dsh-client-ui-primitives'],
+    'the entry may only resolve react plus the declared UI-primitives static-table word',
+  )
+})
+
+test('a shell without the UI-primitives word leaves the host native tool rows alone', async () => {
+  const react = createFakeReact()
+  const bundle = loadBundle(react, { missingPrimitives: true })
+  const fakeCtx = createFakeContext()
+  CLEANUPS.push(fakeCtx)
+  await bundle.plugin.apply(fakeCtx.ctx)
+  fakeCtx.runInjections()
+  const toolviews = fakeCtx.registrations.filter((entry) => entry.options.name === 'tool.call.toolview')
+  assert.deepEqual(toolviews, [], 'without the native row component no keyed card may replace the host row')
+  assert.equal(
+    fakeCtx.registrations.filter((entry) => entry.options.name === 'conversation.composer.dock').length,
+    1,
+    'the other surfaces still register',
+  )
+  const diagnostics = bundle.window.__TOWER_UI_DIAG__
+  assert.ok(
+    diagnostics.errors.some((error) => error.where === 'primitives'),
+    'the missing static-table word must be recorded, not thrown',
+  )
+  assert.ok(diagnostics.errors.every((error) => /DisclosureRow|primitives/i.test(error.message) || error.where === 'primitives'))
+
+  // A Tower-mode history would normally add the dynamic deny rows; without the
+  // native DisclosureRow they must stay unregistered too, so the host keeps
+  // its own rows instead of receiving a hand-built lookalike.
+  const dockEntry = fakeCtx.registrations.find((entry) => entry.options.name === 'conversation.composer.dock')
+  assert.ok(dockEntry)
+  render(react, dockEntry.component, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  assert.deepEqual(
+    fakeCtx.registrations.filter((entry) => entry.options.name === 'tool.call.toolview'),
+    [],
+    'a shell without the native row component must not register deny lookalikes',
+  )
 })
 
 test('client logic stays within 10% of the 1980-line #71 budget and every file at most 400 lines', () => {
@@ -353,7 +447,7 @@ test('the client locale catalogue is bounded data, not a logic escape hatch (#F6
   const { source, EN, ZH } = loadClientCatalog()
   const enKeys = Object.keys(EN).sort()
   const zhKeys = Object.keys(ZH).sort()
-  // 133 entries today: one [English, Chinese] pair per key. The floor keeps a
+  // 153 entries today: one [English, Chinese] pair per key. The floor keeps a
   // copy collapse from passing as a "smaller budget"; the ceiling (~2x today)
   // lets the surface grow without turning the catalogue into a second product.
   const KEY_FLOOR = 133
@@ -408,6 +502,11 @@ test('bundle manifest is private 0.2.2 and exports the client artifact', () => {
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(pkg.dsh.client.platform, 'web')
   assert.equal(pkg.dsh.client.immediately, true)
+  assert.deepEqual(
+    pkg.dsh.client.external,
+    ['@deepseek-ai/dsh-client-ui-primitives'],
+    'the native row component is a static module-table word, not an installed package',
+  )
   assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
   assert.ok(
     pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-tool'),
@@ -425,11 +524,19 @@ test('locale metadata is present in en/zh', () => {
   assert.deepEqual(Object.keys(en.meta).sort(), Object.keys(zh.meta).sort())
 })
 
-test('theme references are limited to --dsw-alias-* tokens', () => {
+// The expanded io-card reproduces the host `ToolRow.module.css` verbatim, and
+// that native surface uses two non-alias design tokens for the card's corner
+// radius and type scale. Everything else stays on the --dsw-alias-* family.
+const NATIVE_NON_ALIAS_TOKENS = new Set(['--dsw-radius-lg', '--dsw-font-markdown-code-block-small'])
+
+test('theme references are limited to --dsw-alias-* plus the native io-card radius/font tokens', () => {
   const tokens = ALL_SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
   assert.ok(tokens.length > 0, 'the cards must use DSH theme tokens')
   for (const token of tokens) {
-    assert.match(token, /^--dsw-alias-/, `non-alias theme token: ${token}`)
+    assert.ok(
+      token.startsWith('--dsw-alias-') || NATIVE_NON_ALIAS_TOKENS.has(token),
+      `non-native theme token: ${token}`,
+    )
   }
 })
 
@@ -437,7 +544,16 @@ test('client code contains no DOM writes, iframe, host.call, or client package i
   assert.doesNotMatch(ALL_SOURCE, /\bdocument\./)
   assert.doesNotMatch(ALL_SOURCE, /\bhost\.call\b/)
   assert.doesNotMatch(ALL_SOURCE, /<iframe|createElement\(\s*'iframe'/i)
-  assert.doesNotMatch(ALL_SOURCE, /require\(\s*'@deepseek-ai\//)
+  assert.doesNotMatch(
+    ALL_SOURCE,
+    /require\(\s*'@deepseek-ai\/(?!dsh-client-ui-primitives')/,
+    'only the declared UI-primitives static-table word may be required from @deepseek-ai/',
+  )
+  assert.match(
+    SOURCE,
+    /require\('@deepseek-ai\/dsh-client-ui-primitives'\)/,
+    'the native row chrome must come from the UI-primitives static-table word',
+  )
   assert.doesNotMatch(ALL_SOURCE, /from\s*'@deepseek-ai\//)
   assert.match(SOURCE, /ctx\.locale\.register/)
   assert.match(SOURCE, /ctx\.effect/)
@@ -458,7 +574,7 @@ async function registerAll() {
   return { react, ...bundle, ...fakeCtx }
 }
 
-test('registers the twelve keyed tool.call.toolview entries', async () => {
+test('registers the nine keyed tool.call.toolview entries', async () => {
   const { registrations } = await registerAll()
   const toolviews = registrations.filter((entry) => entry.options.name === 'tool.call.toolview')
   assert.equal(toolviews.length, TOOL_NAMES.length)
@@ -609,9 +725,28 @@ function t(key, params) {
   return key + ':' + Object.keys(params).sort().map((name) => `${name}=${params[name]}`).join(',')
 }
 
-test('toolview renders a compact card and publishes start/result notices', async () => {
+// The native row contract: the outer element carries only the two data
+// attributes, and every piece of chrome is the primitives DisclosureRow. The
+// fake DisclosureRow renders `open && children`, so these assertions also prove
+// the curated detail body does not exist while the row is collapsed.
+function disclosureRow(layout) {
+  return findNode(
+    layout,
+    (node) => node.props && Object.prototype.hasOwnProperty.call(node.props, 'data-primitives-disclosure'),
+  )
+}
+
+function disclosureSeat(expanded, toggle) {
+  return () => ({ expanded, toggle })
+}
+
+test('toolview renders the native DisclosureRow and publishes start/result notices', async () => {
   const { react, toolviews, noticeSource } = await components()
   const Card = toolviews.get('tower_inspect')
+  let toggles = 0
+  const collapsedSeat = disclosureSeat(false, () => {
+    toggles += 1
+  })
 
   const startElement = render(react, Card, {
     toolName: 'tower_inspect',
@@ -619,49 +754,293 @@ test('toolview renders a compact card and publishes start/result notices', async
     callId: 'call-1',
     block: { callId: 'call-1', name: 'tower_inspect' },
     t,
+    useDisclosure: collapsedSeat,
   })
+  assert.deepEqual(Object.keys(startElement.props).sort(), ['data-tower-phase', 'data-tower-toolview'])
   assert.equal(startElement.props['data-tower-toolview'], 'tower_inspect')
   assert.equal(startElement.props['data-tower-phase'], 'start')
-  assert.equal(startElement.props.role, 'group')
-  assert.equal(startElement.props['aria-label'], startElement.props.title)
-  assert.equal(startElement.props['aria-busy'], 'true')
+  const startRow = disclosureRow(startElement)
+  assert.ok(startRow, 'the card must render the primitives DisclosureRow')
+  assert.equal(startRow.props['data-open'], 'false')
+  assert.equal(startRow.props['data-primitives-running'], 'true', 'a non-result phase must render the native running row')
+  assert.equal(startRow.props['data-expandable'], 'false', 'a running row is not expandable')
+  assert.equal(startRow.props.role, undefined)
+  assert.equal(startRow.props['aria-expanded'], undefined)
+  assert.match(textOf(startElement), /tool\.inspect/, 'the title is the localized tool label')
   assert.match(textOf(startElement), /card\.running/)
+  assert.ok(
+    findNode(startElement, (node) => node.props && node.props['data-primitives-icon'] !== undefined),
+    'the icon comes from the primitives icon family, not an asset',
+  )
   assert.equal(noticeSource.getSnapshot().tool, 'tower_inspect')
   assert.equal(noticeSource.getSnapshot().running, true)
+  assert.equal(toggles, 0)
 
-  const resultElement = render(react, Card, {
+  const block = {
+    kind: 'tool/result',
+    callId: 'call-1',
+    call: { name: 'tower_inspect' },
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          view: 'status',
+          counts: { planned: 0, active: 1, completed: 0 },
+          openTasks: 2,
+          roster: 1,
+          findings: 0,
+          revision: 3,
+          missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
+        }),
+      },
+    ],
+  }
+  const collapsedElement = render(react, Card, {
     toolName: 'tower_inspect',
     phase: 'result',
     callId: 'call-1',
-    block: {
-      kind: 'tool/result',
-      callId: 'call-1',
-      call: { name: 'tower_inspect' },
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            view: 'status',
-            counts: { planned: 0, active: 1, completed: 0 },
-            openTasks: 2,
-            roster: 1,
-            findings: 0,
-            revision: 3,
-            missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
-          }),
-        },
-      ],
-    },
+    block,
     t,
+    useDisclosure: collapsedSeat,
   })
-  assert.equal(resultElement.props['data-tower-phase'], 'result')
-  const resultText = textOf(resultElement)
-  assert.match(resultText, /card\.statusHeadline/)
-  assert.match(resultText, /card\.openTasks/)
+  assert.equal(collapsedElement.props['data-tower-phase'], 'result')
+  const collapsedRow = disclosureRow(collapsedElement)
+  assert.equal(collapsedRow.props['data-open'], 'false')
+  assert.equal(collapsedRow.props['data-primitives-running'], 'false', 'a settled result clears the native running row')
+  assert.equal(collapsedRow.props['data-expandable'], 'true')
+  assert.equal(collapsedRow.props.role, 'button', 'expandOnRowClick makes the settled row a button')
+  assert.equal(collapsedRow.props['aria-expanded'], false)
+  // The collapsed headline is styled with the live appearance font-size
+  // variables the native row uses, so it scales with the text-size setting
+  // instead of pinning the default 13px/24px.
+  const collapsedSummary = findNode(collapsedElement, (node) => node.props && node.props.key === 'headline')
+  assert.ok(collapsedSummary, 'the collapsed row must render its one-line summary')
+  assert.equal(collapsedSummary.props.style.fontSize, 'var(--dsh-content-font-size-secondary, 13px)')
+  assert.equal(collapsedSummary.props.style.lineHeight, 'calc(24px + var(--dsh-content-font-delta, 0px))')
+  const collapsedText = textOf(collapsedElement)
+  assert.match(collapsedText, /card\.statusHeadline/)
+  assert.doesNotMatch(collapsedText, /card\.openTasks/, 'the curated body must not exist while collapsed')
+  assert.equal(
+    findNode(collapsedElement, (node) => node.props && node.props['data-tower-tone'] !== undefined),
+    null,
+    'curated rows belong to the expanded body only',
+  )
+  collapsedRow.props.onClick()
+  assert.equal(toggles, 1, 'the row must route its click through the host DisclosureRow seat')
+
+  const openElement = render(react, Card, {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-1',
+    block,
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  })
+  const openRow = disclosureRow(openElement)
+  assert.equal(openRow.props['data-open'], 'true')
+  assert.equal(openRow.props['aria-expanded'], true)
+  const openText = textOf(openElement)
+  assert.match(openText, /card\.statusHeadline/)
+  assert.match(openText, /card\.openTasks/)
+  assert.ok(
+    findNode(openElement, (node) => node.props && node.props['data-tower-tone'] === 'warn'),
+    'the expanded body keeps the curated tone rows',
+  )
   const notice = noticeSource.getSnapshot()
   assert.equal(notice.tool, 'tower_inspect')
   assert.equal(notice.running, false)
   assert.equal(notice.ok, true)
+})
+
+// M117: the expanded body must be the native generic tool-result surface, not
+// a local lookalike. These are the exact `ToolRow.module.css` rules the host
+// renders for a generic result (`ioCard`/`ioSection`/`ioLabel`/`ioText`/
+// `ioDivider`), in CSS-in-JS form.
+const NATIVE_IO = {
+  bodyWrap: { display: 'flex', flexDirection: 'column' },
+  card: {
+    border: '.5px solid var(--dsw-alias-border-l1)',
+    borderRadius: 'var(--dsw-radius-lg)',
+    background: 'var(--dsw-alias-markdown-code-block)',
+    font: 'var(--dsw-font-markdown-code-block-small)',
+    flexDirection: 'column',
+    margin: '4px 0 4px 4px',
+    display: 'flex',
+  },
+  section: {
+    gridTemplateColumns: 'max-content 1fr',
+    alignItems: 'baseline',
+    columnGap: '14px',
+    maxHeight: '150px',
+    padding: '12px 16px',
+    display: 'grid',
+    overflowY: 'auto',
+  },
+  label: { color: 'var(--dsw-alias-label-caption)', alignSelf: 'start', position: 'sticky', top: 0 },
+  text: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minWidth: 0,
+    color: 'var(--dsw-alias-label-secondary)',
+  },
+  textError: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minWidth: 0,
+    color: 'var(--dsw-alias-state-error-primary)',
+  },
+  divider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
+}
+
+function isIoCard(node) {
+  return Boolean(node.props && node.props.style && node.props.style.borderRadius === 'var(--dsw-radius-lg)')
+}
+function isIoSection(node) {
+  return Boolean(node.props && node.props.style && node.props.style.gridTemplateColumns === 'max-content 1fr')
+}
+function isIoDivider(node) {
+  return Boolean(node.props && node.props.style && node.props.style.height === '.5px')
+}
+
+test('expanded toolview body is the native io-card surface, token for token', async () => {
+  const { react, toolviews } = await components()
+  const payload = {
+    view: 'status',
+    counts: { planned: 0, active: 1, completed: 0 },
+    openTasks: 2,
+    roster: 1,
+    findings: 0,
+    revision: 3,
+    missions: [{ id: 'M1', status: 'active', tasks: { total: 3, done: 1, open: 2 } }],
+  }
+  const props = {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-io',
+    block: {
+      kind: 'tool/result',
+      callId: 'call-io',
+      call: { name: 'tower_inspect' },
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+    },
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  }
+  const open = render(react, toolviews.get('tower_inspect'), props)
+
+  // bodyWrap > ioCard, with the native border, code-block background and the
+  // `font` shorthand that carries the native type scale.
+  const card = findNode(open, isIoCard)
+  assert.ok(card, 'the open body must render the native ioCard')
+  assert.deepEqual(card.props.style, NATIVE_IO.card, 'ioCard must be the native token set — no local border, background or type')
+  const bodyWrap = findNode(open, (node) => {
+    if (!node.props || !node.props.style) return false
+    const style = node.props.style
+    return style.display === 'flex' && style.flexDirection === 'column' && Object.keys(style).length === 2
+  })
+  assert.ok(bodyWrap, 'the ioCard must sit in the native bodyWrap flex column')
+  assert.deepEqual(bodyWrap.props.style, NATIVE_IO.bodyWrap)
+
+  // One ioSection per curated row; each section is exactly the ioLabel caption
+  // plus the ioText value, both on their native token sets.
+  const sections = findAll(open, isIoSection)
+  assert.equal(sections.length, 3, 'one ioSection per curated row')
+  assert.deepEqual(sections.map((section) => section.props['data-tower-tone']), ['warn', undefined, undefined])
+  for (const section of sections) {
+    assert.deepEqual(section.props.style, NATIVE_IO.section, 'ioSection must keep the native grid, gap, padding and scroll box')
+    const spans = section.children.filter((child) => child && child.tag === 'span')
+    assert.equal(spans.length, 2, 'an ioSection is the ioLabel + ioText pair')
+    assert.deepEqual(spans[0].props.style, NATIVE_IO.label, 'the caption takes the ioLabel tokens')
+    assert.deepEqual(spans[1].props.style, NATIVE_IO.text, 'the value takes the ioText tokens')
+    assert.equal(spans[1].props['data-error'], undefined, 'only error rows are marked')
+  }
+  assert.match(textOf(sections[0]), /card\.tone\.warn/, 'a toned row is captioned with its localized tone word')
+  assert.match(textOf(sections[1]), /card\.detail/, 'a toneless row is captioned with the neutral Details label')
+
+  // Adjacent sections are separated by the native ioDivider, and the card's
+  // immediate children alternate section / divider / section.
+  const dividers = findAll(open, isIoDivider)
+  assert.equal(dividers.length, sections.length - 1, 'adjacent sections are separated by an ioDivider')
+  for (const divider of dividers) {
+    assert.deepEqual(divider.props.style, NATIVE_IO.divider, 'the divider takes the border-l2 token and native height')
+    assert.equal(divider.props['aria-hidden'], true)
+  }
+  const cardChildren = []
+  for (const child of card.children) {
+    if (Array.isArray(child)) cardChildren.push(...child)
+    else cardChildren.push(child)
+  }
+  assert.equal(cardChildren.length, sections.length + dividers.length)
+  cardChildren.forEach((child, index) => {
+    if (index % 2 === 0) assert.ok(isIoSection(child), `card child ${index} must be an ioSection`)
+    else assert.ok(isIoDivider(child), `card child ${index} must be an ioDivider`)
+  })
+
+  // No hardcoded px type or hex/rgb colour anywhere in the expanded surface:
+  // those would ignore the appearance text-size setting and the light/dark
+  // theme. Type comes from the ioCard `font` token; colour from --dsw-alias-*.
+  const expandedStyles = [bodyWrap.props.style, card.props.style]
+  for (const section of sections) {
+    expandedStyles.push(section.props.style)
+    for (const child of section.children) {
+      if (child && child.props && child.props.style) expandedStyles.push(child.props.style)
+    }
+  }
+  for (const divider of dividers) expandedStyles.push(divider.props.style)
+  for (const style of expandedStyles) {
+    for (const [prop, value] of Object.entries(style)) {
+      assert.doesNotMatch(String(value), /#[0-9a-f]{3,8}\b/i, `expanded style ${prop} must not hardcode a hex colour`)
+      assert.doesNotMatch(String(value), /^rgba?\(/i, `expanded style ${prop} must not hardcode an rgb colour`)
+      if (prop === 'fontSize') {
+        assert.doesNotMatch(String(value), /^\d+(\.\d+)?px$/, 'expanded type must come from the native font token, not a px size')
+      }
+    }
+  }
+
+  // An error row marks its value with data-error, so the native
+  // `ioText[data-error]` error colour applies.
+  const blocked = {
+    mission: {
+      id: 'M1',
+      status: 'blocked',
+      tasks: [{ status: 'done' }, { status: 'open' }],
+      blockers: ['waiting on base'],
+      reviewPolicy: 'required-clean',
+    },
+  }
+  const errorCard = render(react, toolviews.get('tower_mission'), {
+    toolName: 'tower_mission',
+    phase: 'result',
+    callId: 'call-err',
+    block: {
+      kind: 'tool/result',
+      callId: 'call-err',
+      call: { name: 'tower_mission' },
+      content: [{ type: 'text', text: JSON.stringify(blocked) }],
+    },
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  })
+  const errorSections = findAll(errorCard, isIoSection)
+  const errorSection = errorSections.find((section) => section.props['data-tower-tone'] === 'error')
+  assert.ok(errorSection, 'a blocker row must render as an error ioSection')
+  const errorSpans = errorSection.children.filter((child) => child && child.tag === 'span')
+  assert.deepEqual(errorSpans[0].props.style, NATIVE_IO.label)
+  assert.equal(errorSpans[1].props['data-error'], true, 'error rows carry data-error, like the native ioText')
+  assert.deepEqual(errorSpans[1].props.style, NATIVE_IO.textError, 'data-error takes the native error colour token')
+  assert.match(textOf(errorSection), /card\.tone\.error/)
+  assert.equal(findAll(errorCard, isIoCard).length, 1)
+
+  // Collapsed: the fake DisclosureRow renders `open && children`, so the card
+  // and every section/divider must be absent.
+  const collapsed = render(
+    react,
+    toolviews.get('tower_inspect'),
+    Object.assign({}, props, { useDisclosure: disclosureSeat(false, () => {}) }),
+  )
+  assert.equal(findAll(collapsed, isIoCard).length, 0, 'the expanded ioCard must not exist while collapsed')
+  assert.equal(findAll(collapsed, isIoSection).length, 0, 'no curated section may exist while collapsed')
+  assert.equal(findAll(collapsed, isIoDivider).length, 0, 'no divider may exist while collapsed')
 })
 
 test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', async () => {
@@ -686,10 +1065,14 @@ test('toolview cards render review, preflight, merge, roster, complete and block
       callId: 'call-' + tool,
       block: { kind: 'tool/result', callId: 'call-' + tool, call: { name: tool }, content: [{ type: 'text', text: JSON.stringify(payload) }] },
       t,
+      useDisclosure: disclosureSeat(true, () => {}),
     })
     assert.equal(element.props['data-tower-toolview'], tool)
-    assert.equal(element.props.role, 'group')
-    assert.equal(element.props['aria-label'], element.props.title)
+    assert.deepEqual(Object.keys(element.props).sort(), ['data-tower-phase', 'data-tower-toolview'])
+    const row = disclosureRow(element)
+    assert.ok(row, `${tool} must render the primitives DisclosureRow`)
+    assert.equal(row.props['data-open'], 'true')
+    assert.equal(row.props['data-expandable'], 'true')
     assert.ok(textOf(element).length > 0)
     if (expectedKey) assert.match(textOf(element), expectedKey)
   }
@@ -719,6 +1102,7 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
       content: [{ type: 'text', text: JSON.stringify(reviewPayload) }],
     },
     t: zhT,
+    useDisclosure: disclosureSeat(true, () => {}),
   })
   const text = textOf(card)
   assert.match(text, /2 个阻塞性问题/)
@@ -727,8 +1111,8 @@ test('tool cards and the dock expose labelled, localized status instead of raw e
   assert.doesNotMatch(text, /p1-2items|fix-then-merge/)
   const toned = findNode(card, (node) => node.props && node.props['data-tower-tone'] === 'warn')
   assert.ok(toned, 'a review finding row must carry its tone as data, not only colour')
-  assert.equal(toned.props.role, 'note')
-  assert.match(toned.props['aria-label'], /警告/)
+  assert.equal(toned.props.style.gridTemplateColumns, 'max-content 1fr', 'the row is a native ioSection')
+  assert.match(textOf(toned), /警告/, 'the caption is the localized tone word')
   assert.equal(en['enum.reviewStatus.p1'], '{count} blocking problem(s)')
   assert.equal(en['card.reviewLine'], 'review {status} · merge verdict {merge} · round {round}')
 
@@ -1157,81 +1541,248 @@ test('mode on without tower_mode uses the default deny list plus update_goal', a
   )
 })
 
-test('denied rows render the Tower mode disabled treatment and keep ordinary results generic', async () => {
+function dictionaryTranslator(bundle, lang) {
+  const dictionary = bundle.localeRegistrations[0].dictionaries[lang]
+  return (key, params) =>
+    String(dictionary[key] ?? key).replace(/\{(\w+)\}/g, (match, name) =>
+      params && params[name] !== undefined ? String(params[name]) : match,
+    )
+}
+
+test('denied rows are the native DisclosureRow with the io-card body only while open', async () => {
   const bundle = await components()
   const { react, dock, registrations } = bundle
   render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  const en = bundle.localeRegistrations[0].dictionaries.en
+  const enT = dictionaryTranslator(bundle, 'en')
+  const wait = deniedRegistrations(registrations).find((entry) => entry.options.key === 'wait_agent')
   const todo = deniedRegistrations(registrations).find((entry) => entry.options.key === 'todo_write')
-  const updateGoal = deniedRegistrations(registrations).find((entry) => entry.options.key === 'update_goal')
-  assert.ok(todo && updateGoal)
+  assert.ok(wait && todo)
 
-  const denialMessage = 'tower mode: todo_write is disabled while Tower mode is active; use the Tower tools or /tower off'
-  const denied = render(react, todo.component, {
-    toolName: 'todo_write',
+  const denialMessage = 'tower mode: wait_agent is disabled while Tower mode is active; use the Tower tools or /tower off'
+  const base = {
+    toolName: 'wait_agent',
     phase: 'result',
-    callId: 'call-1',
-    block: toolErrorNode('todo_write', denialMessage),
-    t,
-  })
-  assert.equal(denied.props['data-tower-denied-view'], 'denied')
-  assert.equal(denied.props.role, 'note')
-  assert.match(textOf(denied), /deny\.label/)
-  assert.match(textOf(denied), /deny\.hint/)
-  assert.match(textOf(denied), /todo_write is disabled while Tower mode is active/)
-  assert.doesNotMatch(denied.props.style.color || '', /state-error/)
+    callId: 'call-denied',
+    block: toolErrorNode('wait_agent', denialMessage),
+    t: enT,
+  }
+  let toggles = 0
+  const collapsed = render(
+    react,
+    wait.component,
+    Object.assign({}, base, { useDisclosure: disclosureSeat(false, () => (toggles += 1)) }),
+  )
+  assert.equal(collapsed.props['data-tower-toolview'], 'wait_agent')
+  assert.equal(collapsed.props['data-tower-denied-view'], 'denied')
+  assert.equal(collapsed.props.style, undefined, 'the row wrapper carries no self-drawn card style')
+  const collapsedRow = disclosureRow(collapsed)
+  assert.ok(collapsedRow, 'the blocked row must be the native row, not a self-drawn card')
+  assert.equal(collapsedRow.props['data-primitives-running'], 'false')
+  assert.equal(collapsedRow.props['data-expandable'], 'true', 'a settled denial is expandable')
+  assert.equal(collapsedRow.props['data-open'], 'false')
+  assert.equal(collapsedRow.props.role, 'button', 'expandOnRowClick makes the settled row a button')
+  assert.equal(collapsedRow.props['aria-expanded'], false)
+  const icon = findNode(collapsed, (node) => node.props && node.props['data-primitives-icon'] !== undefined)
+  assert.ok(icon, 'the leading icon comes from the primitives icon family')
+  assert.equal(icon.props.width, 14)
+  const sep = findNode(collapsed, (node) => node.props && node.props.key === 'sep')
+  assert.ok(sep, 'the collapsed row carries the native 2px caption dot')
+  assert.equal(sep.props.style.width, '2px')
+  assert.equal(sep.props['aria-hidden'], true)
+  const summary = findNode(collapsed, (node) => node.props && node.props.key === 'summary')
+  assert.equal(summary.props.style.color, 'var(--dsw-alias-state-warn-label)', 'the blocked summary takes the native warn text token')
+  const collapsedText = textOf(collapsed)
+  assert.match(collapsedText, /Wait for agent/, 'the title is the friendly localized name')
+  assert.match(collapsedText, /Unavailable in Tower mode/)
+  assert.doesNotMatch(collapsedText, /wait_agent/, 'a mapped tool never leaks its wire id into visible copy')
+  assert.doesNotMatch(collapsedText, /tower mode:/i, 'the raw host denial sentence is never visible')
+  assert.doesNotMatch(collapsedText, /is disabled while Tower mode is active/)
+  assert.equal(findAll(collapsed, isIoCard).length, 0, 'the io-card body exists only while open')
+  assert.equal(findAll(collapsed, isIoSection).length, 0)
+  collapsedRow.props.onClick()
+  assert.equal(toggles, 1, 'the row routes its click through the host DisclosureRow seat')
 
-  const resumeMessage = 'tower mode: goals cannot be resumed while Tower mode is active; use /tower off first'
-  const resume = render(react, updateGoal.component, {
-    toolName: 'update_goal',
-    phase: 'result',
-    callId: 'call-2',
-    block: toolErrorNode('update_goal', resumeMessage),
-    t,
+  // Expanded: bodyWrap > ioCard with exactly two ioSections and one ioDivider,
+  // both on the M117 native tokens, carrying only the localized explanation.
+  const open = render(
+    react,
+    wait.component,
+    Object.assign({}, base, { useDisclosure: disclosureSeat(true, () => {}) }),
+  )
+  const openRow = disclosureRow(open)
+  assert.equal(openRow.props['data-open'], 'true')
+  assert.equal(openRow.props['aria-expanded'], true)
+  const bodyWrap = findNode(open, (node) => {
+    if (!node.props || !node.props.style) return false
+    const style = node.props.style
+    return style.display === 'flex' && style.flexDirection === 'column' && Object.keys(style).length === 2
   })
-  assert.equal(resume.props['data-tower-denied-view'], 'denied')
-  assert.match(textOf(resume), /goals cannot be resumed while Tower mode is active/)
+  assert.ok(bodyWrap, 'the io-card sits in the native bodyWrap flex column')
+  const cards = findAll(open, isIoCard)
+  assert.equal(cards.length, 1, 'the open body is exactly one native ioCard')
+  assert.deepEqual(cards[0].props.style, NATIVE_IO.card)
+  const sections = findAll(open, isIoSection)
+  assert.equal(sections.length, 2, 'reason and next step are two native ioSections')
+  assert.deepEqual(sections.map((section) => section.props.style), [NATIVE_IO.section, NATIVE_IO.section])
+  for (const section of sections) {
+    const spans = section.children.filter((child) => child && child.tag === 'span')
+    assert.equal(spans.length, 2, 'an ioSection is the ioLabel + ioText pair')
+    assert.deepEqual(spans[0].props.style, NATIVE_IO.label)
+    assert.deepEqual(spans[1].props.style, NATIVE_IO.text)
+    assert.equal(spans[1].props['data-error'], undefined)
+  }
+  const sectionTexts = sections.map((section) => textOf(section))
+  assert.ok(sectionTexts[0].includes(en['deny.reasonLabel']))
+  assert.ok(sectionTexts[0].includes(en['deny.reason']))
+  assert.ok(sectionTexts[1].includes(en['deny.nextLabel']))
+  assert.ok(sectionTexts[1].includes(en['deny.hint']))
+  const dividers = findAll(open, isIoDivider)
+  assert.equal(dividers.length, 1, 'the two sections are separated by the native ioDivider')
+  assert.deepEqual(dividers[0].props.style, NATIVE_IO.divider)
+  const cardChildren = cards[0].children.flat()
+  assert.equal(cardChildren.length, 3)
+  assert.ok(isIoSection(cardChildren[0]))
+  assert.ok(isIoDivider(cardChildren[1]))
+  assert.ok(isIoSection(cardChildren[2]))
+  const openText = textOf(open)
+  assert.doesNotMatch(openText, /tower mode:/i, 'the expanded body never shows the raw host sentence')
+  assert.doesNotMatch(openText, /is disabled while Tower mode is active/)
+  assert.doesNotMatch(openText, /wait_agent/)
+  // No hardcoded px type or hex/rgb colour anywhere in the row or its body.
+  for (const node of findAll(open, () => true)) {
+    const style = node.props && node.props.style
+    if (!style) continue
+    for (const [prop, value] of Object.entries(style)) {
+      assert.doesNotMatch(String(value), /#[0-9a-f]{3,8}\b/i, `denied style ${prop} must not hardcode a hex colour`)
+      assert.doesNotMatch(String(value), /^rgba?\(/i, `denied style ${prop} must not hardcode an rgb colour`)
+      if (prop === 'fontSize') {
+        assert.doesNotMatch(String(value), /^\d+(\.\d+)?px$/, 'the row type scales with the native font tokens, not a px size')
+      }
+    }
+  }
 
-  // A permitted update_goal action is not rendered as a mode denial.
-  const pause = render(react, updateGoal.component, {
-    toolName: 'update_goal',
-    phase: 'result',
-    callId: 'call-2b',
-    block: { kind: 'tool/result', call: { name: 'update_goal' }, content: [{ type: 'text', text: 'Goal paused.' }] },
-    t,
+  // A live row keeps the native running row and never opens, even if the seat
+  // reports an expanded disclosure.
+  const running = render(react, wait.component, {
+    toolName: 'wait_agent',
+    phase: 'start',
+    callId: 'call-running',
+    block: { callId: 'call-running', name: 'wait_agent' },
+    t: enT,
+    useDisclosure: disclosureSeat(true, () => {}),
   })
-  assert.equal(pause.props['data-tower-denied-view'], 'generic')
-  assert.doesNotMatch(textOf(pause), /deny\.label/)
+  assert.equal(running.props['data-tower-denied-view'], 'running')
+  const runningRow = disclosureRow(running)
+  assert.ok(runningRow)
+  assert.equal(runningRow.props['data-primitives-running'], 'true')
+  assert.equal(runningRow.props['data-expandable'], 'false')
+  assert.equal(runningRow.props['data-open'], 'false', 'a running row cannot open')
+  assert.equal(findAll(running, isIoCard).length, 0)
+  assert.match(textOf(running), /Blocked while Tower mode is on/)
+  assert.match(textOf(running), /Wait for agent/)
+  assert.doesNotMatch(textOf(running), /wait_agent/)
 
-  // Non-denial result while the dynamic view is active: defensive generic row.
+  // Non-denial results keep the same native row shape, never a self-drawn card.
   const ordinary = render(react, todo.component, {
     toolName: 'todo_write',
     phase: 'result',
-    callId: 'call-3',
+    callId: 'call-ordinary',
     block: { kind: 'tool/result', call: { name: 'todo_write' }, content: [{ type: 'text', text: 'Todo list updated.' }] },
-    t,
+    t: enT,
+    useDisclosure: disclosureSeat(true, () => {}),
   })
   assert.equal(ordinary.props['data-tower-denied-view'], 'generic')
+  const ordinaryRow = disclosureRow(ordinary)
+  assert.ok(ordinaryRow, 'the fallback row is the native row too')
+  assert.equal(ordinaryRow.props['data-expandable'], 'false')
+  assert.equal(ordinaryRow.props['data-open'], 'false')
+  assert.match(textOf(ordinary), /done/)
+  assert.equal(findAll(ordinary, isIoCard).length, 0)
 
-  // An ordinary failure is not mistaken for a Tower-mode denial.
+  // An ordinary failure is not a Tower-mode denial: localized error summary,
+  // and the localized error line in the io-card once expanded.
   const failure = render(react, todo.component, {
     toolName: 'todo_write',
     phase: 'result',
-    callId: 'call-4',
+    callId: 'call-failure',
     block: toolErrorNode('todo_write', 'boom: backend unavailable'),
-    t,
+    t: enT,
+    useDisclosure: disclosureSeat(false, () => {}),
   })
   assert.equal(failure.props['data-tower-denied-view'], 'generic')
-  assert.match(textOf(failure), /deny\.error/)
+  const failureRow = disclosureRow(failure)
+  assert.ok(failureRow)
+  assert.equal(failureRow.props['data-expandable'], 'true')
+  const failureSummary = findNode(failure, (node) => node.props && node.props.key === 'summary')
+  assert.equal(failureSummary.props.style.color, 'var(--dsw-alias-state-error-primary)')
+  assert.match(textOf(failure), /Tool failed/)
+  assert.equal(findAll(failure, isIoCard).length, 0)
 
-  // A live (preparing/start) row keeps the neutral disabled view.
-  const running = render(react, todo.component, {
+  const failureOpen = render(react, todo.component, {
     toolName: 'todo_write',
-    phase: 'start',
-    callId: 'call-5',
-    block: { callId: 'call-5', name: 'todo_write' },
-    t,
+    phase: 'result',
+    callId: 'call-failure',
+    block: toolErrorNode('todo_write', 'boom: backend unavailable'),
+    t: enT,
+    useDisclosure: disclosureSeat(true, () => {}),
   })
-  assert.equal(running.props['data-tower-denied-view'], 'running')
+  const errorSections = findAll(failureOpen, isIoSection)
+  assert.equal(errorSections.length, 1, 'the error body is one ioSection')
+  const errorSpans = errorSections[0].children.filter((child) => child && child.tag === 'span')
+  assert.deepEqual(errorSpans[0].props.style, NATIVE_IO.label)
+  assert.equal(errorSpans[1].props['data-error'], true)
+  assert.deepEqual(errorSpans[1].props.style, NATIVE_IO.textError)
+  assert.match(textOf(errorSections[0]), /Error/)
+  assert.ok(textOf(errorSections[0]).includes('boom: backend unavailable'))
+})
+
+test('every default denied tool renders its localized name, unknown tools keep theirs', async () => {
+  const bundle = await components()
+  const { react, dock, registrations } = bundle
+  render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  const zh = bundle.localeRegistrations[0].dictionaries.zh
+  const zhT = dictionaryTranslator(bundle, 'zh')
+  const registered = deniedRegistrations(registrations)
+  // The default deny surface (17 foreign tools, update_goal included); every
+  // name must have a friendly label in the catalogue.
+  assert.equal(registered.length, 17)
+  for (const entry of registered) {
+    const name = entry.options.key
+    const message = `tower mode: ${name} is disabled while Tower mode is active; use the Tower tools or /tower off`
+    const element = render(react, entry.component, {
+      toolName: name,
+      phase: 'result',
+      callId: 'call-' + name,
+      block: toolErrorNode(name, message),
+      t: zhT,
+      useDisclosure: disclosureSeat(false, () => {}),
+    })
+    const text = textOf(element)
+    assert.ok(text.includes(zh['deny.tool.' + name]), `${name} must render its localized friendly name`)
+    assert.doesNotMatch(text, new RegExp(`\\b${name}\\b`), `${name} must not leak its wire id into visible copy`)
+    assert.doesNotMatch(text, /tower mode:/i, `${name} must not render the raw host sentence`)
+    assert.match(text, /Tower 模式中不可用/)
+  }
+
+  // A custom denied tool has no friendly entry, so the native fallback is the
+  // wire name itself — the same thing the native row shows for an unknown tool.
+  render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([toolResultNode('tower_mode', { mode: 'on', deniedWhileActive: ['custom_tool'] })])),
+  })
+  const custom = deniedRegistrations(registrations).find((entry) => entry.options.key === 'custom_tool')
+  assert.ok(custom)
+  const element = render(react, custom.component, {
+    toolName: 'custom_tool',
+    phase: 'result',
+    callId: 'call-custom',
+    block: toolErrorNode('custom_tool', 'tower mode: custom_tool is disabled while Tower mode is active; use /tower off'),
+    t: zhT,
+    useDisclosure: disclosureSeat(false, () => {}),
+  })
+  assert.match(textOf(element), /custom_tool/, 'an unknown tool falls back to its own name')
+  assert.doesNotMatch(textOf(element), /tower mode:/i)
 })
 
 test('mode off keeps the native priority-0 registrations and no dynamic entries', async () => {

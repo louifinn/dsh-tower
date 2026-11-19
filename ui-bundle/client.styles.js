@@ -13,24 +13,68 @@ window.__ModuleLoader__.load({
       none: 'var(--dsw-alias-label-tertiary)',
     }
     const ST = {
-      card: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
-        minWidth: 0,
-        maxWidth: '100%',
-        boxSizing: 'border-box',
-        margin: '2px 0 2px 4px',
-        padding: '8px 10px',
-        border: '0.5px solid var(--dsw-alias-border-l1)',
-        borderRadius: '8px',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: '12px',
-        lineHeight: '18px',
+      // Native row summary geometry: the 2px caption dot between the title and
+      // a one-line ellipsized summary whose type scales with the appearance
+      // text-size setting (the live variables the native `ToolRow.module.css`
+      // uses), so the row stays pixel-identical at any content font size.
+      sep: {
+        flex: 'none',
+        width: '2px',
+        height: '2px',
+        margin: '0 8px',
+        borderRadius: '1px',
+        background: 'var(--dsw-alias-label-caption)',
       },
-      header: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 },
-      title: { color: 'var(--dsw-alias-label-primary)', flex: 'none' },
+      summary: {
+        flex: 'auto',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        color: 'var(--dsw-alias-label-tertiary)',
+        fontSize: 'var(--dsh-content-font-size-secondary, 13px)',
+        lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
+      },
+      // The mode-blocked row summary keeps the native row geometry and takes
+      // the state text tokens the host uses for warning/error captions.
+      summaryWarn: { color: 'var(--dsw-alias-state-warn-label)' },
+      summaryError: { color: 'var(--dsw-alias-state-error-primary)' },
+      // Expanded body: the native generic tool-result surface, token for token
+      // from the host `ToolRow.module.css` (`bodyWrap`/`ioCard`/`ioSection`/
+      // `ioLabel`/`ioText`/`ioDivider`). The open card must look like the row
+      // the host renders for a generic tool result: the border, code-block
+      // background and `font` shorthand are what give it the native surface and
+      // type scale. Never pin a px font size or a hex/rgb colour here — the
+      // `font` shorthand and the `--dsw-*` tokens follow the appearance
+      // text-size setting and the light/dark theme.
+      bodyWrap: { display: 'flex', flexDirection: 'column' },
+      ioCard: {
+        border: '.5px solid var(--dsw-alias-border-l1)',
+        borderRadius: 'var(--dsw-radius-lg)',
+        background: 'var(--dsw-alias-markdown-code-block)',
+        font: 'var(--dsw-font-markdown-code-block-small)',
+        flexDirection: 'column',
+        margin: '4px 0 4px 4px',
+        display: 'flex',
+      },
+      ioSection: {
+        gridTemplateColumns: 'max-content 1fr',
+        alignItems: 'baseline',
+        columnGap: '14px',
+        maxHeight: '150px',
+        padding: '12px 16px',
+        display: 'grid',
+        overflowY: 'auto',
+      },
+      ioLabel: { color: 'var(--dsw-alias-label-caption)', alignSelf: 'start', position: 'sticky', top: 0 },
+      ioText: {
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        minWidth: 0,
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      ioTextError: { color: 'var(--dsw-alias-state-error-primary)' },
+      ioDivider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
       dim: {
         color: 'var(--dsw-alias-label-tertiary)',
         minWidth: 0,
@@ -38,10 +82,7 @@ window.__ModuleLoader__.load({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
       },
-      row: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       rowError: { color: 'var(--dsw-alias-state-error-primary)' },
-      rowWarn: { color: 'var(--dsw-alias-state-warn-primary)' },
-      rowOk: { color: 'var(--dsw-alias-state-success-primary)' },
       hint: {
         display: 'inline-flex',
         alignItems: 'center',
@@ -117,24 +158,6 @@ window.__ModuleLoader__.load({
       },
       modeChipLabel: { color: 'var(--dsw-alias-label-primary)' },
       modeChipOn: { color: 'var(--dsw-alias-state-success-primary)' },
-      denyCard: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
-        minWidth: 0,
-        maxWidth: '100%',
-        boxSizing: 'border-box',
-        margin: '2px 0 2px 4px',
-        padding: '8px 10px',
-        border: '0.5px solid var(--dsw-alias-border-l2)',
-        borderRadius: '8px',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: '12px',
-        lineHeight: '18px',
-      },
-      denyLabel: { color: 'var(--dsw-alias-state-warn-primary)', flex: 'none' },
-      denyHint: { color: 'var(--dsw-alias-label-tertiary)' },
     }
     function dotStyle(tone) {
       return {
