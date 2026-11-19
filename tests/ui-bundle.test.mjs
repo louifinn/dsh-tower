@@ -124,6 +124,9 @@ function loadBundle(react, options = {}) {
     IconChecklistOutlineRegular(props) {
       return react.createElement('svg', { 'data-primitives-icon': '', width: props.size })
     },
+    IconInspectOutlineRegular(props) {
+      return react.createElement('svg', { 'data-primitives-icon': 'inspect', width: props.size })
+    },
   }
   const required = []
   const asyncRequired = []
@@ -143,6 +146,9 @@ function loadBundle(react, options = {}) {
     )
   }
   const materialized = new Map()
+  // A test may load one mutated chunk source (the #195 negative proofs load a
+  // copy with the affordance wiring deleted) without touching the shipped file.
+  const chunkSources = options.chunkSources || {}
   // Real DSH `require.async("./client.<name>.js")` fetches and registers the
   // sibling chunk script, then materializes its factory once.
   fakeRequire.async = async (spec) => {
@@ -151,7 +157,8 @@ function loadBundle(react, options = {}) {
     const file = spec.slice(2)
     if (!chunkDefinitions.has(file)) {
       // eslint-disable-next-line no-new-func -- the chunk is a plain browser script
-      new Function('window', fs.readFileSync(path.join(CLIENT_DIR, file), 'utf8'))(window)
+      const source = typeof chunkSources[file] === 'string' ? chunkSources[file] : fs.readFileSync(path.join(CLIENT_DIR, file), 'utf8')
+      new Function('window', source)(window)
     }
     const definition = chunkDefinitions.get(file)
     assert.ok(definition, `${file} must register through window.__ModuleLoader__.load`)
@@ -367,13 +374,18 @@ test('a shell without the UI-primitives word leaves the host native tool rows al
   )
 })
 
-test('client logic stays within 10% of the 1980-line #71 budget and every file at most 400 lines', () => {
+test('client logic stays within the #71 budget and every file at most 400 lines', () => {
   // #71: the pre-split client.js was 1,980 lines. #F67: the ratchet covers
   // client *logic*; client.locales.js is the bilingual translation catalogue,
   // whose copy must grow with the surface, so it is excluded from the sum and
   // measured by the data guards below. Every file, the catalogue included,
   // still has to stay under the 400-line split target.
-  const BASELINE = 1980
+  // #195: the native-affordance work (file links, inspect accessory, image
+  // preview, scroll region instead of a 6-row slice) is logic, so ADR 0011's
+  // 2026-11-19 amendment moves the ceiling from 2,178 to 2,420; the 1,782
+  // floor and the 400-line per-file target are unchanged.
+  const FLOOR = 1782
+  const CEILING = 2420
   const CATALOGUE = 'client.locales.js'
   const files = fs
     .readdirSync(CLIENT_DIR, { withFileTypes: true })
@@ -392,12 +404,12 @@ test('client logic stays within 10% of the 1980-line #71 budget and every file a
   )
   const total = sizes.reduce((sum, file) => sum + (file.name === CATALOGUE ? 0 : file.lines), 0)
   assert.ok(
-    total >= BASELINE * 0.9,
-    `client logic total ${total} lines fell below 90% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+    total >= FLOOR,
+    `client logic total ${total} lines fell below the ${FLOOR}-line #71 floor (excluding ${CATALOGUE} translation data)`,
   )
   assert.ok(
-    total <= BASELINE * 1.1,
-    `client logic total ${total} lines exceeds 110% of ${BASELINE} (excluding ${CATALOGUE} translation data)`,
+    total <= CEILING,
+    `client logic total ${total} lines exceeds the ${CEILING}-line ceiling from ADR 0011's 2026-11-19 amendment (excluding ${CATALOGUE} translation data)`,
   )
   // The chunk list is the shipped surface list; every client.<surface>.js file
   // is a real chunk the entry loads exactly once.
@@ -802,16 +814,27 @@ test('the entry loads every split chunk through the module system exactly once',
 // 3. Component behaviour (fake hooks, no browser).
 // ---------------------------------------------------------------------------
 async function components() {
-  const bundle = await registerAll()
+  return componentsFrom({})
+}
+
+// Load one bundle instance with test options (mutated chunk source or a missing
+// primitives word); the full registration path is the same as `components()`.
+async function componentsFrom(options) {
+  const react = createFakeReact()
+  const bundle = loadBundle(react, options)
+  const fakeCtx = createFakeContext()
+  CLEANUPS.push(fakeCtx)
+  await bundle.plugin.apply(fakeCtx.ctx)
+  fakeCtx.runInjections()
   const toolviews = new Map()
-  for (const entry of bundle.registrations) {
+  for (const entry of fakeCtx.registrations) {
     if (entry.options.name === 'tool.call.toolview') toolviews.set(entry.options.key, entry.component)
   }
-  const dock = bundle.registrations.find((entry) => entry.options.name === 'conversation.composer.dock').component
-  const overlayEntry = bundle.registrations.find((entry) => entry.options.name === 'shell.overlay')
+  const dock = fakeCtx.registrations.find((entry) => entry.options.name === 'conversation.composer.dock').component
+  const overlayEntry = fakeCtx.registrations.find((entry) => entry.options.name === 'shell.overlay')
   const overlay = overlayEntry.component
   const noticeSource = overlayEntry.options.inject().hooks.towerNotice
-  return { ...bundle, toolviews, dock, overlay, noticeSource }
+  return { react, ...bundle, ...fakeCtx, toolviews, dock, overlay, noticeSource }
 }
 
 function t(key, params) {
@@ -952,6 +975,9 @@ test('toolview renders the native DisclosureRow and publishes start/result notic
 // `ioDivider`), in CSS-in-JS form.
 const NATIVE_IO = {
   bodyWrap: { display: 'flex', flexDirection: 'column' },
+  // #195: the expanded body is a native-like scroll region, not a truncated
+  // list; the cap is the host's `bodyScroll` height.
+  bodyScroll: { maxHeight: '260px', overflowY: 'auto' },
   card: {
     border: '.5px solid var(--dsw-alias-border-l1)',
     borderRadius: 'var(--dsw-radius-lg)',
@@ -974,12 +1000,15 @@ const NATIVE_IO = {
   text: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    // #195: an unbroken path must wrap inside the scroll region, never widen it.
+    overflowWrap: 'anywhere',
     minWidth: 0,
     color: 'var(--dsw-alias-label-secondary)',
   },
   textError: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
     minWidth: 0,
     color: 'var(--dsw-alias-state-error-primary)',
   },
@@ -994,6 +1023,108 @@ function isIoSection(node) {
 }
 function isIoDivider(node) {
   return Boolean(node.props && node.props.style && node.props.style.height === '.5px')
+}
+
+// #195: the native ToolRow affordances. A file value is the native fileLink
+// (dotted underline, inherited type, no local chrome); inspect is the native
+// pill; an image is the native image block. These are the token sets the
+// expanded body must use instead of dead text.
+const NATIVE_FILE_LINK = {
+  font: 'inherit',
+  color: 'inherit',
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  textAlign: 'left',
+  textDecoration: 'underline dotted',
+  textUnderlineOffset: '2px',
+  cursor: 'pointer',
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+}
+const NATIVE_INSPECT = {
+  alignSelf: 'flex-start',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  margin: '4px 0 2px 4px',
+  padding: '2px 8px',
+  border: '.5px solid var(--dsw-alias-border-l3)',
+  borderRadius: '999px',
+  background: 'var(--dsw-alias-bg-base)',
+  color: 'var(--dsw-alias-label-secondary)',
+  cursor: 'pointer',
+  font: 'inherit',
+  lineHeight: '16px',
+}
+const NATIVE_IMAGE = { maxWidth: '100%', maxHeight: '240px', display: 'block', objectFit: 'contain' }
+const NATIVE_IMAGE_META = { color: 'var(--dsw-alias-label-tertiary)', overflowWrap: 'anywhere' }
+
+function isFileButton(node) {
+  return node.tag === 'button' && Boolean(node.props) && node.props['data-tower-file'] !== undefined
+}
+function isInspectButton(node) {
+  return node.tag === 'button' && Boolean(node.props) && node.props['data-tower-inspect'] === 'true'
+}
+function isImageNode(node) {
+  return node.tag === 'img'
+}
+
+// The settled-result props `ToolCall` hands the toolview owner.
+function resultProps(toolName, payload, extra) {
+  const callId = 'call-' + toolName
+  return Object.assign(
+    {
+      toolName,
+      phase: 'result',
+      callId,
+      block: {
+        kind: 'tool/result',
+        callId,
+        call: { name: toolName },
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
+      },
+      t,
+      useDisclosure: disclosureSeat(true, () => {}),
+    },
+    extra,
+  )
+}
+
+// Named assertions shared by the positive tests and the mutated-chunk negative
+// proof: deleting the wiring must make these exact messages fail.
+function assertEveryRow(open, count) {
+  assert.equal(findAll(open, isIoSection).length, count, 'every curated row renders — no six-row cut')
+}
+function assertFileLinks(open, expected) {
+  const buttons = findAll(open, isFileButton)
+  assert.equal(buttons.length, expected.length, 'every path with an owner openFile is a native file button')
+  buttons.forEach((button, index) => {
+    assert.equal(button.props.type, 'button', 'a file link is a button, not a span with an onClick')
+    assert.deepEqual(
+      button.props.style,
+      Object.assign({}, NATIVE_IO.text, NATIVE_FILE_LINK),
+      'a file link takes the native fileLink tokens on top of ioText',
+    )
+    assert.equal(button.props['data-tower-file'], expected[index].path, 'the button names the repo-relative path')
+    assert.equal(button.props.title, expected[index].path, 'the native title is the path')
+    assert.equal(button.props['aria-label'], 'card.openFile:path=' + expected[index].path, 'the accessible name is localized')
+    assert.equal(textOf(button), expected[index].text, 'the visible value is the payload text, not a rewritten path')
+  })
+}
+function assertInspectAccessory(open) {
+  const button = findNode(open, isInspectButton)
+  assert.ok(button, 'an owner-supplied inspect callback renders the native inspect accessory')
+  assert.equal(button.props.type, 'button')
+  assert.equal(button.props['aria-label'], 'card.inspectPayload', 'the inspect button has a localized accessible name')
+  assert.equal(button.props.title, 'card.inspectPayload', 'the inspect button has a localized tooltip')
+  assert.deepEqual(button.props.style, NATIVE_INSPECT, 'inspect is the native pill, not local chrome')
+  assert.match(textOf(button), /tool\.inspect/, 'the visible label is the localized Inspect word')
+}
+function assertImagePreview(open, name) {
+  const image = findNode(open, isImageNode)
+  assert.ok(image, 'a declared image result renders through loadImage')
+  assert.equal(image.props.alt, name, 'the image carries the declared name as alt text')
 }
 
 test('expanded toolview body is the native io-card surface, token for token', async () => {
@@ -1135,6 +1266,295 @@ test('expanded toolview body is the native io-card surface, token for token', as
   assert.equal(findAll(collapsed, isIoCard).length, 0, 'the expanded ioCard must not exist while collapsed')
   assert.equal(findAll(collapsed, isIoSection).length, 0, 'no curated section may exist while collapsed')
   assert.equal(findAll(collapsed, isIoDivider).length, 0, 'no divider may exist while collapsed')
+})
+
+test('expanded cards render every curated row in the native scroll region, not six (#195)', async () => {
+  const { react, toolviews } = await components()
+  const files = Array.from({ length: 12 }, (_, index) => 'src/changed-' + index + '.js')
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: files }),
+  )
+  // One changed-files count row plus all twelve paths: thirteen curated rows,
+  // so the twelfth path is reachable (the old `slice(0, 6)` hid seven of them).
+  assertEveryRow(open, 13)
+  const scroll = findNode(
+    open,
+    (node) => Boolean(node.props && node.props.style && node.props.style.maxHeight === '260px' && node.props.style.overflowY === 'auto'),
+  )
+  assert.ok(scroll, 'the ioCard sits in the native bodyScroll region')
+  assert.deepEqual(scroll.props.style, NATIVE_IO.bodyScroll, 'the scroll cap is the native 260px bodyScroll box')
+  assert.ok(findNode(scroll, isIoCard), 'the native ioCard is inside the scroll region, not beside it')
+  for (const file of files) assert.ok(textOf(open).includes(file), 'every changed path stays reachable: ' + file)
+
+  let toggled = 0
+  const collapsed = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: files },
+      { useDisclosure: disclosureSeat(false, () => { toggled += 1 }) },
+    ),
+  )
+  assert.equal(findAll(collapsed, isIoSection).length, 0, 'collapsed rows keep no detail body')
+  assert.equal(findAll(collapsed, isIoCard).length, 0, 'collapsed rows keep no ioCard')
+  const row = disclosureRow(collapsed)
+  assert.ok(row)
+  assert.equal(row.props['data-open'], 'false')
+  assert.equal(row.props['aria-expanded'], false, 'the primitives row owns aria-expanded while collapsed')
+  row.props.onClick()
+  assert.equal(toggled, 1, 'the native row click still routes to the disclosure toggle')
+})
+
+test('file-like values are native file links only when the owner supplies openFile (#195)', async () => {
+  const { react, toolviews } = await components()
+  const files = [
+    { text: 'src/a.js', path: 'src/a.js' },
+    { text: 'src/b.js:12', path: 'src/b.js' },
+    { text: 'README.md', path: 'README.md' },
+  ]
+  const calls = []
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: files.map((file) => file.text) },
+      { openFile: (filePath, options) => calls.push([filePath, options]) },
+    ),
+  )
+  assertFileLinks(open, files)
+  const buttons = findAll(open, isFileButton)
+  let stopped = 0
+  buttons[1].props.onClick({
+    stopPropagation() {
+      stopped += 1
+    },
+  })
+  assert.equal(stopped, 1, 'opening a file must not also toggle the disclosure row')
+  assert.deepEqual(calls, [['src/b.js', { line: 12 }]], 'the native argument shape is (path, { line }?)')
+  buttons[0].props.onClick({ stopPropagation() {} })
+  assert.deepEqual(calls[1], ['src/a.js', undefined], 'a path without a line passes undefined, like the native row')
+
+  // No owner handler: the same payload stays plain text (no dead affordance).
+  const plain = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: ['src/a.js'] }),
+  )
+  assert.equal(findAll(plain, isFileButton).length, 0, 'without openFile a path stays plain text')
+  const plainValue = findAll(plain, isIoSection)[1].children.filter((child) => child && child.tag === 'span')[1]
+  assert.deepEqual(plainValue.props.style, NATIVE_IO.text, 'the plain value keeps the ioText tokens')
+  assert.ok(textOf(plain).includes('src/a.js'))
+
+  // The native ToolRow spells the prop `onOpenFile`; the native name is a
+  // defensive alias for the slot's documented `openFile`.
+  const aliasCalls = []
+  const alias = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'preflight', ok: true, changedFiles: ['src/a.js'] },
+      { onOpenFile: (filePath) => aliasCalls.push(filePath) },
+    ),
+  )
+  assertFileLinks(alias, [{ path: 'src/a.js', text: 'src/a.js' }])
+  findNode(alias, isFileButton).props.onClick({ stopPropagation() {} })
+  assert.deepEqual(aliasCalls, ['src/a.js'], 'the native onOpenFile name is accepted as an alias')
+})
+
+test('the native inspect accessory is reachable only through the owner callback (#195)', async () => {
+  const { react, toolviews } = await components()
+  const payload = { view: 'status', counts: { planned: 0, active: 1, completed: 0 }, openTasks: 1, missions: [] }
+  let inspected = 0
+  const open = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', payload, { inspect: () => { inspected += 1 } }),
+  )
+  assertInspectAccessory(open)
+  findNode(open, isInspectButton).props.onClick()
+  assert.equal(inspected, 1, 'the accessory calls the owner inspect callback')
+  const icon = findNode(
+    findNode(open, isInspectButton),
+    (node) => node.tag === 'svg' && Boolean(node.props) && node.props['data-primitives-icon'] === 'inspect',
+  )
+  assert.ok(icon, 'when the primitives namespace exposes the inspect icon the pill uses it')
+
+  const without = render(react, toolviews.get('tower_inspect'), resultProps('tower_inspect', payload))
+  assert.equal(findNode(without, isInspectButton), null, 'without inspect no button is rendered (no dead affordance)')
+
+  // A text result has no curated rows, but the owner callback is still a real
+  // affordance: the open body is the accessory alone, not an empty card.
+  const inspectOnly = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps('tower_inspect', { text: 'plain result' }, { inspect: () => { inspected += 1 } }),
+  )
+  assertInspectAccessory(inspectOnly)
+  assert.equal(findAll(inspectOnly, isIoCard).length, 0, 'inspect alone does not fabricate an ioCard')
+  assert.equal(findAll(inspectOnly, isIoSection).length, 0)
+})
+
+test('image results preview through the owner loadImage and degrade to text (#195)', async () => {
+  const { react, toolviews } = await components()
+  const attachment = { attachmentId: 'att-1', mediaType: 'image/png', name: 'shot.png', width: 640, height: 480, bytes: 2048 }
+  const block = {
+    kind: 'tool/result',
+    callId: 'call-image',
+    call: { name: 'tower_inspect' },
+    content: [
+      { type: 'text', text: JSON.stringify({ view: 'status', counts: { total: 1, active: 0 }, missions: [] }) },
+      { type: 'image', attachment },
+    ],
+  }
+  const imageProps = {
+    toolName: 'tower_inspect',
+    phase: 'result',
+    callId: 'call-image',
+    block,
+    t,
+    useDisclosure: disclosureSeat(true, () => {}),
+  }
+  let peekedCalls = 0
+  const peekedLoader = (value) => {
+    peekedCalls += 1
+    return Promise.resolve('blob:async')
+  }
+  peekedLoader.peek = () => 'blob:peek'
+  const open = render(react, toolviews.get('tower_inspect'), Object.assign({}, imageProps, { loadImage: peekedLoader }))
+  assertImagePreview(open, 'shot.png')
+  const image = findNode(open, isImageNode)
+  assert.equal(image.props.src, 'blob:peek', 'a peeked URL paints on the first render, like the native message image')
+  assert.deepEqual(image.props.style, NATIVE_IMAGE, 'the preview keeps the native image sizing')
+  const meta = findNode(
+    open,
+    (node) =>
+      Boolean(node.props && node.props.style) &&
+      node.props.style.color === 'var(--dsw-alias-label-tertiary)' &&
+      node.props.style.overflowWrap === 'anywhere',
+  )
+  assert.ok(meta, 'the image block carries the native meta line')
+  assert.deepEqual(meta.props.style, NATIVE_IMAGE_META)
+  assert.ok(textOf(open).includes('card.imageMeta:height=480,name=shot.png,width=640'))
+  assert.equal(
+    findNode(open, (node) => Boolean(node.props && node.props['data-tower-images'] !== undefined)).props['data-tower-images'],
+    '1',
+  )
+  assert.equal(peekedCalls, 0, 'a peeked URL does not await the loader again')
+  assert.doesNotMatch(textOf(open), /att-1/, 'the attachment id is never dumped as body text')
+
+  // No peek: the loader is consulted once; while it settles the native meta
+  // line carries the localized loading word (never the payload bytes).
+  const pendingCalls = []
+  const pending = render(
+    react,
+    toolviews.get('tower_inspect'),
+    Object.assign({}, imageProps, {
+      loadImage: (value) => {
+        pendingCalls.push(value)
+        return Promise.resolve('blob:async')
+      },
+    }),
+  )
+  assert.equal(pendingCalls.length, 1, 'the loader is called once for a declared image')
+  assert.equal(pendingCalls[0], attachment, 'the loader receives the declared attachment, not a URL or base64')
+  assert.ok(textOf(pending).includes('card.imageLoading'))
+  assert.equal(findAll(pending, isImageNode).length, 0, 'no image element until a URL is available')
+
+  // No loader: a localized warning row instead of an empty hole.
+  const degraded = render(react, toolviews.get('tower_inspect'), Object.assign({}, imageProps, { loadImage: undefined }))
+  const degradedSections = findAll(degraded, isIoSection)
+  assert.equal(degradedSections.length, 1, 'the unavailable-image warning is a curated row')
+  assert.ok(textOf(degradedSections[0]).includes('card.imageUnavailable'))
+  assert.ok(textOf(degradedSections[0]).includes('card.tone.warn'))
+  assert.equal(findAll(degraded, isImageNode).length, 0)
+
+  // A result with no image part never touches the loader.
+  let nonImageCalls = 0
+  const nonImage = render(
+    react,
+    toolviews.get('tower_inspect'),
+    resultProps(
+      'tower_inspect',
+      { view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 },
+      { loadImage: () => { nonImageCalls += 1; return Promise.resolve('blob:x') } },
+    ),
+  )
+  assert.equal(nonImageCalls, 0, 'the loader is never called for a result that declares no image')
+  assert.equal(findNode(nonImage, (node) => Boolean(node.props && node.props['data-tower-images'] !== undefined)), null)
+})
+
+test('the #195 affordance wiring is load-bearing (mutated-chunk negative proof)', async () => {
+  const files = Array.from({ length: 12 }, (_, index) => 'src/changed-' + index + '.js')
+  const attachment = { attachmentId: 'att-2', mediaType: 'image/png', name: 'proof.png', width: 10, height: 10 }
+  const imageBlock = {
+    kind: 'tool/result',
+    callId: 'call-image',
+    call: { name: 'tower_inspect' },
+    content: [
+      { type: 'text', text: JSON.stringify({ view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 }) },
+      { type: 'image', attachment },
+    ],
+  }
+  const mutations = [
+    {
+      chunk: 'client.toolview.js',
+      from: 'const rows = showBody ? model.rows.slice() : []',
+      to: 'const rows = showBody ? model.rows.slice(0, 6) : []',
+      props: resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: files }),
+      check: (open) => assertEveryRow(open, 13),
+      failure: /no six-row cut/,
+    },
+    {
+      chunk: 'client.cards.js',
+      from: 'const target = fileTargetOf(row, openFile)',
+      to: 'const target = null',
+      props: resultProps('tower_inspect', { view: 'preflight', ok: true, changedFiles: ['src/a.js'] }, { openFile: () => {} }),
+      check: (open) => assertFileLinks(open, [{ path: 'src/a.js', text: 'src/a.js' }]),
+      failure: /native file button/,
+    },
+    {
+      chunk: 'client.toolview.js',
+      from: "const inspect = props && typeof props.inspect === 'function' ? props.inspect : null",
+      to: 'const inspect = null',
+      props: resultProps('tower_inspect', { view: 'status', counts: { total: 1, active: 0 }, openTasks: 1 }, { inspect: () => {} }),
+      check: assertInspectAccessory,
+      failure: /native inspect accessory/,
+    },
+    {
+      chunk: 'client.toolview.js',
+      from: 'const images = running ? [] : imagesOfBlock(props ? props.block : undefined)',
+      to: 'const images = []',
+      props: {
+        toolName: 'tower_inspect',
+        phase: 'result',
+        callId: 'call-image',
+        block: imageBlock,
+        t,
+        useDisclosure: disclosureSeat(true, () => {}),
+        loadImage: Object.assign((value) => Promise.resolve('blob:x'), { peek: () => 'blob:peek' }),
+      },
+      check: (open) => assertImagePreview(open, 'proof.png'),
+      failure: /declared image result renders/,
+    },
+  ]
+  for (const mutation of mutations) {
+    const source = fs.readFileSync(path.join(CLIENT_DIR, mutation.chunk), 'utf8')
+    assert.ok(source.includes(mutation.from), 'the negative proof anchors on ' + mutation.chunk)
+    const { react, toolviews } = await componentsFrom({
+      chunkSources: { [mutation.chunk]: source.replace(mutation.from, mutation.to) },
+    })
+    const open = render(react, toolviews.get('tower_inspect'), mutation.props)
+    assert.throws(
+      () => mutation.check(open),
+      mutation.failure,
+      'deleting the ' + mutation.chunk + ' wiring must redden the named assertion',
+    )
+  }
 })
 
 test('toolview cards render review, preflight, merge, roster, complete and blocker shapes', async () => {

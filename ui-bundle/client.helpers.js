@@ -31,6 +31,10 @@ window.__ModuleLoader__.load({
       'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
       'subagent', 'subagent_fork', 'workflow', 'ralph',
     ]
+    // A row value that is a repository path is a real file affordance (#195).
+    // Only the path shapes the native `openFile(path, {line}?)` contract can
+    // resolve are promoted, and only when the owner actually supplied it.
+    const FILE_VALUE = /^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.@+-]+[\\/])*[\w.@+-]+\.[A-Za-z][A-Za-z0-9]{0,11}(?::(\d+))?$/
 
     function createHelpers(translate) {
       function isTowerTool(name) {
@@ -89,6 +93,42 @@ window.__ModuleLoader__.load({
           }
         }
         return { text }
+      }
+      function fileTargetOf(row, openFile) {
+        if (typeof openFile !== 'function' || !isPlainObject(row)) return null
+        const raw =
+          typeof row.file === 'string' && row.file !== ''
+            ? row.file
+            : typeof row.text === 'string'
+              ? row.text.trim()
+              : ''
+        if (raw === '') return null
+        const match = FILE_VALUE.exec(raw)
+        if (match === null) return null
+        return {
+          path: raw.replace(/:\d+$/, ''),
+          line: match[1] === undefined ? null : Number(match[1]),
+        }
+      }
+      // Native image results carry a content part, never base64 text (#195):
+      // only declared image attachments are previewed through `loadImage`.
+      function imagesOfBlock(block) {
+        if (!isPlainObject(block) || !Array.isArray(block.content)) return []
+        const images = []
+        for (const part of block.content) {
+          if (!isPlainObject(part) || part.type !== 'image' || !isPlainObject(part.attachment)) continue
+          const attachment = part.attachment
+          if (typeof attachment.attachmentId !== 'string' || attachment.attachmentId === '') continue
+          if (typeof attachment.mediaType !== 'string' || attachment.mediaType.slice(0, 6) !== 'image/') continue
+          images.push({
+            attachment,
+            name:
+              typeof attachment.name === 'string' && attachment.name !== ''
+                ? attachment.name
+                : attachment.attachmentId,
+          })
+        }
+        return images
       }
       function blockersOf(value) {
         if (!Array.isArray(value)) return []
@@ -257,6 +297,8 @@ window.__ModuleLoader__.load({
         textOfBlock,
         errorOfBlock,
         parsePayload,
+        fileTargetOf,
+        imagesOfBlock,
         blockersOf,
         missionBlocksOf,
         countsOf,
