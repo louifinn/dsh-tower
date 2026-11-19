@@ -52,6 +52,7 @@ function fakeSubagents(options = {}) {
   let seq = 0
   const state = {
     running: new Set(),
+    known: new Set(),
     activations: [],
     interrupts: [],
     sends: [],
@@ -63,6 +64,7 @@ function fakeSubagents(options = {}) {
     async startActivation(input) {
       seq += 1
       const childId = `child-${seq}`
+      state.known.add(childId)
       state.activations.push({ ...input, childId })
       return {
         childId,
@@ -75,7 +77,10 @@ function fakeSubagents(options = {}) {
       return { ok: true }
     },
     async listDescendants() {
-      return [...state.running].map((id) => ({ id, activity: 'running' }))
+      // A stopped child still has a catalog row; only rows are evidence of
+      // activity, and an empty list is never proof that a child stopped (#F73).
+      const ids = new Set([...state.known, ...state.running])
+      return [...ids].map((id) => ({ id, activity: state.running.has(id) ? 'running' : 'inactive' }))
     },
   }
   if (options.withInterrupt !== false) {
@@ -381,11 +386,131 @@ test('tower_send wake:true fails honestly when the stopped agent cannot be resum
         assert.match(error.message, /cannot be resumed/)
         assert.deepEqual(error.details.targets, [name])
         assert.match(error.details.messageId, /^msg-/)
-        assert.match(error.nextAction, /wake:true/)
+        assert.doesNotMatch(error.nextAction, /omit wake:true/)
+        assert.match(error.nextAction, /will not be read until that agent can be resumed/)
         return true
       },
     )
     assert.equal(subagents.sends.length, 1, 'the wake attempt still tried to deliver')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send wake:true never claims a wake when the activity catalog is unreadable', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-catalog-error-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name } = await spawnWorker(repo, tools)
+    subagents.listDescendants = async () => {
+      throw new Error('catalog offline')
+    }
+
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'wake through an unreadable catalog',
+      body: 'the catalog cannot be observed',
+      wake: true,
+    })
+    assert.equal(sent.deliveries.length, 1)
+    const [delivery] = sent.deliveries
+    assert.equal(delivery.pushed, true, 'the persisted message still reaches sendMessage')
+    assert.equal(delivery.woke, false, 'an unreadable catalog must never be treated as stopped')
+    assert.match(delivery.reason, /activity catalog unavailable \(catalog offline\)/)
+    assert.match(delivery.reason, /cannot verify the recipient is stopped/)
+    assert.match(delivery.reason, /no wake is claimed/)
+    assert.equal(subagents.sends.length, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send treats an empty activity catalog as unknown, never as stopped', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-catalog-empty-wake-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name } = await spawnWorker(repo, tools)
+    subagents.listDescendants = async () => []
+
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'wake through an empty catalog',
+      body: 'the catalog returned no rows',
+      wake: true,
+    })
+    const [delivery] = sent.deliveries
+    assert.equal(delivery.pushed, true)
+    assert.equal(delivery.woke, false, 'an empty catalog is absence of evidence (#F73), not a stopped agent')
+    assert.match(delivery.reason, /returned no descendants/)
+    assert.match(delivery.reason, /no wake is claimed/)
+    assert.equal(subagents.sends.length, 1)
+
+    // Without wake the same unknown state must not be reported as "not running".
+    const queued = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'queue through an empty catalog',
+      body: 'no wake requested',
+    })
+    assert.equal(queued.deliveries[0].pushed, false)
+    assert.match(queued.deliveries[0].reason, /activity is unknown/)
+    assert.doesNotMatch(queued.deliveries[0].reason, /^not running/)
+    assert.equal(subagents.sends.length, 1, 'a no-wake send must not deliver into an unobservable agent')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send reports an explicit interrupt when the activity catalog is empty', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-catalog-empty-interrupt-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name, childId } = await spawnWorker(repo, tools)
+    subagents.listDescendants = async () => []
+
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'stop now',
+      body: 'explicit interrupt through an empty catalog',
+      interrupt: true,
+    })
+    const [delivery] = sent.deliveries
+    assert.equal(subagents.interrupts.length, 1, 'an explicit interrupt must not be silently skipped')
+    assert.equal(subagents.interrupts[0].id, childId)
+    assert.equal(delivery.pushed, true)
+    assert.equal(delivery.interrupted, true, 'the receipt must report the interrupt that was applied')
+    assert.match(delivery.reason, /returned no descendants/)
+    assert.match(delivery.reason, /interrupt:true was requested explicitly and was applied/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send wake:true failure never tells the caller to pass wake:true again', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-wake-generic-fail-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name } = await spawnWorker(repo, tools)
+    subagents.sendMessage = async () => {
+      throw new Error('transport exploded')
+    }
+
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'wake up',
+      body: 'the transport is down',
+      wake: true,
+    })
+    const [delivery] = sent.deliveries
+    assert.equal(delivery.pushed, false)
+    assert.equal(delivery.woke, false)
+    assert.match(delivery.reason, /transport exploded/)
+    assert.match(delivery.reason, /wake:true was requested but could not start a turn/)
+    assert.doesNotMatch(delivery.reason, /pass wake:true to start a turn now/)
   } finally {
     removeTemp(root)
   }
