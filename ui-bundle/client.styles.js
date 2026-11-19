@@ -70,11 +70,53 @@ window.__ModuleLoader__.load({
       ioText: {
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
         minWidth: 0,
         color: 'var(--dsw-alias-label-secondary)',
       },
       ioTextError: { color: 'var(--dsw-alias-state-error-primary)' },
       ioDivider: { background: 'var(--dsw-alias-border-l2)', flex: 'none', height: '.5px' },
+      // #195: the expanded body is one native-like scroll region (the host
+      // `bodyScroll` cap) instead of a fixed row count, so a card with more
+      // curated rows than fit is still complete.
+      bodyScroll: { maxHeight: '260px', overflowY: 'auto' },
+      // #195: a repository path in a row value is a real affordance — the native
+      // `fileLink` dotted underline, no local chrome, and the io-card type scale.
+      fileLink: {
+        font: 'inherit',
+        color: 'inherit',
+        padding: 0,
+        border: 'none',
+        background: 'none',
+        textAlign: 'left',
+        textDecoration: 'underline dotted',
+        textUnderlineOffset: '2px',
+        cursor: 'pointer',
+        minWidth: 0,
+        overflowWrap: 'anywhere',
+      },
+      // #195: the native inspect pill (`row.inspect`), rendered only while open
+      // and only when the owner supplied `inspect`.
+      inspectButton: {
+        alignSelf: 'flex-start',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        margin: '4px 0 2px 4px',
+        padding: '2px 8px',
+        border: '.5px solid var(--dsw-alias-border-l3)',
+        borderRadius: '999px',
+        background: 'var(--dsw-alias-bg-base)',
+        color: 'var(--dsw-alias-label-secondary)',
+        cursor: 'pointer',
+        font: 'inherit',
+        lineHeight: '16px',
+      },
+      // #195: an image result keeps the native image block sizing; the loader is
+      // only consulted for a result that actually declares image content.
+      imageBody: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: 0 },
+      image: { maxWidth: '100%', maxHeight: '240px', display: 'block', objectFit: 'contain' },
+      imageMeta: { color: 'var(--dsw-alias-label-tertiary)', overflowWrap: 'anywhere' },
       dim: {
         color: 'var(--dsw-alias-label-tertiary)',
         minWidth: 0,

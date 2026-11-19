@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
         isPlainObject,
         truncate,
         firstLine,
+        fileTargetOf,
         blockersOf,
         toneForPayload,
         countsOf,
@@ -32,22 +33,45 @@ window.__ModuleLoader__.load({
       // tone line. The caption is the localized tone word when the row carries a
       // tone, otherwise the neutral detail label; the value is the row text.
       // An error row marks its value with `data-error`, so the native
-      // `ioText[data-error]` rule (not a local colour) paints it.
-      function rowElement(t, key, row) {
+      // `ioText[data-error]` rule (not a local colour) paints it. A value the
+      // owner can open (`openFile` supplied and the text is a path) becomes the
+      // native dotted file link instead of dead text (#195).
+      function rowElement(t, key, row, openFile) {
         const tone = ['error', 'warn', 'ok'].includes(row.tone) ? row.tone : null
+        const base = tone === 'error' ? Object.assign({}, ST.ioText, ST.ioTextError) : ST.ioText
+        const target = fileTargetOf(row, openFile)
+        const value =
+          target !== null
+            ? h(
+                'button',
+                {
+                  key: 'text',
+                  type: 'button',
+                  'data-tower-file': target.path,
+                  title: target.path,
+                  'aria-label': translate(t, 'card.openFile', { path: target.path }),
+                  style: Object.assign({}, base, ST.fileLink),
+                  onClick: function (event) {
+                    if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+                    openFile(target.path, target.line === null ? undefined : { line: target.line })
+                  },
+                },
+                row.text,
+              )
+            : h(
+                'span',
+                {
+                  key: 'text',
+                  style: base,
+                  'data-error': tone === 'error' ? true : undefined,
+                },
+                row.text,
+              )
         return h(
           'div',
           { key, style: ST.ioSection, 'data-tower-tone': tone ?? undefined },
           h('span', { key: 'label', style: ST.ioLabel }, translate(t, tone === null ? 'card.detail' : 'card.tone.' + tone)),
-          h(
-            'span',
-            {
-              key: 'text',
-              style: tone === 'error' ? Object.assign({}, ST.ioText, ST.ioTextError) : ST.ioText,
-              'data-error': tone === 'error' ? true : undefined,
-            },
-            row.text,
-          ),
+          value,
         )
       }
 
@@ -225,6 +249,11 @@ window.__ModuleLoader__.load({
           tone = payload.ok === true ? 'ok' : 'error'
           if (Array.isArray(payload.changedFiles)) {
             rows.push({ text: translate(t, 'card.changedFiles', { count: payload.changedFiles.length }) })
+            // #195: every changed path is a row (the count is not the only
+            // trace of the files); the scroll region keeps the card bounded.
+            for (const file of payload.changedFiles) {
+              if (typeof file === 'string' && file.trim() !== '') rows.push({ text: file.trim(), file: file.trim() })
+            }
           }
           if (isPlainObject(payload.review)) {
             rows.push({
