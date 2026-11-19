@@ -11,6 +11,9 @@ import { BLOCKER_CODE_VALUES } from '../domain/shapes/blockers.js'
 import { configSurface } from '../domain/config/schema.js'
 import { COMPONENT_SURFACE_FILE, parseComponentSurface } from '../domain/components.js'
 import { LEGACY_TOOL_REPLACEMENTS } from '../host/tool-profiles.js'
+import { FOREIGN_CAPABILITIES } from '../host/doctor-acceptance.js'
+import { DENY_OWNER_TOOLS } from '../domain/generated/deny-surface.js'
+import { CAPABILITY_STANCE, CAPABILITY_STANCES } from '../domain/vocabulary.js'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -388,12 +391,213 @@ export function toolTableRowProblems(root = packageRoot) {
   return problems
 }
 
+/** The page that carries the Tower-mode denied-capability table (#191). */
+export const DENY_DOC_PAGE = 'docs/reference/deny.md'
+const DENY_DOC_PAGE_ZH = 'docs/zh/reference/deny.md'
+const DENY_TABLE_BEGIN = '<!-- tower-deny-table:begin -->'
+const DENY_TABLE_END = '<!-- tower-deny-table:end -->'
+const DENY_TABLE_COLUMNS = ['capability', 'denied tools', 'stance', 'replacement', 'coverage', 'cost']
+const DENY_COVERAGE = new Set(['full', 'partial', 'none'])
+const DENY_NO_TOOLS = '—'
+
+/** Split one markdown table line into trimmed cells. */
+function denyTableCells(line) {
+  return line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+}
+
+/** The backticked tokens in a cell, in order. */
+function denyCellTokens(cell) {
+  return [...cell.matchAll(/`([^`]+)`/g)].map((match) => match[1])
+}
+
+/** Split a page into the rows between the deny-table markers. */
+function parseDenyTable(text, page) {
+  const problems = []
+  const begin = text.indexOf(DENY_TABLE_BEGIN)
+  const end = text.indexOf(DENY_TABLE_END)
+  if (begin === -1) problems.push(`${page} is missing the "${DENY_TABLE_BEGIN}" marker`)
+  if (end === -1) problems.push(`${page} is missing the "${DENY_TABLE_END}" marker`)
+  if (begin === -1 || end === -1 || end < begin) return { problems, rows: [] }
+  const lines = text
+    .slice(begin + DENY_TABLE_BEGIN.length, end)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+  if (lines.length < 2) {
+    problems.push(`${page}: the deny table needs a header row and at least one capability row`)
+    return { problems, rows: [] }
+  }
+  const header = denyTableCells(lines[0])
+  if (header.length !== DENY_TABLE_COLUMNS.length) {
+    problems.push(`${page}: the deny table needs ${DENY_TABLE_COLUMNS.length} columns, found ${header.length}`)
+  }
+  header.forEach((cell, index) => {
+    const expected = DENY_TABLE_COLUMNS[index]
+    if (expected !== undefined && cell.toLowerCase() !== expected) {
+      problems.push(`${page}: deny table column ${index + 1} must be "${expected}", found "${cell}"`)
+    }
+  })
+  const rows = []
+  for (const line of lines.slice(2)) {
+    const cells = denyTableCells(line)
+    if (cells.length !== DENY_TABLE_COLUMNS.length) {
+      problems.push(`${page}: deny table row "${cells[0]}" has ${cells.length} columns, expected ${DENY_TABLE_COLUMNS.length}`)
+      continue
+    }
+    const idMatch = cells[0].match(/^`([a-z0-9-]+)`$/)
+    if (!idMatch) {
+      problems.push(`${page}: deny table row ${JSON.stringify(cells[0])} must start with a backticked capability id`)
+      continue
+    }
+    rows.push({ id: idMatch[1], cells })
+  }
+  return { problems, rows }
+}
+
+/** Coverage cell with optional markdown emphasis removed. */
+function denyCoverage(cell) {
+  return cell.replace(/[`*_]/g, '').trim()
+}
+
+/** Replacement/stance/coverage rules shared by the English page and its mirror. */
+function denyRowShapeProblems(page, row) {
+  const problems = []
+  const [, toolsCell, stanceCell, replacement, coverageCell, cost] = row.cells
+  const stance = stanceCell.replace(/`/g, '').trim()
+  const coverage = denyCoverage(coverageCell)
+  if (!CAPABILITY_STANCES.includes(stance)) {
+    problems.push(`${page}: ${row.id} stance ${JSON.stringify(stance)} is not one of ${CAPABILITY_STANCES.join(', ')}`)
+  }
+  if (!DENY_COVERAGE.has(coverage)) {
+    problems.push(`${page}: ${row.id} coverage ${JSON.stringify(coverage)} must be full, partial or none`)
+  }
+  if (cost.trim() === '') problems.push(`${page}: ${row.id} must record the cost of denial`)
+  if (coverage === 'none') {
+    if (!/^none\b/i.test(replacement)) {
+      problems.push(`${page}: ${row.id} has coverage none, so its replacement must start with "none"`)
+    }
+  } else if (!denyCellTokens(replacement).some((token) => token.startsWith('tower_'))) {
+    problems.push(`${page}: ${row.id} has coverage ${coverage}, so its replacement must name at least one tower_ tool`)
+  }
+  return problems
+}
+
+/** Validate one owner row: tools equal the deny surface, stance is deny, coverage valid. */
+function denyOwnerRowProblems(page, row, tools) {
+  const problems = denyRowShapeProblems(page, row)
+  const [toolsCell, stanceCell] = [row.cells[1], row.cells[2]]
+  const actual = denyCellTokens(toolsCell).sort()
+  const missing = tools.filter((name) => !actual.includes(name))
+  const extra = actual.filter((name) => !tools.includes(name))
+  if (missing.length > 0) problems.push(`${page}: ${row.id} is missing denied tools: ${missing.join(', ')}`)
+  if (extra.length > 0) problems.push(`${page}: ${row.id} names tools the deny surface does not record: ${extra.join(', ')}`)
+  const stance = stanceCell.replace(/`/g, '').trim()
+  if (stance !== CAPABILITY_STANCE.deny) {
+    problems.push(`${page}: ${row.id} is a denied owner, so its stance must be "${CAPABILITY_STANCE.deny}"`)
+  }
+  return problems
+}
+
+/**
+ * The `deny.md` table must list every owner in the generated deny surface and
+ * every warned foreign capability from `host/doctor-acceptance.js`, with the
+ * stance vocabulary those modules export, a coverage value and a cost. A deny
+ * surface entry without a row fails here; an owner tool added upstream fails on
+ * the tools cell. The optional Chinese mirror must carry the same rows in the
+ * same order with the same stance/coverage (#191).
+ *
+ * @param {string} root repository root
+ * @param {{ owners?: Record<string, string[]>, capabilities?: readonly { id: string, stance: string }[] }} [expected]
+ *   test seam: seed a capability that is not documented yet
+ * @returns {string[]} one problem per missing, extra or malformed row
+ */
+export function denyTableProblems(root = packageRoot, expected = {}) {
+  const owners = expected.owners ?? DENY_OWNER_TOOLS
+  const capabilities = expected.capabilities ?? FOREIGN_CAPABILITIES
+  const page = path.join(root, DENY_DOC_PAGE)
+  if (!fs.existsSync(page)) {
+    return [`${DENY_DOC_PAGE} is missing (the Tower-mode denied capabilities and replacements table)`]
+  }
+  const parsed = parseDenyTable(fs.readFileSync(page, 'utf8'), DENY_DOC_PAGE)
+  const problems = [...parsed.problems]
+  const ownerIds = Object.keys(owners)
+  const expectedIds = [...ownerIds, ...capabilities.map((capability) => capability.id)]
+  const rowIds = parsed.rows.map((row) => row.id)
+  const seen = new Set()
+  for (const id of rowIds) {
+    if (seen.has(id)) problems.push(`${DENY_DOC_PAGE}: duplicate deny table row for ${id}`)
+    seen.add(id)
+  }
+  const missing = expectedIds.filter((id) => !seen.has(id))
+  if (missing.length > 0) {
+    problems.push(
+      `${DENY_DOC_PAGE} is missing deny table rows for: ${missing.join(', ')}; add one row per denied or warned capability and run \`npm run docs:check\``,
+    )
+  }
+  const extra = rowIds.filter((id) => !expectedIds.includes(id))
+  if (extra.length > 0) {
+    problems.push(`${DENY_DOC_PAGE} has deny table rows for capabilities Tower neither denies nor warns: ${extra.join(', ')}`)
+  }
+  for (const row of parsed.rows) {
+    if (ownerIds.includes(row.id)) {
+      problems.push(...denyOwnerRowProblems(DENY_DOC_PAGE, row, owners[row.id] ?? []))
+      continue
+    }
+    const capability = capabilities.find((entry) => entry.id === row.id)
+    if (!capability) continue
+    problems.push(...denyRowShapeProblems(DENY_DOC_PAGE, row))
+    const stance = row.cells[2].replace(/`/g, '').trim()
+    const toolsCell = row.cells[1].trim()
+    if (toolsCell !== DENY_NO_TOOLS && toolsCell !== '-') {
+      problems.push(`${DENY_DOC_PAGE}: ${row.id} is not a tool owner, so its denied-tools cell must be "${DENY_NO_TOOLS}"`)
+    }
+    if (stance !== capability.stance) {
+      problems.push(`${DENY_DOC_PAGE}: ${row.id} stance ${JSON.stringify(stance)} must match the live stance ${JSON.stringify(capability.stance)}`)
+    }
+  }
+  const zhPage = path.join(root, DENY_DOC_PAGE_ZH)
+  if (fs.existsSync(zhPage)) {
+    const zh = parseDenyTable(fs.readFileSync(zhPage, 'utf8'), DENY_DOC_PAGE_ZH)
+    problems.push(...zh.problems)
+    const zhIds = zh.rows.map((row) => row.id)
+    if (zhIds.join(',') !== rowIds.join(',')) {
+      problems.push(`${DENY_DOC_PAGE_ZH} must list the same rows in the same order as ${DENY_DOC_PAGE}`)
+    }
+    for (const row of parsed.rows) {
+      const mirror = zh.rows.find((entry) => entry.id === row.id)
+      if (!mirror) {
+        problems.push(`${DENY_DOC_PAGE_ZH} is missing the ${row.id} row`)
+        continue
+      }
+      const stance = row.cells[2].replace(/`/g, '').trim()
+      const mirrorStance = mirror.cells[2].replace(/`/g, '').trim()
+      if (mirrorStance !== stance) {
+        problems.push(`${DENY_DOC_PAGE_ZH}: ${row.id} stance ${JSON.stringify(mirrorStance)} must match the English row ${JSON.stringify(stance)}`)
+      }
+      const coverage = denyCoverage(row.cells[4])
+      const mirrorCoverage = denyCoverage(mirror.cells[4])
+      if (mirrorCoverage !== coverage) {
+        problems.push(`${DENY_DOC_PAGE_ZH}: ${row.id} coverage ${JSON.stringify(mirrorCoverage)} must match the English row ${JSON.stringify(coverage)}`)
+      }
+      const enTools = denyCellTokens(row.cells[1]).sort().join(',')
+      const zhTools = denyCellTokens(mirror.cells[1]).sort().join(',')
+      if (zhTools !== enTools) {
+        problems.push(`${DENY_DOC_PAGE_ZH}: ${row.id} denied tools must mirror the English row`)
+      }
+    }
+  }
+  return problems
+}
+
 /**
  * @param {string} root repository root
  * @returns {string[]} one problem per retired tool name on a current page
  */
-export function retiredToolNameProblems(root = packageRoot) {
-  const problems = []
+export function retiredToolNameProblems(root = packageRoot) {  const problems = []
   for (const page of currentDocPages(root)) {
     const relative = path.relative(root, page).split(path.sep).join('/')
     const lines = withoutRetiredNameParagraph(fs.readFileSync(page, 'utf8')).split('\n')
@@ -612,6 +816,7 @@ export function checkDocs(root = packageRoot) {
     }
   }
 
+  problems.push(...denyTableProblems(root))
   problems.push(...toolTableRowProblems(root))
   problems.push(...retiredToolNameProblems(root))
   problems.push(...linkProblems(root))

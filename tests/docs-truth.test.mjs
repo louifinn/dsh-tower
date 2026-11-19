@@ -9,7 +9,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { checkDocs, currentDocPages, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { checkDocs, currentDocPages, DENY_DOC_PAGE, denyTableProblems, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { DENY_OWNER_TOOLS } from '../domain/generated/deny-surface.js'
 import { loadShippedToolSurface } from '../scripts/lib/tool-surface.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
 
@@ -309,4 +310,152 @@ test('F81: both READMEs quote the bundled spawn.staleMs window', () => {
       `${page} says ${seconds}s but cordis.patch.yml sets spawn.staleMs: ${bundledMs} (${bundledSeconds}s)`,
     )
   }
+})
+
+/** The one deny-table row for a capability id. */
+function denyRow(page, id) {
+  const row = fs
+    .readFileSync(page, 'utf8')
+    .split('\n')
+    .find((line) => line.startsWith(`| \`${id}\` `))
+  assert.ok(row, `${page} must carry the ${id} row`)
+  return row
+}
+
+/** Replace one cell (0-based over the pipe-split line, so 1 is the capability). */
+function replaceDenyCell(row, index, value) {
+  const cells = row.split('|')
+  cells[index] = ` ${value} `
+  return cells.join('|')
+}
+
+test('#191: every deny-surface entry must have a documented deny-table row', (t) => {
+  assert.deepEqual(denyTableProblems(repoRoot), [])
+
+  // Seeding an owner the docs do not know about reddens exactly like adding it
+  // to domain/generated/deny-surface.js would: inventory first, docs:check second.
+  const seeded = denyTableProblems(repoRoot, {
+    owners: { ...DENY_OWNER_TOOLS, 'tool-seeded': ['seeded_tool'] },
+  })
+  assert.ok(
+    seeded.some((problem) => problem.includes('missing deny table rows for: tool-seeded')),
+    seeded.join('\n'),
+  )
+
+  const copy = copyRepo(t)
+  const page = path.join(copy, DENY_DOC_PAGE)
+  const row = denyRow(page, 'tool-ralph')
+  fs.writeFileSync(page, fs.readFileSync(page, 'utf8').replace(`${row}\n`, ''))
+
+  const problems = denyTableProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem.includes('missing deny table rows for: tool-ralph')),
+    problems.join('\n'),
+  )
+})
+
+test('#191: a denied-tools cell must track the generated deny surface', () => {
+  const seeded = denyTableProblems(repoRoot, {
+    owners: {
+      ...DENY_OWNER_TOOLS,
+      'tool-todo': [...DENY_OWNER_TOOLS['tool-todo'], 'todo_seeded'],
+    },
+  })
+  assert.ok(
+    seeded.some((problem) => problem.includes('tool-todo is missing denied tools: todo_seeded')),
+    seeded.join('\n'),
+  )
+})
+
+test('#191: a malformed deny row fails instead of being trusted', (t) => {
+  // Stance must come from CAPABILITY_STANCE; "deny" is the only owner stance.
+  const stanceCopy = copyRepo(t)
+  const stancePage = path.join(stanceCopy, DENY_DOC_PAGE)
+  const stanceRow = denyRow(stancePage, 'tool-goal')
+  fs.writeFileSync(
+    stancePage,
+    fs.readFileSync(stancePage, 'utf8').replace(stanceRow, replaceDenyCell(stanceRow, 3, 'warn+allow')),
+  )
+  assert.ok(
+    denyTableProblems(stanceCopy).some((problem) =>
+      problem.includes('tool-goal is a denied owner, so its stance must be "deny"'),
+    ),
+  )
+
+  // Coverage outside full/partial/none is a docs claim with no meaning.
+  const coverageCopy = copyRepo(t)
+  const coveragePage = path.join(coverageCopy, DENY_DOC_PAGE)
+  const coverageRow = denyRow(coveragePage, 'tool-todo')
+  fs.writeFileSync(
+    coveragePage,
+    fs.readFileSync(coveragePage, 'utf8').replace(coverageRow, replaceDenyCell(coverageRow, 5, 'most')),
+  )
+  assert.ok(
+    denyTableProblems(coverageCopy).some((problem) =>
+      problem.includes('tool-todo coverage "most" must be full, partial or none'),
+    ),
+  )
+
+  // A "full" replacement that names no tower_ tool is a claim with no mechanism.
+  const replacementCopy = copyRepo(t)
+  const replacementPage = path.join(replacementCopy, DENY_DOC_PAGE)
+  const replacementRow = denyRow(replacementPage, 'tool-subagent')
+  fs.writeFileSync(
+    replacementPage,
+    fs
+      .readFileSync(replacementPage, 'utf8')
+      .replace(replacementRow, replaceDenyCell(replacementRow, 4, 'the same thing, somehow')),
+  )
+  assert.ok(
+    denyTableProblems(replacementCopy).some((problem) =>
+      problem.includes('tool-subagent has coverage full, so its replacement must name at least one tower_ tool'),
+    ),
+  )
+
+  // Without the markers the table is prose, and prose is not checked.
+  const markerCopy = copyRepo(t)
+  const markerPage = path.join(markerCopy, DENY_DOC_PAGE)
+  fs.writeFileSync(
+    markerPage,
+    fs.readFileSync(markerPage, 'utf8').replace('<!-- tower-deny-table:begin -->', ''),
+  )
+  assert.ok(
+    denyTableProblems(markerCopy).some((problem) =>
+      problem.includes('is missing the "<!-- tower-deny-table:begin -->" marker'),
+    ),
+  )
+})
+
+test('#191: a Chinese deny page must mirror the English rows in order', (t) => {
+  const copy = copyRepo(t)
+  const zhDir = path.join(copy, 'docs', 'zh', 'reference')
+  fs.mkdirSync(zhDir, { recursive: true })
+  const zhPage = path.join(zhDir, 'deny.md')
+  fs.copyFileSync(path.join(copy, DENY_DOC_PAGE), zhPage)
+  // Identical rows are a valid mirror, which is what the future translated page
+  // must preserve even though its prose differs.
+  assert.deepEqual(denyTableProblems(copy), [])
+
+  const original = fs.readFileSync(zhPage, 'utf8')
+  const goal = denyRow(zhPage, 'tool-goal')
+  const todo = denyRow(zhPage, 'tool-todo')
+  assert.ok(original.includes(`${goal}\n${todo}\n`), 'the goal/todo rows must be adjacent')
+  fs.writeFileSync(zhPage, original.replace(`${goal}\n${todo}\n`, `${todo}\n${goal}\n`))
+  assert.ok(
+    denyTableProblems(copy).some((problem) =>
+      problem.includes('must list the same rows in the same order'),
+    ),
+  )
+
+  fs.writeFileSync(zhPage, original)
+  const mirrorRow = denyRow(zhPage, 'tool-agent-team')
+  fs.writeFileSync(
+    zhPage,
+    original.replace(mirrorRow, replaceDenyCell(mirrorRow, 5, 'partial')),
+  )
+  assert.ok(
+    denyTableProblems(copy).some((problem) =>
+      problem.includes('tool-agent-team coverage "partial" must match the English row "full"'),
+    ),
+  )
 })
