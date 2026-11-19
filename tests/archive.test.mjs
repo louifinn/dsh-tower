@@ -814,3 +814,108 @@ test('teardown repairs a terminal mission whose checkout is gone, then archival 
     cleanup(root)
   }
 })
+
+// ---------------------------------------------------------------------------
+// #183: a dry run previews the archival sweep a real run would perform, using
+// the same policy inputs and the state teardown is about to create. It writes
+// nothing, and the subsequent real run archives exactly the previewed ids.
+// ---------------------------------------------------------------------------
+
+test('tower_teardown dry_run previews the archival the real run performs (#183)', async () => {
+  const { root, repo } = makeRepo('dsh-tower-archive-preview-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    // A terminal mission whose recorded checkout is gone: only the teardown run
+    // removes it, so only the projected state makes it archive-eligible.
+    await seedTerminalMissions(tower, 1, { ageDays: 60, worktree: 'live', includeReview: false })
+    const paths = archivePaths(tower.paths)
+    assert.equal(fs.existsSync(paths.index), false, 'the fixture starts with no archive')
+    const before = sha256(tower.paths.state)
+
+    const preview = await call(tools, 'tower_teardown', { repoRoot: repo, dry_run: true })
+    assert.equal(preview.dryRun, true)
+    assert.deepEqual(preview.removed, [], 'a dry run removes nothing')
+    assert.deepEqual(preview.archivePreview.missions, [{ missionId: 'M1', reason: 'afterDays' }])
+    assert.equal(preview.archivePreview.year, new Date().getUTCFullYear())
+    assert.equal(sha256(tower.paths.state), before, 'a dry run writes no state')
+    assert.equal(fs.existsSync(paths.index), false, 'a dry run writes no archive')
+
+    const torn = await call(tools, 'tower_teardown', { repoRoot: repo })
+    assert.deepEqual(
+      torn.archived,
+      preview.archivePreview.missions.map((entry) => entry.missionId),
+      'the real sweep archives exactly the previewed missions',
+    )
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('tower_teardown dry_run names the hot-terminal cap as the archive reason (#183)', async () => {
+  const { root, repo } = makeRepo('dsh-tower-archive-preview-cap-')
+  const { tools } = makeCtx()
+  try {
+    writeRepoConfig(repo, { archive: { afterDays: 3650, maxMissions: 1 } })
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    await seedTerminalMissions(tower, 2, { ageDays: 1, worktree: 'removed', reportSize: 20 })
+
+    const preview = await call(tools, 'tower_teardown', { repoRoot: repo, dry_run: true })
+    assert.deepEqual(preview.archivePreview.missions, [{ missionId: 'M1', reason: 'maxMissions' }])
+
+    const torn = await call(tools, 'tower_teardown', { repoRoot: repo })
+    assert.deepEqual(torn.archived, ['M1'])
+    assert.deepEqual(torn.archived, preview.archivePreview.missions.map((entry) => entry.missionId))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('tower_teardown dry_run previews archival after the planned sandbox cleanup (#183)', async () => {
+  const { root, repo } = makeRepo('dsh-tower-archive-preview-sandbox-')
+  const { tools } = makeCtx()
+  try {
+    // A terminal survey can still record a detached sandbox after a crash
+    // between the transition and its cleanup. The real teardown removes that
+    // checkout before the archival sweep, so the preview must project the same
+    // successful cleanup instead of deferring the mission as still-pending.
+    writeRepoConfig(repo, { survey: { sandbox: 'detached' }, archive: { afterDays: 0, maxMissions: 0 } })
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const planned = await tower.plan({ missions: [{ title: 'Inspect the seed commit', kind: 'survey' }] })
+    const mission = planned.missions[0]
+    const provisioned = await tower.provision({ missionId: mission.id })
+    const sandbox = provisioned.sandbox
+
+    const state = await tower.load()
+    const record = state.missions.find((entry) => entry.id === mission.id)
+    record.status = 'abandoned'
+    record.updatedAt = Date.now() - 60 * DAY
+    state.roster = []
+    state.revision += 1
+    state.updatedAt = Date.now()
+    validateState(state, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, state)
+
+    const paths = archivePaths(tower.paths)
+    const before = sha256(tower.paths.state)
+    const preview = await call(tools, 'tower_teardown', { repoRoot: repo, dry_run: true })
+    assert.deepEqual(preview.archivePreview.missions, [{ missionId: mission.id, reason: 'afterDays' }])
+    assert.equal(sha256(tower.paths.state), before, 'a dry run writes no state')
+    assert.equal(fs.existsSync(sandbox), true, 'a dry run removes no sandbox')
+    assert.equal(fs.existsSync(paths.index), false, 'a dry run writes no archive')
+
+    const torn = await call(tools, 'tower_teardown', { repoRoot: repo })
+    assert.deepEqual(torn.archived, [mission.id])
+    assert.deepEqual(
+      torn.archived,
+      preview.archivePreview.missions.map((entry) => entry.missionId),
+      'the real sweep archives exactly the previewed missions after the cleanup',
+    )
+    assert.equal(fs.existsSync(sandbox), false)
+  } finally {
+    cleanup(root)
+  }
+})

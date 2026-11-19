@@ -532,7 +532,13 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         : check('roster', 'pass', 'no live workers'),
     )
 
-    let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0
+    // #182: a terminal mission whose checkout is still on disk and whose agent
+    // is gone is waiting for teardown. The roster approximation is deliberate:
+    // doctor has no activity map, so any non-inactive roster row counts as live.
+    const liveMissionIds = new Set(
+      live.map((entry) => entry.missionId).filter((missionId) => typeof missionId === 'string'),
+    )
+    let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0, awaitingTeardown = 0
     for (const mission of state.missions ?? []) {
       if (!mission.worktree) continue
       if (mission.worktreeRemovedAt) { removedWorktrees += 1; continue }
@@ -541,14 +547,24 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       if (!(await exists(mission.worktree.path)) && isTerminalMission(mission)) { terminalMissingWorktrees += 1; continue }
       try {
         await tower.assertWorktree(mission.worktree)
+        // Dirtiness and "waiting for teardown" are independent signals: a dirty
+        // terminal checkout is still a finished mission whose disk usage the
+        // operator should reclaim, so it is counted in both places.
         if ((await git(mission.worktree.path, ['status', '--porcelain'])).trim()) dirtyWorktrees += 1
+        if (isTerminalMission(mission) && !liveMissionIds.has(mission.id)) awaitingTeardown += 1
       } catch { missingWorktrees += 1 }
     }
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
     const terminalSummary = `${terminalMissingWorktrees} terminal mission worktree(s) are no longer on disk; run the mission teardown step to record the removal`
-    const terminalNote = terminalMissingWorktrees > 0 ? `; ${terminalSummary}` : ''
-    const problem = missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid${terminalNote}` : terminalMissingWorktrees > 0 ? terminalSummary : dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null
-    const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : undefined
+    const awaitingSummary = `${awaitingTeardown} terminal mission worktree(s) awaiting teardown; run tower_teardown`
+    const problems = [
+      missingWorktrees > 0 ? `${missingWorktrees} mission worktree(s) are missing or invalid` : null,
+      terminalMissingWorktrees > 0 ? terminalSummary : null,
+      awaitingTeardown > 0 ? awaitingSummary : null,
+      dirtyWorktrees > 0 ? `${dirtyWorktrees} worktree(s) have uncommitted changes` : null,
+    ].filter((entry) => entry !== null)
+    const problem = problems.length > 0 ? problems.join('; ') : null
+    const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : awaitingTeardown > 0 ? 'run the worktree teardown step for the finished mission; nothing is removed automatically' : undefined
     checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
 
     const testConfigured = state.missions?.some((mission) => hasTestReceipts(mission))

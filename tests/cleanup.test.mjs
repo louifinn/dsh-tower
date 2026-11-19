@@ -9,29 +9,97 @@
 // The retry path is exercised two ways: with injected syscalls on every OS, and
 // with a real Windows handle (a file opened with `FileShare.None`). The real
 // case is skipped, visibly, off Windows.
+//
+// #184/#186: mission-worktree teardown lives in `app/teardown.js`, so its
+// bounded-retry and `exclude` reporting contracts are pinned here too.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {
-  CLEANUP_ATTEMPTS,
-  TRANSIENT_CLEANUP_ERRORS,
-  assertTempPath,
-  removeOnce,
-  removeTemp,
-} from './helpers/cleanup.mjs'
+import { CLEANUP_ATTEMPTS, TRANSIENT_CLEANUP_ERRORS, assertTempPath, removeOnce, removeTemp } from './helpers/cleanup.mjs'
+import { Tower } from '../host/tower.js'
 
 function tempDir(prefix = 'dsh-tower-cleanup-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 }
 
-function errno(code) {
-  const error = /** @type {Error & {code?: string}} */ (new Error(`synthetic ${code}`))
+function errno(code, message = `synthetic ${code}`) {
+  const error = /** @type {Error & {code?: string|number}} */ (new Error(message))
   error.code = code
   return error
+}
+
+function git(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function seedRepo(prefix = 'dsh-tower-teardown-') {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, ['init'])
+  git(repo, ['config', 'user.email', 'tower@test'])
+  git(repo, ['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'seed'])
+  return { root, repo }
+}
+
+async function setupRepo(prefix) {
+  const { root, repo } = seedRepo(prefix)
+  const tower = await Tower.open(repo)
+  await tower.init({})
+  return { root, repo, tower }
+}
+
+/** Write a valid state document directly, the way a crashed writer would. */
+function editState(tower, mutate) {
+  const state = JSON.parse(fs.readFileSync(tower.paths.state, 'utf8'))
+  mutate(state)
+  state.revision += 1
+  state.updatedAt = Date.now()
+  fs.writeFileSync(tower.paths.state, `${JSON.stringify(state, null, 2)}\n`)
+}
+
+/**
+ * A merged build mission with a real provisioned checkout and no live agent:
+ * exactly the state a merge leaves behind before teardown.
+ */
+async function mergedMission(tower, title = 'Worktree removal target') {
+  const planned = await tower.plan({ missions: [{ title, scope: ['src/**'] }] })
+  const mission = planned.missions[0]
+  const provisioned = await tower.provision({ missionId: mission.id })
+  editState(tower, (state) => {
+    const record = state.missions.find((entry) => entry.id === mission.id)
+    record.status = 'merged'
+    record.mergedCommit = 'a'.repeat(40)
+    record.mergedAt = Date.now()
+    record.updatedAt = record.mergedAt
+    state.roster = []
+  })
+  return { mission, worktree: provisioned.worktree }
+}
+
+/**
+ * Replace `tower.git` with a wrapper that fails the first N `worktree remove`
+ * calls with the seeded errors, then delegates to the real adapter.
+ */
+function failWorktreeRemove(tower, errors) {
+  const realGit = tower.git.bind(tower)
+  const calls = []
+  tower.git = async (cwd, args, options) => {
+    if (args[0] === 'worktree' && args[1] === 'remove') {
+      calls.push(args)
+      const error = errors.shift()
+      if (error) throw error
+    }
+    return realGit(cwd, args, options)
+  }
+  return calls
 }
 
 test('assertTempPath: accepts a child of os.tmpdir and refuses everything else', () => {
@@ -212,3 +280,119 @@ test(
     }
   },
 )
+
+// ---------------------------------------------------------------------------
+// #184: bounded retry for `git worktree remove`. A Windows terminal/job tool
+// can hold a directory handle, so the first attempts fail EPERM/EBUSY while the
+// handle is released; the decision reports the attempt count and a permanent
+// failure keeps the mission record instead of losing the checkout path.
+// ---------------------------------------------------------------------------
+
+test('teardown: a transient worktree-remove failure retries and reports attempts (#184)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-teardown-retry-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    const calls = failWorktreeRemove(tower, [errno('EPERM'), errno('EBUSY')])
+
+    const result = await tower.teardown({})
+    assert.equal(calls.length, 3, 'two transient failures then the real removal')
+    assert.deepEqual(result.removed, [mission.id])
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'removed')
+    assert.equal(decision.attempts, 3, 'the decision reports how many attempts the removal took')
+    assert.equal(fs.existsSync(worktree.path), false)
+    const after = (await tower.load()).missions.find((entry) => entry.id === mission.id)
+    assert.equal(typeof after.worktreeRemovedAt, 'number')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a permanent worktree-remove failure is tried once and keeps the record (#184)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-teardown-permanent-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    const calls = failWorktreeRemove(tower, [new Error(`fatal: '${worktree.path}' is not a working tree`)])
+
+    const result = await tower.teardown({})
+    assert.equal(calls.length, 1, 'a non-transient failure is never retried')
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.attempts, 1)
+    assert.match(decision.reason, /remove failed after 1 attempt\(s\): .*not a working tree/)
+    assert.equal(fs.existsSync(worktree.path), true, 'the checkout is kept')
+    const after = (await tower.load()).missions.find((entry) => entry.id === mission.id)
+    assert.equal(after.worktreeRemovedAt, undefined, 'the record still points at the live checkout')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a persistent transient failure stops at the bounded budget and reports the final error (#184)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-teardown-budget-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    // A numeric git exit code is not a string code; the permission wording is
+    // what marks this as transient (the adapter keeps the spawn code in text).
+    const held = errno(128, `git worktree remove failed: fatal: failed to delete '${worktree.path}': Permission denied`)
+    const calls = failWorktreeRemove(tower, [held, held, held, held, held])
+
+    const result = await tower.teardown({})
+    assert.equal(calls.length, 3, 'the retry budget is bounded')
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.attempts, 3)
+    assert.match(decision.reason, /remove failed after 3 attempt\(s\): .*Permission denied/)
+    assert.equal(fs.existsSync(worktree.path), true)
+    const after = (await tower.load()).missions.find((entry) => entry.id === mission.id)
+    assert.equal(after.worktreeRemovedAt, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// #186: `exclude` ids are diffed against what actually matched, so a typo is
+// visible instead of silently keeping nothing.
+// ---------------------------------------------------------------------------
+
+test('teardown: a matching exclude id is reported by its protected decision, not as unmatched (#186)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-teardown-exclude-match-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+
+    const excluded = await tower.teardown({ exclude: [mission.id], dryRun: true })
+    assert.deepEqual(excluded.unmatchedExclude, [])
+    const decision = excluded.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'excluded')
+    assert.equal(fs.existsSync(worktree.path), true, 'an excluded checkout is kept')
+
+    const empty = await tower.teardown({ exclude: [], dryRun: true })
+    assert.deepEqual(empty.unmatchedExclude, [])
+    assert.equal(
+      empty.decisions.some((entry) => entry.reason === 'exclude did not match any mission'),
+      false,
+      'an empty exclude list names nothing',
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: an exclude id that matches nothing is named in the result (#186)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-teardown-exclude-typo-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+
+    const result = await tower.teardown({ exclude: ['M99', 'M99'] })
+    assert.deepEqual(result.unmatchedExclude, ['M99'], 'the unmatched id is deduped and visible')
+    const decision = result.decisions.find((entry) => entry.missionId === 'M99')
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'exclude did not match any mission')
+    assert.deepEqual(result.removed, [mission.id], 'the real mission is still torn down')
+    assert.equal(fs.existsSync(worktree.path), false)
+  } finally {
+    removeTemp(root)
+  }
+})
