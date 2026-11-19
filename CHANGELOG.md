@@ -4,6 +4,23 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.4（2026-11-19）
+
+### 修复
+
+- **工具卡片收起时就是宿主自己的那一行（M116）**：Tower 的 `tower_*` 工具卡片不再手绘标题栏，收起态直接渲染
+  原生 `DisclosureRow`——与其它工具相同的 24 px 进程行、14 px 图标、本地化工具名、2 px 分隔点，以及跟随
+  外观 text-size token 的一行省略摘要；展开/收起走宿主的 `useDisclosure()` 座位，收起时不存在自绘正文。
+- **展开体改用原生 io-card（M117）**：卡片展开后是宿主通用的工具结果表面——`bodyWrap > ioCard`，内部由
+  `ioSection`（label/value）行组成，相邻 section 之间以 `ioDivider` 分隔：颜色、字号与圆角全部取自宿主
+  token（`--dsw-alias-border-l1`、`--dsw-alias-markdown-code-block`、`--dsw-font-markdown-code-block-small`、
+  `--dsw-radius-lg`、`--dsw-alias-label-caption/secondary`、`--dsw-alias-state-error-primary`）。收起态保留
+  原有的 `data-tower-*` 属性，随包的九个 chunk 不变。
+- **模式拦截行也是原生行，并说中文（M118）**：Tower 模式中被拦截的工具不再显示手绘卡片，而是同一条原生进程
+  行：本地化的友好工具名，加上 warn 色 token 中的「Tower 模式中不可用」，展开后同样是 io-card，分「原因」
+  「下一步」两节。宿主那句英文拒绝只作为识别输入，不再出现在可见文案里；17 个默认被拦截工具都有了本地化
+  名称，自定义拦截工具保留自己的名称；缺少 primitives 词时不再注册影子行，由宿主渲染自己的行。
+
 ## 2.9.3（2026-11-18）
 
 ### 变更
