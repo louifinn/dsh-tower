@@ -30,6 +30,26 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.9.4 → 2.9.5 — patch release, no migration required**: the config surface is unchanged (58 keys in
+  16 sections), the state schema stays v5, and the DSH floor stays `0.2.2-rc.3`. Nothing an operator
+  configured needs to move:
+  - **A torn workspace lock can be repaired from the tool path.** A killed session can leave a
+    half-written `<git-common-dir>/dsh-tower/tower.lock`. That unreadable record used to refuse every
+    Tower tool — including `tower_recover` — with `[tower:workspace-busy]`, so the session could not
+    recover itself. Parseable records keep their exact previous behaviour; `tower_recover` now runs
+    despite the workspace gate, its `status` action reports the `workspaceLock` record (path, bytes,
+    mtime, holder, and torn/unreadable state), and the new `action: "clear-workspace-lock"` needs
+    `confirm: "CLEAR_WORKSPACE_LOCK"` and renames the record to `tower.lock.recovered-<timestamp>` — it
+    never deletes it.
+  - **A torn record must be 30 seconds old.** The next acquisition auto-reclaims an empty,
+    whitespace-only or unparseable record only once its mtime is older than the 30 s torn grace window,
+    then retries the exclusive create once. Anything written more recently still refuses.
+  - **The refusal names the file.** The `workspace-busy` message now includes the lock path, its byte
+    count and its mtime, so a stale record is distinguishable from another live session.
+  - **No new config key and no migration.** The schema stays v5, the config keys stay at 58, and the
+    confirmation literal is domain vocabulary rather than a setting. Update the plugin and **restart
+    DSH**.
+
 - **2.9.3 → 2.9.4 — patch release, no migration required**: the config surface is unchanged (58 keys in
   16 sections) and the state schema stays v5. Nothing an operator configured needs to move:
   - **Pure client-UI change.** No tool schema, output or wire format moved, no config key or state field

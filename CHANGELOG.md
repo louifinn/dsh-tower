@@ -4,6 +4,22 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.5（2026-11-19）
+
+### 修复
+
+- **撕裂的 workspace 锁可以从工具路径恢复（F87）**：会话被强行终止时，可能留下写了一半的
+  `<git-common-dir>/dsh-tower/tower.lock`。此前这条无法解析的记录会让**所有** Tower 工具——包括
+  `tower_recover`——都以 `[tower:workspace-busy]` 拒绝，会话无法自救。现在可解析的持有者记录行为
+  完全不变；只有空、纯空白或无法解析的撕裂记录，才会在 30 秒宽限期后被下一次获取自动回收并改名为
+  `tower.lock.recovered-<timestamp>`（只改名，绝不删除）。`tower_recover` 本身也不再被 workspace
+  门禁挡住：`status` 报告 `workspaceLock` 的路径、字节数、mtime 与持有/撕裂/不可读状态，新增
+  `action:"clear-workspace-lock"`（确认串 `CLEAR_WORKSPACE_LOCK`）用于显式修复；`workspace-busy`
+  的拒绝信息也会给出锁文件路径、字节数与 mtime，让人一眼看出是哪个文件卡住了。
+- **live UI 检查的 toolview 键表不再落后（F85）**：可选的 live UI 检查不再写死 #163 之前的十二个键，
+  而是从 `ui-bundle/client.helpers.js` 的 `TOOL_NAMES` 派生期望键表，再与已注册的九个 keyed 工具视图
+  比对，差异会给出 expected/actual。这是开发者检查工具的改动，用户可见行为与打包内容不变。
+
 ## 2.9.4（2026-11-19）
 
 ### 修复
