@@ -144,6 +144,15 @@ prune）分开，自身从不移除任何东西；只有显式的 `orphans` 选�
 的检出也会出现在同一检查中，并且永远不会被 Tower 移除：这是有文档记录的边界，操作者要么在
 Tower 之外回收它，要么接受它。
 
+位于 mission 待 provision 路径上的检出会被报告为 in flight，而不会被当作未登记的缺陷：当一个
+尚无 worktree 记录的 mission 仍可能开始 provision（planned、active、paused 或 blocked）时，该检查
+会在 detail 中追加 `N checkout(s) in flight (kept)`，并且不给出处置动作。以 `completed`、`merged`
+或 `abandoned` 关闭的 mission 不会再次 provision，因此不再保留其路径；声明不创建 worktree 的
+shape（survey）同样不会保留，所以留在 `<worktree root>/<mission id>` 的干净检出就是普通的可移除
+orphan。该保留还采用 fail-closed：如果无法读取 mission 的 kind，其预期路径会被保留并在 decision
+中写明原因，而不是被移除。只有当没有任何保留时才会使用裸 `pass` 文本；存在保留检出时，detail
+会写明 in flight 数量。
+
 Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态是“允许并让 Tower 看得见”：
 未登记的检出是这项检查报告的事实，而不是 Tower 试图禁止的操作。deny 条目会破坏该工具在所有仓库
 中的使用，而且仍然不会让 Tower 获得检出记录；orphan 模式是清理路径，并且需要显式启用。这里不会有

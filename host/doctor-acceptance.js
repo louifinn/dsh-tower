@@ -76,18 +76,28 @@ export async function orphanWorktreeCheck(tower, state) {
       action: DOCTOR_ACTION_COPY.orphanWorktrees,
     }
   }
+  // A reserved path belongs to a mission that may be recording its checkout
+  // right now. It is read-only noise rather than an unrecorded checkout, but it
+  // must still be named (#187): a bare "no unrecorded worktrees" would hide a
+  // checkout the sweep is deliberately keeping.
+  const inflight = inventory.inflight.length
+  const inflightNote = inflight > 0 ? `${inflight} checkout(s) in flight (kept)` : ''
   const externalNote =
     inventory.external.length > 0
       ? `; ${inventory.external.length} checkout(s) outside the worktree root are unrecorded too and are never removed by Tower`
       : ''
   if (inventory.orphans.length === 0 && inventory.external.length === 0) {
-    return { id: 'worktrees-orphans', status: 'pass', detail: 'no unrecorded worktrees' }
+    return {
+      id: 'worktrees-orphans',
+      status: 'pass',
+      detail: inflight > 0 ? `no unrecorded worktrees; ${inflightNote}` : 'no unrecorded worktrees',
+    }
   }
   if (inventory.orphans.length === 0) {
     return {
       id: 'worktrees-orphans',
       status: 'warn',
-      detail: `no unrecorded worktree inside the worktree root${externalNote}`,
+      detail: `no unrecorded worktree inside the worktree root${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}`,
       action: DOCTOR_ACTION_COPY.orphanWorktrees,
     }
   }
@@ -101,7 +111,7 @@ export async function orphanWorktreeCheck(tower, state) {
   return {
     id: 'worktrees-orphans',
     status: 'warn',
-    detail: `${inventory.orphans.length} unrecorded worktree(s) under the worktree root (${parts.join(', ')})${externalNote}; run the worktree teardown step with its orphan option`,
+    detail: `${inventory.orphans.length} unrecorded worktree(s) under the worktree root (${parts.join(', ')})${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}; run the worktree teardown step with its orphan option`,
     action: DOCTOR_ACTION_COPY.orphanWorktrees,
   }
 }

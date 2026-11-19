@@ -326,6 +326,16 @@ being removable. A checkout git records **outside** the worktree root is reporte
 and is never removed by Tower: that is the documented limit, and the operator either reclaims it
 out of band or accepts it.
 
+A checkout at the path a mission is expected to provision is reported as in flight, never as an
+unrecorded defect: while a mission with no recorded worktree can still start a provision (planned,
+active, paused or blocked), the check adds `N checkout(s) in flight (kept)` to its detail and applies
+no remedy. A mission closed as `completed`, `merged` or `abandoned` cannot provision again and does
+not reserve its path; neither does a shape that declares no worktree (a survey), so a clean checkout
+left at `<worktree root>/<mission id>` is an ordinary removable orphan. The reservation also fails
+closed: if a mission's kind cannot be read, its expected path is kept with the reason stated in the
+decision instead of being removed. The bare `pass` text is used only when nothing is reserved;
+otherwise the detail names the in-flight count while a reserved checkout exists.
+
 Tower mode does not deny the worktree tool's `create_worktree` (#187). The stance is allow and make
 visible: an unrecorded checkout is a fact this check reports, not an operation Tower tries to
 forbid. A deny entry would break that tool for every repository regardless of mission need and still

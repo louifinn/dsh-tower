@@ -1198,3 +1198,72 @@ test('doctor: a checkout outside the worktree root is reported as a documented l
     removeTemp(root)
   }
 })
+
+test('doctor: a survey mission cannot hide an unrecorded checkout at its worktree path (#185 R1, #187)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const planned = await tower.plan({ missions: [{ title: 'Read the seed', kind: 'survey' }] })
+    const mission = planned.missions[0]
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = path.join(checkoutRoot, mission.id)
+    git(repo, ['worktree', 'add', '-b', 'survey-unrecorded', checkout, 'HEAD'])
+
+    // Before the fix the survey reserved `<root>/<id>`, the inventory dropped the
+    // reserved row from `orphans`, and the doctor printed a bare pass.
+    const before = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const beforeCheck = before.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(beforeCheck.status, 'warn', 'a survey does not make an unrecorded checkout invisible')
+    assert.match(beforeCheck.detail, /1 unrecorded worktree\(s\) under the worktree root/)
+    assert.equal(beforeCheck.detail.includes('in flight'), false, 'no in-flight claim is made for a survey path')
+
+    const swept = await tower.teardown({ orphans: true })
+    assert.ok(
+      swept.orphanWorktrees.removed.some((entry) => path.resolve(entry) === path.resolve(checkout)),
+      'the opt-in sweep is the remedy the report asks for',
+    )
+    assert.equal(fs.existsSync(checkout), false)
+
+    const after = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(afterCheck.status, 'pass')
+    assert.equal(afterCheck.detail, 'no unrecorded worktrees')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a provisionable mission reports its unrecorded checkout as in flight, not as unrecorded (#187)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const planned = await tower.plan({ missions: [{ title: 'Live build', scope: ['src/**'] }] })
+    const mission = planned.missions[0]
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const checkout = path.join(checkoutRoot, mission.id)
+    git(repo, ['worktree', 'add', '-b', 'inflight-unrecorded', checkout, 'HEAD'])
+
+    const report = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const check = report.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(check.status, 'pass', 'an in-flight checkout is not an unrecorded defect')
+    assert.equal(check.detail, 'no unrecorded worktrees; 1 checkout(s) in flight (kept)')
+    assert.equal(check.action, undefined, 'no remedy is applied to an in-flight checkout')
+    assert.equal(fs.existsSync(checkout), true, 'doctor never removes a worktree')
+
+    // The same reservation keeps the sweep from reclaiming it: a genuine
+    // in-flight build provision is still protected.
+    const swept = await tower.teardown({ orphans: true })
+    const decision = swept.orphanWorktrees.decisions.find((entry) => path.resolve(entry.path) === path.resolve(checkout))
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'a checkout is being provisioned and is not recorded by state yet')
+    assert.equal(fs.existsSync(checkout), true)
+  } finally {
+    removeTemp(root)
+  }
+})
