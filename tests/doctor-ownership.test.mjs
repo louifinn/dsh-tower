@@ -146,6 +146,35 @@ function loaderStoreFixture(rows = []) {
   return { store, root: { data: rows } }
 }
 
+// F89: the shipped `cordis.patch.yml` does not mount the host plugin as a
+// top-level row. The first top-level row is a mandatory `cordis:group` anchor
+// (`id: tower`, `group: true`) whose nested `config` holds the real plugin row
+// (`id: tower-host`, `name: dsh-tower`). The runtime entry tree spells the same
+// nesting as a group entry with a `subtree`; `entries()` recurses into it and
+// yields both rows, which is what `readLoaderRows` reads in production.
+function shippedLoaderFixture(extraRows = []) {
+  const hostRow = {
+    id: 'tower-host',
+    name: 'dsh-tower',
+    config: { mode: { allowAgentControl: true, workspaceLock: true } },
+  }
+  const groupRow = { id: 'tower', name: 'cordis:group', group: true, config: [hostRow] }
+  const child = loaderFixture([hostRow])
+  const store = Object.create(null)
+  store.tower = { options: groupRow, subtree: child }
+  for (const row of extraRows) store[row.id] = { options: row }
+  return {
+    root: { data: [groupRow, ...extraRows] },
+    store,
+    *entries() {
+      for (const entry of Object.values(this.store)) {
+        yield entry
+        if (entry.subtree) yield* entry.subtree.entries()
+      }
+    },
+  }
+}
+
 afterEach(() => {
   __testResetComponentRegistry()
   if (ORIGINAL_DSH_HOME === undefined) delete process.env.DSH_HOME
@@ -1420,6 +1449,94 @@ test('doctor: the loader store dict and a group subtree supply the inventory row
   }
 })
 
+test('doctor: the shipped group anchor and its tower-host child are Tower itself, not a conflict (F89)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: shippedLoaderFixture([{ id: 'forge', name: '@deepseek-ai/dsh-experimental-forge' }]),
+      permissionPresets: { names: [], current: () => null },
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'pass', JSON.stringify(row))
+    assert.equal(row.detail, 'no conflicting dsh-tower loader rows')
+    // The same shipped-shaped inventory still feeds the foreign-capability probe.
+    assert.ok(doctor.foreignCapabilities.present.includes('forge'))
+    assert.equal(doctor.foreignCapabilities.capabilities.find((entry) => entry.id === 'forge').detectable, true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a lone legacy dsh-tower row is Tower itself, not a conflict (F89)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: loaderFixture([{ id: 'tower', name: 'dsh-tower' }]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'pass', JSON.stringify(row))
+    assert.equal(row.detail, 'no conflicting dsh-tower loader rows')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a legacy dsh-tower row beside the shipped anchor still fails (F89)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: shippedLoaderFixture([{ id: 'tower-legacy', name: 'dsh-tower' }]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'fail')
+    assert.equal(doctor.ok, false)
+    assert.match(row.detail, /another loader row in this repository also resolves to "dsh-tower"/)
+    assert.match(row.detail, /tower-legacy/)
+    assert.doesNotMatch(row.detail, /tower-host/, 'the anchor child is Tower itself, never the conflict')
+    assert.doesNotMatch(`${row.detail} ${row.action}`, /dsh-plugins-tower/, 'the retired package name is gone')
+    assert.match(row.action, /remove or disable/)
+    assert.match(row.action, /restart DSH/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: an unreadable loader inventory still warns instead of passing (F89)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: {
+        entries() {
+          throw new Error('loader unavailable')
+        },
+      },
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'warn')
+    assert.equal(row.detail, 'loader inventory unavailable; cannot detect co-installed Tower packages')
+    assert.equal(row.action, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor: the shared loader inventory still detects conflicting dsh-tower rows (#188)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({
@@ -1436,6 +1553,8 @@ test('doctor: the shared loader inventory still detects conflicting dsh-tower ro
     const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
     assert.equal(row.status, 'fail')
     assert.match(row.detail, /tower-2/)
+    assert.doesNotMatch(`${row.detail} ${row.action}`, /dsh-plugins-tower/)
+    assert.match(row.action, /remove or disable/)
   } finally {
     removeTemp(root)
   }

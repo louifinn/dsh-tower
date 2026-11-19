@@ -344,6 +344,16 @@ forbid. A deny entry would break that tool for every repository regardless of mi
 would not give Tower a record of the checkout; orphan mode is the cleanup path, and it is opt-in.
 Nothing here removes a checkout automatically.
 
+The `loader-conflicts` check reads the mounted loader's configured rows. The shipped
+`cordis.patch.yml` mounts the host plugin as a nested row (`id: tower-host`, `name: dsh-tower`)
+inside the mandatory `tower` `cordis:group` anchor, so the anchor and the rows nested under it are
+Tower itself and never count as a conflict. A single `dsh-tower` row is always Tower's own mount,
+wherever the loader reports it; a second row outside that anchor — another installed package
+declaring the same plugin row — is a `fail` that names the offending row id(s),
+with the action to remove or disable the duplicate row in the profile's `cordis.patch.yml`,
+restart DSH and re-run the environment health check. When the loader inventory cannot be read the
+check is a `warn` (`loader inventory unavailable`), never a pass.
+
 ### Non-Tower capabilities (#188, #189)
 
 Other capabilities can orchestrate agents or land changes without Tower. Doctor records a stance for

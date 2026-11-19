@@ -25,6 +25,7 @@ import {
   artifactAcceptanceCheck,
   commitLockFacts,
   foreignCapabilityCheck,
+  loaderConflictCheck,
   orphanWorktreeCheck,
   readLoaderRows,
   stateLockFacts,
@@ -188,18 +189,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   if (rows === null) {
     checks.push(check('loader-conflicts', 'warn', 'loader inventory unavailable; cannot detect co-installed Tower packages'))
   } else {
-    const towerRows = rows.filter((row) => row && row.name === 'dsh-tower')
-    const foreign = towerRows.filter((row) => row.id !== 'tower')
-    checks.push(
-      towerRows.length > 1 || foreign.length > 0
-        ? check(
-            'loader-conflicts',
-            'fail',
-            `another loader row resolves to "dsh-tower" (${towerRows.map((row) => row.id ?? '?').join(', ')}); uninstall the conflicting dsh-plugins-tower row`,
-            'see README "Known conflicts"',
-          )
-        : check('loader-conflicts', 'pass', 'no conflicting dsh-tower loader rows'),
-    )
+    checks.push(loaderConflictCheck(rows))
   }
 
   checks.push(check('repository', 'pass', `${tower.root} (common ${tower.commonDir})`))
