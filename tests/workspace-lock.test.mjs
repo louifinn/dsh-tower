@@ -300,16 +300,42 @@ test('workspace lock: an unreadable record is reported and only force clears it'
   const { root, commonDir } = tempCommonDir()
   try {
     // A directory at the lock path cannot be read as a record: the same
-    // unreadable shape as a permission error, without relying on chmod.
+    // unreadable shape as a permission error, without relying on chmod. A
+    // sentinel inside it proves a forced clear renames the artifact intact.
     const file = workspaceLockPath(commonDir)
     fs.mkdirSync(file, { recursive: true })
+    fs.writeFileSync(path.join(file, 'sentinel.txt'), 'kept\n')
+    const bytes = fs.statSync(file).size
+    const mtime = new Date(fs.statSync(file).mtimeMs).toISOString()
     const facts = await workspaceLockStatus(commonDir)
     assert.equal(facts.held, true)
     assert.equal(facts.unreadable, true)
     assert.equal(facts.error !== null, true)
+    assert.equal(facts.path, file)
+    assert.equal(facts.bytes, bytes)
+    assert.equal(facts.mtime, mtime)
     const refused = await clearWorkspaceLock(commonDir, {})
     assert.equal(refused.cleared, false)
     assert.equal(refused.reason, 'unreadable')
+    // The tool-facing capability refuses without force, names the path and the
+    // runnable force step, and leaves the unreadable artifact where it is.
+    await assert.rejects(workspaceLockCapability.clear(commonDir, {}), (error) => {
+      assert.equal(error.code, 'workspace-busy')
+      assert.equal(error.details.reason, 'unreadable')
+      assert.ok(error.message.includes(file), error.message)
+      assert.match(error.message, /CLEAR_WORKSPACE_LOCK/)
+      return true
+    })
+    assert.equal(fs.statSync(file).isDirectory(), true)
+    // Force is the one path that moves it: the directory survives at the backup.
+    const forced = await workspaceLockCapability.clear(commonDir, { force: true })
+    assert.equal(forced.cleared, true)
+    assert.equal(forced.forced, true)
+    assert.equal(forced.workspaceLock.unreadable, true)
+    assert.ok(forced.backup, 'the unreadable record is moved to a backup, not deleted')
+    assert.equal(fs.statSync(forced.backup).isDirectory(), true, 'the unreadable artifact survives as a directory')
+    assert.equal(fs.readFileSync(path.join(forced.backup, 'sentinel.txt'), 'utf8'), 'kept\n')
+    assert.equal(fs.existsSync(file), false)
   } finally {
     removeTemp(root)
   }
@@ -437,6 +463,88 @@ test('mode.workspaceLock: a torn record is visible and recoverable through tower
     assert.equal(fs.readFileSync(cleared.backup, 'utf8'), ' '.repeat(217))
 
     // The gate is open again: the next tool call acquires a valid record.
+    await call('tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(readLock(commonDir).sessionId, 'session-A')
+    await runCommand('off')
+  } finally {
+    harness.disposeAll()
+    removeTemp(root)
+    removeTemp(storePath)
+  }
+})
+
+test('mode.workspaceLock: an unreadable record closes the gate and only a forced recovery clears it', async () => {
+  const { root, repo } = seedRepo()
+  const storePath = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-lock-store-'))
+  const harness = makeModeCtx()
+  try {
+    apply(harness.ctx, { mode: { workspaceLock: true, storePath } })
+    const agentA = { id: 'session-A' }
+    const command = harness.commands.get('tower')
+    const runCommand = (rawInput) => command.handler({ agent: agentA, rawInput, attachments: [] })
+    const call = (name, args) => harness.tools.get(name).execute(args, { agent: agentA, signal: undefined })
+    const commonDir = path.join(repo, '.git')
+    await call('tower_init', { repoRoot: repo })
+    assert.match((await runCommand('')).text, /Tower mode ON/)
+
+    // A directory at the lock path cannot be read as a record: the same
+    // unreadable shape as a permission error, without relying on chmod. The
+    // sentinel proves the forced recovery renames the artifact intact.
+    const lockFile = workspaceLockPath(commonDir)
+    fs.mkdirSync(lockFile, { recursive: true })
+    fs.writeFileSync(path.join(lockFile, 'sentinel.txt'), 'kept\n')
+    const bytes = fs.statSync(lockFile).size
+    const lockMtime = new Date(fs.statSync(lockFile).mtimeMs).toISOString()
+
+    // Every ordinary tool still refuses, and the refusal names the file facts.
+    await assert.rejects(
+      () => call('tower_inspect', { view: 'status', repoRoot: repo }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.ok(error.message.includes(lockFile), error.message)
+        assert.ok(error.message.includes(`${bytes} bytes`), error.message)
+        assert.match(error.message, /mtime/)
+        assert.equal(error.details.workspaceLock.path, lockFile)
+        assert.equal(error.details.workspaceLock.unreadable, true)
+        return true
+      },
+    )
+
+    // F87: the documented recovery tool runs while the gate is closed and the
+    // unreadable record is reported, not hidden.
+    const status = await call('tower_recover', { action: 'status', repoRoot: repo })
+    assert.equal(status.workspaceLock.path, lockFile)
+    assert.equal(status.workspaceLock.unreadable, true)
+    assert.equal(status.workspaceLock.held, true)
+    assert.equal(status.workspaceLock.bytes, bytes)
+    assert.equal(status.workspaceLock.mtime, lockMtime)
+
+    // Without force the unreadable record is refused and nothing moves.
+    await assert.rejects(
+      () => call('tower_recover', { action: 'clear-workspace-lock', repoRoot: repo, confirm: 'CLEAR_WORKSPACE_LOCK' }),
+      (error) => {
+        assert.equal(error.code, 'workspace-busy')
+        assert.equal(error.details.reason, 'unreadable')
+        return true
+      },
+    )
+    assert.ok(fs.statSync(lockFile).isDirectory(), 'the unreadable record is untouched without force')
+
+    const cleared = await call('tower_recover', {
+      action: 'clear-workspace-lock',
+      repoRoot: repo,
+      confirm: 'CLEAR_WORKSPACE_LOCK',
+      force: true,
+    })
+    assert.equal(cleared.cleared, true)
+    assert.equal(cleared.forced, true)
+    assert.equal(cleared.workspaceLock.unreadable, true)
+    assert.ok(cleared.backup, 'the unreadable record is moved to a backup, never deleted')
+    assert.equal(fs.statSync(cleared.backup).isDirectory(), true, 'the unreadable artifact survives as a directory')
+    assert.equal(fs.readFileSync(path.join(cleared.backup, 'sentinel.txt'), 'utf8'), 'kept\n')
+    assert.equal(fs.existsSync(lockFile), false)
+
+    // The gate is open again: the next ordinary tool call acquires a valid record.
     await call('tower_inspect', { view: 'status', repoRoot: repo })
     assert.equal(readLock(commonDir).sessionId, 'session-A')
     await runCommand('off')
