@@ -61,9 +61,9 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 `.description()`，再运行 `npm run docs:generate:config` 重新生成。若生成页漂移、缺少键或默认值，
 或本页再次出现逐键默认值表，`npm run docs:check:generated:config` 会失败。
 
-随包的 `cordis.patch.yml` 覆盖了三个代码默认值：`init.autoGitInit`、`mode.workspaceLock` 与
-`send.interruptDefault` 在随包 patch 中为 `true`。生成页中的其他值都是解析器在合并仓库配置前
-返回的值。
+随包的 `cordis.patch.yml` 覆盖了两个代码默认值：`init.autoGitInit` 与 `mode.workspaceLock` 在随包
+patch 中为 `true`。它还把 `send.interruptDefault` 固定为 `false`，因此普通的 `tower_send` 不会中断正在运行的
+agent；需要中断时请显式传 `interrupt:true`。生成页中的其他值都是解析器在合并仓库配置前返回的值。
 
 ## 示例
 

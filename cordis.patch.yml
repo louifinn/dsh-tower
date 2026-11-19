@@ -33,7 +33,7 @@
             init:
               autoGitInit: true
             send:
-              interruptDefault: true
+              interruptDefault: false
             spawn:
               staleMs: 30000
         # Each preset row mounts its own Tower-owned declaration module, not the
