@@ -9,7 +9,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { checkDocs, currentDocPages, DENY_DOC_PAGE, denyTableProblems, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { checkDocs, currentDocPages, DENY_DOC_PAGE, DENY_DOC_PAGE_ZH, denyTableProblems, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { reviewerBriefing, workerBriefing } from '../app/briefing.js'
+import { apply as applyReviewer } from '../reviewer.js'
+import { apply as applyWorker } from '../worker.js'
 import { DENY_OWNER_TOOLS } from '../domain/generated/deny-surface.js'
 import { loadShippedToolSurface } from '../scripts/lib/tool-surface.mjs'
 import { removeTemp } from './helpers/cleanup.mjs'
@@ -427,13 +430,24 @@ test('#191: a malformed deny row fails instead of being trusted', (t) => {
 })
 
 test('#191: a Chinese deny page must mirror the English rows in order', (t) => {
+  // The committed mirror is required: deleting it fails instead of silently
+  // skipping the parity block. Its header labels are translated, which the
+  // first assertion proves the parser accepts while comparing every row cell.
+  assert.deepEqual(denyTableProblems(repoRoot), [])
+
+  const missing = copyRepo(t)
+  fs.rmSync(path.join(missing, DENY_DOC_PAGE_ZH))
+  assert.ok(
+    denyTableProblems(missing).some((problem) => problem.includes(`${DENY_DOC_PAGE_ZH} is missing`)),
+    'a missing Chinese deny page must fail the check',
+  )
+
   const copy = copyRepo(t)
   const zhDir = path.join(copy, 'docs', 'zh', 'reference')
   fs.mkdirSync(zhDir, { recursive: true })
   const zhPage = path.join(zhDir, 'deny.md')
   fs.copyFileSync(path.join(copy, DENY_DOC_PAGE), zhPage)
-  // Identical rows are a valid mirror, which is what the future translated page
-  // must preserve even though its prose differs.
+  // Identical rows are a valid mirror, whatever the prose around them says.
   assert.deepEqual(denyTableProblems(copy), [])
 
   const original = fs.readFileSync(zhPage, 'utf8')
@@ -458,4 +472,52 @@ test('#191: a Chinese deny page must mirror the English rows in order', (t) => {
       problem.includes('tool-agent-team coverage "partial" must match the English row "full"'),
     ),
   )
+})
+
+/** Install a preset's protocol section against a stub ctx and return its text. */
+function protocolSection(apply, sectionName) {
+  let section = null
+  apply({
+    tools: { restrict() {} },
+    systemPrompt: {
+      section(value) {
+        section = value
+      },
+    },
+  })
+  assert.ok(section, `${sectionName} must be installed`)
+  assert.equal(section.name, sectionName)
+  return section.text
+}
+
+// #191: the no-ask limitation is not a worker-only fact. The reviewer protocol
+// and both child briefings must state the same limitation, or a child that
+// needs an approval stalls instead of reporting: approvals fail closed, and an
+// open question belongs in the report/blocker or the tower inbox. Dropping the
+// sentence from any one of the four texts reddens here.
+test('#191: worker/reviewer protocols and both briefings state the no-ask limitation', () => {
+  const base = path.join(os.tmpdir(), 'tower-docs-truth-noask')
+  const worktree = { path: path.join(base, 'wt'), branch: 'tower/m1-noask', baseCommit: 'a'.repeat(40) }
+  const mission = {
+    id: 'M1',
+    title: 'no-ask fixture',
+    kind: 'build',
+    scope: ['app/**'],
+    tasks: [{ text: 'do it', status: 'open' }],
+    context: null,
+    references: [],
+    reviewPolicy: 'required-clean',
+  }
+  const texts = [
+    ['worker.js', protocolSection(applyWorker, 'tower:worker-protocol')],
+    ['reviewer.js', protocolSection(applyReviewer, 'tower:reviewer-protocol')],
+    ['workerBriefing', workerBriefing({ repoRoot: base, base: 'main', mission, deps: [], worktree, instructions: null })],
+    ['reviewerBriefing', reviewerBriefing({ repoRoot: base, base: 'main', mission, deps: [], worktree, review: null, instructions: null })],
+  ]
+  for (const [label, text] of texts) {
+    assert.match(text, /cannot ask the user/i, `${label} must state that a child cannot ask the user`)
+    assert.match(text, /no approval prompt/i, `${label} must state that there is no approval prompt`)
+    assert.match(text, /fails closed/i, `${label} must state that an approval-gated call fails closed`)
+    assert.match(text, /tower inbox/i, `${label} must name the tower inbox as an escalation path`)
+  }
 })

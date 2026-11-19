@@ -393,7 +393,8 @@ export function toolTableRowProblems(root = packageRoot) {
 
 /** The page that carries the Tower-mode denied-capability table (#191). */
 export const DENY_DOC_PAGE = 'docs/reference/deny.md'
-const DENY_DOC_PAGE_ZH = 'docs/zh/reference/deny.md'
+/** The required Chinese mirror: same rows, translated prose and header labels. */
+export const DENY_DOC_PAGE_ZH = 'docs/zh/reference/deny.md'
 const DENY_TABLE_BEGIN = '<!-- tower-deny-table:begin -->'
 const DENY_TABLE_END = '<!-- tower-deny-table:end -->'
 const DENY_TABLE_COLUMNS = ['capability', 'denied tools', 'stance', 'replacement', 'coverage', 'cost']
@@ -414,8 +415,17 @@ function denyCellTokens(cell) {
   return [...cell.matchAll(/`([^`]+)`/g)].map((match) => match[1])
 }
 
-/** Split a page into the rows between the deny-table markers. */
-function parseDenyTable(text, page) {
+/**
+ * Split a page into the rows between the deny-table markers. The English page
+ * must use the canonical column labels; the Chinese mirror translates them, so
+ * for that page only the column count is enforced — the row ids, stance,
+ * coverage and tool cells stay mechanically identical.
+ *
+ * @param {string} text the page
+ * @param {string} page repo-relative path, for problem messages
+ * @param {{ requireEnglishHeader?: boolean }} [options]
+ */
+function parseDenyTable(text, page, { requireEnglishHeader = true } = {}) {
   const problems = []
   const begin = text.indexOf(DENY_TABLE_BEGIN)
   const end = text.indexOf(DENY_TABLE_END)
@@ -436,6 +446,7 @@ function parseDenyTable(text, page) {
     problems.push(`${page}: the deny table needs ${DENY_TABLE_COLUMNS.length} columns, found ${header.length}`)
   }
   header.forEach((cell, index) => {
+    if (!requireEnglishHeader) return
     const expected = DENY_TABLE_COLUMNS[index]
     if (expected !== undefined && cell.toLowerCase() !== expected) {
       problems.push(`${page}: deny table column ${index + 1} must be "${expected}", found "${cell}"`)
@@ -507,8 +518,8 @@ function denyOwnerRowProblems(page, row, tools) {
  * every warned foreign capability from `host/doctor-acceptance.js`, with the
  * stance vocabulary those modules export, a coverage value and a cost. A deny
  * surface entry without a row fails here; an owner tool added upstream fails on
- * the tools cell. The optional Chinese mirror must carry the same rows in the
- * same order with the same stance/coverage (#191).
+ * the tools cell. The required Chinese mirror must carry the same rows in the
+ * same order with the same stance/coverage/tool cells (#191).
  *
  * @param {string} root repository root
  * @param {{ owners?: Record<string, string[]>, capabilities?: readonly { id: string, stance: string }[] }} [expected]
@@ -560,8 +571,14 @@ export function denyTableProblems(root = packageRoot, expected = {}) {
     }
   }
   const zhPage = path.join(root, DENY_DOC_PAGE_ZH)
-  if (fs.existsSync(zhPage)) {
-    const zh = parseDenyTable(fs.readFileSync(zhPage, 'utf8'), DENY_DOC_PAGE_ZH)
+  if (!fs.existsSync(zhPage)) {
+    problems.push(
+      `${DENY_DOC_PAGE_ZH} is missing (the Chinese mirror of ${DENY_DOC_PAGE}); translate the page and keep its table rows identical`,
+    )
+  } else {
+    const zh = parseDenyTable(fs.readFileSync(zhPage, 'utf8'), DENY_DOC_PAGE_ZH, {
+      requireEnglishHeader: false,
+    })
     problems.push(...zh.problems)
     const zhIds = zh.rows.map((row) => row.id)
     if (zhIds.join(',') !== rowIds.join(',')) {
