@@ -135,6 +135,22 @@ roster 行的终态 mission 会得到 `N terminal mission worktree(s) awaiting t
 doctor 不会自动移除 worktree，也没有自动 teardown 策略或配置键。`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要
 处理。state 加载失败会作为失败的检查报告而不是抛出，因此 doctor 在损坏的仓库上仍然有用。
 
+没有任何 state 记录持有的 git 登记由独立的 `worktrees-orphans` 检查报告（#185）：发现时 `warn`
+并给出数量与处置方式（teardown 步骤的 `orphans` 选项），为零时 `pass` 且 detail 为
+`no unrecorded worktrees`。该检查把干净检出（可移除）、脏检出（保留）和目录已消失的登记（可
+prune）分开，自身从不移除任何东西；只有显式的 `orphans` 选项会移除，且只处理 worktree root 内的
+干净路径。主检出、所有被 state 引用的路径（mission worktree、sandbox、review checkout）以及 root
+之外的路径都是硬性排除，因此一个检出可以被列出却仍然不可移除。git 记录在 worktree root **之外**
+的检出也会出现在同一检查中，并且永远不会被 Tower 移除：这是有文档记录的边界，操作者要么在
+Tower 之外回收它，要么接受它。
+
+Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态是“允许并让 Tower 看得见”：
+未登记的检出是这项检查报告的事实，而不是 Tower 试图禁止的操作。deny 条目会破坏该工具在所有仓库
+中的使用，而且仍然不会让 Tower 获得检出记录；orphan 模式是清理路径，并且需要显式启用。这里不会有
+任何自动移除。
+
+`warn` 是提示；`fail` 表示仓库在 spawn/merge 前需要处理。
+
 `reports` 检查会指出仓库中最大的完成报告（`<bytes> B on <mission>`，对照 `gates.maxReportBytes` 上限），
 同样的数据也以 `reports: { count, largest: { missionId, bytes } | null, capBytes }` 返回。上限生效前写入的
 报告只会产生 `warn`，doctor 绝不会重写它们。

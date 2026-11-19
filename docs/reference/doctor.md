@@ -314,6 +314,24 @@ removes a worktree itself, and there is no automatic teardown policy or config k
 runs the teardown step when the finished mission's checkout can go. A mission whose roster row is
 still live is never counted, and a checkout already removed by teardown is reported by the removed
 count instead.
+
+Git registrations that no state record owns are reported separately by the `worktrees-orphans`
+check (#185): a `warn` names the count and the remedy — the teardown step's `orphans` option — while
+zero is a `pass` reading `no unrecorded worktrees`. The check splits clean checkouts (removable),
+dirty ones (kept) and registrations whose directory is gone (prunable), and it never removes
+anything itself; only the explicit `orphans` option does, and only for clean paths inside the
+worktree root. The main checkout, every path state references (mission worktree, sandbox, review
+checkout) and every path outside the root are hard exclusions, so a checkout can be listed without
+being removable. A checkout git records **outside** the worktree root is reported in the same check
+and is never removed by Tower: that is the documented limit, and the operator either reclaims it
+out of band or accepts it.
+
+Tower mode does not deny the worktree tool's `create_worktree` (#187). The stance is allow and make
+visible: an unrecorded checkout is a fact this check reports, not an operation Tower tries to
+forbid. A deny entry would break that tool for every repository regardless of mission need and still
+would not give Tower a record of the checkout; orphan mode is the cleanup path, and it is opt-in.
+Nothing here removes a checkout automatically.
+
 `warn` is advisory; `fail` means the repository needs attention before spawning/merging.
 
 The `reports` check names the largest completion report in the repository (`<bytes> B on <mission>`,
