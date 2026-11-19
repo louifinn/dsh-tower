@@ -79,6 +79,24 @@ affordance rationale and sets a precedent for hiding growth); raising the
 affordance chunks from the ratchet (creates a second exemption and defeats
 #71).
 
+## Amendment 2026-11-19 (#196/#197): the native chrome fixes spend the #195 headroom
+
+**Context.** #196 and #197 replace the ad-hoc overlay strip with the native
+toast surface and the bordered dock chip with the native `StatsPills` pill.
+Both are presentation contracts, and the new guards make them exact (token
+equality, geometry, the motion stylesheet), so the stylesheet plus the class
+wiring cost 32 logic lines.
+
+**Decision.** No ceiling move: the logic total is 2,407 of the 2,420 ceiling,
+so the fixes consume 32 of the 45 lines the #195 amendment left and leave 13.
+The 1,782 floor, the 400-line per-file cap, the data exclusion and the
+catalogue guards are unchanged.
+
+**Consequences.** The headroom is now smaller than one surface chunk's margin,
+so the next logic change is again a deliberate budget decision (an amendment or
+a split), which is the ratchet working as intended. The binding per-file
+constraint stays `client.cards.js` (399 lines).
+
 ## Consequences
 
 - A new user-facing string no longer has to pay for itself by deleting code or

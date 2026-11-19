@@ -1,24 +1,24 @@
 # Tower UI (optional Client bundle)
 
-An **optional** Web Client bundle for the Host `dsh-tower` plugin. It never touches Tower state directly: everything it renders is derived from the conversation the user is already looking at, or from the tool results already in that conversation. There is no Host → Client remote channel, no `host.call`, no DOM manipulation, no iframe, and no import of Harness Client packages. The browser module-table words it resolves are `react` and the Web shell's `@deepseek-ai/dsh-client-ui-primitives` namespace — a static-table name declared in `dsh.client.external`, not an installed package.
+An **optional** Web Client bundle for the Host `dsh-tower` plugin. It never touches Tower state directly: everything it renders is derived from the conversation the user is already looking at, or from the tool results already in that conversation. There is no Host → Client remote channel, no `host.call`, no iframe, and no import of Harness Client packages. The only DOM write is the guarded, tagged `<style>` that the native static-bundle convention injects at chunk materialization for the notification motion rules (#196); it never reads or mutates app markup. The browser module-table words it resolves are `react` and the Web shell's `@deepseek-ai/dsh-client-ui-primitives` namespace — a static-table name declared in `dsh.client.external`, not an installed package.
 
 Version: **0.2.2** (private, not published). The Host plugin version is unchanged.
 
-This revision fixes GitHub **#11** (persistent, history-derived Tower-mode indicator in the composer dock), **#12** (mode-aware denied-tool rows: a native tool row with the localized explanation on expand), and **#195** (Tower tool cards keep the native tool-row affordances: file links, inspect, image previews, and no fixed row-count truncation).
+This revision fixes GitHub **#11** (persistent, history-derived Tower-mode indicator in the composer dock), **#12** (mode-aware denied-tool rows: a native tool row with the localized explanation on expand), **#195** (Tower tool cards keep the native tool-row affordances: file links, inspect, image previews, and no fixed row-count truncation), **#196** (the `shell.overlay` strip is the native top-center toast surface, not a bottom-center card over the composer), and **#197** (the composer dock chip is the native `StatsPills` pill, not a bordered control-shaped pill).
 
 ## What it registers
 
 | Surface | Slot | Registration | Data source |
 |---|---|---|---|
 | Tower tool cards | `tool.call.toolview` (keyed, session) | 9 entries, one per `TOOL_NAMES` key in `ui-bundle/client.helpers.js`: `tower_inspect` (status/roster/diff/preflight/doctor views), `tower_spawn`, `tower_mission`, `tower_complete`, `tower_review`, `tower_merge`, `tower_teardown`, `tower_interrupt`, `tower_batch` | The Chat tool-call tree's owner props: `toolName`, `phase` (`preparing` / `start` / `result`), `block` (streaming start block or settled `tool/result` block), `callId`, plus the native affine props the card wires one-for-one: `useDisclosure()` (`{ expanded, toggle }`), `openFile(path, { line }?)`, `inspect()`, `loadImage(attachment)`. The card renders the primitives `DisclosureRow`, so collapsed it is the host tool row; the other three props drive the file-link, inspect and image affordances documented below. |
-| Composer dock | `conversation.composer.dock` (list, session) | `id: "tower-hint"`, `order: 6` | `useChat` standard selector hook (the durable Chat legacy slice). In Tower mode: a `Tower · on` chip. Otherwise, a Tower tool result in the conversation: a compact latest-status line. Otherwise: the static `/tower` hint. |
+| Composer dock | `conversation.composer.dock` (list, session) | `id: "tower-hint"`, `order: 6` | `useChat` standard selector hook (the durable Chat legacy slice). In Tower mode: a `Tower · on` status label. Otherwise, a Tower tool result in the conversation: a compact latest-status line. Otherwise: the static `/tower` hint. Every state uses the native `StatsPills` pill geometry (#197): borderless, transparent, `--dsw-radius-sm`, the appearance-scaled caption type, a 6 px dot plus text. |
 | Denied-tool rows | `tool.call.toolview` (keyed, session) | dynamic entries for the Tower-mode deny list, `priority: -10`, plus `update_goal`; each renders the primitives `DisclosureRow` with a friendly localized tool name and the M117 io-card explanation on expand | The same history-derived Tower mode. Registered only while the displayed session is in Tower mode and disposed when it leaves, so the native toolviews (priority 0) return. |
 | Overlay status strip | `shell.overlay` (list, root) | `id: "tower-status-strip"`, `order: 20` | The overlay slot is root-scoped, so it receives no chat hooks. The chat-driven toolview components publish a start/result notice into a module-local observable that this entry injects as `useTowerNotice`; a single timer auto-dismisses it after 4.5 s and is disposed by `ctx.effect`. |
 | Locale | Client locale service | namespace `tower-ui` (`en`, `zh`) | Bound `t` seats come from each registration's `locale` option. |
 
-The cards reuse the native row chrome instead of building their own: a collapsed Tower card is the host tool row (primitives icon, localized tool label, one-line headline, hover chevron), and the curated detail — mission status/counts, task checklist progress, blockers, roster live/stale counts, review verdict, merge/preflight state, and check/test evidence (exit codes included) — is rendered only while the row is expanded. All of it is rendered as React elements with inline styles; **theme references are restricted to `--dsw-alias-*` tokens plus the two native io-card tokens** (`--dsw-radius-lg`, `--dsw-font-markdown-code-block-small`), so light/dark and token renames degrade gracefully. The dynamic denied-tool rows follow the same contract: collapsed they are the native row (primitives icon, friendly localized name, the native 2 px separator dot and one warn-toned line), and the localized reason / next step exist only in the expanded io-card — the raw Host denial sentence is never rendered.
+The cards reuse the native row chrome instead of building their own: a collapsed Tower card is the host tool row (primitives icon, localized tool label, one-line headline, hover chevron), and the curated detail — mission status/counts, task checklist progress, blockers, roster live/stale counts, review verdict, merge/preflight state, and check/test evidence (exit codes included) — is rendered only while the row is expanded. All of it is rendered as React elements with inline styles; **theme references are restricted to `--dsw-alias-*` tokens plus the native non-alias tokens the host surfaces themselves use** (`--dsw-radius-lg`, `--dsw-radius-sm`, `--dsw-shadow-lv3`, `--dsw-font-markdown-code-block-small`), so light/dark and token renames degrade gracefully. The dynamic denied-tool rows follow the same contract: collapsed they are the native row (primitives icon, friendly localized name, the native 2 px separator dot and one warn-toned line), and the localized reason / next step exist only in the expanded io-card — the raw Host denial sentence is never rendered.
 
-The overlay strip is `pointer-events: none` end-to-end and uses `role="status"` / `aria-live="polite"`; it never blocks the composer or the page.
+The overlay strip is `pointer-events: none` end-to-end, uses `role="status"` / `aria-live="polite"`, and follows the native toast contract: fixed top-center (`top: 40px`), the toast radius/background/label tokens, the native 14 px/22 px type, `--dsw-shadow-lv3`, the native `min(640px, calc(100vw - 48px))` width, and the native 160 ms entry plus hold-then-fade motion. It never sits over the composer and declares no `z-index` of its own — the shell overlay layer owns the stacking order (#196).
 
 ## Source layout (#71)
 
@@ -98,16 +98,22 @@ value), marks error values with `data-error`, and `client.toolview.js` puts an
 | `inspectButton` | `align-self:flex-start; display:inline-flex; align-items:center; gap:4px; margin:4px 0 2px 4px; padding:2px 8px; border:.5px solid var(--dsw-alias-border-l3); border-radius:999px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-secondary); cursor:pointer; font:inherit; line-height:16px` |
 | `image` / `imageMeta` | `max-width:100%; max-height:240px; display:block; object-fit:contain` / `color:var(--dsw-alias-label-tertiary); overflow-wrap:anywhere` |
 
-Client chrome must never hardcode a px font size or a hex/rgb colour. The
+Client chrome must never invent a px font size or a hex/rgb colour. The
 appearance text-size setting and the light/dark theme are driven by the native
-`font` shorthand and the `--dsw-*` tokens, so a literal `12px` or `#333` would
+`font` shorthand and the `--dsw-*` tokens, so a local `11px` or `#333` would
 diverge from every native row exactly when the user changes those settings (and
-would be the same bug the expanded card fixes). The theme-token guard in
-`tests/ui-bundle.test.mjs` allows the `--dsw-alias-*` family plus the two
-native non-alias tokens the io-card uses (`--dsw-radius-lg`,
-`--dsw-font-markdown-code-block-small`). A dedicated expanded-surface test
-renders the open card and asserts the exact rule set, the per-row
-`ioSection`/`ioLabel`/`ioText` structure, `data-error` on error rows, an
+would be the same bug the expanded card fixes). The dock pill therefore uses the
+native anchor's `calc(var(--dsh-content-font-size-secondary, 13px) - 1px)` /
+`calc(20px + var(--dsh-content-font-delta-secondary, 0px))` type expressions,
+not a pinned 12 px. The one literal font size is the notification surface's
+`14px`/`22px`, copied verbatim from the native `Toast.module.css` (the toast is
+fixed type in the shell, not appearance-scaled); it is documented here so it is
+not mistaken for a local choice. The theme-token guard in
+`tests/ui-bundle.test.mjs` allows the `--dsw-alias-*` family plus the native
+non-alias tokens those host surfaces use (`--dsw-radius-lg`, `--dsw-radius-sm`,
+`--dsw-shadow-lv3`, `--dsw-font-markdown-code-block-small`). A dedicated
+expanded-surface test renders the open card and asserts the exact rule set, the
+per-row `ioSection`/`ioLabel`/`ioText` structure, `data-error` on error rows, an
 `ioDivider` between adjacent sections, and that the collapsed row renders no
 card at all.
 
@@ -151,6 +157,57 @@ error token and the localized error line in a single-section io-card.
 `client.styles.js` therefore carries no `denyCard`, `denyLabel` or `denyHint`;
 only the native row and io-card tokens remain.
 
+## Native notification surface (#196)
+
+`shell.overlay` renders inside the shell's overlay layer (`[data-shell-overlay]`,
+`position:absolute; inset:0; z-index:20; pointer-events:none`), so the strip is
+already above the chat and must not declare a stacking level. The old literal
+`z-index: 9100` was the bug: the native toast only uses `z-index: 1100` because
+it is body/portal-scoped, and the old strip sat bottom-center over the composer.
+The strip now mirrors `Toast.module.css`:
+
+| Element | Rule (CSS-in-JS in `client.styles.js`) |
+| --- | --- |
+| `stripWrap` | `position:fixed; top:40px; left:50%; transform:translateX(-50%); width:max-content; max-width:min(640px, calc(100vw - 48px)); pointer-events:none` — no `bottom`, no `z-index` |
+| `stripCard` | `pointer-events:none; display:flex; align-items:center; gap:10px; max-width:100%; min-width:0; padding:12px 16px; border:none; border-radius:var(--dsw-radius-lg); background:var(--dsw-alias-toast-bg); color:var(--dsw-alias-toast-label); font-size:14px; line-height:22px; box-shadow:var(--dsw-shadow-lv3); overflow:hidden` |
+| `stripText` | `min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap` (the notice never widens the page) |
+
+Motion lives in a module stylesheet, because inline styles cannot carry
+`@keyframes` or `@media`: `.dsh-tower-status-strip` gets the native
+`in .16s ease-out` entry plus the `fade 1s ease var(--dsh-toast-hold, 3s)
+forwards` exit. Under `prefers-reduced-motion: reduce` the entry and its
+translate are dropped and only the opacity fade remains — the native
+`Toast.module.css` rule; the strip is not interactive, so nothing depends on the
+motion. The stylesheet is injected from the `client.styles.js` factory as a
+`<style data-plugin="dsh-tower-ui" data-plugin-css="dsh-tower-ui/status-strip.css">`,
+guarded by `typeof document !== 'undefined'` and idempotent by
+`data-plugin-css`. This is the same static-bundle convention the shell's own
+chunks use (the Module Loader has no `styles` service for factory bundles; that
+closure is only passed to dynamic Cordis packages). Without a `document`
+(SSR/tests) the class is inert: the inline layout still renders and there is no
+motion to reduce. The overlay layer's own z-index is the stacking decision; no
+local level is needed or recorded.
+
+## Composer dock pill (#197)
+
+The dock is not a control: the mode chip, the latest-result summary and the
+static hint are status labels. They all take the native `StatsPills` pill
+(`StatsPills.module.css`) instead of the previous bordered 999 px chip:
+
+| Rule | Value |
+| --- | --- |
+| box | `box-sizing:border-box; display:inline-flex; align-items:center; gap:6px; padding:1px 8px; max-width:100%; min-width:0` |
+| surface | `border:none; background:0 0; border-radius:var(--dsw-radius-sm); color:var(--dsw-alias-label-tertiary)` |
+| type | `font:inherit; font-variant-numeric:tabular-nums; font-size:calc(var(--dsh-content-font-size-secondary, 13px) - 1px); line-height:calc(20px + var(--dsh-content-font-delta-secondary, 0px)); white-space:nowrap` |
+| status glyph | a 6 px tone dot (`dotStyle`), never an icon-button; the mode label keeps its success token, the summary keeps its tool/secondary + text/tertiary hierarchy |
+| interaction | none: no click handler, no hover fill, no focus target. `--dsw-alias-interactive-bg-hover` is deliberately unused — the native hover rule applies only to a `button.pill`, and this surface stays a label. The tooltip carries the actionable hint. |
+
+A narrow composer width cannot wrap the row: the pill caps at `max-width:100%`
+with `min-width:0`, the dot and tool label are `flex:none`, and the single
+summary-text child owns `min-width:0; overflow:hidden; text-overflow:ellipsis;
+white-space:nowrap`. The summary uses the same native type scale as its
+`activity`/`usage` neighbours.
+
 The client tier is gated by `scripts/architecture.mjs` like any other source
 root: `client-no-node` (no `node:*` imports; DOM globals are fine),
 `client-size` (800-line ceiling per file) and `client-ambient` (no module-level
@@ -160,7 +217,8 @@ and the split-size ratchet measures client **logic** — the sum of
 `ui-bundle/*.js` excluding the translation catalogue `client.locales.js` —
 against the pre-split 1,980-line `client.js` (#71): the 1,782-line floor and the
 400-line per-file target are unchanged, while ADR 0011's 2026-11-19 #195
-amendment raises the ceiling from 2,178 to 2,420 (today 2,375 lines). The catalogue is data, not logic:
+amendment raises the ceiling from 2,178 to 2,420 (today 2,407 lines, so 13
+remain before the next deliberate budget decision). The catalogue is data, not logic:
 `tests/ui-bundle.test.mjs` guards it with en/zh key-set parity, a 133-key floor
 and 260-key ceiling, non-empty string values of at most 240 characters, and a
 no-executable-construct check on the catalogue region. See
@@ -255,7 +313,7 @@ Verified **statically** against the installed DSH **0.2.2-rc.3** sources:
 - Locale: `ctx.locale.register(ns, { en, zh })`, dictionaries are flat `key → template` maps with `{param}` interpolation; a slot declaration's `locale` option supplies the bound `t` seat.
 - The bundle's `dsh.client.inject` orders activation after `ui-conversation` and `ui-tool`, the two packages that declare the slots it targets, and `dsh.client.external` names the primitives static-table word. `ctx.slots.inject` only installs a registration while its owner declaration exists; each injection is guarded and reported in diagnostics instead of crashing the whole Client half.
 
-Automated offline coverage: `tests/ui-bundle.test.mjs` loads `client.js` through a fake `window.__ModuleLoader__` (and each split chunk through the same loader when the entry calls `require.async`), seeds a fake primitives namespace whose `DisclosureRow` renders `open && children` like the host's, asserts the 9 `TOOL_NAMES` keys / dock id / overlay id, en–zh dictionary parity, theme-token discipline, every file's loader format and the split-size budget, and renders every card plus the dock/overlay components with fake hooks. The tool-card tests drive the host `useDisclosure()` seat: a collapsed card asserts `open: false` with no curated body, clicking the row routes through the supplied toggle, an expanded card renders the curated rows, and the expanded surface test pins the native io-card rule set, the per-row `ioSection`/`ioLabel`/`ioText` structure, `data-error` on error rows, an `ioDivider` between adjacent sections, and no card while collapsed. Every card keeps its `data-tower-*` attributes, and a shell without the primitives word registers no toolviews at all. The denied-row tests drive the same seat: collapsed they assert the native row (no card node), the warn summary and the friendly localized names for every default denied tool (no wire id, no raw Host sentence in visible copy); expanded they assert one io-card with exactly two reason/next-step ioSections and an ioDivider between them; running and ordinary-result/error fallbacks render the same native row, and an unknown tool keeps its own name. It also drives fake chat history through the dock to assert the off hint, the on chip (including refresh re-derivation), `tower_mode`/command updates, dynamic registration for default and configured deny lists, disposal on mode off, `update_goal`, and locale parity — no browser required. The #195 tests pin the four affordances and their absence: all 13 curated rows of a 12-file preflight inside the 260 px `bodyScroll`; file links only with `openFile` (native argument shape and click isolation); the inspect pill only with `inspect` (including a rows-free result); image preview through `loadImage` (peek first paint, pending loading text, missing-loader warning, and no loader call for a non-image result); and a mutated-chunk negative proof that deletes each wiring in turn and requires the named assertion to redden.
+Automated offline coverage: `tests/ui-bundle.test.mjs` loads `client.js` through a fake `window.__ModuleLoader__` (and each split chunk through the same loader when the entry calls `require.async`), seeds a fake primitives namespace whose `DisclosureRow` renders `open && children` like the host's, asserts the 9 `TOOL_NAMES` keys / dock id / overlay id, en–zh dictionary parity, theme-token discipline, every file's loader format and the split-size budget, and renders every card plus the dock/overlay components with fake hooks. The #196/#197 contract tests pin the native notification surface (top-center at 40 px, toast tokens, 14 px/22 px type, the lv3 shadow, no local z-index), the injected 160 ms entry / hold-then-fade stylesheet with its reduced-motion branch and single-injection guard, the native `StatsPills` dock pill (hint, mode chip, latest summary, narrow-width single line), and four mutated-chunk negative proofs that redden the named assertion when a token, the radius, the motion or the no-z-index rule is reverted. The tool-card tests drive the host `useDisclosure()` seat: a collapsed card asserts `open: false` with no curated body, clicking the row routes through the supplied toggle, an expanded card renders the curated rows, and the expanded surface test pins the native io-card rule set, the per-row `ioSection`/`ioLabel`/`ioText` structure, `data-error` on error rows, an `ioDivider` between adjacent sections, and no card while collapsed. Every card keeps its `data-tower-*` attributes, and a shell without the primitives word registers no toolviews at all. The denied-row tests drive the same seat: collapsed they assert the native row (no card node), the warn summary and the friendly localized names for every default denied tool (no wire id, no raw Host sentence in visible copy); expanded they assert one io-card with exactly two reason/next-step ioSections and an ioDivider between them; running and ordinary-result/error fallbacks render the same native row, and an unknown tool keeps its own name. It also drives fake chat history through the dock to assert the off hint, the on chip (including refresh re-derivation), `tower_mode`/command updates, dynamic registration for default and configured deny lists, disposal on mode off, `update_goal`, and locale parity — no browser required. The #195 tests pin the four affordances and their absence: all 13 curated rows of a 12-file preflight inside the 260 px `bodyScroll`; file links only with `openFile` (native argument shape and click isolation); the inspect pill only with `inspect` (including a rows-free result); image preview through `loadImage` (peek first paint, pending loading text, missing-loader warning, and no loader call for a non-image result); and a mutated-chunk negative proof that deletes each wiring in turn and requires the named assertion to redden.
 
 Live/browser verification is **opt-in** (`tests/live/ui-slots.cjs`) because it needs an isolated profile with the bundle installed. From a teammate/subagent session the Client `Slots` inspect query times out by design (the page answers only the agent whose session it displays), so this phase did not run a live inspection; the source-level contract above is the evidence. When the script runs against an installed profile it binds a session with a bare `/tower` command and asserts, through the read-only `window.__TOWER_UI_DIAG__` report, that apply() ran without errors, that all 9 `TOOL_NAMES` toolview keys and the dock/overlay entries registered, that the dock outlet is visible, and — since the bind command turns the Host mode on — that the history-derived `Tower · on` chip rendered (#11). The chip can be inspected visually in the same run (`data-tower-ui="dock-mode"`).
 
