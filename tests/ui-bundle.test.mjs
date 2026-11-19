@@ -10,7 +10,9 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -585,6 +587,98 @@ test('registers the nine keyed tool.call.toolview entries', async () => {
   }
   assert.ok(registrations.some((entry) => entry.options.key === 'tower_inspect'))
   assert.ok(registrations.some((entry) => entry.options.key === 'tower_batch'))
+})
+
+// #F85: the live check used to keep a second, hand-maintained toolview table
+// that fell behind the bundle when #163 merged the read-only tools into
+// tower_inspect. The live script now derives its expectation from the bundle's
+// own TOOL_NAMES literal; these tests own that derivation and prove that a
+// bundle/expectation drift reddens the live comparison.
+const liveRequire = createRequire(import.meta.url)
+function requireLiveUiSlots() {
+  // Requiring the live script must not run its browser flow: main() is guarded
+  // by `require.main === module`, so the offline test only gets the derivation.
+  return liveRequire('./live/ui-slots.cjs')
+}
+
+async function registeredToolviews() {
+  const { registrations } = await registerAll()
+  return registrations
+    .filter((entry) => entry.options.name === 'tool.call.toolview')
+    .map((entry) => entry.options.key)
+    .sort()
+}
+
+test('the live ui check derives its toolview keys from the bundle TOOL_NAMES (#F85)', async () => {
+  const live = requireLiveUiSlots()
+  const registered = await registeredToolviews()
+
+  // One source of truth: the derived expectation, the nine-key contract and
+  // the keys the loaded client registers must be the same list.
+  assert.deepEqual(live.EXPECTED_TOOLVIEWS, TOOL_NAMES, 'the derived expectation must be the nine-key contract')
+  assert.deepEqual(live.EXPECTED_TOOLVIEWS, registered, 'the live check must expect exactly what the client registers')
+  assert.equal(live.EXPECTED_TOOLVIEWS.length, 9)
+
+  // Guard against reintroducing a second table: the live script reads the
+  // bundle source, keeps no EXPECTED_TOOLVIEWS literal, and names no retired
+  // read-only tool from before #163.
+  const source = fs.readFileSync(path.join(HERE, 'live', 'ui-slots.cjs'), 'utf8')
+  assert.match(source, /client\.helpers\.js/, 'the live check must read the bundle key table')
+  assert.doesNotMatch(source, /EXPECTED_TOOLVIEWS\s*=\s*\[/, 'the live check must not hardcode a key table')
+  for (const retired of ['tower_status', 'tower_roster', 'tower_preflight', 'tower_doctor']) {
+    assert.ok(!source.includes(`'${retired}'`), `the live check must not re-add the retired key ${retired}`)
+  }
+
+  // The README count and the table row are part of the same contract.
+  const readme = fs.readFileSync(path.join(CLIENT_DIR, 'README.md'), 'utf8')
+  assert.match(readme, /`TOOL_NAMES`/, 'the README must name the bundle key table as the source')
+  assert.doesNotMatch(readme, /\b(?:12|twelve)\s+(?:toolview\s+)?(?:entries|keys)\b/i, 'the README must not repeat the retired count')
+  const entryClaims = [...readme.matchAll(/(\d+)\s+entries\b/g)].map((match) => Number(match[1]))
+  const keyClaims = [...readme.matchAll(/(\d+)\s+(?:`TOOL_NAMES`\s+)?(?:toolview\s+)?keys\b/g)].map((match) => Number(match[1]))
+  assert.ok(entryClaims.length >= 1, 'the registration table must state its entry count')
+  assert.ok(keyClaims.length >= 2, 'the coverage paragraphs must state the key count')
+  for (const claim of entryClaims.concat(keyClaims)) assert.equal(claim, TOOL_NAMES.length)
+  const row = readme.split(/\r?\n/).find((line) => line.startsWith('| Tower tool cards |'))
+  assert.ok(row, 'the registration table must keep its Tower tool cards row')
+  const rowKeys = [...new Set([...row.matchAll(/`(tower_[a-z0-9_]+)`/g)].map((match) => match[1]))].sort()
+  assert.deepEqual(rowKeys, TOOL_NAMES, 'the README row must list every key and no retired one')
+})
+
+test('the live toolview derivation reddens when the bundle key table drifts (#F85 negative proof)', async () => {
+  const live = requireLiveUiSlots()
+  const registered = await registeredToolviews()
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-ui-toolnames-'))
+  try {
+    const source = fs.readFileSync(path.join(CLIENT_DIR, 'client.helpers.js'), 'utf8')
+    const helpersPath = path.join(tmp, 'client.helpers.js')
+
+    // +1 key: a tenth name added to (a copy of) the bundle must make the live
+    // expectation differ from the nine keys the client actually registered.
+    fs.writeFileSync(helpersPath, source.replace('const TOOL_NAMES = [\n', "const TOOL_NAMES = [\n      'tower_extra',\n"))
+    const added = live.readBundleToolNames(tmp)
+    assert.equal(added.length, 10)
+    assert.ok(added.includes('tower_extra'))
+    const addedFailure = live.toolviewMismatch(added, registered)
+    assert.ok(addedFailure, 'a tenth key must not match the registered nine')
+    assert.match(addedFailure, /mismatch/)
+    assert.match(addedFailure, /tower_extra/)
+
+    // -1 key: removing one name must redden with the missing key named.
+    fs.writeFileSync(helpersPath, source.replace("      'tower_batch',\n", ''))
+    const removed = live.readBundleToolNames(tmp)
+    assert.equal(removed.length, 8)
+    assert.ok(!removed.includes('tower_batch'))
+    const removedFailure = live.toolviewMismatch(removed, registered)
+    assert.ok(removedFailure, 'an eighth key must not match the registered nine')
+    assert.match(removedFailure, /mismatch/)
+    assert.match(removedFailure, /tower_batch/)
+
+    // Positive control after the mutations: the shipped bundle still derives
+    // exactly the registered list (the negative proof never touches it).
+    assert.deepEqual(live.readBundleToolNames(), registered)
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 })
 
 test('registers the composer dock hint/summary entry', async () => {
