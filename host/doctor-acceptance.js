@@ -712,6 +712,55 @@ export function readLoaderRows(loader) {
 }
 
 /**
+ * F89: the `loader-conflicts` check over the rows `readLoaderRows` flattened.
+ * The shipped `cordis.patch.yml` mounts the host plugin as a nested row
+ * (`id: tower-host`, `name: dsh-tower`) inside the mandatory `tower` group
+ * anchor (`name: cordis:group`, `group: true`), so the anchor and the rows
+ * nested under it are Tower itself, never a conflict. A `dsh-tower` row outside
+ * that anchor is a second copy of the plugin. The child list is the same
+ * `children`/`config` field the reader flattens, so this adds no new assumption
+ * about the loader's internal shape. A disabled row is installed but not
+ * mounted, so it is never a live second copy: the remedy this check prints
+ * ("remove or disable") has to clear the check after the restart, which is why
+ * only enabled rows are counted. `readLoaderRows` stamps the effective disabled
+ * state on every flattened row, so the module's single predicate decides.
+ * @param {any[]} rows
+ */
+export function loaderConflictCheck(rows) {
+  const towerRows = rows.filter((row) => row && row.name === 'dsh-tower' && !loaderRowDisabled(row))
+  const owned = new Set()
+  /** @param {any} row */
+  const collect = (row) => {
+    if (!row || typeof row !== 'object' || typeof row.id !== 'string' || owned.has(row.id)) return
+    owned.add(row.id)
+    const children = Array.isArray(row.children)
+      ? row.children
+      : row.group === true && Array.isArray(row.config)
+        ? row.config
+        : null
+    if (children) for (const child of children) collect(child)
+  }
+  collect(rows.find((row) => row && row.id === 'tower' && row.group === true))
+  // Tower always mounts exactly one enabled `dsh-tower` row, so a lone enabled
+  // row cannot be a second copy: older layouts mounted it top-level (id
+  // `tower`) before the shipped group anchor existed. A disabled row never
+  // mounts, so only a second enabled row is a duplicate.
+  if (towerRows.length <= 1) {
+    return check('loader-conflicts', 'pass', 'no conflicting dsh-tower loader rows')
+  }
+  const foreign = towerRows.filter((row) => !owned.has(row.id))
+  const conflicts = foreign.length > 0 ? foreign : towerRows
+  return check(
+    'loader-conflicts',
+    'fail',
+    `another loader row in this repository also resolves to "dsh-tower" (${conflicts
+      .map((row) => row.id ?? '?')
+      .join(', ')}); remove or disable the duplicate row`,
+    "remove or disable the duplicate loader row in the profile's cordis.patch.yml, then restart DSH and re-run the environment health check",
+  )
+}
+
+/**
  * #188/#189: inventory the non-Tower capabilities that can orchestrate agents or
  * land changes, and report the stance Tower records for each one.
  * @param {{ ctx?: any, agent?: any, rows?: any[] | null }} input
