@@ -155,6 +155,30 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.5 release evidence (2026-11-19)
+
+The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
+batches through the bounded runner (`npm run test:shards`, 25 files per batch) on Windows 11 with Node
+`v25.8.1` (never an unbounded `npm test`). Declarations are counted, so the one skip is included in the
+total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1280** | 1279 pass, 1 skip, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **121** | 121 pass, 0 fail (121 × 3 seeds × 100 runs = 36,300 generated inputs) |
+| Mount smoke | `npm run smoke:mount` | — | 16/16 default tools, 3 skills, 4 presets (4 distinct labels), `/tower` present, 1 top-level bundle row on pinned `@deepseek-ai/dsh@0.2.2-rc.3` (91.1 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
+excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
+`git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
+passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (recovery through the real
+`tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
+cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
+`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These are the current totals;
+the W5 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as
+written.
+
 ### 2.9.4 release evidence (2026-11-19)
 
 The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
@@ -172,8 +196,9 @@ The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 `git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
-passed. These are the current totals; the W5 table below is the historical record of
-`feat/2.8.0-structure` at `bad249c` and is kept as written.
+passed. These were the 2.9.4 totals; the current totals are in
+[2.9.5 release evidence](#295-release-evidence-2026-11-19) above, and the W5 table below is the
+historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.3 release evidence (2026-11-18)
 
@@ -192,7 +217,7 @@ The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 `git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
-passed. These are the current totals; the W5 table below is the historical record of
+passed. These were the 2.9.3 totals; the W5 table below is the historical record of
 `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.2 release evidence (2026-11-18)
@@ -240,7 +265,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.4 release evidence](#294-release-evidence-2026-11-19) above.
+[2.9.5 release evidence](#295-release-evidence-2026-11-19) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

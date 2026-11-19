@@ -32,6 +32,22 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.9.4 → 2.9.5 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
+  v5，DSH 下限仍是 `0.2.2-rc.3`。操作者配置的任何内容都不需要迁移：
+  - **撕裂的 workspace 锁可以从工具路径修复。** 会话被强行终止时可能留下写了一半的
+    `<git-common-dir>/dsh-tower/tower.lock`。这条无法解析的记录此前会让所有 Tower 工具——包括
+    `tower_recover`——都以 `[tower:workspace-busy]` 拒绝，会话无法自救。可解析记录的行为保持完全
+    不变；`tower_recover` 现在不再被 workspace 门禁挡住，`status` 会报告 `workspaceLock` 记录
+    （路径、字节数、mtime、持有者以及撕裂/不可读状态），新增的 `action: "clear-workspace-lock"`
+    需要 `confirm: "CLEAR_WORKSPACE_LOCK"`，并把记录改名为 `tower.lock.recovered-<timestamp>`——
+    绝不删除。
+  - **撕裂记录必须满 30 秒。** 下一次获取只有在空、纯空白或无法解析记录的 mtime 超过 30 秒宽限期后
+    才会自动回收，并重试一次独占创建；更新鲜的记录仍然拒绝。
+  - **拒绝信息会指出文件。** `workspace-busy` 信息现在包含锁文件路径、字节数与 mtime，便于区分
+    陈旧记录与另一个活跃会话。
+  - **没有新配置键，也无需迁移。** schema 仍为 v5，配置键仍为 58，确认串属于领域词汇而不是开关。
+    更新插件并**重启 DSH**。
+
 - **2.9.3 → 2.9.4 —— 修补版，无需迁移**：配置表面未变（仍为 16 个 section、58 个键），state schema 仍为
   v5。操作者配置的任何内容都不需要迁移：
   - **纯客户端界面变更。** 没有工具 schema、输出或 wire format 改动，也没有新增配置键或状态字段，随包的
