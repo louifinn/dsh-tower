@@ -1,8 +1,14 @@
 // tower_recover: explicit stale state-lock / commit-mutex diagnostics and repair.
+import path from 'node:path'
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { RecoverInput } from '../domain/contracts/tool-inputs/index.js'
-import { RECOVERY_ACTION, RECOVERY_CONFIRM, ROLE } from '../domain/vocabulary.js'
+import {
+  RECOVERY_ACTION,
+  RECOVERY_CONFIRM,
+  RECOVERY_CONFIRM_WORKSPACE_LOCK,
+  ROLE,
+} from '../domain/vocabulary.js'
 
 /**
  * The lock fields a caller can act on, without the raw record or token. An
@@ -38,6 +44,14 @@ function backupName(file) {
   return `${file}.recovered-${Date.now()}${process.hrtime.bigint()}`
 }
 
+/** The injected workspace-lock capability and its common dir (absent when the embedder has none). */
+function workspaceTarget(tower) {
+  const capability = tower?.deps?.workspaceLock
+  if (!capability || typeof capability.status !== 'function') return null
+  const dir = tower?.commonDir ?? (tower?.paths?.dir ? path.dirname(tower.paths.dir) : null)
+  return typeof dir === 'string' && dir.length > 0 ? { capability, commonDir: dir } : null
+}
+
 /**
  * @param {any} ctx
  * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireTowerActor: any, readStateLock: any, lockTiming: any }} deps
@@ -47,7 +61,7 @@ export function registerRecoverTool(ctx, deps) {
   define(ctx, {
     name: 'tower_recover',
     description:
-      "Recover the state lock and short-lived state-commit mutex. status reports each lock's owner, age, heartbeat, staleness, or unreadable record. clear-stale-lock needs confirm:CLEAR_STALE_LOCK; moves a dead or unreadable record to a backup, never deleting it; state is never reset.",
+      'Recover the state lock, commit mutex and workspace lock. status reports owner/age/heartbeat/staleness/path/bytes or unreadable record. clear-stale-lock (confirm:CLEAR_STALE_LOCK) and clear-workspace-lock (confirm:CLEAR_WORKSPACE_LOCK) rename a dead or unreadable record to a backup, never delete.',
     parameters: RecoverInput,
     output: output(SCHEMAS.recover),
     async execute(args, exec) {
@@ -59,11 +73,9 @@ export function registerRecoverTool(ctx, deps) {
       const timing = lockTiming(lock.record, { now })
       const stateLock = publicLock(lock, timing)
       const stateUnreadable = Boolean(lock.error)
-      // #F71: the state-commit mutex is an optional store capability. The
-      // durable store exposes it; an in-memory store has no second writer to
-      // fence and reports no commit lock. Both reads go through the declared
-      // optional methods (with optional chaining) so the port-call guard sees
-      // the capability and a store without it still works.
+      // #F71: the commit mutex is an optional store capability (an in-memory
+      // store has no second writer); both reads use the declared optional
+      // methods so the port-call guard sees the capability.
       const commit =
         typeof tower.deps?.store?.readStateCommitLock === 'function'
           ? await tower.deps?.store?.readStateCommitLock(tower.paths, { now })
@@ -73,31 +85,30 @@ export function registerRecoverTool(ctx, deps) {
       const commitLock = commit?.record
         ? { ...publicLock(commit, commitTiming), token: commit.record.token ?? null, kind: commit.record.kind ?? null }
         : publicLock(commit, commitTiming)
+      const workspace = workspaceTarget(tower)
       if (args.action === RECOVERY_ACTION.status) {
-        return { ok: true, action: RECOVERY_ACTION.status, stateLock, commitLock, cleared: false }
+        const workspaceLock = workspace ? await workspace.capability.status(workspace.commonDir, { now, sessionId: actor.agentId, agentId: actor.agentId }) : null
+        return { ok: true, action: RECOVERY_ACTION.status, stateLock, commitLock, workspaceLock, cleared: false }
+      }
+      if (args.action === RECOVERY_ACTION.clearWorkspaceLock) {
+        if (args.confirm !== RECOVERY_CONFIRM_WORKSPACE_LOCK) throw new TowerToolError('invalid-argument', 'clear-workspace-lock requires confirm:"CLEAR_WORKSPACE_LOCK"')
+        if (!workspace) throw new TowerToolError('invalid-argument', 'the workspace lock is not configured in this embedder; no workspace-lock record to recover')
+        const cleared = await workspace.capability.clear(workspace.commonDir, { force: args.force === true, now })
+        return { ok: true, action: RECOVERY_ACTION.clearWorkspaceLock, stateLock: null, commitLock: null, ...cleared }
       }
       if (args.confirm !== RECOVERY_CONFIRM) {
         throw new TowerToolError('invalid-argument', 'clear-stale-lock requires confirm:"CLEAR_STALE_LOCK"')
       }
       if (!lock.record && !stateUnreadable && !commit?.record && !commitUnreadable) {
         return {
-          ok: true,
-          action: RECOVERY_ACTION.clearStaleLock,
-          stateLock: null,
-          commitLock: null,
-          cleared: false,
-          backup: null,
-          commitBackup: null,
-          forced: false,
+          ok: true, action: RECOVERY_ACTION.clearStaleLock, stateLock: null, commitLock: null,
+          cleared: false, backup: null, commitBackup: null, forced: false,
         }
       }
       const forced = args.force === true
-      // Validate every live record before moving anything: a partial repair is
-      // worse than a refusal, so a live holder of either lock refuses the whole
-      // action until force (and the confirmation string) says otherwise.
+      // Validate every live record before moving anything: a partial repair is worse than a refusal.
       if (lock.record && lock.alive !== false && !forced) {
-        // A live PID is not proof of a live writer (#92): report the heartbeat
-        // and require the explicit force opt-in before moving the record.
+        // A live PID is not proof of a live writer (#92): report the heartbeat and require force.
         throw new TowerToolError(
           'state-locked',
           `state lock pid ${lock.record.pid ?? ROLE.unknown} is still alive (last heartbeat ${timing.heartbeatAgeMs ?? 'unknown'}ms ago, stale after ${timing.staleAfterMs}ms); pass force:true with confirm:"CLEAR_STALE_LOCK" to move it to a backup after confirming no writer is active`,
@@ -109,9 +120,7 @@ export function registerRecoverTool(ctx, deps) {
           `the state commit mutex is still held by pid ${commit.record.pid ?? ROLE.unknown} (token ${commit.record.token ?? 'missing'}, held for ${commitTiming.ageMs ?? 'unknown'}ms); a live commit holder is never reclaimed automatically because it may be between the last state check and its rename; pass force:true with confirm:"CLEAR_STALE_LOCK" to move the record to a backup after confirming no writer is active`,
         )
       }
-      // An unreadable state lock is a record too: without force the whole action
-      // refuses before anything has moved; with force it is renamed after the
-      // commit mutex, never deleted.
+      // An unreadable state lock is a record too: without force nothing moves; with force it is renamed after the commit mutex, never deleted.
       if (stateUnreadable && !forced) {
         throw new TowerToolError(
           'state-locked',
@@ -124,12 +133,7 @@ export function registerRecoverTool(ctx, deps) {
           },
         )
       }
-      // Recover the commit mutex first: if that refuses (the record changed
-      // after inspection) the writer fence has not moved, and a later failure to
-      // move the state lock leaves both records visible for the next recovery.
-      // Calling the adapter for an unreadable record is deliberate: its
-      // state-commit-lock-unreadable refusal is then reachable from the only
-      // normal caller instead of only in a read→clear race.
+      // Recover the commit mutex first: if it refuses, the writer fence has not moved and both records stay visible for the next recovery.
       let commitBackup = null
       if (commit?.record || commitUnreadable) {
         if (typeof tower.deps?.store?.clearStateCommitLock !== 'function') {
@@ -138,9 +142,7 @@ export function registerRecoverTool(ctx, deps) {
             `the store cannot move the ${commitUnreadable ? 'unreadable ' : ''}commit mutex at ${commit.path}; confirm no writer is active and remove that file by hand`,
           )
         }
-        // expectedRaw closes the read→rename gap for a parsed record; an
-        // unreadable record has no compare value beyond the bytes the adapter
-        // reads itself.
+        // expectedRaw closes the read→rename gap for a parsed record.
         const cleared = await tower.deps?.store?.clearStateCommitLock(tower.paths, {
           force: forced,
           now,

@@ -44,9 +44,27 @@ the catalog settles; do not force the rows to `retired` by hand.
 ## Workspace lock
 
 With `mode.workspaceLock:true`, `<git-common-dir>/dsh-tower/tower.lock` names the owning session. A second
-Tower session gets `[tower:workspace-busy]`. Let the owner run `/tower off`; if the owner is gone, wait
-`mode.workspaceStaleMs` (default 5 min) for the stale takeover, or delete the lock deliberately only after
-confirming no Tower session is active. Heartbeats refresh the lock every `mode.heartbeatMs`.
+Tower session gets `[tower:workspace-busy]`; the message names the lock path, its byte size and mtime.
+Heartbeats refresh the lock every `mode.heartbeatMs`. Let the owner run `/tower off`; if the owner is gone,
+wait `mode.workspaceStaleMs` (default 5 min) for the stale takeover, or move the record aside with
+`tower_recover` (below) rather than deleting it by hand.
+
+A torn record — a session killed between the exclusive create and its write — used to wedge every tool,
+`tower_recover` included. It no longer does:
+
+- `tower_recover({action:"status"})` reports `workspaceLock` with `path`, `bytes`, `mtime`, `held`, `self`,
+  `stale`, `corrupt`, `unreadable`, `torn`, `aged`, `reclaimable` and the record owner (`pid`, `sessionId`).
+- A torn record (zero bytes, whitespace only, or not a lock object) is **reclaimed automatically** once its
+  mtime is older than the 30s torn grace window: the next repository tool renames it to
+  `tower.lock.recovered-<ts>` and takes the lock. A fresh torn file is not stolen from a writer that may
+  still be finishing its write, and a parseable record is never treated as torn.
+- `tower_recover({action:"clear-workspace-lock", confirm:"CLEAR_WORKSPACE_LOCK"})` is the manual path.
+  Without `force` it moves only a torn record older than the grace window or a record whose PID is provably
+  dead; a live holder, an unprovable PID, a fresh torn file and an unreadable file are refused with the lock
+  path, size, mtime and an executable next step. `force:true` overrides after you confirm no Tower session is
+  writing. The record is always renamed to `tower.lock.recovered-<ts>`, never deleted.
+- `tower_recover` runs before the workspace gate, so it stays callable while every other repository tool
+  reports `[tower:workspace-busy]`; recovery is still ownership-bound to the Tower session.
 
 ## Hot reload
 
