@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
   chunk: 'client.overlay.js',
   factory() {
     function createOverlay(env) {
-      const { h, translate, toolLabel, seatT, ST, dotStyle, helpers } = env
+      const { h, translate, toolLabel, seatT, ST, dotStyle, helpers, STRIP_CLASS } = env
       const { isPlainObject } = helpers
       // Mutable state lives in this closure; the module has no top-level state.
       const state = { value: null }
@@ -51,8 +51,8 @@ window.__ModuleLoader__.load({
         })
         return h(
           'div',
-          { 'data-tower-ui': 'status-strip', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', 'aria-label': text, style: ST.stripWrap },
-          h('div', { style: ST.stripCard }, h('span', { 'aria-hidden': true, style: dotStyle(tone) }, null), h('span', null, text)),
+          { 'data-tower-ui': 'status-strip', className: STRIP_CLASS, role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', 'aria-label': text, style: ST.stripWrap },
+          h('div', { style: ST.stripCard }, h('span', { 'aria-hidden': true, style: dotStyle(tone) }, null), h('span', { style: ST.stripText }, text)),
         )
       }
 

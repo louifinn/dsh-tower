@@ -539,9 +539,15 @@ test('locale metadata is present in en/zh', () => {
 })
 
 // The expanded io-card reproduces the host `ToolRow.module.css` verbatim, and
-// that native surface uses two non-alias design tokens for the card's corner
-// radius and type scale. Everything else stays on the --dsw-alias-* family.
-const NATIVE_NON_ALIAS_TOKENS = new Set(['--dsw-radius-lg', '--dsw-font-markdown-code-block-small'])
+// that native surface uses non-alias design tokens for the card's corner
+// radius and type scale. #196/#197 add the native toast radius/shadow and the
+// native StatsPills pill radius; everything else stays on --dsw-alias-*.
+const NATIVE_NON_ALIAS_TOKENS = new Set([
+  '--dsw-radius-lg',
+  '--dsw-radius-sm',
+  '--dsw-font-markdown-code-block-small',
+  '--dsw-shadow-lv3',
+])
 
 test('theme references are limited to --dsw-alias-* plus the native io-card radius/font tokens', () => {
   const tokens = ALL_SOURCE.match(/--dsw-[a-z0-9-]+/g) || []
@@ -554,8 +560,18 @@ test('theme references are limited to --dsw-alias-* plus the native io-card radi
   }
 })
 
-test('client code contains no DOM writes, iframe, host.call, or client package imports', () => {
-  assert.doesNotMatch(ALL_SOURCE, /\bdocument\./)
+test('client code touches the DOM only through the sanctioned style-tag injection', () => {
+  // #196: the motion stylesheet needs @keyframes/@media, which inline styles
+  // cannot carry. The native static bundles inject their module CSS from the
+  // chunk factory as a tagged <style> at materialization; this is the only
+  // DOM write in the client half, and it never reads or mutates app markup.
+  assert.match(ALL_SOURCE, /typeof document !== 'undefined'/, 'the style-tag injection must be document-guarded')
+  assert.match(ALL_SOURCE, /document\.head\.appendChild\(tag\)/, 'the injected stylesheet must be the tagged <style>')
+  const withoutStyleTag = ALL_SOURCE.replace(
+    /if \(\s*typeof document !== 'undefined' &&[\s\S]*?document\.head\.appendChild\(tag\)\s*\}/,
+    '',
+  )
+  assert.doesNotMatch(withoutStyleTag, /\bdocument\./, 'no DOM access outside the sanctioned style-tag injection')
   assert.doesNotMatch(ALL_SOURCE, /\bhost\.call\b/)
   assert.doesNotMatch(ALL_SOURCE, /<iframe|createElement\(\s*'iframe'/i)
   assert.doesNotMatch(
@@ -1853,6 +1869,309 @@ test('overlay strip renders the notice, is pointer-transparent, and auto-dismiss
   // registered with ctx.effect; freeing effects must be safe and idempotent.
   assert.ok(effects.some((effect) => effect.label === 'tower-ui: status strip timer'))
   assert.doesNotThrow(() => freeTimer({ effects }))
+})
+
+// ---------------------------------------------------------------------------
+// 3b. #196/#197: native toast + StatsPills chrome contracts.
+// ---------------------------------------------------------------------------
+// The installed shell's Toast.module.css, in CSS-in-JS form: fixed top-center
+// at 40px, toast tokens, 14px/22px type, the lv3 shadow, and the native width
+// cap. The overlay layer (z-index 20 in the shell layout) owns stacking, so the
+// strip itself carries no z-index.
+const NATIVE_TOAST_WRAP = {
+  position: 'fixed',
+  top: '40px',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  width: 'max-content',
+  maxWidth: 'min(640px, calc(100vw - 48px))',
+  pointerEvents: 'none',
+}
+const NATIVE_TOAST_CARD = {
+  pointerEvents: 'none',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  maxWidth: '100%',
+  minWidth: 0,
+  padding: '12px 16px',
+  border: 'none',
+  borderRadius: 'var(--dsw-radius-lg)',
+  background: 'var(--dsw-alias-toast-bg)',
+  color: 'var(--dsw-alias-toast-label)',
+  fontSize: '14px',
+  lineHeight: '22px',
+  boxShadow: 'var(--dsw-shadow-lv3)',
+  overflow: 'hidden',
+}
+// The installed shell's StatsPills.module.css pill + anchor, merged: a
+// borderless, transparent inline-flex pill at the appearance caption scale.
+const NATIVE_DOCK_PILL = {
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  maxWidth: '100%',
+  minWidth: 0,
+  padding: '1px 8px',
+  border: 'none',
+  borderRadius: 'var(--dsw-radius-sm)',
+  background: '0 0',
+  color: 'var(--dsw-alias-label-tertiary)',
+  font: 'inherit',
+  fontVariantNumeric: 'tabular-nums',
+  fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+  lineHeight: 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
+  whiteSpace: 'nowrap',
+}
+
+function assertNoStackingLevel(style) {
+  assert.equal(style.zIndex, undefined, 'the overlay layer owns stacking: no literal z-index')
+}
+
+function assertToastGeometry(strip) {
+  assertNoStackingLevel(strip.props.style)
+  assert.deepEqual(
+    strip.props.style,
+    NATIVE_TOAST_WRAP,
+    'the strip is the native toast geometry: top-center, never over the composer',
+  )
+  assert.equal(strip.props.style.bottom, undefined, 'the strip must not anchor to the composer')
+  const card = findNode(strip, (node) => Boolean(node.props && node.props.style && node.props.style.boxShadow !== undefined))
+  assert.ok(card, 'the strip renders the native toast card')
+  assertNoStackingLevel(card.props.style)
+  assert.deepEqual(card.props.style, NATIVE_TOAST_CARD, 'the card takes the native toast tokens, shadow and 14px/22px type')
+}
+
+function assertToastTokens(strip) {
+  const card = findNode(
+    strip,
+    (node) => Boolean(node.props && node.props.style && node.props.style.borderRadius === 'var(--dsw-radius-lg)'),
+  )
+  assert.ok(card, 'the native toast card exists')
+  assert.equal(card.props.style.background, 'var(--dsw-alias-toast-bg)', 'the native toast background token')
+  assert.equal(card.props.style.color, 'var(--dsw-alias-toast-label)', 'the native toast label token')
+  assert.equal(card.props.style.boxShadow, 'var(--dsw-shadow-lv3)', 'the native toast shadow token')
+  assert.equal(card.props.style.fontSize, '14px', 'the native toast type size')
+  assert.equal(card.props.style.lineHeight, '22px', 'the native toast line box')
+}
+
+function assertDockPill(style, what) {
+  // The hint and the mode chip add `userSelect: 'none'` (they are read-only
+  // labels the user may try to select); everything else is the native pill.
+  const base = Object.assign({}, style)
+  delete base.userSelect
+  assert.deepEqual(base, NATIVE_DOCK_PILL, what + ' takes the native StatsPills pill geometry, token for token')
+  assert.equal(style.border, 'none', what + ' has no border: a non-interactive status is not a control')
+  assert.equal(style.background, '0 0', what + ' has no fill')
+  assert.equal(style.borderRadius, 'var(--dsw-radius-sm)', what + ' uses the native pill radius')
+  assert.equal(style.fontSize, 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)')
+  assert.equal(style.lineHeight, 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))')
+}
+
+function assertStripMotion(css) {
+  assert.match(css, /@keyframes dsh-tower-strip-in/, 'the native entry keyframes exist')
+  assert.match(css, /\.16s ease-out/, 'the native 160ms entry')
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'the reduced-motion branch exists')
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+  assert.doesNotMatch(reduced, /dsh-tower-strip-in/, 'reduced motion drops the entry animation')
+  assert.match(reduced, /dsh-tower-strip-fade/, 'reduced motion keeps only the opacity fade')
+}
+
+function publishAndRenderStrip(bundle) {
+  const useTowerNotice = (selector) => selector(bundle.noticeSource.getSnapshot())
+  const Card = bundle.toolviews.get('tower_spawn')
+  render(bundle.react, Card, {
+    toolName: 'tower_spawn',
+    phase: 'start',
+    callId: 'call-spawn',
+    block: { callId: 'call-spawn', name: 'tower_spawn' },
+    t,
+  })
+  return render(bundle.react, bundle.overlay, { t, useTowerNotice })
+}
+
+test('overlay strip is the native toast surface: top-center, toast tokens, no z-index (#196)', async () => {
+  const bundle = await components()
+  const strip = publishAndRenderStrip(bundle)
+  assert.equal(strip.props['data-tower-ui'], 'status-strip')
+  assert.equal(
+    strip.props.className,
+    bundle.materialized.get('client.styles.js').STRIP_CLASS,
+    'the strip opts into the injected motion class',
+  )
+  assertToastGeometry(strip)
+  assertToastTokens(strip)
+  assert.equal(strip.props.role, 'status')
+  assert.equal(strip.props['aria-live'], 'polite')
+  assert.match(textOf(strip), /strip\.started/)
+  const overlaySource = fs.readFileSync(path.join(CLIENT_DIR, 'client.overlay.js'), 'utf8')
+  const stylesSource = fs.readFileSync(path.join(CLIENT_DIR, 'client.styles.js'), 'utf8')
+  assert.doesNotMatch(overlaySource, /zIndex/, 'the overlay chunk declares no stacking level')
+  assert.doesNotMatch(stylesSource, /zIndex/, 'the overlay styles declare no literal z-index')
+})
+
+test('the strip stylesheet carries the native 160ms entry, fade and reduced-motion branch (#196)', async () => {
+  const bundle = await components()
+  const styles = bundle.materialized.get('client.styles.js')
+  assertStripMotion(styles.STRIP_CSS)
+  assert.match(
+    styles.STRIP_CSS,
+    /dsh-tower-strip-fade 1s ease var\(--dsh-toast-hold, 3s\) forwards/,
+    'the native hold-then-fade exit',
+  )
+  assert.ok(styles.STRIP_CSS.includes('.' + styles.STRIP_CLASS + '{'), 'the rendered class is the animated class')
+})
+
+test('the strip stylesheet is injected once and only once per page (#196)', async () => {
+  const appended = []
+  const tags = []
+  globalThis.document = {
+    querySelector(selector) {
+      return tags.find((tag) => selector.includes(JSON.stringify(tag.dataset.pluginCss))) || null
+    },
+    createElement(tagName) {
+      assert.equal(tagName, 'style', 'the only created element is the module stylesheet')
+      return { dataset: {}, textContent: '' }
+    },
+    head: {
+      appendChild(node) {
+        appended.push(node)
+        tags.push(node)
+      },
+    },
+  }
+  try {
+    const first = await components()
+    assert.equal(appended.length, 1, 'the factory injects exactly one style tag')
+    const tag = appended[0]
+    assert.equal(tag.dataset.plugin, 'dsh-tower-ui', 'the tag is owned by this bundle for unload cleanup')
+    assert.equal(tag.dataset.pluginCss, 'dsh-tower-ui/status-strip.css')
+    assert.equal(tag.textContent, first.materialized.get('client.styles.js').STRIP_CSS)
+    assertStripMotion(tag.textContent)
+    await components()
+    assert.equal(appended.length, 1, 'the injection is idempotent by data-plugin-css')
+  } finally {
+    delete globalThis.document
+  }
+})
+
+test('composer dock states are the native StatsPills pill, not a control-shaped chip (#197)', async () => {
+  const bundle = await components()
+  const { react, dock, materialized } = bundle
+  const styles = materialized.get('client.styles.js')
+
+  const hint = render(react, dock, { t })
+  assert.equal(hint.props['data-tower-ui'], 'dock-hint')
+  assertDockPill(hint.props.style, 'the hint')
+  assert.equal(hint.props.style.userSelect, 'none')
+  assert.equal(hint.props.onClick, undefined, 'the hint is a label, not a button')
+  assert.match(hint.props.title, /dock\.hint\.title/)
+
+  const chip = render(react, dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) })
+  assert.equal(chip.props['data-tower-ui'], 'dock-mode')
+  assertDockPill(chip.props.style, 'the mode chip')
+  assert.equal(chip.props.onClick, undefined, 'the mode chip stays non-interactive')
+  assert.match(chip.props.title, /dock\.mode\.tooltip/, 'the tooltip stays')
+  const dot = findNode(
+    chip,
+    (node) => Boolean(node.props && node.props.style) && node.props.style.width === '6px' && node.props.style.borderRadius === '999px',
+  )
+  assert.ok(dot, 'a non-interactive status is a dot + text, not an icon-button')
+
+  const review = {
+    review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: 'two problems' },
+    round: 2,
+    branchTip: 'abcdef1234567',
+  }
+  const summary = render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([commandNode('off'), toolResultNode('tower_review', review)])),
+  })
+  assert.equal(summary.props['data-tower-ui'], 'dock')
+  assertDockPill(summary.props.style, 'the latest-result summary')
+  assert.equal(summary.props.onClick, undefined, 'the summary is a label, not a control')
+  assert.equal(styles.ST.dockTool.color, 'var(--dsw-alias-label-secondary)')
+  assert.equal(styles.ST.dockText.textOverflow, 'ellipsis')
+  assert.equal(styles.ST.dockText.minWidth, 0)
+})
+
+test('a narrow composer width keeps the dock row on one line (#197)', async () => {
+  const bundle = await components()
+  const { react, dock, materialized } = bundle
+  const styles = materialized.get('client.styles.js')
+  const long = 'p1 '.repeat(200)
+  const review = {
+    review: { status: 'p1-2items', mergeVerdict: 'fix-then-merge', round: 2, findings: long },
+    round: 2,
+    branchTip: 'abcdef1234567',
+  }
+  const summary = render(react, dock, {
+    t,
+    useChat: chatUse(chatSnapshot([commandNode('off'), toolResultNode('tower_review', review)])),
+  })
+  assert.equal(summary.props['data-tower-ui'], 'dock')
+  // The pill caps at its slot and the only shrinkable child ellipsizes, so the
+  // row never wraps or widens the composer.
+  assert.equal(summary.props.style.maxWidth, '100%')
+  assert.equal(summary.props.style.minWidth, 0)
+  assert.equal(summary.props.style.whiteSpace, 'nowrap')
+  const text = findAll(summary, (node) => Boolean(node.props && node.props.style === styles.ST.dockText))
+  assert.equal(text.length, 1, 'the summary text is the single shrinkable child')
+  assert.equal(text[0].props.style.overflow, 'hidden')
+  assert.equal(text[0].props.style.textOverflow, 'ellipsis')
+  assert.equal(text[0].props.style.minWidth, 0)
+  assert.equal(findAll(summary, (node) => node.tag === 'br').length, 0, 'no line break is rendered')
+})
+
+test('the #196/#197 native-chrome contract is load-bearing (mutated-chunk negative proof)', async () => {
+  const mutations = [
+    {
+      label: 'toast background token reverted',
+      from: "background: 'var(--dsw-alias-toast-bg)',",
+      to: "background: 'var(--dsw-alias-bg-overlay)',",
+      failure: /native toast background token/,
+      check: (strip) => assertToastTokens(strip),
+    },
+    {
+      label: 'literal z-index re-added',
+      from: "        pointerEvents: 'none',\n      },\n      stripCard:",
+      to: "        pointerEvents: 'none',\n        zIndex: 9100,\n      },\n      stripCard:",
+      failure: /no literal z-index/,
+      check: (strip) => assertNoStackingLevel(strip.props.style),
+    },
+    {
+      label: 'dock radius reverted to the 999px chip',
+      from: "borderRadius: 'var(--dsw-radius-sm)',",
+      to: "borderRadius: '999px',",
+      failure: /StatsPills pill geometry/,
+      check: (strip, bundle) =>
+        assertDockPill(
+          render(bundle.react, bundle.dock, { t, useChat: chatUse(chatSnapshot([commandNode('on')])) }).props.style,
+          'the mode chip',
+        ),
+    },
+    {
+      label: 'native 160ms entry removed',
+      from: '{animation:dsh-tower-strip-in .16s ease-out,',
+      to: '{animation:dsh-tower-strip-in .2s ease-out,',
+      failure: /native 160ms entry/,
+      check: (strip, bundle) => assertStripMotion(bundle.materialized.get('client.styles.js').STRIP_CSS),
+    },
+  ]
+  const source = fs.readFileSync(path.join(CLIENT_DIR, 'client.styles.js'), 'utf8')
+  for (const mutation of mutations) {
+    assert.ok(source.includes(mutation.from), 'the negative proof anchors on client.styles.js: ' + mutation.label)
+    const bundle = await componentsFrom({
+      chunkSources: { 'client.styles.js': source.replace(mutation.from, mutation.to) },
+    })
+    const strip = publishAndRenderStrip(bundle)
+    assert.throws(
+      () => mutation.check(strip, bundle),
+      mutation.failure,
+      'mutating ' + mutation.label + ' must redden the named assertion',
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------
