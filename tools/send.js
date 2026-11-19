@@ -13,6 +13,18 @@ import {
 } from '../domain/vocabulary.js'
 
 /**
+ * Stable code for "wake:true could not start a turn". Kept in one place so the
+ * tool and its tests cannot drift while the catalogue entry is settled.
+ */
+const AGENT_NOT_RESUMABLE = 'agent-not-resumable'
+
+/** @param {any} error */
+function isNotResumable(error) {
+  if (error?.code === 'NOT_RESUMABLE' || error?.code === 'subagent/not-resumable') return true
+  return /not resumable|no supported continuation state/i.test(String(error?.message ?? error))
+}
+
+/**
  * @param {any} ctx
  * @param {{
  *   define: import('../types/index.js').DefineTool,
@@ -26,7 +38,7 @@ export function registerSendTool(ctx, deps) {
   define(ctx, {
     name: 'tower_send',
     description:
-      'Send a durable inbox message to a tower participant: a roster agent name, "tower", or "all" (broadcast). The message is persisted first; when the recipient is a currently running roster agent the tower also steers it into that child\'s current turn. Returns delivery results.',
+      'Send a durable inbox message to a tower participant: a roster agent name, "tower", or "all" (broadcast). A running roster agent is steered into its current turn; a stopped one keeps the message queued unless wake:true starts a new turn. Returns delivery results.',
     parameters: SendInput,
     aliases: { consentRef: ['consent_ref'] },
     output: output(SCHEMAS.send),
@@ -45,6 +57,7 @@ export function registerSendTool(ctx, deps) {
       const sendConfig = tower.config.send ?? {}
       const interrupt =
         args.interrupt === undefined ? sendConfig.interruptDefault === true : args.interrupt === true
+      const wake = args.wake === true
       if (interrupt && !isTowerRole(actor.role)) {
         throw new TowerToolError('not-authorized', 'only the tower may interrupt a recipient with tower_send')
       }
@@ -75,8 +88,17 @@ export function registerSendTool(ctx, deps) {
 
       const subagents = ctx.get('subagents')
       const results = []
+      /** Targets whose persisted message cannot start a turn. */
+      const notResumable = []
+      const fail = (target, reason, interrupted = false) => ({
+        target,
+        pushed: false,
+        interrupted,
+        woke: false,
+        reason,
+      })
       if (!subagents) {
-        results.push({ target: '*', pushed: false, reason: 'subagents service unavailable; persisted only' })
+        results.push(fail('*', 'subagents service unavailable; the message is persisted, but nothing can deliver or start a turn for it'))
       } else {
         const roster = view.roster
         const parents = [...new Set(roster.map((entry) => entry.parentSessionId).filter(Boolean))]
@@ -89,24 +111,26 @@ export function registerSendTool(ctx, deps) {
             // an unreadable parent catalog only means "do not wake it"
           }
         }
-        const targets =
-          isBroadcast(args.to) ? roster.map((entry) => entry.name) : [args.to]
+        const targets = isBroadcast(args.to) ? roster.map((entry) => entry.name) : [args.to]
         for (const targetName of targets) {
           if (isTowerRecipient(targetName)) {
-            results.push({ target: ROLE.tower, pushed: false, reason: 'tower reads its inbox' })
+            results.push(fail(ROLE.tower, 'tower reads its inbox on its next turn; wake does not apply to the tower'))
             continue
           }
           const entry = roster.find((candidate) => candidate.name === targetName)
           if (!entry) {
-            results.push({ target: targetName, pushed: false, reason: 'not in roster' })
+            results.push(fail(targetName, 'not in roster; no agent will read this message and wake cannot start one'))
             continue
           }
-          if (!isRunningActivity(activity.get(entry.agentId))) {
-            results.push({ target: targetName, pushed: false, reason: 'not running; queued in inbox' })
+          const running = isRunningActivity(activity.get(entry.agentId))
+          if (!running && !wake) {
+            results.push(
+              fail(targetName, "not running; the message is persisted in its inbox for the agent's next turn — pass wake:true to start a turn now"),
+            )
             continue
           }
           let interrupted = false
-          if (interrupt) {
+          if (interrupt && running) {
             try {
               subagents.interrupt(entry.agentId, { kind: 'ancestor', agent: exec.agent })
               interrupted = true
@@ -115,7 +139,7 @@ export function registerSendTool(ctx, deps) {
                 reason: `tower_send${message?.id ? ` ${message.id}` : ''}: ${args.subject.trim().slice(0, 120)}`,
               })
             } catch (error) {
-              results.push({ target: targetName, pushed: false, reason: `interrupt failed: ${String(error?.message ?? error)}` })
+              results.push(fail(targetName, `interrupt failed: ${String(error?.message ?? error)}; the message is persisted but not delivered`))
               continue
             }
           }
@@ -123,21 +147,35 @@ export function registerSendTool(ctx, deps) {
             await subagents.sendMessage(
               exec.agent,
               entry.agentId,
-              [
-                {
-                  type: 'text',
-                  text: `[tower inbox ${message.id}] ${message.subject}\n\n${message.body}`,
-                },
-              ],
+              [{ type: 'text', text: `[tower inbox ${message.id}] ${message.subject}\n\n${message.body}` }],
               { signal: exec.signal },
             )
-            results.push({ target: targetName, pushed: true, interrupted })
+            results.push({ target: targetName, pushed: true, interrupted, woke: !running })
           } catch (error) {
-            results.push({ target: targetName, pushed: false, reason: String(error?.message ?? error) })
+            const detail = String(error?.message ?? error)
+            const unresumable = wake && !running && isNotResumable(error)
+            if (unresumable) notResumable.push(targetName)
+            const tail = running
+              ? 'the message is persisted but was not steered into the running turn'
+              : "the message is persisted in its inbox for the agent's next turn — pass wake:true to start a turn now"
+            results.push(
+              fail(targetName, unresumable ? `not resumable: ${detail}; the message is persisted but wake cannot start a turn` : `${detail}; ${tail}`, interrupted),
+            )
           }
         }
       }
       if (results.length > 0) await tower.recordDelivery(message.id, results)
+      if (notResumable.length > 0) {
+        throw new TowerToolError(
+          AGENT_NOT_RESUMABLE,
+          `${notResumable.join(', ')} cannot be resumed, so wake:true cannot start a turn for the persisted message`,
+          {
+            details: { targets: notResumable, messageId: message.id },
+            nextAction:
+              'choose a running agent or a resumable direct child (tower_inspect view:"roster"), or omit wake:true to leave the message for the agent\'s next turn',
+          },
+        )
+      }
       return {
         message: { id: message.id, from, to: message.to, subject: message.subject },
         deliveries: results,

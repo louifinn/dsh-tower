@@ -381,7 +381,7 @@ test('parseCordisPatch separates visible rows, internal sections and plugin ids'
     { key: 'mode.planModePolicy', value: 'clear' },
     { key: 'mode.ralphPolicy', value: 'stop' },
     { key: 'init.autoGitInit', value: 'true' },
-    { key: 'send.interruptDefault', value: 'true' },
+    { key: 'send.interruptDefault', value: 'false' },
     { key: 'spawn.staleMs', value: '30000' },
   ])
   assert.deepEqual(patch.rows.find((row) => row.id === 'preset-tower-worker').configOverrides, [])
@@ -794,7 +794,7 @@ test('integration: a row that owns the review policy fails the gate (#M42, #M66)
 test('integration: the #133/#135/#136 shapes and a foreign override fail the gate (#138)', async () => {
   const hostConfig = (block) => (text) =>
     text.replace(
-      /^(            send:\n              interruptDefault: true\n)/m,
+      /^(            send:\n              interruptDefault: false\n)/m,
       (match) => `${match}${block}`,
     )
   const cases = [

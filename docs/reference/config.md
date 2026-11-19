@@ -70,9 +70,11 @@ regenerate with `npm run docs:generate:config`. `npm run docs:check:generated:co
 generated page drifts, when a key or default is missing from it, or when this page grows a per-key
 default table again.
 
-The shipped `cordis.patch.yml` overrides three code defaults: `init.autoGitInit`,
-`mode.workspaceLock` and `send.interruptDefault` are `true` in the bundled patch. Every other value
-in the generated page is what the resolver returns before repository config.
+The shipped `cordis.patch.yml` overrides two code defaults: `init.autoGitInit` and
+`mode.workspaceLock` are `true` in the bundled patch. It also pins `send.interruptDefault` to
+`false`, so a plain `tower_send` never stops a running agent; pass `interrupt:true` explicitly to
+interrupt. Every other value in the generated page is what the resolver returns before repository
+config.
 
 ## Example
 

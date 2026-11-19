@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12132,
+        "value": 12269,
         "decisions": [
           {
             "from": 17008,
@@ -272,6 +272,12 @@
             "to": 12132,
             "date": "2026-11-19",
             "note": "#F88/M131: TeardownInput advertises the opt-in orphan sweep as an `orphans` boolean with its protections in the description, and tower_teardown's description names the sweep. Only that one advertised schema and description grow: profiles.tower.inputBytes becomes 12132 (was 11812) and host:active becomes 16,645 B (was 16,262), because tower_teardown is host-admitted. The tool count stays 21/14; worker, reviewer, survey and the mode-off/idle rows do not move."
+          },
+          {
+            "from": 12132,
+            "to": 12269,
+            "date": "2026-11-20",
+            "note": "#203/M141: SendInput advertises the new `wake` boolean with its default-false contract and the interrupt description stops claiming `interrupt` is the shipped default. Only that one advertised schema grows by 137 bytes in every profile that mounts tower_send: tower 12269 (was 12132), worker 6791 (was 6654), reviewer 4508 (was 4371). host:active grows with the description plus schema to 16,770 B (was 16,645); the survey presets do not mount tower_send and do not move. Tool counts stay 14/6/5."
           }
         ]
       }
@@ -303,7 +309,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6654,
+        "value": 6791,
         "decisions": [
           {
             "from": 8159,
@@ -334,6 +340,12 @@
             "to": 6654,
             "date": "2026-11-12",
             "note": "#159: the worker profile mounts tower_mission, whose MissionInput gains the artifact acceptance fields (accept/accept_note). The artifact worker uses the mandatory worker preset, so its tower_complete schema also advertises the declared-deliverable admission in the description."
+          },
+          {
+            "from": 6654,
+            "to": 6791,
+            "date": "2026-11-20",
+            "note": "#203/M141: tower_send advertises the new `wake` boolean, so the worker preset's mounted SendInput grows by 137 bytes. The tool count stays 6."
           }
         ]
       }
@@ -365,7 +377,7 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4371,
+        "value": 4508,
         "decisions": [
           {
             "from": 5871,
@@ -390,6 +402,12 @@
             "to": 4371,
             "date": "2026-11-12",
             "note": "#163 Phase 4: the reviewer profile loses the tower_findings schema."
+          },
+          {
+            "from": 4371,
+            "to": 4508,
+            "date": "2026-11-20",
+            "note": "#203/M141: tower_send advertises the new `wake` boolean, so the reviewer preset's mounted SendInput grows by 137 bytes. The tool count stays 5."
           }
         ]
       }
@@ -408,15 +426,15 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 16645
+        "bytes": 16770
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 8646
+        "bytes": 8771
       },
       "preset:reviewer": {
         "tools": 5,
-        "bytes": 6000
+        "bytes": 6125
       },
       "preset:survey": {
         "tools": 5,
@@ -457,6 +475,11 @@
         "date": "2026-11-19",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#F88/M131: tower_teardown now advertises the opt-in orphan sweep (`orphans` boolean plus its protections) and its description names the sweep, so host:active becomes 14 tools / 16,645 B (was 16,262). Mode-off, idle and the presets are unchanged; the growth exposes an existing capability to callers instead of adding a new tool row."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#203/M141: tower_send now advertises `wake` and its description explains that a stopped agent keeps the message queued unless wake starts a turn, while the interrupt description stops claiming a shipped default. host:active becomes 14 tools / 16,770 B (was 16,645); preset:worker 6/8,771 (was 6/8,646) and preset:reviewer 5/6,125 (was 5/6,000), because both mount tower_send. Mode-off, idle and the survey presets are unchanged, and no tool count moves; this is the honest-receipt capability issue #203 asks for, not a new tool row."
       }
     ]
   }

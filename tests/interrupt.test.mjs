@@ -8,11 +8,24 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
 
+import { parseCordisPatch } from '../domain/component-surface.js'
 import { registerTowerTools } from '../host/tool-registry.js'
 import { Tower } from '../host/tower.js'
 import { configureRuntime } from '../host/config.js'
+
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/** The send block the bundled patch applies to the host row, as raw booleans. */
+function shippedSendConfig() {
+  const patch = parseCordisPatch(fs.readFileSync(path.join(rootDir, 'cordis.patch.yml'), 'utf8'))
+  const host = patch.rows.find((row) => row.id === 'tower-host')
+  const overrides = new Map((host?.configOverrides ?? []).map((override) => [override.key, override.value]))
+  const value = overrides.get('send.interruptDefault')
+  return { interruptDefault: value === 'true' }
+}
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -180,6 +193,51 @@ test('tower_interrupt: interrupts the running child, records the roster and is i
   }
 })
 
+test('tower_send: the shipped default delivers without interrupting the running recipient (#203)', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-default-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name, childId } = await spawnWorker(repo, tools)
+    subagents.running.add(childId)
+    // The bundled patch is part of the deployment contract: a fresh profile runs
+    // with this send block. It must not turn a plain tower_send into an interrupt.
+    configureRuntime({ send: shippedSendConfig() })
+    try {
+      const sent = await call(tools, 'tower_send', {
+        repoRoot: repo,
+        to: name,
+        subject: 'ordinary note',
+        body: 'no need to stop',
+      })
+      assert.equal(subagents.interrupts.length, 0, 'the shipped default must not interrupt a running recipient')
+      assert.deepEqual(subagents.order, ['send'], 'the message is delivered without an interrupt call')
+      assert.deepEqual(sent.deliveries, [{ target: name, pushed: true, interrupted: false, woke: false }])
+    } finally {
+      configureRuntime({})
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send advertises the wake contract without undeclared parameters', () => {
+  const { tools } = makeCtx()
+  const send = tools.get('tower_send')
+  assert.equal(send.parameters.additionalProperties, false)
+  assert.deepEqual(Object.keys(send.parameters.properties).sort(), [
+    'body',
+    'consentRef',
+    'interrupt',
+    'scope',
+    'subject',
+    'to',
+    'wake',
+  ])
+  assert.equal(send.parameters.properties.wake.type, 'boolean')
+  assert.equal(send.parameters.properties.wake.description.includes('Default false'), true)
+  assert.match(send.description, /wake:true/)
+})
+
 test('tower_send interrupt:true interrupts the running recipient before delivering', async () => {
   const { root, repo } = seedRepo('dsh-tower-interrupt-send-')
   const { tools, subagents } = makeCtx()
@@ -200,7 +258,11 @@ test('tower_send interrupt:true interrupts the running recipient before deliveri
     const deliveredText = subagents.sends[0][2].map((block) => block.text).join('\n')
     assert.match(deliveredText, /\[tower inbox msg-1\] stop current work/)
     assert.match(deliveredText, /please switch tasks/)
-    assert.deepEqual(sent.deliveries, [{ target: name, pushed: true, interrupted: true }])
+    assert.deepEqual(sent.deliveries, [{ target: name, pushed: true, interrupted: true, woke: false }])
+    const rosterAfterSend = await call(tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
+    const interruptedEntry = rosterAfterSend.roster.find((row) => row.agentId === childId)
+    assert.equal(interruptedEntry.state, 'interrupted', 'tower_send records the interrupt in the roster')
+    assert.match(interruptedEntry.outcome, /tower_send msg-1: stop current work/)
 
     // Without interrupt the message is delivered without stopping the turn.
     subagents.running.add(childId)
@@ -220,7 +282,7 @@ test('tower_send interrupt:true interrupts the running recipient before deliveri
       })
       assert.deepEqual(subagents.order, ['interrupt', 'send', 'send', 'interrupt', 'send'])
       assert.equal(subagents.interrupts.length, 2)
-      assert.deepEqual(defaulted.deliveries, [{ target: name, pushed: true, interrupted: true }])
+      assert.deepEqual(defaulted.deliveries, [{ target: name, pushed: true, interrupted: true, woke: false }])
 
       // ...and an explicit interrupt:false still wins over the config default.
       subagents.running.add(childId)
@@ -236,6 +298,94 @@ test('tower_send interrupt:true interrupts the running recipient before deliveri
     } finally {
       configureRuntime({})
     }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send wake:true starts a turn for a stopped agent and reports it', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-wake-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name, childId } = await spawnWorker(repo, tools)
+    assert.equal(subagents.running.size, 0, 'the spawned child starts idle for this test')
+
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'wake up',
+      body: 'there is new work',
+      wake: true,
+    })
+    assert.deepEqual(subagents.order, ['send'], 'wake delivers the persisted message to the idle child')
+    assert.equal(subagents.sends.length, 1)
+    assert.equal(subagents.sends[0][1], childId)
+    assert.deepEqual(sent.deliveries, [{ target: name, pushed: true, interrupted: false, woke: true }])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send without wake keeps a stopped agent\'s message queued for its next turn', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-queue-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name } = await spawnWorker(repo, tools)
+    const sent = await call(tools, 'tower_send', {
+      repoRoot: repo,
+      to: name,
+      subject: 'for later',
+      body: 'no need to start now',
+    })
+    assert.deepEqual(subagents.order, [])
+    assert.deepEqual(sent.deliveries, [
+      {
+        target: name,
+        pushed: false,
+        interrupted: false,
+        woke: false,
+        reason:
+          "not running; the message is persisted in its inbox for the agent's next turn — pass wake:true to start a turn now",
+      },
+    ])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_send wake:true fails honestly when the stopped agent cannot be resumed', async () => {
+  const { root, repo } = seedRepo('dsh-tower-send-wake-fail-')
+  const { tools, subagents } = makeCtx()
+  try {
+    const { name } = await spawnWorker(repo, tools)
+    subagents.sendMessage = async (...args) => {
+      subagents.order.push('send')
+      subagents.sends.push(args)
+      throw Object.assign(
+        new Error(`subagent "child-1" has no supported continuation state and cannot be resumed; choose a different target`),
+        { code: 'NOT_RESUMABLE' },
+      )
+    }
+
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_send', {
+          repoRoot: repo,
+          to: name,
+          subject: 'wake up',
+          body: 'nobody is listening',
+          wake: true,
+        }),
+      (error) => {
+        assert.equal(error.code, 'agent-not-resumable', error.message)
+        assert.match(error.message, /cannot be resumed/)
+        assert.deepEqual(error.details.targets, [name])
+        assert.match(error.details.messageId, /^msg-/)
+        assert.match(error.nextAction, /wake:true/)
+        return true
+      },
+    )
+    assert.equal(subagents.sends.length, 1, 'the wake attempt still tried to deliver')
   } finally {
     removeTemp(root)
   }
