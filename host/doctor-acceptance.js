@@ -276,7 +276,7 @@ export const FOREIGN_CAPABILITIES = Object.freeze([
   Object.freeze({
     id: 'liveshare',
     name: 'Live sharing',
-    detection: `the loader row for ${LIVESHARE_PACKAGE}, or a mounted liveshare service`,
+    detection: `the loader row for ${LIVESHARE_PACKAGE}, or a mounted liveshareShares service`,
     stance: CAPABILITY_STANCE.warnAllow,
     denialCost:
       'a shared session would lose viewing and bounded writing, and Tower would have no record of the share',
@@ -314,7 +314,7 @@ const CAPABILITY_PROBES = Object.freeze({
   forge: Object.freeze({ loader: Object.freeze({ ids: ['forge'], packages: [FORGE_PACKAGE] }), services: ['forge'] }),
   liveshare: Object.freeze({
     loader: Object.freeze({ ids: ['liveshare'], packages: [LIVESHARE_PACKAGE] }),
-    services: ['liveshare'],
+    services: ['liveshareShares'],
   }),
   'plugin-manager': Object.freeze({
     loader: Object.freeze({ ids: ['tool-plugin-manager', 'plugin-manager'], packages: [PLUGIN_MANAGER_PACKAGE] }),
@@ -542,10 +542,13 @@ export function foreignCapabilityStatus(capabilities) {
     (capability) => capability.present && capability.stance === CAPABILITY_STANCE.warnAllow,
   )
   const compatible = capabilities.filter(
-    (capability) =>
-      capability.present &&
-      (capability.stance === CAPABILITY_STANCE.compatibility ||
-        capability.stance === CAPABILITY_STANCE.deploymentConfig),
+    (capability) => capability.present && capability.stance === CAPABILITY_STANCE.compatibility,
+  )
+  // `deployment-config` is a distinct stance: the capability is configured where
+  // the deployment is built, not taught or accepted here. No row has it today,
+  // but the pass detail must not describe it as "supported" when one appears.
+  const deploymentConfigured = capabilities.filter(
+    (capability) => capability.present && capability.stance === CAPABILITY_STANCE.deploymentConfig,
   )
   const undetectable = capabilities.filter((capability) => !capability.detectable)
   const dormant = capabilities.filter((capability) => !capability.present && capability.installed)
@@ -600,6 +603,13 @@ export function foreignCapabilityStatus(capabilities) {
         .join(', ')}`,
     )
   }
+  if (deploymentConfigured.length > 0) {
+    notes.push(
+      `configured at deployment and reported: ${deploymentConfigured
+        .map((capability) => `${capability.name} (${capability.stance})`)
+        .join(', ')}`,
+    )
+  }
   if (dormant.length > 0) {
     notes.push(`installed but not mounted: ${dormant.map((capability) => capability.name).join(', ')}`)
   }
@@ -609,6 +619,96 @@ export function foreignCapabilityStatus(capabilities) {
       capabilities.length === 1 ? 'type' : 'types'
     } checked${notes.length > 0 ? ` (${notes.join('; ')})` : ''}`,
   }
+}
+
+/**
+ * #188/#189: read the loader's configured rows from the shapes the real cordis
+ * `Loader` exposes. `entries()` is a generator over the live entry tree (it
+ * already recurses into nested subtrees and yields `Entry` nodes whose
+ * `options` is the configured row); `store` is a null-prototype dict keyed by
+ * entry id; `root.data`/`subtree` are entry groups. Both `loader-conflicts` and
+ * the foreign-capability inventory read this one list, and a group's nested
+ * rows are flattened so a row behind an include is found.
+ * @param {any} loader
+ * @returns {any[] | null} the rows, or null when nothing readable is mounted
+ */
+export function readLoaderRows(loader) {
+  if (!loader || typeof loader !== 'object') return null
+
+  const rows = []
+  const seen = new Set()
+
+  /** @param {any} entry */
+  const push = (entry) => {
+    if (!entry || typeof entry !== 'object' || seen.has(entry)) return null
+    seen.add(entry)
+    const options =
+      entry.options && typeof entry.options === 'object'
+        ? entry.options
+        : entry.data && typeof entry.data === 'object'
+          ? entry.data
+          : entry
+    // A runtime Entry keeps the raw `disabled` option and exposes the effective
+    // state on `entry.disabled`, which evaluates a `!!js` expression and an
+    // owning disabled group. Report the effective state so a row disabled by
+    // expression is not called mounted; a plain options row is already the row.
+    let disabled = options.disabled
+    if (entry !== options) {
+      try {
+        const effective = entry.disabled
+        if (typeof effective === 'boolean') disabled = effective
+      } catch {
+        // a half-mounted entry can fail the getter; keep the raw option
+      }
+    }
+    rows.push(disabled === options.disabled ? options : { ...options, disabled })
+    return options
+  }
+
+  /** @param {any[]} data */
+  const readGroup = (data) => {
+    for (const entry of data) {
+      const row = push(entry)
+      if (entry?.subtree && typeof entry.subtree === 'object') readTree(entry.subtree)
+      const children = Array.isArray(entry?.children)
+        ? entry.children
+        : row?.group === true && Array.isArray(row.config)
+          ? row.config
+          : null
+      if (children) readGroup(children)
+    }
+  }
+
+  /** @param {any} tree */
+  const readTree = (tree) => {
+    if (!tree || typeof tree !== 'object') return false
+    if (typeof tree.entries === 'function') {
+      try {
+        const iterator = tree.entries()
+        if (iterator && typeof iterator[Symbol.iterator] === 'function') {
+          for (const entry of iterator) push(entry)
+          return true
+        }
+      } catch {
+        // fall through to the raw store/root shapes
+      }
+    }
+    if (tree.store && typeof tree.store === 'object') {
+      for (const entry of Object.values(tree.store)) {
+        const row = push(entry)
+        if (entry?.subtree && typeof entry.subtree === 'object') readTree(entry.subtree)
+        else if (row?.group === true && Array.isArray(row.config)) readGroup(row.config)
+      }
+      return true
+    }
+    if (tree.root && Array.isArray(tree.root.data)) {
+      readGroup(tree.root.data)
+      return true
+    }
+    return false
+  }
+
+  return readTree(loader) ? rows : null
 }
 
 /**

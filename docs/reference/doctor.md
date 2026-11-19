@@ -352,7 +352,7 @@ each known type in the `foreign-capabilities` check and in `foreignCapabilities`
 | capability | detection | stance | cost of denying it |
 | --- | --- | --- | --- |
 | Forge change requests | loader row for `@deepseek-ai/dsh-experimental-forge`, or a mounted `forge` service | warn+allow | forge loses its change-request and merge-on-request path, and Tower has no record of what it refused |
-| Live sharing | loader row for `@deepseek-ai/dsh-experimental-liveshare`, or a mounted `liveshare` service | warn+allow | a shared session loses viewing and bounded writing, and Tower has no record of the share |
+| Live sharing | loader row for `@deepseek-ai/dsh-experimental-liveshare`, or a mounted `liveshareShares` service | warn+allow | a shared session loses viewing and bounded writing, and Tower has no record of the share |
 | Plugin manager | a visible `plugin_manager` tool, a mounted `pluginManager` service, or a loader row for `@deepseek-ai/dsh-plugin-manager` | warn+allow | the profile can no longer install or enable a plugin from a session, and Tower has no record of the change |
 | Auto review | a registered `auto` permission preset, or the `auto-review` loader row | warn+allow | Auto is removed for every session, including unattended runs, and Tower does not replace the reviewer |
 
@@ -366,12 +366,15 @@ never denies, disables or removes a capability, and it reads only the probes bel
 The check passes only when the surface is provably clean and every type is detectable: the loader
 inventory answers and lists no matching row, the tool registry lists no `plugin_manager` tool, the
 permission preset catalog lists no `auto` preset, and no matching service is mounted. A present
-`warn+allow` capability is a `warn`; any type doctor cannot detect is a separate `warn`, never a
+`warn+allow` capability and any type doctor cannot detect both make the same check a `warn`, never a
 pass — when the loader inventory is unavailable and no service is mounted, the type is reported as
 undetectable instead of assumed absent. A disabled loader row is installed but not mounted: it is
 reported in the pass detail and does not warn. The stance set also includes `deny`,
 `compatibility` and `deployment-config`; a `deny` row that is present would be a `fail`, because
-doctor cannot enforce a stance it only reports (no capability has that stance today).
+doctor cannot enforce a stance it only reports (no capability has that stance today). A present
+`compatibility` row is reported as supported; a `deployment-config` row is reported as configured at
+deployment, because its remedy — if any — was decided where the deployment is built, not here. No
+row uses `deployment-config` today; adding one is a change in the same inventory.
 
 Auto review is the combination #188 pins. Selecting the `auto` permission preset puts the reviewer
 in front of every native and PTC tool call, and DSH pins a delegated child's approval policy to

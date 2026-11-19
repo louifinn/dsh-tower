@@ -167,7 +167,7 @@ Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态
 | 能力 | 检测方式 | 姿态 | 拒绝的代价 |
 | --- | --- | --- | --- |
 | Forge 变更请求 | `@deepseek-ai/dsh-experimental-forge` 的加载器行，或已挂载的 `forge` 服务 | warn+allow | forge 会失去变更请求与按请求合并的路径，Tower 也不会留下它拒绝了什么的记录 |
-| 实时共享 | `@deepseek-ai/dsh-experimental-liveshare` 的加载器行，或已挂载的 `liveshare` 服务 | warn+allow | 共享会话会失去查看与受限写入，Tower 也不会留下共享的记录 |
+| 实时共享 | `@deepseek-ai/dsh-experimental-liveshare` 的加载器行，或已挂载的 `liveshareShares` 服务 | warn+allow | 共享会话会失去查看与受限写入，Tower 也不会留下共享的记录 |
 | 插件管理器 | 可见的 `plugin_manager` 工具、已挂载的 `pluginManager` 服务，或 `@deepseek-ai/dsh-plugin-manager` 的加载器行 | warn+allow | 该 profile 无法再从会话中安装或启用插件，Tower 也不会留下变更记录 |
 | 自动审查 | 已注册的 `auto` 权限预设，或 `auto-review` 加载器行 | warn+allow | Auto 会从所有会话（包括无人值守运行）中移除，而 Tower 并不替代该审查者 |
 
@@ -179,11 +179,14 @@ Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态
 
 只有当表面可证明干净且每种类型都可检测时，该检查才通过：加载器清单可读且没有匹配行、工具注册表
 没有列出 `plugin_manager` 工具、权限预设目录没有列出 `auto` 预设、也没有匹配的服务被挂载。存在
-的 `warn+allow` 能力产生 `warn`；任何 doctor 无法检测的类型产生另一个独立的 `warn`，绝不是
+的 `warn+allow` 能力与任何 doctor 无法检测的类型都会让同一个检查成为 `warn`，绝不是
 `pass`——当加载器清单不可用且没有服务被挂载时，该类型会被报告为不可检测，而不是假定不存在。
 被禁用的加载器行属于“已安装但未挂载”：它出现在 `pass` 的 detail 中，不产生告警。姿态集合还包括
 `deny`、`compatibility` 与 `deployment-config`；若存在 `deny` 行会是 `fail`，因为 doctor
-无法强制执行一个它只负责报告的姿态（目前没有能力使用该姿态）。
+无法强制执行一个它只负责报告的姿态（目前没有能力使用该姿态）。存在的 `compatibility` 行会被
+报告为“supported”；`deployment-config` 行会被报告为“configured at deployment”，因为它的处置
+（如果有）是在构建部署时决定的，而不是在这里。目前没有行使用 `deployment-config`；新增这样一行
+属于同一次清单变更。
 
 自动审查是 #188 固定下来的组合。选择 `auto` 权限预设会让审查者挡在每次原生与 PTC 工具调用之前，
 而 DSH 会把被委派子代理的审批策略固定为 `never`：执行代理被拒绝的调用会 fail closed，既没有审批

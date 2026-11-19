@@ -111,6 +111,41 @@ function makeCtx(options = {}) {
   return { ctx, tools }
 }
 
+// #188/#189: the host loader is a cordis `Loader extends EntryTree`. Its
+// `entries()` is a generator over runtime Entry nodes (whose `options` is the
+// configured row) and it recurses into nested subtrees; `store` is a
+// null-prototype dict keyed by entry id. Fixtures use those shapes so the
+// inventory is exercised against what production actually reads.
+function loaderFixture(rows = []) {
+  const store = Object.create(null)
+  for (const row of rows) {
+    store[row.id] = {
+      options: row,
+      get disabled() {
+        return row.disabled === true
+      },
+    }
+  }
+  return {
+    root: { data: rows },
+    store,
+    *entries() {
+      for (const entry of Object.values(this.store)) {
+        yield entry
+        if (entry.subtree) yield* entry.subtree.entries()
+      }
+    },
+  }
+}
+
+// The same tree without `entries()`: the fallback every other entry-tree
+// consumer needs when only the store dict is readable.
+function loaderStoreFixture(rows = []) {
+  const store = Object.create(null)
+  for (const row of rows) store[row.id] = { options: row }
+  return { store, root: { data: rows } }
+}
+
 afterEach(() => {
   __testResetComponentRegistry()
   if (ORIGINAL_DSH_HOME === undefined) delete process.env.DSH_HOME
@@ -1323,7 +1358,7 @@ test('doctor: a provably clean surface passes the foreign capability check (#188
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({
     services: {
-      loader: { entries: [] },
+      loader: loaderFixture(),
       permissionPresets: { names: [], current: () => null },
     },
     toolRuntime: { definitions: () => [] },
@@ -1332,18 +1367,75 @@ test('doctor: a provably clean surface passes the foreign capability check (#188
     await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
     const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.deepEqual(
+      doctor.foreignCapabilities.notDetectable,
+      [],
+      'a readable loader tree must make every type detectable',
+    )
     assert.equal(row.status, 'pass')
     assert.equal(row.action, undefined)
     assert.match(row.detail, /no non-Tower capability is available; 4 known types checked/)
     assert.deepEqual(doctor.foreignCapabilities.present, [])
     assert.deepEqual(doctor.foreignCapabilities.installed, [])
-    assert.deepEqual(doctor.foreignCapabilities.notDetectable, [])
     assert.deepEqual(doctor.foreignCapabilities.stances, {
       forge: 'warn+allow',
       liveshare: 'warn+allow',
       'plugin-manager': 'warn+allow',
       'auto-review': 'warn+allow',
     })
+    // The same entries() read feeds the pre-existing loader-conflicts check.
+    assert.equal(doctor.checks.find((entry) => entry.id === 'loader-conflicts').status, 'pass')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: the loader store dict and a group subtree supply the inventory rows (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const child = loaderStoreFixture([
+    { id: 'forge', name: '@deepseek-ai/dsh-experimental-forge' },
+  ])
+  const loader = loaderStoreFixture()
+  loader.store['optional-group'] = {
+    options: { id: 'optional-group', name: 'cordis:group', group: true },
+    subtree: child,
+  }
+  const { tools } = makeCtx({
+    services: {
+      loader,
+      permissionPresets: { names: [], current: () => null },
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.deepEqual(doctor.foreignCapabilities.notDetectable, [])
+    assert.deepEqual(doctor.foreignCapabilities.present, ['forge'])
+    const forge = doctor.foreignCapabilities.capabilities.find((entry) => entry.id === 'forge')
+    assert.equal(forge.installed, true)
+    assert.ok(forge.evidence.some((entry) => entry.includes('loader row "forge"')), 'the nested row is found')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: the shared loader inventory still detects conflicting dsh-tower rows (#188)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: loaderFixture([
+        { id: 'tower', name: 'dsh-tower' },
+        { id: 'tower-2', name: 'dsh-tower' },
+      ]),
+    },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'loader-conflicts')
+    assert.equal(row.status, 'fail')
+    assert.match(row.detail, /tower-2/)
   } finally {
     removeTemp(root)
   }
@@ -1353,7 +1445,7 @@ test('doctor: a visible plugin manager warns with the cost of denying it (#188, 
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({
     services: {
-      loader: { entries: [] },
+      loader: loaderStoreFixture(),
       permissionPresets: { names: [], current: () => null },
     },
     toolRuntime: { definitions: () => [{ name: 'plugin_manager' }] },
@@ -1374,12 +1466,41 @@ test('doctor: a visible plugin manager warns with the cost of denying it (#188, 
   }
 })
 
+test('doctor: liveshare is detected through the service name the package provides (#188, #189)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx({
+    services: {
+      loader: loaderStoreFixture(),
+      permissionPresets: { names: [], current: () => null },
+      liveshareShares: {},
+    },
+    toolRuntime: { definitions: () => [] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const doctor = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const row = doctor.checks.find((entry) => entry.id === 'foreign-capabilities')
+    assert.equal(row.status, 'warn')
+    assert.match(row.detail, /Live sharing \(warn\+allow\)/)
+    const liveshare = doctor.foreignCapabilities.capabilities.find((entry) => entry.id === 'liveshare')
+    assert.equal(liveshare.present, true)
+    assert.equal(liveshare.detectable, true)
+    assert.ok(
+      liveshare.evidence.some((entry) => entry.includes('liveshareShares service is mounted')),
+      'the probe reads the service the package registers',
+    )
+    assert.match(liveshare.detection, /liveshareShares/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor: a disabled capability row is installed but not mounted, and does not warn (#188, #189)', async () => {
   const { root, repo } = seedRepo()
   const disabledRow = { id: 'tool-plugin-manager', name: '@deepseek-ai/dsh-plugin-manager/tools', disabled: true }
   const { tools } = makeCtx({
     services: {
-      loader: { entries: [disabledRow] },
+      loader: loaderFixture([disabledRow]),
       permissionPresets: { names: [], current: () => null },
     },
     toolRuntime: { definitions: () => [] },
@@ -1401,7 +1522,7 @@ test('doctor: a selected Auto preset repeats the fail-closed child contract (#18
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({
     services: {
-      loader: { entries: [] },
+      loader: loaderStoreFixture(),
       permissionPresets: { names: ['auto'], current: () => 'auto' },
     },
     toolRuntime: { definitions: () => [] },
@@ -1423,7 +1544,7 @@ test('doctor: a selected Auto preset repeats the fail-closed child contract (#18
   }
 })
 
-test('a deny stance present fails the check while compatibility passes (#188, #189)', () => {
+test('a deny stance present fails the check while compatibility and deployment-config pass (#188, #189)', () => {
   const deny = foreignCapabilityStatus([
     { id: 'x', name: 'X', stance: 'deny', present: true, installed: true, detectable: true, denialCost: 'x' },
   ])
@@ -1434,4 +1555,10 @@ test('a deny stance present fails the check while compatibility passes (#188, #1
   ])
   assert.equal(compatible.status, 'pass')
   assert.match(compatible.detail, /supported and reported: Y \(compatibility\)/)
+  const deployment = foreignCapabilityStatus([
+    { id: 'z', name: 'Z', stance: 'deployment-config', present: true, installed: true, detectable: true },
+  ])
+  assert.equal(deployment.status, 'pass')
+  assert.match(deployment.detail, /configured at deployment and reported: Z \(deployment-config\)/)
+  assert.doesNotMatch(deployment.detail, /supported and reported/)
 })

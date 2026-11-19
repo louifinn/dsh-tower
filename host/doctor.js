@@ -21,7 +21,14 @@ import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
 import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from './tool-profiles.js'
-import { artifactAcceptanceCheck, commitLockFacts, foreignCapabilityCheck, orphanWorktreeCheck, stateLockFacts } from './doctor-acceptance.js'
+import {
+  artifactAcceptanceCheck,
+  commitLockFacts,
+  foreignCapabilityCheck,
+  orphanWorktreeCheck,
+  readLoaderRows,
+  stateLockFacts,
+} from './doctor-acceptance.js'
 import { ralphStanceDoctorFact } from './ralph-stance.js'
 
 const execFileAsync = promisify(execFile)
@@ -172,14 +179,11 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     ? loaderRows
     : (() => {
         try {
-          const loader = ctx?.get?.('loader') ?? ctx?.loader
-          const source = loader?.entries ?? loader?.rows ?? loader?.store?.entries
-          if (Array.isArray(source)) return source
-          if (source && typeof source === 'object') return Object.values(source)
+          return readLoaderRows(ctx?.get?.('loader') ?? ctx?.loader)
         } catch {
           // loader inventory is optional
+          return null
         }
-        return null
       })()
   if (rows === null) {
     checks.push(check('loader-conflicts', 'warn', 'loader inventory unavailable; cannot detect co-installed Tower packages'))
