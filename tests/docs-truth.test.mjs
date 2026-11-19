@@ -256,16 +256,18 @@ test('linkProblems reports a broken relative link', (t) => {
   assert.match(problems[0], /docs[\\/]broken\.md links to missing missing\.md/)
 })
 
-// F76: the `tower_recover` description is the only tool text an agent reads, so
-// it must advertise both writer fences (the state lock and the short-lived
-// state-commit mutex) that M103 made the tool repair. Assert the registered
-// description AND its generated row; a wording that drops one fence is the drift.
-test('F76: the tower_recover description covers both writer fences', () => {
+// F76 (extended by F87/M120): the `tower_recover` description is the only tool
+// text an agent reads, so it must advertise every record the tool repairs: the
+// state lock, the short-lived state-commit mutex (M103) and the repository
+// workspace lock (F87, the door out of a torn workspace lock). Assert the
+// registered description AND its generated row; dropping one record is drift.
+test('F76: the tower_recover description covers every writer fence', () => {
   const generated = fs.readFileSync(path.join(repoRoot, 'docs', 'reference', 'tools.generated.md'), 'utf8')
   const row = generated.split('\n').find((line) => line.startsWith('| `tower_recover` |'))
   assert.ok(row, 'docs/reference/tools.generated.md must carry the tower_recover row')
   assert.match(row, /state[- ]lock/i, 'the generated description must mention the state lock')
   assert.match(row, /commit/i, 'the generated description must mention the commit mutex')
+  assert.match(row, /workspace[- ]lock/i, 'the generated description must mention the workspace lock')
 
   // The generated row is a rendering of the registered description; check the
   // source too so a stale generated file cannot hide a drift in tools/recover.js.
@@ -275,6 +277,7 @@ test('F76: the tower_recover description covers both writer fences', () => {
     assert.ok(definition, 'the shipped surface must register tower_recover')
     assert.match(definition.description, /state[- ]lock/i, 'tower_recover must advertise the state lock')
     assert.match(definition.description, /commit/i, 'tower_recover must advertise the commit mutex')
+    assert.match(definition.description, /workspace[- ]lock/i, 'tower_recover must advertise the workspace lock')
   } finally {
     surface.dispose()
   }

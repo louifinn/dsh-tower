@@ -30,8 +30,8 @@ export const DoctorInput = Type.Object({}, { additionalProperties: false })
 
 export const RecoverInput = Type.Object({
   action: enumOf(RECOVERY_ACTIONS, { description: 'Recovery action.' }),
-  confirm: Type.Optional(Type.String({ description: 'Required literal CLEAR_STALE_LOCK for clear-stale-lock.' })),
-  force: Type.Optional(Type.Boolean({ description: 'clear-stale-lock: clear the lock even when its recorded PID is alive (a recycled PID); requires confirm and still moves the record to a .recovered-<ts> backup.' })),
+  confirm: Type.Optional(Type.String({ description: 'Required literal for the clearing actions: CLEAR_STALE_LOCK for clear-stale-lock, CLEAR_WORKSPACE_LOCK for clear-workspace-lock.' })),
+  force: Type.Optional(Type.Boolean({ description: 'clear-stale-lock: clear the state lock even when its recorded PID is alive (a recycled PID). clear-workspace-lock: move a well-formed workspace record whose PID cannot be proven dead. Both require the matching confirm and always move the record to a .recovered-<ts> backup, never delete it.' })),
 }, { additionalProperties: false })
 
 export const TestInput = Type.Object({
