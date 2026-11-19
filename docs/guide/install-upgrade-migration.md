@@ -35,7 +35,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   - **Pure client-UI change.** No tool schema, output or wire format moved, no config key or state field
     was added, and the same nine `dsh-tower-ui` chunks ship. The Tower tool cards now use the host's own
     process row when collapsed and its generic io-card surface when expanded; the Tower-mode blocked
-    tool rows are the same native row, with a localized tool name and 「Tower 模式中不可用」, and the
+    tool rows are the same native row, with a localized tool name and "Unavailable in Tower mode", and the
     explanation (Reason / Next step) lives in the expanded body instead of a hand-drawn card. The raw
     host denial sentence is no longer visible copy.
   - **Restart or refresh DSH.** The Host plugin is unchanged, but the Web client keeps the bundle it
