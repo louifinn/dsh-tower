@@ -453,11 +453,19 @@ test('tower_inspect status shows the deferred flag on the dashboard and mission 
     const shown = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'status', missionId: id })
     assert.equal(shown.missions[0].deferred, true)
     assert.equal(shown.detail.mission.deferred, true)
+    // `deferred` is a mission field, unlike the `allowMissingScope` input
+    // hatch: the raw state document carries it.
+    const raw = JSON.parse(fs.readFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), 'utf8'))
+    const stored = raw.missions.find((mission) => mission.id === id)
+    assert.equal(stored.deferred, true)
 
     await call(tools, 'tower_mission', { repoRoot: repo, id, deferred: false })
     const cleared = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'status', missionId: id })
     assert.equal(cleared.missions[0].deferred, false)
     assert.equal(cleared.detail.mission.deferred, false)
+    const clearedRaw = JSON.parse(fs.readFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), 'utf8'))
+    const clearedStored = clearedRaw.missions.find((mission) => mission.id === id)
+    assert.equal(Object.hasOwn(clearedStored, 'deferred'), false)
   } finally {
     removeTemp(root)
   }
@@ -507,6 +515,39 @@ test('registered tower_plan warns about a ** mission while other work is in flig
     })
     assert.equal(quiet.missions[0].status, 'planned')
     assert.equal(quiet.warnings, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a same-batch broad-scope warning names a companion mission once', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-broad-scope-batch-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    // Both missions are created by the same call, so the warning runs after
+    // applyPlan has already pushed them onto state.missions (F98).
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Release prep', scope: ['**'] },
+        { title: 'Feature work', scope: ['src/**'] },
+      ],
+    })
+    const [broad, companion] = planned.missions
+    assert.deepEqual(broad.scope, ['**'])
+    const warning = planned.warnings?.find((entry) => entry.code === 'broad-scope')
+    assert.ok(warning, JSON.stringify(planned.warnings))
+    assert.equal(warning.missionId, broad.id)
+    // The companion is one mission even though applyPlan already appended it to
+    // the state array the warning reads: its id must appear once in the list
+    // and once in the prose, not once per copy.
+    assert.deepEqual(warning.missionIds, [companion.id])
+    assert.equal(warning.message.split(companion.id).length - 1, 1)
+    assert.match(warning.message, new RegExp(`while ${companion.id} is still planned or active`))
   } finally {
     removeTemp(root)
   }

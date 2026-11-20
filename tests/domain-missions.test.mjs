@@ -254,8 +254,12 @@ test('a deferred mission is skipped by the widen overlap check', () => {
         input: { deferred: true },
         config: config(),
       }),
-    /deferred is only valid for planned or active missions/,
+    (error) =>
+      error.code === 'invalid-argument' &&
+      /deferred is only valid for planned or active missions, not completed/.test(error.message),
   )
+  // A planned survey is refused because it owns no paths, not because `planned`
+  // would be an invalid status: the message must name the real reason (F99).
   const survey = mission({ id: 'S1', kind: 'survey', status: 'planned', scope: [] })
   assert.throws(
     () =>
@@ -265,7 +269,10 @@ test('a deferred mission is skipped by the widen overlap check', () => {
         input: { deferred: true },
         config: config(),
       }),
-    /deferred is only valid for planned or active/,
+    (error) =>
+      error.code === 'invalid-argument' &&
+      /a survey owns no paths and cannot be deferred/.test(error.message) &&
+      !/planned or active missions/.test(error.message),
   )
 })
 
