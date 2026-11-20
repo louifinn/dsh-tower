@@ -201,7 +201,7 @@ function scopeNextAction(first, operation) {
       ? `a tracked path such as "${first.candidates[0]}"`
       : `a tracked path${first.closestPrefix.length > 0 ? ` under "${first.closestPrefix}"` : ''}`
   if (operation === 'widen') {
-    return `use ${tracked} or an existing directory; a mission cannot be widened to a path that does not exist yet unless the caller opts in to unverified scope (see the tower_mission scope rules), so declare a future path in the original plan`
+    return `use ${tracked} or an existing directory; to widen to a path that does not exist yet, pass allowMissingScope: true, or declare the future path in the original plan`
   }
   return `use ${tracked}, or pass allowMissingScope: true to accept a path a mission will create`
 }

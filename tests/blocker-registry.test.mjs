@@ -55,7 +55,7 @@ test('blocker registry: section counts and derived lists match the reference', (
       rebase: blockersOfKind('rebase').length,
     },
     // #159 adds the two acceptance blockers to the gate section.
-    { gate: 28, merge: 5, rebase: 3 },
+    { gate: 29, merge: 5, rebase: 3 },
   )
   // `worker-busy` is shared, so the three sections sum to one more than unique.
   assert.equal(blockersOfKind('gate').length + blockersOfKind('merge').length + blockersOfKind('rebase').length, BLOCKER_COUNT + 1)
@@ -68,7 +68,7 @@ test('blocker registry: section counts and derived lists match the reference', (
     'tip-moved',
     'review-exemption-invalid',
   ])
-  assert.deepEqual(WARNING_BLOCKER_CODES, ['survey-stale'])
+  assert.deepEqual(WARNING_BLOCKER_CODES, ['survey-stale', 'broad-scope'])
   assert.ok(BLOCKER_CODE_VALUES.includes('review-stale'), 'review-stale must be documented')
 })
 
@@ -83,6 +83,18 @@ test('blocker(): valid codes pass, unknown codes fail closed', () => {
     () => assertBlockerCode('not-a-blocker'),
     (error) => error?.code === 'invalid-argument' && /domain\/shapes\/blockers\.js/.test(error.nextAction),
   )
+})
+
+test('broad-scope is a registered warning emitted as a literal', () => {
+  assert.ok(BLOCKER_CODES['broad-scope'])
+  assert.ok(WARNING_BLOCKER_CODES.includes('broad-scope'))
+  // The static scan only sees a literal or a recognized emission form; a code
+  // imported as an opaque constant elsewhere would make the registry entry
+  // look unemitted and fail the checkout-wide scan below.
+  assert.match(read('app/plan.js'), /blocker\('broad-scope'/)
+  const result = evaluate(ROOT)
+  assert.deepEqual(result.missing, [])
+  assert.deepEqual(result.unknown, [])
 })
 
 test('generated blocker references are exactly the registry rendering', () => {

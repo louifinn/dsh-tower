@@ -34,6 +34,7 @@ const missionSummarySchema = S.obj({
   blockers: S.arr(S.str),
   tasks: S.any,
   scopeGeneration: S.int,
+  deferred: S.bool,
   mergedCommit: S.any,
   mergedAt: S.any,
   updatedAt: S.any,
@@ -52,17 +53,6 @@ const findingSummarySchema = S.obj({
   updatedAt: S.any,
   closedAt: S.any,
 })
-
-/**
- * #205: a plan-time ordering advisory, never a gate verdict. It is deliberately
- * *not* a `domain/shapes/blockers.js` entry: that registry is the failure
- * vocabulary a gate can promote (`warningByDefault`), while this warning can
- * never block and is only reported by `tower_plan`. The code lives here, with
- * the plan output contract it belongs to, instead of being spelled at the
- * emission site (F91/F95: no uncatalogued codes hidden in a module-local
- * constant).
- */
-export const PLAN_WARNING_BROAD_SCOPE = 'broad-scope'
 
 const planWarningSchema = S.obj({
   code: S.str,

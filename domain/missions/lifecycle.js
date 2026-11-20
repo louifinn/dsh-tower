@@ -177,11 +177,15 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   const changes = []
   /** @type {Array<{ type: string, missionId: string }>} */
   const events = []
+  // A planned mission that starts in the same patch as its scope edit still
+  // edits a fence; capture the status before any transition can move it.
+  const statusBefore = mission.status
 
   const shape = shapeFor(mission.kind)
-  // #205: a planned or active build mission can step out of the widen overlap
-  // check without losing its scope. `deferred=false` clears the flag; a
-  // terminal mission keeps no say in any later decision.
+  // #205: a planned or active mission that owns paths (build or artifact) can
+  // step out of the widen overlap check without losing its scope.
+  // `deferred=false` clears the flag; a terminal mission keeps no say in any
+  // later decision.
   if (input.deferred !== undefined) {
     if (typeof input.deferred !== 'boolean') fail('deferred must be a boolean')
     const statusAfter = input.status ?? mission.status
@@ -189,10 +193,10 @@ export function applyMissionUpdate({ mission, state, input, config }) {
       fail(`deferred is only valid for planned or active missions, not ${statusAfter}`)
     }
     if (input.deferred) {
-      /** @type {any} */ (mission).deferred = true
+      mission.deferred = true
       changes.push('deferred=true')
     } else {
-      delete /** @type {any} */ (mission).deferred
+      delete mission.deferred
       changes.push('deferred=false')
     }
   }
@@ -351,9 +355,11 @@ export function applyMissionUpdate({ mission, state, input, config }) {
       fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
     }
     // A planned mission edits its fence while it is still being planned; that
-    // is not a widen and must not start the mission. Active and completed
-    // missions keep the original widening semantics.
-    const plannedEdit = mission.status === 'planned'
+    // is not a widen and must not start the mission. A patch that also moves it
+    // to active edits that same fence: both statuses keep the planned-edit
+    // semantics. Active and completed missions keep the original widening
+    // semantics.
+    const plannedEdit = statusBefore === 'planned' && ['planned', 'active'].includes(mission.status)
     if (!plannedEdit && !['active', 'completed'].includes(mission.status)) {
       fail(`scope can only be edited for planned, widened for active or completed missions, not ${mission.status}`)
     }
@@ -362,7 +368,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
       if (entry.id === mission.id) return false
       // #205: a paused mission is stopped and a deferred mission has stepped
       // out of the ordering; neither can fence a widen until it moves again.
-      if (/** @type {any} */ (entry).deferred === true) return false
+      if (entry.deferred === true) return false
       if (entry.status === 'paused') return false
       const other = shapeFor(entry.kind)
       return other.reach.ownsPaths && !other.isTerminal(entry.status)

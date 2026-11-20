@@ -13,7 +13,7 @@ export function registerMissionTool(ctx, deps) {
   define(ctx, {
     name: 'tower_mission',
     description:
-      "Update one mission: status, note, blocker, clear blockers, task done/drop, scope (tower only), or record the human acceptance of an artifact mission's committed tip (accept; asked through the DSH approval channel, never self-approval). merged is never set here; only tower_merge records it.",
+      'Update one mission: status, note, blocker, clear blockers, task done/drop, scope edit or widen (tower only; allowMissingScope accepts paths the mission will create), defer (tower only; build or artifact while planned or active), or accept a human-approved tip. merged only by tower_merge.',
     parameters: MissionInput,
     aliases: {"id":["missionId"],"task_done":["taskDone"],"task_drop":["taskDrop"],"task_drop_reason":["taskDropReason"],"clear_blockers":["clearBlockers"]},
     board: true,

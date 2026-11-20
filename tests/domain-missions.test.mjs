@@ -204,6 +204,21 @@ test('a planned mission edits its scope without starting', () => {
   assert.deepEqual(planned.scope, ['src/lib/**'])
 })
 
+test('a combined status and scope patch on a planned mission records a planned edit', () => {
+  const planned = mission({ status: 'planned', scope: ['src/**'] })
+  const state = { missions: [planned] }
+  const updated = applyMissionUpdate({
+    mission: planned,
+    state,
+    input: { status: 'active', scope: ['src/lib/**'] },
+    config: config(),
+  })
+  assert.deepEqual(updated.changes, ['status=active', 'scope edited'])
+  assert.equal(planned.status, 'active')
+  assert.equal(planned.scopeGeneration, 2)
+  assert.deepEqual(planned.scope, ['src/lib/**'])
+})
+
 test('a deferred mission is skipped by the widen overlap check', () => {
   const active = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
   const wide = mission({ id: 'M2', status: 'planned', scope: ['**'] })

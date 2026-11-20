@@ -1,6 +1,6 @@
 // Mission planning use case.
 import { TowerToolError } from '../domain/errors.js'
-import { PLAN_WARNING_BROAD_SCOPE } from '../domain/contracts/outputs.js'
+import { blocker } from '../domain/shapes/blockers.js'
 import { nextMissionNumber, addAutoDeps, assertAcyclic } from '../domain/planning.js'
 import {
   normalizePlanMissions,
@@ -72,7 +72,7 @@ function broadScopeWarnings(created, existing) {
     const shape = shapeFor(mission.kind)
     if (!shape.reach.ownsPaths) return false
     if (!['planned', 'active'].includes(mission.status)) return false
-    return /** @type {any} */ (mission).deferred !== true
+    return mission.deferred !== true
   })
   /** @type {Array<{ code: string, missionId: string, missionIds: string[], message: string }>} */
   const warnings = []
@@ -81,11 +81,12 @@ function broadScopeWarnings(created, existing) {
     const others = inFlight.filter((entry) => entry.id !== mission.id)
     if (others.length === 0) continue
     const ids = others.map((entry) => entry.id).join(', ')
+    const message = `mission ${mission.id} claims the whole repository ("**") while ${ids} ${others.length === 1 ? 'is' : 'are'} still planned or active; it will fence any later planned edit or widening — plan the release-preparation mission last, or mark it deferred or pause it before another mission widens`
     warnings.push({
-      code: PLAN_WARNING_BROAD_SCOPE,
+      code: blocker('broad-scope', message).code,
       missionId: mission.id,
       missionIds: others.map((entry) => entry.id),
-      message: `mission ${mission.id} claims the whole repository ("**") while ${ids} ${others.length === 1 ? 'is' : 'are'} still planned or active; it will fence any later planned edit or widening — plan the release-preparation mission last, or mark it deferred or pause it before another mission widens`,
+      message,
     })
   }
   return warnings

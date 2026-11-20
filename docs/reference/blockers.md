@@ -4,9 +4,9 @@
 
 `tower_inspect` with `view: "preflight"` returns `{ok:false, blockers:[{code, detail}], warnings:[...]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
-tables below define 35 stable blocker/failure codes.
+tables below define 36 stable blocker/failure codes.
 
-`survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and
+`survey-stale`, `broad-scope` is special: it is reported as a stable warning in `plan`/`preflight` by default and
 becomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries
 `{code, missionId, depId, readCommit, baseCommit, message}` so a caller can act without parsing prose.
 
@@ -14,7 +14,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 `required`. With `off` or `optional` no review blocker is produced; `off` additionally removes
 `tower_review` and refuses reviewer spawn.
 
-## Gate blockers (28)
+## Gate blockers (29)
 
 | Code | Meaning / next action |
 |---|---|
@@ -29,6 +29,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `base-dirty` | The main checkout has uncommitted changes the merge would overwrite. |
 | `deps-unmerged` | A dependency mission is not satisfied: a build dependency must be `merged`/`abandoned`, while a survey dependency is satisfied at `completed` (archived entries included). |
 | `survey-stale` | A build dependency on a survey whose `readCommit` is not ancestor-or-equal of the build base. Default: a `warnings[]` entry, plan and preflight only. With `gates.requireFreshSurvey:true` the same code blocks the merge; re-plan the survey against the current base, or record why the read is still valid. |
+| `broad-scope` | A plan-time ordering advisory, not a gate verdict: a mission claims the whole repository (`**`) while another owning mission is planned or active, so a later planned edit or widening would overlap it. Default: a non-blocking `warnings[]` entry from `tower_plan`; unlike `survey-stale` it never becomes a merge blocker and its object carries `{code, missionId, missionIds, message}`. Plan the release-preparation mission last, or defer or pause it before another mission widens. |
 | `no-review` | `review.mode:required` and no review exists on the branch: spawn a reviewer (or disable the review gate). |
 | `review-mission-mismatch` | `review.mode:required` and the latest review belongs to another mission. |
 | `not-clean` | `review.mode:required` and latest review is `p1-Nitems`/`p2-Nitems`; another round is required. Verdicts from later routes of the same round are appended to it instead of flipping the mission again. |

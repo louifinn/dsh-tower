@@ -5,15 +5,15 @@
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_inspect` 的 `view: "preflight"` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 35 个稳定 blocker/failure code。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 36 个稳定 blocker/failure code。
 
-`survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
+`survey-stale`, `broad-scope` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
 变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。
 
 下列审查 blocker（`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`, `review-not-approved`, `tip-moved`, `review-exemption-invalid`）只在 `review.mode` 为 `required`
 时产生。`off` 或 `optional` 不会产生审查 blocker；`off` 还会移除 `tower_review` 并拒绝 reviewer spawn。
 
-## 门禁 blocker（28 个）
+## 门禁 blocker（29 个）
 
 | Code | 含义 / 下一步 |
 |---|---|
@@ -28,6 +28,7 @@
 | `base-dirty` | 主检出存在未提交改动，合并会覆盖它们。 |
 | `deps-unmerged` | 依赖 mission 尚未满足：build 依赖须 `merged`/`abandoned`；survey 依赖在 `completed` 即视为满足（含归档记录）。 |
 | `survey-stale` | build 依赖的 survey 的 `readCommit` 不是 build base 的祖先或同一提交。默认只是 `plan`/`preflight` 的 `warnings[]` 条目；`gates.requireFreshSurvey:true` 时同一 code 阻止合并。针对当前 base 重新规划 survey，或记录为何该读取仍然有效。 |
+| `broad-scope` | 规划阶段的排序提示，不是门禁判定：某个 mission 声明整个仓库（`**`），而另一个拥有路径的 mission 仍处于 planned 或 active，之后的规划编辑或扩大就会与它重叠。默认只是 `tower_plan` 返回的非阻塞 `warnings[]` 条目；与 `survey-stale` 不同，它永远不会成为合并 blocker，其对象带有 `{code, missionId, missionIds, message}`。把 release 准备 mission 放到最后规划，或在其他 mission 扩大前将它 defer 或暂停。 |
 | `no-review` | `review.mode:required` 且分支上没有审查：spawn reviewer（或关闭审查门禁）。 |
 | `review-mission-mismatch` | `review.mode:required` 且最新审查属于另一个 mission。 |
 | `not-clean` | `review.mode:required` 且最新审查是 `p1-Nitems`/`p2-Nitems`；需要再来一轮（同一轮的各 route 结论会追加记录，不会让状态反复翻转）。 |
@@ -70,4 +71,4 @@
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 35 个（28 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 36 个（29 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。

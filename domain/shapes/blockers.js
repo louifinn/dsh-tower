@@ -122,6 +122,15 @@ const DEFINITIONS = [
     },
   },
   {
+    code: 'broad-scope',
+    kinds: ['gate'],
+    warningByDefault: true,
+    summary: {
+      en: 'A plan-time ordering advisory, not a gate verdict: a mission claims the whole repository (`**`) while another owning mission is planned or active, so a later planned edit or widening would overlap it. Default: a non-blocking `warnings[]` entry from `tower_plan`; unlike `survey-stale` it never becomes a merge blocker and its object carries `{code, missionId, missionIds, message}`. Plan the release-preparation mission last, or defer or pause it before another mission widens.',
+      zh: '规划阶段的排序提示，不是门禁判定：某个 mission 声明整个仓库（`**`），而另一个拥有路径的 mission 仍处于 planned 或 active，之后的规划编辑或扩大就会与它重叠。默认只是 `tower_plan` 返回的非阻塞 `warnings[]` 条目；与 `survey-stale` 不同，它永远不会成为合并 blocker，其对象带有 `{code, missionId, missionIds, message}`。把 release 准备 mission 放到最后规划，或在其他 mission 扩大前将它 defer 或暂停。',
+    },
+  },
+  {
     code: 'no-review',
     kinds: ['gate'],
     reviewOnly: true,
