@@ -189,6 +189,144 @@ test('mission lifecycle rejects invalid transitions, actor, and scope widening',
   assert.throws(() => normalizePauseCause('bogus'), /pause_cause must be one of/)
 })
 
+test('a planned mission edits its scope without starting', () => {
+  const planned = mission({ status: 'planned', scope: ['src/**'] })
+  const state = { missions: [planned, mission({ id: 'M2', status: 'active', scope: ['lib/**'] })] }
+  const updated = applyMissionUpdate({
+    mission: planned,
+    state,
+    input: { scope: ['src/lib/**'] },
+    config: config(),
+  })
+  assert.deepEqual(updated.changes, ['scope edited'])
+  assert.equal(planned.status, 'planned')
+  assert.equal(planned.scopeGeneration, 2)
+  assert.deepEqual(planned.scope, ['src/lib/**'])
+})
+
+test('a deferred mission is skipped by the widen overlap check', () => {
+  const active = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const wide = mission({ id: 'M2', status: 'planned', scope: ['**'] })
+  const state = { missions: [active, wide] }
+
+  assert.throws(
+    () => applyMissionUpdate({ mission: active, state, input: { scope: ['docs/**'] }, config: config() }),
+    (error) => /overlaps mission M2/.test(error.message) && /defer/.test(error.message),
+  )
+
+  const deferred = applyMissionUpdate({ mission: wide, state, input: { deferred: true }, config: config() })
+  assert.deepEqual(deferred.changes, ['deferred=true'])
+  assert.equal(wide.deferred, true)
+  assert.equal(wide.status, 'planned')
+
+  const widened = applyMissionUpdate({ mission: active, state, input: { scope: ['docs/**'] }, config: config() })
+  assert.deepEqual(widened.changes, ['scope widened'])
+
+  const undeferred = applyMissionUpdate({ mission: wide, state, input: { deferred: false }, config: config() })
+  assert.deepEqual(undeferred.changes, ['deferred=false'])
+  assert.equal(wide.deferred, undefined)
+  assert.throws(
+    () => applyMissionUpdate({ mission: active, state, input: { scope: ['docs/guide/**'] }, config: config() }),
+    /overlaps mission M2; .*defer/,
+  )
+
+  const completed = mission({ id: 'M3', status: 'completed' })
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: completed,
+        state: { missions: [completed] },
+        input: { deferred: true },
+        config: config(),
+      }),
+    /deferred is only valid for planned or active missions/,
+  )
+  const survey = mission({ id: 'S1', kind: 'survey', status: 'planned', scope: [] })
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: survey,
+        state: { missions: [survey] },
+        input: { deferred: true },
+        config: config(),
+      }),
+    /deferred is only valid for planned or active/,
+  )
+})
+
+test('a worker cannot defer its own mission', () => {
+  // `deferred` takes a mission out of the widen overlap gate, so it stays a
+  // tower-only ordering decision even on the worker's own mission (#205).
+  const current = mission({ id: 'M1', status: 'active', owner: 'w', scope: ['src/**'] })
+  const state = { missions: [current] }
+  const deny = (deferred) =>
+    assert.throws(
+      () =>
+        applyMissionUpdate({
+          mission: current,
+          state,
+          input: { actor: { name: 'w', role: 'worker' }, deferred },
+          config: config(),
+        }),
+      (error) => error.code === 'not-authorized' && /only the tower can defer a mission/.test(error.message),
+    )
+  deny(true)
+  deny(false)
+  assert.equal(current.deferred, undefined)
+  assert.equal(current.status, 'active')
+  assert.deepEqual(current.scope, ['src/**'])
+  assert.equal(current.scopeGeneration, undefined)
+})
+
+test('a planned mission pauses with a cause and returns to planning without authorization', () => {
+  const planned = mission({ id: 'M1', status: 'planned', scope: ['src/**'] })
+  const state = { missions: [planned] }
+  assert.throws(
+    () => applyMissionUpdate({ mission: planned, state, input: { status: 'paused' }, config: config() }),
+    (error) => error.code === 'invalid-argument' && /pause_cause/.test(error.message),
+  )
+  const paused = applyMissionUpdate({
+    mission: planned,
+    state,
+    input: { status: 'paused', pause_cause: 'dependency' },
+    config: config(),
+  })
+  assert.deepEqual(paused.changes, ['status=paused'])
+  assert.equal(planned.status, 'paused')
+  assert.equal(planned.pauseCause, 'dependency')
+
+  // A paused mission no longer fences the widen path.
+  const active = mission({ id: 'M2', status: 'active', scope: ['src/**'] })
+  state.missions = [planned, active]
+  const widened = applyMissionUpdate({ mission: active, state, input: { scope: ['src/lib/**'] }, config: config() })
+  assert.deepEqual(widened.changes, ['scope widened'])
+
+  // paused -> planned is a planning decision, not a resume: no authorization.
+  const replanned = applyMissionUpdate({
+    mission: planned,
+    state,
+    input: { status: 'planned' },
+    config: config({ mode: { requireResumeAuthorization: true } }),
+  })
+  assert.deepEqual(replanned.changes, ['status=planned'])
+  assert.equal(planned.status, 'planned')
+  assert.equal(planned.pauseCause, undefined)
+
+  // Only paused -> active needs the resume authorization.
+  const pausedAgain = mission({ id: 'M3', status: 'paused', pauseCause: 'user', scope: ['other/**'] })
+  state.missions = [planned, active, pausedAgain]
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: pausedAgain,
+        state,
+        input: { status: 'active' },
+        config: config({ mode: { requireResumeAuthorization: true } }),
+      }),
+    /authorization/,
+  )
+})
+
 test('completion policy normalizes checks and validates the reporting worker', () => {
   assert.deepEqual(normalizeChecks(undefined), [])
   assert.deepEqual(

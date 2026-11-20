@@ -154,6 +154,7 @@ export const TRANSITION_TOOLS = Object.freeze({
   build: Object.freeze({
     'planned>active': Object.freeze(['tower_spawn']),
     'planned>blocked': Object.freeze(['tower_mission']),
+    'planned>paused': Object.freeze(['tower_mission']),
     'planned>abandoned': Object.freeze(['tower_mission']),
     'active>completed': Object.freeze(['tower_complete']),
     'active>blocked': Object.freeze(['tower_mission']),
@@ -161,6 +162,7 @@ export const TRANSITION_TOOLS = Object.freeze({
     'active>abandoned': Object.freeze(['tower_mission']),
     'blocked>active': Object.freeze(['tower_mission']),
     'blocked>abandoned': Object.freeze(['tower_mission']),
+    'paused>planned': Object.freeze(['tower_mission']),
     'paused>active': Object.freeze(['tower_mission']),
     'paused>blocked': Object.freeze(['tower_mission']),
     'paused>abandoned': Object.freeze(['tower_mission']),
@@ -171,6 +173,7 @@ export const TRANSITION_TOOLS = Object.freeze({
   survey: Object.freeze({
     'planned>active': Object.freeze(['tower_spawn']),
     'planned>blocked': Object.freeze(['tower_mission']),
+    'planned>paused': Object.freeze(['tower_mission']),
     'planned>abandoned': Object.freeze(['tower_mission']),
     'active>completed': Object.freeze(['tower_complete']),
     'active>blocked': Object.freeze(['tower_mission']),
@@ -178,6 +181,7 @@ export const TRANSITION_TOOLS = Object.freeze({
     'active>abandoned': Object.freeze(['tower_mission']),
     'blocked>active': Object.freeze(['tower_mission']),
     'blocked>abandoned': Object.freeze(['tower_mission']),
+    'paused>planned': Object.freeze(['tower_mission']),
     'paused>active': Object.freeze(['tower_mission']),
     'paused>blocked': Object.freeze(['tower_mission']),
     'paused>abandoned': Object.freeze(['tower_mission']),
@@ -188,6 +192,7 @@ export const TRANSITION_TOOLS = Object.freeze({
   artifact: Object.freeze({
     'planned>active': Object.freeze(['tower_spawn']),
     'planned>blocked': Object.freeze(['tower_mission']),
+    'planned>paused': Object.freeze(['tower_mission']),
     'planned>abandoned': Object.freeze(['tower_mission']),
     'active>completed': Object.freeze(['tower_complete']),
     'active>blocked': Object.freeze(['tower_mission']),
@@ -195,6 +200,7 @@ export const TRANSITION_TOOLS = Object.freeze({
     'active>abandoned': Object.freeze(['tower_mission']),
     'blocked>active': Object.freeze(['tower_mission']),
     'blocked>abandoned': Object.freeze(['tower_mission']),
+    'paused>planned': Object.freeze(['tower_mission']),
     'paused>active': Object.freeze(['tower_mission']),
     'paused>blocked': Object.freeze(['tower_mission']),
     'paused>abandoned': Object.freeze(['tower_mission']),

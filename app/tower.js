@@ -143,11 +143,30 @@ async function scopeDirectories(tower, scope) {
 }
 
 /**
+ * #205: whether this update edits a planned mission's fence. The scope check
+ * runs before the locked update, so a missing state or mission is not this
+ * helper's failure to report: it just falls back to the widening label.
+ * @param {Tower} tower
+ * @param {unknown} id
+ * @returns {Promise<boolean>}
+ */
+async function plannedScopeEdit(tower, id) {
+  if (typeof id !== 'string') return false
+  try {
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === id)
+    return mission?.status === 'planned'
+  } catch {
+    return false
+  }
+}
+
+/**
  * #200: the one `invalid-argument` for the first unverifiable entry. The
  * message names the entry, the nearest existing prefix, and up to five tracked
  * files in the same directory; the next action depends on the operation that
- * asked, because only planning can carry `allowMissingScope` (the
- * `tower_mission` widen input has no such field).
+ * asked: planning and a planned edit may accept a future path through
+ * `allowMissingScope: true`, and since #205 a widening may too.
  * @param {import('../domain/scope.js').ScopeEntryProblem[]} problems
  * @param {'plan' | 'widen'} operation
  * @returns {never}
@@ -168,9 +187,10 @@ function failScopeEntries(problems, operation) {
 }
 
 /**
- * #200: the recommendation a caller can actually carry out. A plan may accept a
- * future path through `allowMissingScope: true`; a widening has no such input,
- * so it must stay in known territory and the future path belongs in the plan.
+ * #200: the recommendation a caller can actually carry out. Both planning and
+ * a widening accept a future path through `allowMissingScope: true` (#205); the
+ * tracking rule is the same for a planned edit, which also reports operation
+ * `plan`.
  * @param {import('../domain/scope.js').ScopeEntryProblem} first
  * @param {'plan' | 'widen'} operation
  * @returns {string}
@@ -181,7 +201,7 @@ function scopeNextAction(first, operation) {
       ? `a tracked path such as "${first.candidates[0]}"`
       : `a tracked path${first.closestPrefix.length > 0 ? ` under "${first.closestPrefix}"` : ''}`
   if (operation === 'widen') {
-    return `use ${tracked} or an existing directory; a mission cannot be widened to a path that does not exist yet — declare a future path in the original plan`
+    return `use ${tracked} or an existing directory; a mission cannot be widened to a path that does not exist yet unless the caller opts in to unverified scope (see the tower_mission scope rules), so declare a future path in the original plan`
   }
   return `use ${tracked}, or pass allowMissingScope: true to accept a path a mission will create`
 }
@@ -471,12 +491,18 @@ export class Tower {
     // fence a mission to a path that does not exist. A direct caller may skip
     // that check with `allowMissingScope: true`; the recorded entries then
     // carry one `scope.unverified` activity record.
+    // #205: a planned mission edits its fence rather than widening it, so a
+    // rejection names the planning operation the same entries would face in
+    // `tower_plan`; both operations accept `allowMissingScope`.
     const update = /** @type {any} */ (input)
     if (update && typeof update === 'object' && Array.isArray(update.scope)) {
       const directories = await scopeDirectories(this, update.scope)
+      const plannedEdit = await plannedScopeEdit(this, update.id)
       if (update.allowMissingScope !== true) {
         const trackedPaths = await trackedPathList(this)
-        if (trackedPaths !== null) assertScopeEntries(update.scope, trackedPaths, directories, 'widen')
+        if (trackedPaths !== null) {
+          assertScopeEntries(update.scope, trackedPaths, directories, plannedEdit ? 'plan' : 'widen')
+        }
       }
       const result = await updateMission(this, { ...update, scope: expandScopeDirectories(update.scope, { directories }) })
       if (update.allowMissingScope === true && update.scope.length > 0) {
@@ -484,7 +510,7 @@ export class Tower {
           at: Date.now(),
           type: 'scope.unverified',
           missionId: result.mission.id,
-          text: `widened to unverified scope: ${update.scope.join(', ')}`,
+          text: `${plannedEdit ? 'edited' : 'widened'} to unverified scope: ${update.scope.join(', ')}`,
         })
       }
       return result

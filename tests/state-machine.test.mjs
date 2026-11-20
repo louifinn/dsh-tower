@@ -23,10 +23,10 @@ import { MISSION_STATUSES } from '../app/tower.js'
 // `blocked` is derived from open blockers, so it is never a direct status patch
 // target and its only direct move is `abandoned`; resuming is clear_blockers.
 const EXPECTED_TRANSITIONS = {
-  planned: ['active', 'abandoned'],
+  planned: ['active', 'paused', 'abandoned'],
   active: ['completed', 'paused', 'abandoned'],
   blocked: ['abandoned'],
-  paused: ['active', 'abandoned'],
+  paused: ['active', 'planned', 'abandoned'],
   completed: ['active', 'abandoned'],
   merged: [],
   abandoned: [],
@@ -137,7 +137,13 @@ test('mission transitions: the full allowed/denied table matches the implementat
       const allowed = EXPECTED_TRANSITIONS[pair.from].includes(pair.to)
       // Abandoning always needs a reason; supply it so the assertion is about
       // the transition, not about the note precondition.
-      const patch = { id, status: pair.to, ...(pair.to === 'abandoned' ? { note: 'fuzz reason' } : {}) }
+      const patch = {
+        id,
+        status: pair.to,
+        ...(pair.to === 'abandoned' ? { note: 'fuzz reason' } : {}),
+        // #205: pausing a planned mission must carry the cause explicitly.
+        ...(pair.from === 'planned' && pair.to === 'paused' ? { pause_cause: 'user' } : {}),
+      }
       if (pair.to === 'blocked') {
         // Direct status "blocked" is always refused: the blockers are the state.
         await assert.rejects(

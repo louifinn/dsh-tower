@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12596,
+        "value": 13039,
         "decisions": [
           {
             "from": 17008,
@@ -284,6 +284,12 @@
             "to": 12596,
             "date": "2026-11-20",
             "note": "#200/M142: tower_plan's mission object advertises the optional allowMissingScope escape hatch and its scope description states the tracked-file rule, so the one advertised PlanInput schema grows by 327 bytes wherever tower_plan is mounted. profiles.tower.inputBytes becomes 12596 (was 12269); host:active becomes 17,097 B (was 16,770). Worker, reviewer and survey presets do not mount tower_plan and do not move; tool counts stay 14/6/5."
+          },
+          {
+            "from": 12596,
+            "to": 13039,
+            "date": "2026-11-20",
+            "note": "#205/M145: MissionInput now advertises optional allowMissingScope (the widen escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. tower_mission is mounted by the tower, worker and survey presets, so their one advertised schema grows by 443 bytes: tower 13039 (was 12596), worker 7234 (was 6791). Reviewer does not mount tower_mission and does not move; tool counts stay 14/6/5."
           }
         ]
       }
@@ -315,7 +321,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6791,
+        "value": 7234,
         "decisions": [
           {
             "from": 8159,
@@ -352,6 +358,12 @@
             "to": 6791,
             "date": "2026-11-20",
             "note": "#203/M141: tower_send advertises the new `wake` boolean, so the worker preset's mounted SendInput grows by 137 bytes. The tool count stays 6."
+          },
+          {
+            "from": 6791,
+            "to": 7234,
+            "date": "2026-11-20",
+            "note": "#205/M145: the worker preset mounts tower_mission, whose MissionInput gains optional allowMissingScope and deferred plus a scope description covering planned edits, so the one advertised schema grows by 443 bytes. The tool count stays 6."
           }
         ]
       }
@@ -432,11 +444,11 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 17097
+        "bytes": 17540
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 8771
+        "bytes": 9214
       },
       "preset:reviewer": {
         "tools": 5,
@@ -444,11 +456,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 7586
+        "bytes": 8029
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 7586
+        "bytes": 8029
       }
     },
     "decisions": [
@@ -491,6 +503,11 @@
         "date": "2026-11-20",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#200/M142: tower_plan now advertises the optional allowMissingScope scope-proof escape hatch and its scope description explains the tracked-file rule, so host:active becomes 14 tools / 17,097 B (was 16,770). Mode-off, idle and every preset are unchanged because only the host profile mounts tower_plan; no tool count moves, and the growth buys the #200 planning check its explicit opt-out."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#205/M145: tower_mission now advertises optional allowMissingScope (widen's escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. Every profile that mounts tower_mission grows by the same 443 bytes: host:active 14/17,540 (was 14/17,097), preset:worker 6/9,214 (was 6/8,771), preset:survey and preset:survey-sandbox 5/8,029 each (was 5/7,586). Reviewer does not mount tower_mission and is unchanged; no tool count moves."
       }
     ]
   }

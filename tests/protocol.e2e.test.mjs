@@ -9,6 +9,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
+import { registerTowerTools } from '../host/tool-registry.js'
+import { validateJsonSchema } from './schema-validator.mjs'
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -24,6 +26,44 @@ function initRepo(repo) {
   fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
   git(repo, ['add', '-A'])
   git(repo, ['commit', '-m', 'seed'])
+}
+
+/** Register the real tool surface on a minimal host context. */
+function makeCtx() {
+  const tools = new Map()
+  const ctx = {
+    effect(fn) {
+      const dispose = fn()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
+    get() {
+      return undefined
+    },
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition)
+        return () => {}
+      },
+      guard() {
+        return () => {}
+      },
+    },
+    systemPrompt: { section() {} },
+    inject(_deps, callback) {
+      callback(ctx)
+    },
+  }
+  registerTowerTools(ctx)
+  return { ctx, tools }
+}
+
+async function call(tools, name, args, exec = { agent: { id: 'tower-e2e' } }) {
+  const tool = tools.get(name)
+  assert.ok(tool, `${name} is registered`)
+  const value = await tool.execute(args, exec)
+  const violations = validateJsonSchema(tool.output.schema, value)
+  assert.deepEqual(violations, [], `${name}: ${violations.join('; ')}`)
+  return value
 }
 
 test('tower protocol: init → plan → complete → review → merge → teardown', async () => {
@@ -309,6 +349,131 @@ test('merge hook timeout is reported as merge-hook-failed and leaves a clean rep
     fs.writeFileSync(stopFile, 'stop\n')
     await new Promise((resolve) => setTimeout(resolve, 1500))
     removeTemp(ctx.root)
+  }
+})
+
+test('registered tower_mission edits a planned mission scope and keeps it planned', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-planned-edit-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Planning edit', scope: ['src/**'] }],
+    })
+    const id = planned.missions[0].id
+    const edited = await call(tools, 'tower_mission', { repoRoot: repo, id, scope: ['src/lib/**'] })
+    assert.equal(edited.mission.status, 'planned')
+    assert.equal(edited.mission.scopeGeneration, 2)
+    assert.deepEqual(edited.mission.scope, ['src/lib/**'])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('registered tower_mission forwards allowMissingScope on a widen', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-hatch-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  // A tracked directory makes docs/future a dead end until the hatch is passed.
+  fs.mkdirSync(path.join(repo, 'docs', 'guide'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'docs', 'guide', 'one.md'), 'guide\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'guide'])
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Hatch widen', scope: ['src/**'] }],
+    })
+    const id = planned.missions[0].id
+    await call(tools, 'tower_mission', { repoRoot: repo, id, status: 'active' })
+
+    await assert.rejects(
+      () => call(tools, 'tower_mission', { repoRoot: repo, id, scope: ['docs/new-page.md'] }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        error.details?.operation === 'widen' &&
+        /no tracked file matches/.test(error.message),
+    )
+
+    const widened = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id,
+      scope: ['docs/new-page.md'],
+      allowMissingScope: true,
+    })
+    assert.equal(widened.mission.status, 'active')
+    assert.equal(widened.mission.scopeGeneration, 2)
+    assert.deepEqual(widened.mission.scope, ['docs/new-page.md'])
+    assert.equal(widened.mission.allowMissingScope, undefined)
+
+    // A trailing directory entry is a tree the mission will create, and the
+    // hatch stays reachable for it too.
+    const future = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id,
+      scope: ['docs/future/'],
+      allowMissingScope: true,
+    })
+    assert.equal(future.mission.scopeGeneration, 3)
+    assert.ok(future.mission.scope[0].startsWith('docs/future'), JSON.stringify(future.mission.scope))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('registered tower_plan warns about a ** mission while other work is in flight', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-broad-scope-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const first = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Feature work', scope: ['src/**'] }],
+    })
+    const id = first.missions[0].id
+
+    // A whole-repository mission is legal but fences every later widen, so the
+    // plan warns without blocking and names the ordering fix.
+    const broad = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Release prep', scope: ['**'] }],
+    })
+    assert.equal(broad.missions[0].status, 'planned')
+    const warning = broad.warnings?.find((entry) => entry.code === 'broad-scope')
+    assert.ok(warning, JSON.stringify(broad.warnings))
+    assert.equal(warning.missionId, broad.missions[0].id)
+    assert.deepEqual(warning.missionIds, [id])
+    assert.match(warning.message, /claims the whole repository/)
+    assert.match(warning.message, /plan the release-preparation mission last/)
+    assert.match(warning.message, /deferred|pause/)
+
+    // Clearing the ordering (defer the open mission, abandon the broad one) makes
+    // the same broad scope quiet: the warning is advisory, never a standing flag.
+    await call(tools, 'tower_mission', { repoRoot: repo, id, deferred: true })
+    await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id: broad.missions[0].id,
+      status: 'abandoned',
+      note: 'ordered after the feature work',
+    })
+    const quiet = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Release prep later', scope: ['**'] }],
+    })
+    assert.equal(quiet.missions[0].status, 'planned')
+    assert.equal(quiet.warnings, undefined)
+  } finally {
+    removeTemp(root)
   }
 })
 
