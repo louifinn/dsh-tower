@@ -155,20 +155,20 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
-### 2.9.7 fix 6 evidence (2026-11-21)
+### 2.9.7 release evidence (2026-11-21)
 
 2.9.7 makes a planned mission's fence editable, adds the `deferred` ordering flag, allows
 `planned ↔ paused`, and makes the widen `allowMissingScope` hatch reachable through the
-registered tool; fix 6 surfaces the new fields in `tower_inspect`, makes the deferral copy
-truthful, and moves the `broad-scope` plan warning into the sanctioned blocker registry
-with its own generated narrative (F96). Same bounded runner and machine as the 2.9.6
-block; declarations are counted, so the one skip is included in the total:
+registered tool; a `**` plan now warns from the sanctioned blocker registry, and the mission
+summary shows the persisted `deferred` field. Release preparation re-ran every number below
+on the same bounded runner and machine as the 2.9.6 block; declarations are counted, so the
+one skip is included in the total:
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
-| Focused gate (6 files) | `node --test tests/domain-missions.test.mjs tests/protocol.e2e.test.mjs tests/state-machine.test.mjs tests/tool-schemas.test.mjs tests/surface.test.mjs tests/exposure.test.mjs` | **56** | 56 pass, 0 fail |
+| Focused gate (6 files) | `node --test tests/domain-missions.test.mjs tests/protocol.e2e.test.mjs tests/state-machine.test.mjs tests/tool-schemas.test.mjs tests/surface.test.mjs tests/exposure.test.mjs` | **57** | 57 pass, 0 fail |
 | Property PR tier (12 files) | `npm run test:property` | **124** | 124 pass, 0 fail (124 × 3 seeds × 100 runs = 37,200 generated inputs) |
-| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1382** | 1381 pass, 1 skip, 0 fail |
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1383** | 1382 pass, 1 skip, 0 fail |
 
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs). The 2.9.7 cases run inside the
@@ -179,19 +179,20 @@ without authorization in [`domain-missions.test.mjs`](domain-missions.test.mjs) 
 [`state-machine.test.mjs`](state-machine.test.mjs); the registered-tool end-to-end proof
 that `tower_mission({ scope, allowMissingScope: true })` widens to a path that does not
 exist yet, the `broad-scope` plan warning with its quiet counterpart, and the raw-state
-proof that `allowMissingScope` is not persisted, in
-[`protocol.e2e.test.mjs`](protocol.e2e.test.mjs); `deferred` reachable through
-`tower_inspect`; the transition-tool reachability of `planned ↔ paused` in
-[`exposure.test.mjs`](exposure.test.mjs); each warning row's own generated paragraph
-(including the plan-only `broad-scope` text) in
-[`blocker-registry.test.mjs`](blocker-registry.test.mjs); and the regenerated
-shape reference in [`shapes.md`](../docs/reference/shapes.md). The supporting static
-gates also pass on this tree: `npm run docs:check`, every `npm run
-docs:check:generated:<name>` target (`tools`, `events`, `shapes`, `config`, `blockers`,
-`types`, `locale`, `components`), `npm run types:check`, `npm run types:coverage` and
-`npm run architecture:check`; the surface baseline was re-pinned from measurement in
-[`scripts/surface-baseline.json`](../scripts/surface-baseline.json) with the date and
-reason on the record.
+proof that `deferred` is stored while `allowMissingScope` is not, in
+[`protocol.e2e.test.mjs`](protocol.e2e.test.mjs); the two-mission batch that must not repeat
+a same-batch companion id in the warning, and the split shape/status deferral refusals
+(F98, F99); `deferred` reachable through `tower_inspect`; the transition-tool reachability
+of `planned ↔ paused` in [`exposure.test.mjs`](exposure.test.mjs); each warning row's own
+generated paragraph (including the plan-only `broad-scope` text) in
+[`blocker-registry.test.mjs`](blocker-registry.test.mjs); and the regenerated shape
+reference in [`shapes.md`](../docs/reference/shapes.md). The supporting static gates also
+pass on this tree: `npm run docs:check`, every `npm run docs:check:generated:<name>` target
+(`tools`, `events`, `shapes`, `config`, `blockers`, `types`, `locale`, `components`),
+`npm run types:check`, `npm run types:coverage`, `npm run architecture:check` and
+`npm run surface:check`. The 2.9.7 surface itself did not move in release preparation: M147
+re-measured the ladder and re-pinned [`scripts/surface-baseline.json`](../scripts/surface-baseline.json)
+with the date and reason on the record, and the committed baseline still matches.
 
 ### 2.9.6 release evidence (2026-11-20)
 
@@ -240,7 +241,7 @@ passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (r
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
 `TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.7 fix 6 evidence](#297-fix-6-evidence-2026-11-21) above, and the W5
+the current totals are in [2.9.7 release evidence](#297-release-evidence-2026-11-21) above, and the W5
 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
@@ -329,7 +330,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.7 fix 6 evidence](#297-fix-6-evidence-2026-11-21) above.
+[2.9.7 release evidence](#297-release-evidence-2026-11-21) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
