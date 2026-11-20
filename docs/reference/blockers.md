@@ -6,9 +6,13 @@
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
 tables below define 36 stable blocker/failure codes.
 
-`survey-stale`, `broad-scope` is special: it is reported as a stable warning in `plan`/`preflight` by default and
+`survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and
 becomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries
 `{code, missionId, depId, readCommit, baseCommit, message}` so a caller can act without parsing prose.
+
+`broad-scope` is plan-only: `tower_plan` reports it as a non-blocking `warnings[]` entry, and it
+never becomes a merge blocker. Its warning object carries `{code, missionId, missionIds, message}` so
+a caller can act without parsing prose.
 
 The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`, `review-not-approved`, `tip-moved`, `review-exemption-invalid`) exist only when `review.mode` is
 `required`. With `off` or `optional` no review blocker is produced; `off` additionally removes

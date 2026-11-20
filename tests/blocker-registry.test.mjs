@@ -109,6 +109,38 @@ test('generated blocker references are exactly the registry rendering', () => {
   assert.match(expected.zh, new RegExp(`${BLOCKER_COUNT} 个稳定 blocker/failure code`))
 })
 
+test('warning rows get their own generated paragraph, not the survey-stale one', () => {
+  // F96: `warningByDefault` is a family, not one behaviour. The generated
+  // narrative must describe each row: `broad-scope` is plan-only, so the
+  // survey-stale merge-blocker paragraph (and its payload keys) would be false.
+  const en = read('docs/reference/blockers.md')
+  const zh = read('docs/zh/reference/blockers.md')
+  const paragraph = (text, code) => text.split(/\n\n+/).find((block) => block.startsWith(`\`${code}\``))
+  const broadEn = paragraph(en, 'broad-scope')
+  const broadZh = paragraph(zh, 'broad-scope')
+  assert.ok(broadEn, 'en docs: broad-scope needs its own warning paragraph')
+  assert.ok(broadZh, 'zh docs: broad-scope needs its own warning paragraph')
+  for (const [locale, block] of [
+    ['en', broadEn],
+    ['zh', broadZh],
+  ]) {
+    assert.doesNotMatch(block, /gates\.requireFreshSurvey/, `${locale} broad-scope paragraph`)
+    assert.doesNotMatch(block, /\bdepId\b/, `${locale} broad-scope paragraph`)
+    assert.doesNotMatch(block, /\breadCommit\b/, `${locale} broad-scope paragraph`)
+  }
+  assert.match(broadEn, /plan-only/)
+  assert.match(broadEn, /never becomes a merge blocker/)
+  assert.match(broadZh, /只出现在 `tower_plan`/)
+  assert.match(broadZh, /永远不会成为合并 blocker/)
+  // The survey-stale paragraph itself stays as it was: it is the only warning
+  // that a gate can promote, and its payload names the freshness evidence.
+  const surveyEn = paragraph(en, 'survey-stale')
+  const surveyZh = paragraph(zh, 'survey-stale')
+  assert.match(surveyEn, /gates\.requireFreshSurvey/)
+  assert.match(surveyEn, /depId, readCommit, baseCommit/)
+  assert.match(surveyZh, /gates\.requireFreshSurvey/)
+})
+
 test('generator follows a mutated registry, not just today’s list', () => {
   const probe = {
     code: 'mutation-probe',

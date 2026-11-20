@@ -7,8 +7,11 @@
 `tower_inspect` 的 `view: "preflight"` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
 在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 36 个稳定 blocker/failure code。
 
-`survey-stale`, `broad-scope` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
+`survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
 变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。
+
+`broad-scope` 只出现在 `tower_plan`：它是一个非阻塞的 `warnings[]` 条目，永远不会成为合并 blocker。
+其警告对象带有 `{code, missionId, missionIds, message}`，调用方无需解析散文即可处理。
 
 下列审查 blocker（`no-review`, `review-mission-mismatch`, `not-clean`, `review-hold`, `review-not-approved`, `tip-moved`, `review-exemption-invalid`）只在 `review.mode` 为 `required`
 时产生。`off` 或 `optional` 不会产生审查 blocker；`off` 还会移除 `tower_review` 并拒绝 reviewer spawn。
