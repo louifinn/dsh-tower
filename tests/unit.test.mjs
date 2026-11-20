@@ -2,7 +2,7 @@
 // Run with: node --test "tests/*.test.mjs"
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scopesOverlap, normalizeScope, validateTitle, fileInScope, directoryScopeCandidate, expandScopeDirectories } from '../app/tower.js'
+import { scopesOverlap, normalizeScope, validateTitle, fileInScope, directoryScopeCandidate, expandScopeDirectories, scopePrefixDirectory, validateScopeEntries } from '../app/tower.js'
 
 test('scopesOverlap: identical and nested prefixes overlap', () => {
   assert.equal(scopesOverlap(['src/a/**'], ['src/a/**']), true)
@@ -182,4 +182,81 @@ test('fileInScope: glob matching', () => {
   assert.equal(fileInScope(['src/a/*.js'], 'src/a/x.js'), true)
   assert.equal(fileInScope(['src/a/*.js'], 'src/a/nested/x.js'), false)
   assert.equal(fileInScope(['src/b/**'], 'src/a/x.js'), false)
+})
+
+// ---------------------------------------------------------------------------
+// #200: planning rejects scope entries that name no tracked file
+// ---------------------------------------------------------------------------
+
+test('#200: scopePrefixDirectory anchors each entry at the directory it names', () => {
+  // Root-level entries have no anchor directory; a mission may create them.
+  assert.equal(scopePrefixDirectory('README.md'), '')
+  assert.equal(scopePrefixDirectory('dep.txt'), '')
+  assert.equal(scopePrefixDirectory('*.md'), '')
+  assert.equal(scopePrefixDirectory('**'), '')
+  assert.equal(scopePrefixDirectory('.'), '')
+  // A literal entry is anchored at its parent directory.
+  assert.equal(scopePrefixDirectory('scripts/check-deny.mjs'), 'scripts')
+  assert.equal(scopePrefixDirectory('./scripts/generate-deny-surface.mjs'), 'scripts')
+  // A glob before the last separator keeps the literal head, so a typo is
+  // checked against the directory that actually exists.
+  assert.equal(scopePrefixDirectory('tests/teardown*.test.mjs'), 'tests')
+  assert.equal(scopePrefixDirectory('src/*.mjs'), 'src')
+  // A subtree glob is anchored at the subtree itself.
+  assert.equal(scopePrefixDirectory('docs/guide/**'), 'docs/guide')
+  assert.equal(scopePrefixDirectory('docs/guide/quickstart.md'), 'docs/guide')
+})
+
+test('#200: validateScopeEntries reports every entry that names no tracked file', () => {
+  const trackedPaths = [
+    'README.md',
+    'docs/guide/quickstart.md',
+    'scripts/generate-deny-surface.mjs',
+    'tests/cleanup.test.mjs',
+  ]
+  const directories = new Set(['docs/guide', 'scripts', 'tests'])
+  const problems = validateScopeEntries(
+    ['tests/teardown*.test.mjs', 'scripts/check-deny.mjs', 'docs/guide/missing.md', 'docs/guide/**'],
+    { trackedPaths, directories },
+  )
+  assert.deepEqual(
+    problems.map((problem) => problem.entry),
+    ['tests/teardown*.test.mjs', 'scripts/check-deny.mjs', 'docs/guide/missing.md'],
+    'an entry that matches a tracked file is not reported',
+  )
+  assert.deepEqual(problems[0], {
+    entry: 'tests/teardown*.test.mjs',
+    reason: 'no tracked file matches',
+    closestPrefix: 'tests',
+    candidates: ['tests/cleanup.test.mjs'],
+  })
+  assert.deepEqual(problems[1].candidates, ['scripts/generate-deny-surface.mjs'])
+  assert.deepEqual(problems[2].candidates, ['docs/guide/quickstart.md'])
+})
+
+test('#200: validateScopeEntries keeps future paths, directories, ** and . legal', () => {
+  const trackedPaths = ['README.md', 'tests/cleanup.test.mjs']
+  const directories = new Set(['tests'])
+  assert.deepEqual(
+    validateScopeEntries(['**', '.', 'tests', 'tests/', 'tests/cleanup.test.mjs', 'tests/**', 'src/**', 'src/new.js', 'dep.txt'], {
+      trackedPaths,
+      directories,
+    }),
+    [],
+    'a missing top-level tree, a root-level file and a directory are not errors',
+  )
+  // A checked-out but ignored tree is known territory: a glob that only matches
+  // its ignored files names nothing a mission can own.
+  const ignored = validateScopeEntries(['dist/*.js'], { trackedPaths, directories: new Set([...directories, 'dist']) })
+  assert.equal(ignored.length, 1)
+  assert.equal(ignored[0].closestPrefix, 'dist')
+  // An empty tracked list proves nothing, so validation reports nothing.
+  assert.deepEqual(validateScopeEntries(['tests/teardown*.test.mjs'], { trackedPaths: [], directories }), [])
+})
+
+test('#200: validateScopeEntries caps the candidate list at five tracked files', () => {
+  const trackedPaths = ['pkg/a.mjs', 'pkg/b.mjs', 'pkg/c.mjs', 'pkg/d.mjs', 'pkg/e.mjs', 'pkg/f.mjs']
+  const problems = validateScopeEntries(['pkg/missing*.mjs'], { trackedPaths, directories: new Set(['pkg']) })
+  assert.equal(problems.length, 1)
+  assert.deepEqual(problems[0].candidates, ['pkg/a.mjs', 'pkg/b.mjs', 'pkg/c.mjs', 'pkg/d.mjs', 'pkg/e.mjs'])
 })

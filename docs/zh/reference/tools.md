@@ -82,8 +82,8 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | 工具 | 参数 | 用途 / 说明 |
 |---|---|---|
 | `tower_init` | `op?`（`init` 默认 / `adopt`）、`repoRoot`、`base?`、`auto_git_init?`、`snapshot_dirty?`、`reanchor?`、`retire_missing?` | `op:"init"` 创建 `<git-common-dir>/dsh-tower/state.json`。唯一声明 `repoRoot` 的工具（引导）；它优先于会话目录，以便显式初始化指定目标。`auto_git_init` 执行 `git init` 并创建空的初始提交；`snapshot_dirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。`op:"adopt"` 把 roster 与持久目录对账：可证明已消失的 agent 会被标记为 retired（默认），或标记为 `missing`（`retire_missing:false`）。两个 op 都仅限控制塔。 |
-| `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`——`build`/`survey`/`artifact`、`artifacts[]?` ≤20、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`kind:"artifact"` 在 `artifacts[]` 声明具体的交付物路径（不能是 glob，且必须位于 scope 内）；完成前这些路径必须已提交在分支末端，合并还要求人类接受该末端。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。`scope` 是相对仓库根目录的文件 glob 列表；目录形态的条目（`docs/guide/`，或规划时已存在的裸 `docs/guide`）会存成显式的子树 glob `docs/guide/**`——见下文“scope 条目”。 |
-| `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?`、`accept?`、`accept_note?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。`accept:true` 记录人类对 artifact mission 已提交末端的接受：工具会通过 DSH 审批通道询问人类，并把当前分支末端写入记录；没有该通道时以 `approval-unavailable` 拒绝，任何参数都不能让接受变成 agent 自批（worker 调用会以 `acceptance-human-only` 拒绝）。 |
+| `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`——`build`/`survey`/`artifact`、`artifacts[]?` ≤20、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`、`allowMissingScope?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`kind:"artifact"` 在 `artifacts[]` 声明具体的交付物路径（不能是 glob，且必须位于 scope 内）；完成前这些路径必须已提交在分支末端，合并还要求人类接受该末端。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。`scope` 是相对仓库根目录的文件 glob 列表；目录形态的条目（`docs/guide/`，或规划时已存在的裸 `docs/guide`）会存成显式的子树 glob `docs/guide/**`——见下文“scope 条目”。规划时每个条目都会与 `git ls-files` 对照：落在已跟踪目录内却匹配不到任何已跟踪文件的条目会以 `invalid-argument` 拒绝，并指出最近的已存在前缀与该目录下最多 5 个已跟踪候选。若该路径确实是 mission 将要创建的，在对应 mission 上传 `allowMissingScope:true`；接受行为会记录为一条 `scope.unverified` 活动条目，存储的 scope 不变。 |
+| `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`pause_cause?`、`authorization?`、`accept?`、`accept_note?` | 更新单个 mission。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；恢复用户暂停的 mission 会遵循 `mode.requireResumeAuthorization`。`scope` 用于扩大围栏，遵循与规划相同的“必须匹配已跟踪文件”规则与目录展开；该工具没有 `allowMissingScope` 字段，因此扩大时只能写已跟踪路径（未来才会创建的路径应在原始计划中用 `allowMissingScope` 声明）。`accept:true` 记录人类对 artifact mission 已提交末端的接受：工具会通过 DSH 审批通道询问人类，并把当前分支末端写入记录；没有该通道时以 `approval-unavailable` 拒绝，任何参数都不能让接受变成 agent 自批（worker 调用会以 `acceptance-human-only` 拒绝）。 |
 | `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板）、`roster`（子代理目录的实时活动）、`diff`（mission 分支的 merge-base diff）、`preflight`（合并门禁 blockers/warnings；artifact mission 报 `acceptance-missing`/`acceptance-stale`，而不是 review blockers）、`doctor`（环境与 state/git 锁健康，含 Ralph 姿态）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。报告在 `worktree` 里给出放置方式：分支工作树为 `{path, branch, baseCommit}`，读取共享检出或游离 sandbox 的 survey 为 `null`。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`wake?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息。运行中的 roster agent 会被 steer 进当前回合；已停止的 agent 会保留消息，等下次运行时读取。`interrupt:true`（仅 tower）先中断运行中的回合并投递。`wake:true` 为已停止的 agent 启动新回合；若该 agent 无法恢复，则抛出 `agent-not-resumable`。无法观测的活动状态（目录报错或返回空列表）绝不会被当成已停止：此时 `wake:true` 返回 `woke:false` 并说明未声称唤醒；显式 `interrupt:true` 仍会尝试并如实回报，而不是被静默跳过。`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
@@ -131,6 +131,41 @@ scope 永远不会被改写，因此在新规则之前规划、仍保存字面�
 
 目录子树推荐写成 `docs/guide/**` 或 `docs/guide/`。避免只写裸 `docs/guide`：它只有在
 规划时该目录已经存在才会展开，因此同一段文本可能随仓库状态代表一个文件或整棵子树。
+
+### scope 条目必须指向真实内容
+
+上文的展开只决定条目如何存储；“是否存在”决定它能否被规划。规划会先把原始条目与
+`git ls-files` 对照，再规范化，因此拼写错误会在 mission 建立前被发现，而不是在 spawn
+之后——那时只能放弃并重新规划（#200）。
+
+以下条目直接通过：`**`、`.`、目录形态条目（尾部分隔符，或规划 checkout 中确实存在的
+裸路径），以及至少匹配一个已跟踪文件的条目。若条目的静态前缀（第一个 `*`、`?`、`[`
+之前、到最后一个分隔符为止的文本）不在任何已跟踪树内，也通过：规划无法知道 mission
+是否会创建该树，因此 README-only 仓库中的 `src/**` 是未来树，不是拼写错误。根级字面
+条目（没有目录前缀）同样无法验证，保持合法，这样未知依赖仍保留自己的错误，门禁也
+照旧围栏该路径。
+
+其余情况属于“存在但无匹配”的已知区域：前缀已被跟踪（或 checkout 中存在），但条目
+匹配不到任何已跟踪文件时，以 `invalid-argument` 拒绝。只匹配被忽略文件的 glob 也在
+此列。错误会指出第一个失败条目、最近的已存在前缀，以及该目录下最多 5 个已跟踪候选；
+`details.problems` 逐条给出 `{entry, reason, closestPrefix, candidates}`：
+
+```text
+[tower:invalid-argument] no tracked file matches "tests/teardown*.test.mjs"; nearest
+existing prefix "tests"; tracked files there: tests/cleanup.test.mjs — next: use a
+tracked path such as "tests/cleanup.test.mjs", or pass allowMissingScope: true to
+accept a path a mission will create
+```
+
+存在性比对会折叠大小写：仅大小写不一致属于门禁的比较判定（#90），不是路径缺失，且
+不会改写任何内容。若条目确实是 mission 将创建的路径，在对应 mission 上传
+`allowMissingScope:true`；规划会接受该 mission 的条目而不做证明，并记录一条
+`scope.unverified` 活动条目列出这些条目。该标志是输入决策，不会写入 mission，存储的
+scope 也不变。`tower_mission` 扩大 scope 时使用同一规则，且没有 escape-hatch 字段：
+未来路径应在计划中声明。
+
+当 `git ls-files` 失败或返回空列表时，无法证明存在性，规划会跳过该检查；门禁仍按
+原样围栏存储的 scope。
 
 ## workspace 锁
 

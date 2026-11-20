@@ -10,14 +10,14 @@
 // its re-exports are unchanged.
 import path from 'node:path'
 import { assertPorts } from '../ports/index.js'
-import { directoryScopeCandidate, expandScopeDirectories } from '../domain/scope.js'
+import { directoryScopeCandidate, expandScopeDirectories, scopePrefixDirectory, validateScopeEntries } from '../domain/scope.js'
 import { validateCreate as validateBatchCreate, validateClose as validateBatchClose, summarize as summarizeBatch } from '../domain/batch.js'
 
 import { rebaseWaived } from '../domain/gate.js'
 import { DEFAULT_MERGE_TIMEOUT_MS, gitLockTimeoutMs } from '../domain/lockBudget.js'
 export { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 
-export { fileInScope, scopesOverlap, validateTitle, normalizeScope, directoryScopeCandidate, expandScopeDirectories } from '../domain/scope.js'
+export { fileInScope, scopesOverlap, validateTitle, normalizeScope, directoryScopeCandidate, expandScopeDirectories, scopePrefixDirectory, validateScopeEntries } from '../domain/scope.js'
 export { missionSummary } from '../domain/summary.js'
 
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
@@ -95,25 +95,150 @@ async function plannedDirectorySet(tower, scope) {
 }
 
 /**
+ * #200: the tracked files of this checkout, in `git ls-files -z` order, or
+ * `null` when the listing cannot be trusted (not a repository, a git failure,
+ * or an empty index). Presence validation runs only on a trustworthy list: an
+ * unreadable checkout keeps planning, exactly as an unprobeable directory keeps
+ * an entry literal (F70).
+ * @param {Tower} tower
+ * @returns {Promise<string[] | null>}
+ */
+async function trackedPathList(tower) {
+  let output
+  try {
+    output = await tower.deps.vcs.git(tower.root, ['ls-files', '-z'])
+  } catch {
+    return null
+  }
+  if (typeof output !== 'string') return null
+  const paths = output.split('\0').filter((entry) => entry.length > 0)
+  return paths.length > 0 ? paths : null
+}
+
+/**
+ * #200: the directories that prove an entry is in known territory: the F18
+ * planned directories, plus each entry's anchor directory when it exists on
+ * disk. The second set is what catches a glob that matches only ignored or
+ * untracked files (`dist/*.js` with a checked-out but ignored `dist/`), without
+ * treating a tree the mission is about to create as known (`src/**` in a
+ * README-only checkout).
+ * @param {Tower} tower
+ * @param {unknown} scope
+ * @returns {Promise<Set<string>>}
+ */
+async function scopeDirectories(tower, scope) {
+  const directories = await plannedDirectorySet(tower, scope)
+  if (!Array.isArray(scope)) return directories
+  for (const raw of scope) {
+    const directory = scopePrefixDirectory(raw)
+    if (directory.length === 0 || directories.has(directory)) continue
+    try {
+      const info = await tower.deps.store.stat(path.join(tower.root, directory))
+      if (info.isDirectory()) directories.add(directory)
+    } catch {
+      // A missing anchor directory is a tree the mission will create; no probe.
+    }
+  }
+  return directories
+}
+
+/**
+ * #200: the one `invalid-argument` for the first unverifiable entry. The
+ * message names the entry, the nearest existing prefix, and up to five tracked
+ * files in the same directory; the next action is one of the two things the
+ * caller can actually do.
+ * @param {import('../domain/scope.js').ScopeEntryProblem[]} problems
+ * @returns {never}
+ */
+function failScopeEntries(problems) {
+  const first = problems[0]
+  const parts = [`no tracked file matches "${first.entry}"`]
+  if (first.closestPrefix.length > 0) parts.push(`nearest existing prefix "${first.closestPrefix}"`)
+  if (first.candidates.length > 0) parts.push(`tracked files there: ${first.candidates.join(', ')}`)
+  if (problems.length > 1) {
+    parts.push(`${problems.length - 1} more scope entr${problems.length === 2 ? 'y' : 'ies'} match no tracked file`)
+  }
+  const nextAction =
+    first.candidates.length > 0
+      ? `use a tracked path such as "${first.candidates[0]}", or pass allowMissingScope: true to accept a path a mission will create`
+      : `use a tracked path${first.closestPrefix.length > 0 ? ` under "${first.closestPrefix}"` : ''}, or pass allowMissingScope: true to accept a path a mission will create`
+  throw new TowerToolError('invalid-argument', parts.join('; '), { nextAction, details: { problems } })
+}
+
+/**
+ * @param {string[]} scope
+ * @param {string[]} trackedPaths
+ * @param {ReadonlySet<string>} directories
+ */
+function assertScopeEntries(scope, trackedPaths, directories) {
+  const problems = validateScopeEntries(scope, { trackedPaths, directories })
+  if (problems.length > 0) failScopeEntries(problems)
+}
+
+/**
  * F18: a fresh plan input with directory-shaped scope entries expanded to
  * explicit subtree globs. Invalid shapes are passed through untouched so the
  * domain reports the same error as before.
+ *
+ * #200: before expansion, each mission's scope is checked against the tracked
+ * files (see `validateScopeEntries`), so an entry that names no file fails
+ * before a mission is created. A mission may skip the check with
+ * `allowMissingScope: true` (and `Tower.plan` accepts it top-level for direct
+ * callers, though the tool forwards only the per-mission field); the accepted
+ * entries are recorded afterwards by `recordUnverifiedPlanScope`.
  * @param {Tower} tower
  * @param {any} input
  * @returns {Promise<any>}
  */
 async function expandedPlanInput(tower, input) {
   if (!input || typeof input !== 'object' || !Array.isArray(input.missions)) return input
+  const allowMissing = input.allowMissingScope === true
+  /** @type {string[] | null | undefined} */
+  let trackedPaths
+  let listed = false
   const missions = []
   for (const mission of input.missions) {
     if (mission === null || typeof mission !== 'object' || Array.isArray(mission) || !Array.isArray(mission.scope)) {
       missions.push(mission)
       continue
     }
-    const directories = await plannedDirectorySet(tower, mission.scope)
+    const directories = await scopeDirectories(tower, mission.scope)
+    if (!allowMissing && mission.allowMissingScope !== true) {
+      if (!listed) {
+        trackedPaths = await trackedPathList(tower)
+        listed = true
+      }
+      if (trackedPaths !== null && trackedPaths !== undefined) assertScopeEntries(mission.scope, trackedPaths, directories)
+    }
     missions.push({ ...mission, scope: expandScopeDirectories(mission.scope, { directories }) })
   }
   return { ...input, missions }
+}
+
+/**
+ * #200: the escape hatch is auditable. Each mission that asked to skip the
+ * presence check leaves one `scope.unverified` activity record naming the
+ * entries accepted without proof, so a later reader can tell an intended
+ * future path from a typo.
+ * @param {Tower} tower
+ * @param {any} input the caller's original plan input
+ * @param {{ missions?: Array<{ id?: string }> }} result
+ */
+async function recordUnverifiedPlanScope(tower, input, result) {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.missions)) return
+  const allowMissing = input.allowMissingScope === true
+  for (let index = 0; index < input.missions.length; index += 1) {
+    const requested = input.missions[index]
+    if (requested === null || typeof requested !== 'object' || !Array.isArray(requested.scope) || requested.scope.length === 0) continue
+    if (!allowMissing && requested.allowMissingScope !== true) continue
+    const created = Array.isArray(result?.missions) ? result.missions[index] : undefined
+    await tower.appendActivity({
+      at: Date.now(),
+      type: 'scope.unverified',
+      ...(created?.id ? { missionId: created.id } : {}),
+      text: `accepted unverified scope: ${requested.scope.join(', ')}`,
+    })
+  }
 }
 
 export class Tower {
@@ -312,16 +437,35 @@ export class Tower {
   }
 
   async plan(input = {}) {
-    return plan(this, await expandedPlanInput(this, input))
+    const planned = await plan(this, await expandedPlanInput(this, input))
+    await recordUnverifiedPlanScope(this, input, planned)
+    return planned
   }
 
   async mission(input = {}) {
     // F18: widening input gets the same directory expansion as planning, so a
     // directory-shaped entry cannot silently widen a fence to nothing.
+    // #200: a widened entry must also match a tracked file, so a typo cannot
+    // fence a mission to a path that does not exist. A direct caller may skip
+    // that check with `allowMissingScope: true`; the recorded entries then
+    // carry one `scope.unverified` activity record.
     const update = /** @type {any} */ (input)
     if (update && typeof update === 'object' && Array.isArray(update.scope)) {
-      const directories = await plannedDirectorySet(this, update.scope)
-      return updateMission(this, { ...update, scope: expandScopeDirectories(update.scope, { directories }) })
+      const directories = await scopeDirectories(this, update.scope)
+      if (update.allowMissingScope !== true) {
+        const trackedPaths = await trackedPathList(this)
+        if (trackedPaths !== null) assertScopeEntries(update.scope, trackedPaths, directories)
+      }
+      const result = await updateMission(this, { ...update, scope: expandScopeDirectories(update.scope, { directories }) })
+      if (update.allowMissingScope === true && update.scope.length > 0) {
+        await this.appendActivity({
+          at: Date.now(),
+          type: 'scope.unverified',
+          missionId: result.mission.id,
+          text: `widened to unverified scope: ${update.scope.join(', ')}`,
+        })
+      }
+      return result
     }
     return updateMission(this, update)
   }

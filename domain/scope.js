@@ -271,6 +271,138 @@ function scopePrefix(pattern) {
 }
 
 /**
+ * The directory a scope entry is anchored in: for a glob, the directory part of
+ * the literal text before the first glob metacharacter (`tests/*.mjs` names
+ * files in `tests`, `docs/a/**` names everything below `docs/a`); for a literal
+ * entry, its parent directory (`scripts/x.mjs` names a file in `scripts`).
+ * `''` means the entry starts at the repository root (or with a wildcard), so
+ * no directory of the checkout backs it.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function scopePrefixDirectory(raw) {
+  if (typeof raw !== 'string') return ''
+  const value = raw.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '').trim()
+  if (value.length === 0) return ''
+  const index = value.search(GLOB_META)
+  const literal = index < 0 ? value : value.slice(0, index)
+  if (literal.length === 0) return ''
+  // A glob that starts right after a separator names files *in* that
+  // directory (`tests/*.mjs`), so the trailing separator itself is the anchor.
+  if (literal.endsWith('/')) return literal.replace(/\/+$/, '')
+  const slash = literal.lastIndexOf('/')
+  return slash < 0 ? '' : literal.slice(0, slash)
+}
+
+/** @typedef {object} ScopeEntryProblem
+ * @property {string} entry the entry exactly as the caller wrote it
+ * @property {string} reason the user-facing reason this entry was rejected
+ * @property {string} closestPrefix the nearest existing directory above the entry, or `''` for the repository root
+ * @property {string[]} candidates up to five tracked files in the entry's directory
+ */
+
+// A handful of nearby files is enough to recognise a typo; more would bury the
+// actual message.
+const SCOPE_CANDIDATE_LIMIT = 5
+
+/**
+ * #200: the planning-time presence check for scope entries.
+ *
+ * A planned mission cannot widen its own scope, so an entry that names no file
+ * at all is only discovered after a worker was spawned; the recovery is abandon
+ * + replan. This check rejects such an entry before the mission exists.
+ *
+ * Only "known territory" is checked, because a build mission regularly names
+ * files it is about to create:
+ *
+ *   - `**`, `.`, and an entry the caller already judged to be a directory
+ *     (trailing separator, or a bare path in `directories`) always pass; F18
+ *     expands those into an explicit subtree glob;
+ *   - an entry that matches a tracked file passes;
+ *   - an entry whose anchor directory (`scopePrefixDirectory`) is neither
+ *     tracked nor present in `directories` is a tree the mission will create,
+ *     so it passes; this keeps `src/**` in a README-only checkout legal;
+ *   - an entry anchored in a directory the checkout knows (tracked content,
+ *     or a probed existing directory such as an ignored build tree) must match
+ *     a tracked file, else it is a problem;
+ *   - a root-level entry (`README.md`, `dep.txt`) has no anchor directory, so
+ *     it is unverifiable and passes; the gate still fences it exactly.
+ *
+ * `trackedPaths` is the `git ls-files -z` output split on NUL. An empty list
+ * means the checkout cannot prove anything, so nothing is reported; callers
+ * that cannot read the list skip the check the same way (fail open).
+ * @param {unknown} scope
+ * @param {{ trackedPaths?: unknown, directories?: unknown, root?: string | null }} [options]
+ * @returns {ScopeEntryProblem[]}
+ */
+export function validateScopeEntries(scope, { trackedPaths = [], directories = new Set() } = {}) {
+  /** @type {ScopeEntryProblem[]} */
+  const problems = []
+  if (!Array.isArray(scope)) return problems
+  const tracked = Array.isArray(trackedPaths) ? trackedPaths.filter((entry) => typeof entry === 'string' && entry.length > 0) : []
+  if (tracked.length === 0) return problems
+  /** @type {Set<string>} */
+  const dirs = directories instanceof Set ? directories : new Set(Array.isArray(directories) ? directories : [])
+  /** @param {string} directory @returns {boolean} */
+  const trackedUnder = (directory) => tracked.some((file) => file.startsWith(`${directory}/`))
+  // Presence folds case on purpose: a case-only mismatch is a comparison fact
+  // the fence already explains on a case-sensitive checkout (#90), not the
+  // typo this check exists for, and a case-insensitive checkout must accept
+  // the spelling it would accept at the gate. Nothing is rewritten.
+  const foldedTracked = tracked.map((file) => foldCase(file, true))
+  for (const raw of scope) {
+    if (typeof raw !== 'string') continue
+    const entry = raw.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '').trim()
+    if (entry.length === 0) continue
+    // Malformed entries (absolute, drive letter, `..`) are reported by
+    // normalizeScope with its own message; this check only decides presence.
+    if (entry.startsWith('/') || /^[A-Za-z]:/.test(entry) || entry.split('/').some((part) => part === '..')) continue
+    const candidate = directoryScopeCandidate(raw)
+    if (candidate !== null && (candidate.trailing || candidate.value === '.' || dirs.has(candidate.value))) continue
+    const pattern = globToRegExp(entry, { caseInsensitive: true })
+    if (foldedTracked.some((file) => pattern.test(file))) continue
+    const directory = scopePrefixDirectory(entry)
+    if (directory.length === 0) continue
+    if (!dirs.has(directory) && !trackedUnder(directory)) continue
+    problems.push({
+      entry: raw,
+      reason: 'no tracked file matches',
+      closestPrefix: closestExistingPrefix(directory, dirs, trackedUnder),
+      candidates: tracked.filter((file) => dirnameOf(file) === directory).slice(0, SCOPE_CANDIDATE_LIMIT),
+    })
+  }
+  return problems
+}
+
+/**
+ * @param {string} file repo-relative tracked path
+ * @returns {string}
+ */
+function dirnameOf(file) {
+  const slash = file.lastIndexOf('/')
+  return slash < 0 ? '' : file.slice(0, slash)
+}
+
+/**
+ * The nearest directory above `directory` that the checkout can prove exists:
+ * it is tracked, listed in `directories`, or contains a tracked path.
+ * @param {string} directory
+ * @param {ReadonlySet<string>} dirs
+ * @param {(directory: string) => boolean} trackedUnder
+ * @returns {string}
+ */
+function closestExistingPrefix(directory, dirs, trackedUnder) {
+  let cursor = directory
+  while (cursor.length > 0) {
+    if (dirs.has(cursor) || trackedUnder(cursor)) return cursor
+    const slash = cursor.lastIndexOf('/')
+    if (slash < 0) break
+    cursor = cursor.slice(0, slash)
+  }
+  return ''
+}
+
+/**
  * The historical directory-prefix heuristic. Cheap, and deliberately wider
  * than the exact glob intersection: it serializes `a/**` with `a` and
  * `src/*.js` with `src/a/x.js`, and pairs anything with a leading wildcard.
