@@ -411,7 +411,14 @@ test('registered tower_mission forwards allowMissingScope on a widen', async () 
     assert.equal(widened.mission.status, 'active')
     assert.equal(widened.mission.scopeGeneration, 2)
     assert.deepEqual(widened.mission.scope, ['docs/new-page.md'])
-    assert.equal(widened.mission.allowMissingScope, undefined)
+    // The hatch is an input decision, not a stored mission field: prove that on
+    // the raw state document instead of trusting the returned mission view.
+    const raw = JSON.parse(fs.readFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), 'utf8'))
+    const stored = raw.missions.find((mission) => mission.id === id)
+    assert.ok(stored)
+    assert.equal(Object.hasOwn(stored, 'allowMissingScope'), false)
+    assert.equal(stored.scopeGeneration, 2)
+    assert.deepEqual(stored.scope, ['docs/new-page.md'])
 
     // A trailing directory entry is a tree the mission will create, and the
     // hatch stays reachable for it too.
@@ -423,6 +430,34 @@ test('registered tower_mission forwards allowMissingScope on a widen', async () 
     })
     assert.equal(future.mission.scopeGeneration, 3)
     assert.ok(future.mission.scope[0].startsWith('docs/future'), JSON.stringify(future.mission.scope))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_inspect status shows the deferred flag on the dashboard and mission detail', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-deferred-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Deferred visibility', scope: ['src/**'] }],
+    })
+    const id = planned.missions[0].id
+    await call(tools, 'tower_mission', { repoRoot: repo, id, deferred: true })
+
+    const shown = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'status', missionId: id })
+    assert.equal(shown.missions[0].deferred, true)
+    assert.equal(shown.detail.mission.deferred, true)
+
+    await call(tools, 'tower_mission', { repoRoot: repo, id, deferred: false })
+    const cleared = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'status', missionId: id })
+    assert.equal(cleared.missions[0].deferred, false)
+    assert.equal(cleared.detail.mission.deferred, false)
   } finally {
     removeTemp(root)
   }

@@ -4,7 +4,7 @@ import { TowerToolError } from '../domain/errors.js'
 import { SendInput } from '../domain/contracts/tool-inputs/index.js'
 import { ROLE, ROSTER_ACTIVITY, isBroadcast, isRunningActivity, isTowerRecipient, isTowerRole, isUnknownRole } from '../domain/vocabulary.js'
 
-// Stable code for "wake:true could not start a turn"; the catalogue entry is tracked separately (F91).
+// Stable code for "wake:true could not start a turn".
 const AGENT_NOT_RESUMABLE = 'agent-not-resumable'
 
 // Three-state activity: an unreadable or empty catalog is absence of evidence (#F73), never "stopped".

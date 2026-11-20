@@ -55,7 +55,7 @@ test('blocker registry: section counts and derived lists match the reference', (
       rebase: blockersOfKind('rebase').length,
     },
     // #159 adds the two acceptance blockers to the gate section.
-    { gate: 28, merge: 5, rebase: 3 },
+    { gate: 29, merge: 5, rebase: 3 },
   )
   // `worker-busy` is shared, so the three sections sum to one more than unique.
   assert.equal(blockersOfKind('gate').length + blockersOfKind('merge').length + blockersOfKind('rebase').length, BLOCKER_COUNT + 1)
@@ -68,7 +68,7 @@ test('blocker registry: section counts and derived lists match the reference', (
     'tip-moved',
     'review-exemption-invalid',
   ])
-  assert.deepEqual(WARNING_BLOCKER_CODES, ['survey-stale'])
+  assert.deepEqual(WARNING_BLOCKER_CODES, ['survey-stale', 'broad-scope'])
   assert.ok(BLOCKER_CODE_VALUES.includes('review-stale'), 'review-stale must be documented')
 })
 
@@ -85,6 +85,18 @@ test('blocker(): valid codes pass, unknown codes fail closed', () => {
   )
 })
 
+test('broad-scope is a registered warning emitted as a literal', () => {
+  assert.ok(BLOCKER_CODES['broad-scope'])
+  assert.ok(WARNING_BLOCKER_CODES.includes('broad-scope'))
+  // The static scan only sees a literal or a recognized emission form; a code
+  // imported as an opaque constant elsewhere would make the registry entry
+  // look unemitted and fail the checkout-wide scan below.
+  assert.match(read('app/plan.js'), /blocker\('broad-scope'/)
+  const result = evaluate(ROOT)
+  assert.deepEqual(result.missing, [])
+  assert.deepEqual(result.unknown, [])
+})
+
 test('generated blocker references are exactly the registry rendering', () => {
   const expected = renderBlockersReference()
   assert.equal(read('docs/reference/blockers.md'), expected.en)
@@ -95,6 +107,38 @@ test('generated blocker references are exactly the registry rendering', () => {
   }
   assert.match(expected.en, new RegExp(`${BLOCKER_COUNT} stable blocker/failure codes`))
   assert.match(expected.zh, new RegExp(`${BLOCKER_COUNT} 个稳定 blocker/failure code`))
+})
+
+test('warning rows get their own generated paragraph, not the survey-stale one', () => {
+  // F96: `warningByDefault` is a family, not one behaviour. The generated
+  // narrative must describe each row: `broad-scope` is plan-only, so the
+  // survey-stale merge-blocker paragraph (and its payload keys) would be false.
+  const en = read('docs/reference/blockers.md')
+  const zh = read('docs/zh/reference/blockers.md')
+  const paragraph = (text, code) => text.split(/\n\n+/).find((block) => block.startsWith(`\`${code}\``))
+  const broadEn = paragraph(en, 'broad-scope')
+  const broadZh = paragraph(zh, 'broad-scope')
+  assert.ok(broadEn, 'en docs: broad-scope needs its own warning paragraph')
+  assert.ok(broadZh, 'zh docs: broad-scope needs its own warning paragraph')
+  for (const [locale, block] of [
+    ['en', broadEn],
+    ['zh', broadZh],
+  ]) {
+    assert.doesNotMatch(block, /gates\.requireFreshSurvey/, `${locale} broad-scope paragraph`)
+    assert.doesNotMatch(block, /\bdepId\b/, `${locale} broad-scope paragraph`)
+    assert.doesNotMatch(block, /\breadCommit\b/, `${locale} broad-scope paragraph`)
+  }
+  assert.match(broadEn, /plan-only/)
+  assert.match(broadEn, /never becomes a merge blocker/)
+  assert.match(broadZh, /只出现在 `tower_plan`/)
+  assert.match(broadZh, /永远不会成为合并 blocker/)
+  // The survey-stale paragraph itself stays as it was: it is the only warning
+  // that a gate can promote, and its payload names the freshness evidence.
+  const surveyEn = paragraph(en, 'survey-stale')
+  const surveyZh = paragraph(zh, 'survey-stale')
+  assert.match(surveyEn, /gates\.requireFreshSurvey/)
+  assert.match(surveyEn, /depId, readCommit, baseCommit/)
+  assert.match(surveyZh, /gates\.requireFreshSurvey/)
 })
 
 test('generator follows a mutated registry, not just today’s list', () => {

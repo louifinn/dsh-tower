@@ -210,6 +210,12 @@ export interface MissionBase {
   scopeGeneration?: number
   ownerGeneration?: number
   pauseCause?: string | null
+  /**
+   * #205: a planned or active mission that owns paths (build or artifact) can
+   * step out of the widen ordering without rewriting its fence. Tower-only;
+   * never persisted as part of the accepted input patch.
+   */
+  deferred?: boolean
   updatedAt?: number
   references?: string[]
   authorizationRef?: string | null
@@ -432,6 +438,8 @@ export interface MissionSummary {
   scopeGeneration: number
   ownerGeneration: number
   pauseCause: string | null
+  /** Whether the mission has stepped out of the widen ordering (#205). */
+  deferred: boolean
   reviewPolicy: ReviewPolicy
   mergedCommit: string | null
   mergedAt: number | null

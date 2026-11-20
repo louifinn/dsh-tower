@@ -371,7 +371,9 @@ function escapeRegExp(text) {
  * @returns {string | null} the resolved string, or null when not statically known
  */
 function resolveLocalCode(text, name) {
-  const pattern = new RegExp(`\\bconst\\s+${escapeRegExp(name)}\\s*=\\s*(['"])([^'"\\n]*)\\1`)
+  // Anchor the literal to the end of its line (optionally `;` and a comment):
+  // `const X = 'a' + suffix` must stay unresolved instead of yielding 'a'.
+  const pattern = new RegExp(`\\bconst\\s+${escapeRegExp(name)}\\s*=\\s*(['"])([^'"\\n]*)\\1[ \\t]*;?[ \\t]*(?://[^\\n]*)?(?:\\r?\\n|$)`)
   const match = pattern.exec(text)
   return match ? match[2] : null
 }
@@ -430,6 +432,31 @@ test('error catalogue, static: every literal or module-local-constant TowerToolE
     `uncatalogued codes at ${unknown
       .map(({ file, line, code, via }) => `${file}:${line} (${via === null ? code : `${via} = ${code}`})`)
       .join(', ')}`,
+  )
+})
+
+test('error catalogue, static: a concatenated module-local constant stays dynamic (fixture)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-error-catalogue-concat-'))
+  t.after(() => removeTemp(dir))
+  const file = path.join(dir, 'tools', 'fixture.js')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(
+    file,
+    [
+      "const CONCATENATED = 'invalid-argument' + '-suffix'",
+      'new TowerToolError(CONCATENATED, "dirty call")',
+      '',
+    ].join('\n'),
+  )
+
+  // Only a bare single-line `const NAME = '<string>'` is statically known. The
+  // first literal of a concatenation is not the runtime code, so attributing it
+  // would hide a real uncatalogued value behind an innocent prefix.
+  const { sites, dynamic } = scanTowerToolErrorCodes(dir)
+  assert.deepEqual(sites, [])
+  assert.deepEqual(
+    dynamic.map(({ file: fixture, line, ident }) => ({ file: fixture, line, ident })),
+    [{ file: path.join('tools', 'fixture.js'), line: 2, ident: 'CONCATENATED' }],
   )
 })
 

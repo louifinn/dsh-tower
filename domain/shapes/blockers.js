@@ -21,11 +21,12 @@ import { TowerToolError } from '../errors.js'
  * @property {BlockerSummary} summary
  * @property {boolean} [reviewOnly] only produced when `review.mode` is `required`
  * @property {boolean} [warningByDefault] a stable warning unless a gate promotes it
+ * @property {BlockerSummary} [warningNote] per-row warning narrative for the generated reference; required when `warningByDefault` is true
  */
 /**
  * The source rows; optional flags default to false when the frozen registry is
  * built, so a plain gate row does not have to spell them out.
- * @typedef {{ code: string, kinds: BlockerKind[], summary: BlockerSummary, reviewOnly?: boolean, warningByDefault?: boolean }} BlockerDefinitionInput
+ * @typedef {{ code: string, kinds: BlockerKind[], summary: BlockerSummary, reviewOnly?: boolean, warningByDefault?: boolean, warningNote?: BlockerSummary }} BlockerDefinitionInput
  */
 
 export const BLOCKER_KINDS = Object.freeze(/** @type {BlockerKind[]} */ (['gate', 'merge', 'rebase']))
@@ -119,6 +120,25 @@ const DEFINITIONS = [
     summary: {
       en: 'A build dependency on a survey whose `readCommit` is not ancestor-or-equal of the build base. Default: a `warnings[]` entry, plan and preflight only. With `gates.requireFreshSurvey:true` the same code blocks the merge; re-plan the survey against the current base, or record why the read is still valid.',
       zh: 'build 依赖的 survey 的 `readCommit` 不是 build base 的祖先或同一提交。默认只是 `plan`/`preflight` 的 `warnings[]` 条目；`gates.requireFreshSurvey:true` 时同一 code 阻止合并。针对当前 base 重新规划 survey，或记录为何该读取仍然有效。',
+    },
+    // F96: the generator prints this row's narrative verbatim, so a warning
+    // whose promotion rule differs cannot inherit survey-stale's paragraph.
+    warningNote: {
+      en: '`survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and\nbecomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries\n`{code, missionId, depId, readCommit, baseCommit, message}` so a caller can act without parsing prose.',
+      zh: '`survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会\n变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。',
+    },
+  },
+  {
+    code: 'broad-scope',
+    kinds: ['gate'],
+    warningByDefault: true,
+    summary: {
+      en: 'A plan-time ordering advisory, not a gate verdict: a mission claims the whole repository (`**`) while another owning mission is planned or active, so a later planned edit or widening would overlap it. Default: a non-blocking `warnings[]` entry from `tower_plan`; unlike `survey-stale` it never becomes a merge blocker and its object carries `{code, missionId, missionIds, message}`. Plan the release-preparation mission last, or defer or pause it before another mission widens.',
+      zh: '规划阶段的排序提示，不是门禁判定：某个 mission 声明整个仓库（`**`），而另一个拥有路径的 mission 仍处于 planned 或 active，之后的规划编辑或扩大就会与它重叠。默认只是 `tower_plan` 返回的非阻塞 `warnings[]` 条目；与 `survey-stale` 不同，它永远不会成为合并 blocker，其对象带有 `{code, missionId, missionIds, message}`。把 release 准备 mission 放到最后规划，或在其他 mission 扩大前将它 defer 或暂停。',
+    },
+    warningNote: {
+      en: '`broad-scope` is plan-only: `tower_plan` reports it as a non-blocking `warnings[]` entry, and it\nnever becomes a merge blocker. Its warning object carries `{code, missionId, missionIds, message}` so\na caller can act without parsing prose.',
+      zh: '`broad-scope` 只出现在 `tower_plan`：它是一个非阻塞的 `warnings[]` 条目，永远不会成为合并 blocker。\n其警告对象带有 `{code, missionId, missionIds, message}`，调用方无需解析散文即可处理。',
     },
   },
   {
@@ -335,6 +355,17 @@ for (const entry of DEFINITIONS) {
       throw new Error(`blocker registry: "${entry.code}" is missing a ${locale} summary`)
     }
   }
+  // F96: every warning row documents its own promotion rule and payload; the
+  // generated reference may not reuse another row's narrative.
+  if (entry.warningByDefault === true) {
+    for (const locale of /** @type {const} */ (['en', 'zh'])) {
+      if (typeof entry.warningNote?.[locale] !== 'string' || entry.warningNote[locale].trim().length === 0) {
+        throw new Error(`blocker registry: warning row "${entry.code}" is missing a ${locale} warningNote`)
+      }
+    }
+  } else if (entry.warningNote !== undefined) {
+    throw new Error(`blocker registry: "${entry.code}" has a warningNote but is not warningByDefault`)
+  }
 }
 
 /** @type {ReadonlyArray<Readonly<BlockerDefinition>>} */
@@ -346,6 +377,9 @@ export const BLOCKER_DEFINITIONS = Object.freeze(
       summary: Object.freeze({ en: entry.summary.en, zh: entry.summary.zh }),
       reviewOnly: entry.reviewOnly === true,
       warningByDefault: entry.warningByDefault === true,
+      ...(entry.warningNote === undefined
+        ? {}
+        : { warningNote: Object.freeze({ en: entry.warningNote.en, zh: entry.warningNote.zh }) }),
     }),
   ),
 )

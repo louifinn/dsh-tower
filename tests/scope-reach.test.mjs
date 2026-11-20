@@ -406,10 +406,9 @@ test('#200: widening scope to a path that names no tracked file leaves the missi
         assert.equal(error.code, 'invalid-argument')
         assert.match(error.message, /no tracked file matches "tests\/teardown\*\.test\.mjs"/)
         assert.match(error.message, /tests\/cleanup\.test\.mjs/)
-        // R170: tower_mission cannot carry the plan hatch, so the widen message
-        // must not send the caller after a flag the tool has no field for.
-        assert.doesNotMatch(error.nextAction, /allowMissingScope/)
-        assert.doesNotMatch(error.message, /allowMissingScope/)
+        // #205: tower_mission carries the same hatch as tower_plan, so the widen
+        // message must point the caller at the flag that actually works.
+        assert.match(error.nextAction, /allowMissingScope/)
         assert.match(error.nextAction, /tracked path/)
         assert.match(error.nextAction, /existing directory/)
         assert.match(error.nextAction, /does not exist yet/)
@@ -517,12 +516,10 @@ test('#200: a legal widen still expands and bumps scopeGeneration, and the facad
     assert.equal(widened.mission.scopeGeneration, 2)
 
     // A future file under a tracked directory needs the explicit hatch; the
-    // direct facade call is the only way to pass it until the tool wrapper
-    // forwards the field (reported with the mission), and the widen rejection
-    // does not offer a flag `tower_mission` cannot carry.
+    // rejection names the flag both the facade and tower_mission accept.
     await assert.rejects(tower.mission({ id: 'M1', scope: ['scripts/new-tool.mjs'] }), (error) => {
       assert.match(error.message, /no tracked file matches/)
-      assert.doesNotMatch(error.nextAction, /allowMissingScope/)
+      assert.match(error.nextAction, /allowMissingScope/)
       assert.match(error.nextAction, /tracked path/)
       assert.equal(error.details.operation, 'widen')
       return true

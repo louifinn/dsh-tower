@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 13039,
+        "value": 13276,
         "decisions": [
           {
             "from": 17008,
@@ -290,6 +290,12 @@
             "to": 13039,
             "date": "2026-11-20",
             "note": "#205/M145: MissionInput now advertises optional allowMissingScope (the widen escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. tower_mission is mounted by the tower, worker and survey presets, so their one advertised schema grows by 443 bytes: tower 13039 (was 12596), worker 7234 (was 6791). Reviewer does not mount tower_mission and does not move; tool counts stay 14/6/5."
+          },
+          {
+            "from": 13039,
+            "to": 13276,
+            "date": "2026-11-21",
+            "note": "#M147: tower_plan's allowMissingScope description now states that the same opt-in works for a later planned edit or widening, and tower_mission's description plus MissionInput's scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully. The tower profile mounts both tools, so its advertised input schema grows by 237 bytes; the tool count stays 14."
           }
         ]
       }
@@ -321,7 +327,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 7234,
+        "value": 7414,
         "decisions": [
           {
             "from": 8159,
@@ -364,6 +370,12 @@
             "to": 7234,
             "date": "2026-11-20",
             "note": "#205/M145: the worker preset mounts tower_mission, whose MissionInput gains optional allowMissingScope and deferred plus a scope description covering planned edits, so the one advertised schema grows by 443 bytes. The tool count stays 6."
+          },
+          {
+            "from": 7234,
+            "to": 7414,
+            "date": "2026-11-21",
+            "note": "#M147: the worker preset mounts tower_mission, whose description and MissionInput scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully, so its advertised input schema grows by 180 bytes. The tool count stays 6."
           }
         ]
       }
@@ -432,7 +444,7 @@
     }
   },
   "profileBytes": {
-    "date": "2026-11-12",
+    "date": "2026-11-21",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -444,11 +456,11 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 17540
+        "bytes": 17775
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 9214
+        "bytes": 9392
       },
       "preset:reviewer": {
         "tools": 5,
@@ -456,11 +468,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 8029
+        "bytes": 8207
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 8029
+        "bytes": 8207
       }
     },
     "decisions": [
@@ -508,6 +520,11 @@
         "date": "2026-11-20",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#205/M145: tower_mission now advertises optional allowMissingScope (widen's escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. Every profile that mounts tower_mission grows by the same 443 bytes: host:active 14/17,540 (was 14/17,097), preset:worker 6/9,214 (was 6/8,771), preset:survey and preset:survey-sandbox 5/8,029 each (was 5/7,586). Reviewer does not mount tower_mission and is unchanged; no tool count moves."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#M147: the mission-field copy is measured after the truthful rewrites. tower_plan's allowMissingScope description now states the same opt-in works for a later planned edit or widening; tower_mission's description and MissionInput's scope/allowMissingScope/deferred descriptions describe planned-edit ordering and build-or-artifact deferral instead of the stale build-only text. host:active becomes 14/17,775 B (was 17,540), preset:worker 6/9,392 (was 9,214), preset:survey and preset:survey-sandbox 5/8,207 each (was 8,029). Mode-off, idle and reviewer are unchanged; no tool count moves — this is copy truth plus the already-advertised fields, not a new capability."
       }
     ]
   }

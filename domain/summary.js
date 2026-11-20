@@ -47,6 +47,7 @@ export function missionSummary(mission) {
     scopeGeneration: mission.scopeGeneration ?? 1,
     ownerGeneration: mission.ownerGeneration ?? 0,
     pauseCause: mission.pauseCause ?? null,
+    deferred: mission.deferred === true,
     reviewPolicy: mission.reviewPolicy ?? 'required-clean',
     reportBytes: completionReportBytes(mission.completionReport),
     updatedAt: mission.updatedAt,
