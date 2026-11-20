@@ -249,7 +249,9 @@ test('#200: planning a scope that matches no tracked file fails before any missi
         assert.match(error.message, /no tracked file matches "tests\/teardown\*\.test\.mjs"/)
         assert.match(error.message, /nearest existing prefix "tests"/)
         assert.match(error.message, /tests\/cleanup\.test\.mjs/)
-        assert.match(error.message, /allowMissingScope: true/)
+        // A plan caller can actually carry the offered hatch.
+        assert.match(error.nextAction, /allowMissingScope: true/)
+        assert.equal(error.details.operation, 'plan')
         return true
       },
     )
@@ -275,7 +277,8 @@ test('#200: planning a literal path that matches no tracked file names the close
         assert.match(error.message, /no tracked file matches "scripts\/check-deny\.mjs"/)
         assert.match(error.message, /nearest existing prefix "scripts"/)
         assert.match(error.message, /scripts\/generate-deny-surface\.mjs/)
-        assert.match(error.message, /allowMissingScope: true/)
+        assert.match(error.nextAction, /allowMissingScope: true/)
+        assert.equal(error.details.operation, 'plan')
         return true
       },
     )
@@ -403,12 +406,94 @@ test('#200: widening scope to a path that names no tracked file leaves the missi
         assert.equal(error.code, 'invalid-argument')
         assert.match(error.message, /no tracked file matches "tests\/teardown\*\.test\.mjs"/)
         assert.match(error.message, /tests\/cleanup\.test\.mjs/)
+        // R170: tower_mission cannot carry the plan hatch, so the widen message
+        // must not send the caller after a flag the tool has no field for.
+        assert.doesNotMatch(error.nextAction, /allowMissingScope/)
+        assert.doesNotMatch(error.message, /allowMissingScope/)
+        assert.match(error.nextAction, /tracked path/)
+        assert.match(error.nextAction, /existing directory/)
+        assert.match(error.nextAction, /does not exist yet/)
+        assert.match(error.nextAction, /original plan/)
+        assert.equal(error.details.operation, 'widen')
         return true
       },
     )
     const after = JSON.parse(fs.readFileSync(tower.paths.state, 'utf8'))
     assert.deepEqual(after.missions[0].scope, before.missions[0].scope)
     assert.equal(after.missions[0].scopeGeneration, before.missions[0].scopeGeneration)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#200: a rejected plan reports every problem, with the plural matching the count', async () => {
+  const { root, repo } = seedRepo('dsh-tower-scope-multi-', {
+    'README.md': 'seed\n',
+    'tests/cleanup.test.mjs': 'cleanup\n',
+    'scripts/tool.mjs': 'tool\n',
+    'docs/guide/quickstart.md': 'start\n',
+  })
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-scope-multi' })
+    // Two problems: one further entry.
+    await assert.rejects(
+      tower.plan({ missions: [{ title: 'Two typos', scope: ['tests/teardown*.test.mjs', 'scripts/missing.mjs'] }] }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.match(error.message, /1 more scope entry matches no tracked file/)
+        assert.doesNotMatch(error.message, /entries match no tracked file/)
+        assert.equal(error.details.operation, 'plan')
+        assert.equal(error.details.problems.length, 2)
+        assert.deepEqual(
+          error.details.problems.map((problem) => problem.entry),
+          ['tests/teardown*.test.mjs', 'scripts/missing.mjs'],
+        )
+        for (const problem of error.details.problems) {
+          assert.equal(problem.reason, 'no tracked file matches')
+          assert.equal(typeof problem.closestPrefix, 'string')
+          assert.ok(problem.closestPrefix.length > 0)
+          assert.ok(Array.isArray(problem.candidates))
+          assert.ok(problem.candidates.length > 0)
+        }
+        return true
+      },
+    )
+    // Three problems: two further entries.
+    await assert.rejects(
+      tower.plan({
+        missions: [
+          {
+            title: 'Three typos',
+            scope: ['tests/teardown*.test.mjs', 'scripts/missing.mjs', 'docs/guide/later.md'],
+          },
+        ],
+      }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.match(error.message, /2 more scope entries match no tracked file/)
+        assert.equal(error.details.operation, 'plan')
+        assert.equal(error.details.problems.length, 3)
+        assert.deepEqual(
+          error.details.problems.map((problem) => problem.entry),
+          ['tests/teardown*.test.mjs', 'scripts/missing.mjs', 'docs/guide/later.md'],
+        )
+        for (const problem of error.details.problems) {
+          assert.equal(problem.reason, 'no tracked file matches')
+          assert.equal(typeof problem.closestPrefix, 'string')
+          assert.ok(problem.closestPrefix.length > 0)
+          assert.ok(Array.isArray(problem.candidates))
+          assert.deepEqual(problem.candidates[0], {
+            'tests/teardown*.test.mjs': 'tests/cleanup.test.mjs',
+            'scripts/missing.mjs': 'scripts/tool.mjs',
+            'docs/guide/later.md': 'docs/guide/quickstart.md',
+          }[problem.entry])
+        }
+        return true
+      },
+    )
+    const state = JSON.parse(fs.readFileSync(tower.paths.state, 'utf8'))
+    assert.deepEqual(state.missions, [], 'neither rejected plan created a mission')
   } finally {
     removeTemp(root)
   }
@@ -432,9 +517,16 @@ test('#200: a legal widen still expands and bumps scopeGeneration, and the facad
     assert.equal(widened.mission.scopeGeneration, 2)
 
     // A future file under a tracked directory needs the explicit hatch; the
-    // director facade call is the only way to pass it until the tool wrapper
-    // forwards the field (reported with the mission).
-    await assert.rejects(tower.mission({ id: 'M1', scope: ['scripts/new-tool.mjs'] }), /no tracked file matches/)
+    // direct facade call is the only way to pass it until the tool wrapper
+    // forwards the field (reported with the mission), and the widen rejection
+    // does not offer a flag `tower_mission` cannot carry.
+    await assert.rejects(tower.mission({ id: 'M1', scope: ['scripts/new-tool.mjs'] }), (error) => {
+      assert.match(error.message, /no tracked file matches/)
+      assert.doesNotMatch(error.nextAction, /allowMissingScope/)
+      assert.match(error.nextAction, /tracked path/)
+      assert.equal(error.details.operation, 'widen')
+      return true
+    })
     const accepted = await tower.mission({ id: 'M1', scope: ['scripts/new-tool.mjs'], allowMissingScope: true })
     assert.deepEqual(accepted.mission.scope, ['scripts/new-tool.mjs'])
     assert.equal(accepted.mission.scopeGeneration, 3)
@@ -447,7 +539,6 @@ test('#200: a legal widen still expands and bumps scopeGeneration, and the facad
     removeTemp(root)
   }
 })
-
 
 
 // ---------------------------------------------------------------------------

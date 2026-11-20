@@ -145,34 +145,56 @@ async function scopeDirectories(tower, scope) {
 /**
  * #200: the one `invalid-argument` for the first unverifiable entry. The
  * message names the entry, the nearest existing prefix, and up to five tracked
- * files in the same directory; the next action is one of the two things the
- * caller can actually do.
+ * files in the same directory; the next action depends on the operation that
+ * asked, because only planning can carry `allowMissingScope` (the
+ * `tower_mission` widen input has no such field).
  * @param {import('../domain/scope.js').ScopeEntryProblem[]} problems
+ * @param {'plan' | 'widen'} operation
  * @returns {never}
  */
-function failScopeEntries(problems) {
+function failScopeEntries(problems, operation) {
   const first = problems[0]
   const parts = [`no tracked file matches "${first.entry}"`]
   if (first.closestPrefix.length > 0) parts.push(`nearest existing prefix "${first.closestPrefix}"`)
   if (first.candidates.length > 0) parts.push(`tracked files there: ${first.candidates.join(', ')}`)
   if (problems.length > 1) {
-    parts.push(`${problems.length - 1} more scope entr${problems.length === 2 ? 'y' : 'ies'} match no tracked file`)
+    const more = problems.length - 1
+    parts.push(`${more} more scope ${more === 1 ? 'entry matches' : 'entries match'} no tracked file`)
   }
-  const nextAction =
+  throw new TowerToolError('invalid-argument', parts.join('; '), {
+    nextAction: scopeNextAction(first, operation),
+    details: { operation, problems },
+  })
+}
+
+/**
+ * #200: the recommendation a caller can actually carry out. A plan may accept a
+ * future path through `allowMissingScope: true`; a widening has no such input,
+ * so it must stay in known territory and the future path belongs in the plan.
+ * @param {import('../domain/scope.js').ScopeEntryProblem} first
+ * @param {'plan' | 'widen'} operation
+ * @returns {string}
+ */
+function scopeNextAction(first, operation) {
+  const tracked =
     first.candidates.length > 0
-      ? `use a tracked path such as "${first.candidates[0]}", or pass allowMissingScope: true to accept a path a mission will create`
-      : `use a tracked path${first.closestPrefix.length > 0 ? ` under "${first.closestPrefix}"` : ''}, or pass allowMissingScope: true to accept a path a mission will create`
-  throw new TowerToolError('invalid-argument', parts.join('; '), { nextAction, details: { problems } })
+      ? `a tracked path such as "${first.candidates[0]}"`
+      : `a tracked path${first.closestPrefix.length > 0 ? ` under "${first.closestPrefix}"` : ''}`
+  if (operation === 'widen') {
+    return `use ${tracked} or an existing directory; a mission cannot be widened to a path that does not exist yet — declare a future path in the original plan`
+  }
+  return `use ${tracked}, or pass allowMissingScope: true to accept a path a mission will create`
 }
 
 /**
  * @param {string[]} scope
  * @param {string[]} trackedPaths
  * @param {ReadonlySet<string>} directories
+ * @param {'plan' | 'widen'} operation
  */
-function assertScopeEntries(scope, trackedPaths, directories) {
+function assertScopeEntries(scope, trackedPaths, directories, operation) {
   const problems = validateScopeEntries(scope, { trackedPaths, directories })
-  if (problems.length > 0) failScopeEntries(problems)
+  if (problems.length > 0) failScopeEntries(problems, operation)
 }
 
 /**
@@ -208,7 +230,7 @@ async function expandedPlanInput(tower, input) {
         trackedPaths = await trackedPathList(tower)
         listed = true
       }
-      if (trackedPaths !== null && trackedPaths !== undefined) assertScopeEntries(mission.scope, trackedPaths, directories)
+      if (trackedPaths !== null && trackedPaths !== undefined) assertScopeEntries(mission.scope, trackedPaths, directories, 'plan')
     }
     missions.push({ ...mission, scope: expandScopeDirectories(mission.scope, { directories }) })
   }
@@ -454,7 +476,7 @@ export class Tower {
       const directories = await scopeDirectories(this, update.scope)
       if (update.allowMissingScope !== true) {
         const trackedPaths = await trackedPathList(this)
-        if (trackedPaths !== null) assertScopeEntries(update.scope, trackedPaths, directories)
+        if (trackedPaths !== null) assertScopeEntries(update.scope, trackedPaths, directories, 'widen')
       }
       const result = await updateMission(this, { ...update, scope: expandScopeDirectories(update.scope, { directories }) })
       if (update.allowMissingScope === true && update.scope.length > 0) {

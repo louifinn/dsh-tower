@@ -332,7 +332,7 @@ const SCOPE_CANDIDATE_LIMIT = 5
  * means the checkout cannot prove anything, so nothing is reported; callers
  * that cannot read the list skip the check the same way (fail open).
  * @param {unknown} scope
- * @param {{ trackedPaths?: unknown, directories?: unknown, root?: string | null }} [options]
+ * @param {{ trackedPaths?: unknown, directories?: unknown }} [options]
  * @returns {ScopeEntryProblem[]}
  */
 export function validateScopeEntries(scope, { trackedPaths = [], directories = new Set() } = {}) {
