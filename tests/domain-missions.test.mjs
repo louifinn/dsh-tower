@@ -254,6 +254,30 @@ test('a deferred mission is skipped by the widen overlap check', () => {
   )
 })
 
+test('a worker cannot defer its own mission', () => {
+  // `deferred` takes a mission out of the widen overlap gate, so it stays a
+  // tower-only ordering decision even on the worker's own mission (#205).
+  const current = mission({ id: 'M1', status: 'active', owner: 'w', scope: ['src/**'] })
+  const state = { missions: [current] }
+  const deny = (deferred) =>
+    assert.throws(
+      () =>
+        applyMissionUpdate({
+          mission: current,
+          state,
+          input: { actor: { name: 'w', role: 'worker' }, deferred },
+          config: config(),
+        }),
+      (error) => error.code === 'not-authorized' && /only the tower can defer a mission/.test(error.message),
+    )
+  deny(true)
+  deny(false)
+  assert.equal(current.deferred, undefined)
+  assert.equal(current.status, 'active')
+  assert.deepEqual(current.scope, ['src/**'])
+  assert.equal(current.scopeGeneration, undefined)
+})
+
 test('a planned mission pauses with a cause and returns to planning without authorization', () => {
   const planned = mission({ id: 'M1', status: 'planned', scope: ['src/**'] })
   const state = { missions: [planned] }

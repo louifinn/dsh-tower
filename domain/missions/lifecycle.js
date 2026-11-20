@@ -56,6 +56,10 @@ export function assertMissionActor(mission, actor, input) {
     }
     if (input.scope !== undefined) fail('only the tower can change mission scope', 'not-authorized')
     if (input.clear_blockers === true) fail('only the tower can clear blockers', 'not-authorized')
+    // `deferred` hides a mission from the widen overlap check, so it is an
+    // ordering decision the tower owns even on the worker's own mission: a
+    // worker must not take its mission out of the tower's gate (#205).
+    if (input.deferred !== undefined) fail('only the tower can defer a mission', 'not-authorized')
     if (input.pause_cause !== undefined || input.authorization !== undefined) {
       fail('only the tower can record pause/authorization metadata', 'not-authorized')
     }
