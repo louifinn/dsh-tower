@@ -189,7 +189,12 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   if (input.deferred !== undefined) {
     if (typeof input.deferred !== 'boolean') fail('deferred must be a boolean')
     const statusAfter = input.status ?? mission.status
-    if (!shape.reach.ownsPaths || !['planned', 'active'].includes(statusAfter)) {
+    if (!shape.reach.ownsPaths) {
+      // A pathless shape (survey) cannot widen at all, so its refusal must name
+      // that reason instead of claiming its status is not "planned" (F99).
+      fail(`a ${shape.kind} owns no paths and cannot be deferred`)
+    }
+    if (!['planned', 'active'].includes(statusAfter)) {
       fail(`deferred is only valid for planned or active missions, not ${statusAfter}`)
     }
     if (input.deferred) {

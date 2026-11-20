@@ -68,7 +68,16 @@ function planNeedsRead(input) {
  * @returns {Array<{ code: string, missionId: string, missionIds: string[], message: string }>}
  */
 function broadScopeWarnings(created, existing) {
-  const inFlight = [...existing, ...created].filter((mission) => {
+  // applyPlan has already appended `created` to `existing` (state.missions) by
+  // the time this runs, so the same mission can arrive in both lists. Dedupe by
+  // id and keep the first occurrence: one mission must be named once, not once
+  // per copy (F98).
+  /** @type {Map<string, import('../types/index.js').Mission>} */
+  const byId = new Map()
+  for (const mission of [...existing, ...created]) {
+    if (!byId.has(mission.id)) byId.set(mission.id, mission)
+  }
+  const inFlight = [...byId.values()].filter((mission) => {
     const shape = shapeFor(mission.kind)
     if (!shape.reach.ownsPaths) return false
     if (!['planned', 'active'].includes(mission.status)) return false

@@ -211,9 +211,10 @@ export interface MissionBase {
   ownerGeneration?: number
   pauseCause?: string | null
   /**
-   * #205: a planned or active mission that owns paths (build or artifact) can
-   * step out of the widen ordering without rewriting its fence. Tower-only;
-   * never persisted as part of the accepted input patch.
+   * #205: tower-only ordering flag for a planned or active mission that owns
+   * paths (build or artifact): while true it steps out of the widen overlap
+   * check without rewriting its fence. It is a mission field, so it is
+   * persisted with the mission; pass `false` to rejoin the ordering.
    */
   deferred?: boolean
   updatedAt?: number
