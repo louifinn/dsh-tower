@@ -35,16 +35,20 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 - **2.9.6 → 2.9.7 —— 修补版，无需迁移**：state schema 仍为 v5，配置表面未变（仍为 16 个 section、
   58 个键），宿主下限仍是 `0.2.2-rc.5`，不需要任何迁移步骤。既有 mission 记录保持有效：新的
   `deferred` 标志在设置前只是不存在。操作者配置的内容都不需要改：
-  - **scope 条目必须落在跟踪文件上。** `tower_plan` 现在会在既有的目录展开之后，用 `git ls-files`
-    校验每个条目。如果条目的地界内有跟踪文件、但条目本身匹配不到任何跟踪文件，则以
+  - **scope 条目必须落在跟踪文件上。** `tower_plan` 现在会在既有的目录展开之前，用 `git ls-files`
+    校验每个条目：目录先被收集以便校验器识别目录形条目，存下来的围栏仍是展开后的形式。如果条目
+    的地界内有跟踪文件、但条目本身匹配不到任何跟踪文件，则以
     `invalid-argument` 拒绝；信息会点名第一个失败条目、最近的存在前缀和至多五个候选，
     `details.problems` 逐条列出。`**`、`.`、目录形条目、当前无跟踪文件的整棵未来树以及仓库根下的
     字面量仍然合法。确实要创建新路径时显式传 `allowMissingScope: true`；它只在输入里生效（不会
     持久化），并记录一条 `scope.unverified` 活动。
-  - **计划中的 mission 可以改自己的 scope。** `tower_mission({scope})` 对 `planned` mission 会替换
-    围栏、把 `scopeGeneration` 加一并保持 `planned`；它不会启动 mission，也不走 widen 重叠检查。
-    `active`/`completed` 仍按 widen 语义（扩大并启动）。`allowMissingScope` 逃生口现在在这里和之后
-    的 widen 中都可用了，widen 被拒时也会直接指向它，而不是建议只能改计划的绕路。
+  - **计划中的 mission 可以改自己的 scope 而不启动。** `tower_mission({scope})` 对 `planned`
+    mission 会替换围栏、把 `scopeGeneration` 加一并保持 `planned`；它不会启动 mission，只绕过
+    「scope 只能由 active/completed 修改」这条状态规则，仍然走 widen 重叠检查：新围栏与另一个
+    拥有路径、尚未 merged/abandoned 的 mission 重叠时仍会被拒绝，除非对手已暂停或标记 `deferred`；
+    拒绝信息点名重叠的 mission，并提示显式排序。`active`/`completed` 仍按 widen 语义（扩大并
+    启动）。`allowMissingScope` 逃生口现在在这里和之后的 widen 中都可用了，widen 被拒时也会直接
+    指向它，而不是建议只能改计划的绕路。
   - **`deferred` 让 mission 暂时退出排序。** tower-only 的 `deferred: true` 适用于 `planned` 或
     `active` 的 build/artifact mission，把它移出 widen 重叠检查，直到 `deferred: false`；该字段
     持久化在 mission 上，并显示在 `tower_inspect` 的 mission 摘要中。计划中的 mission 还可以携带
@@ -57,8 +61,8 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   - **`tower_send` 默认不再打断。** 普通发送只把消息送达运行中的接收者，不结束它的回合；
     `interrupt: true` 仍为 tower-only，并记录 roster interrupt。`wake: true` 用于让已停止的 agent
     启动新回合：消息先持久化，目标无法恢复时返回新的 `agent-not-resumable` 错误并带下一步；activity
-    目录读不出来时绝不会被报告成唤醒。每个结果都带
-    `{target, pushed, interrupted, woke, reason}`。
+    目录读不出来时绝不会被报告成唤醒。每次投递的结果都带
+    `{target, pushed, interrupted, woke}`；有需要报告的情况时另带 `reason`。
   - **没有迁移步骤。** state schema 仍为 v5，配置仍为 16 个 section、58 个键，宿主下限保持
     `0.2.2-rc.5` 不变。更新插件并**重启 DSH**；刷新或重启 DSH 界面以加载客户端 bundle。
 

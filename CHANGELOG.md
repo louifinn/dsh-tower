@@ -8,11 +8,13 @@
 
 ### 新增
 
-- **计划中的 mission 可以改自己的 scope，不再被 widen 规则挡住（#205 / F93）**：`tower_mission({scope})`
+- **计划中的 mission 可以改自己的 scope 而不启动（#205 / F93）**：`tower_mission({scope})`
   对 `planned` mission 现在替换围栏而不是扩大围栏：mission 保持 `planned`，`scopeGeneration` 加一，
-  不会被启动，也不会因为新围栏覆盖别人的 mission 而被拒绝。`active`/`completed` 仍按原来的 widen
-  语义处理（扩大并启动）。计划阶段真正需要改 scope 的调用者不必再先启动再改，排序不再逼出不必要
-  的工作树。
+  不会被启动。它只绕过「scope 只能给 active/completed 改」这条状态门槛，仍然走 widen 重叠检查：
+  新围栏与另一个拥有路径、尚未 merged/abandoned 的 mission 重叠时仍会被拒绝，除非对手已暂停或标记
+  `deferred`；拒绝信息点名重叠的 mission，并提示显式排序。`active`/`completed` 仍按原来的 widen
+  语义处理（扩大并启动）。只要不与其它拥有路径的 mission 重叠，计划阶段的调用者不必再先启动再改，
+  排序不再逼出不必要的工作树。
 - **widen 的 `allowMissingScope` 逃生口现在真的可达（#205 / F93）**：通过注册工具 widen 到尚不存在的
   路径时，此前只能看到一句「先声明未来路径」，没有任何入口；现在 `tower_mission({scope,
   allowMissingScope: true})` 会接受该条目，`invalid-argument` 的 nextAction 也直接点名这个参数。
@@ -21,9 +23,9 @@
 - **`deferred` 让 mission 暂时退出 widen 排序，计划阶段也能暂停（#205 / F93）**：tower-only 的
   `deferred: true` 适用于 `planned` 或 `active` 的 build/artifact mission，把它移出 widen 重叠检查，
   其它 mission 随后扩大 scope 不会被它挡住；`deferred: false` 让它重新入列。该字段持久化在 mission
-  上，默认不存在，并在 `tower_inspect` 的 mission 摘要里以布尔值显示。把 `status` 改为 `paused` 现在
-  必须携带显式的 `pause_cause`，`paused → planned` 清空原因且不要求恢复授权（只有 `→ active` 走
-  `mode.requireResumeAuthorization`）。
+  上，默认不存在，并在 `tower_inspect` 的 mission 摘要里以布尔值显示。`planned → paused` 现在必须
+  携带显式的 `pause_cause`（`active → paused` 缺省仍归一为 `user`），`paused → planned` 清空原因
+  且不要求恢复授权（只有 `→ active` 走 `mode.requireResumeAuthorization`）。
 - **`tower_plan` 会警告「整仓 `**` 围栏压住同批在途 mission」（#205 / F93）**：新建 mission 的 scope
   含 `**`，而其它拥有路径的 `planned`/`active` 非 deferred mission 仍在途时，plan 结果返回一条非阻断
   警告：点名被围住的 mission id，并建议把准备发布这类整仓 mission 放到最后、标记 `deferred` 或先暂停。
@@ -36,11 +38,12 @@
   并让它继续当前回合，打断需要显式 `interrupt: true`（仍为 tower-only，且在 activity 未知时也会被
   应用并记录 roster interrupt）。`wake: true` 用于让已停止的 agent 启动新回合：消息先持久化到收件箱，
   目标无法恢复时返回新的 `agent-not-resumable` 错误并带下一步；activity 无法读取时绝不声称目标已停止。
-  结果回执固定包含 `{target, pushed, interrupted, woke, reason}`。配置里的
-  `send.interruptDefault` 仍被钉为 `false`，与代码默认一致。
-- **scope 条目必须落在跟踪文件上，不再默默接受拼错或未来的路径（#200）**：`tower_plan` 在既有的目录
-  展开之后，用 `git ls-files` 校验每个条目；如果条目的地界内有跟踪文件、但条目本身匹配不到任何
-  跟踪文件，则以 `invalid-argument` 拒绝，点名第一个失败条目、最近的存在前缀和至多五个候选，
+  每次投递的结果回执带 `{target, pushed, interrupted, woke}`，有需要报告的情况时另带 `reason`。
+  配置里的 `send.interruptDefault` 仍被钉为 `false`，与代码默认一致。
+- **scope 条目必须落在跟踪文件上，不再默默接受拼错或未来的路径（#200）**：`tower_plan` 在既有的
+  目录展开之前，用 `git ls-files` 校验每个条目（目录先被收集以便识别目录形条目，存下来的围栏仍是
+  展开后的形式）；如果条目的地界内有跟踪文件、但条目本身匹配不到任何跟踪文件，则以
+  `invalid-argument` 拒绝，点名第一个失败条目、最近的存在前缀和至多五个候选，
   `details.problems` 逐条给出原因，`details.operation` 标明 `plan` 或 `widen`。`**`、`.`、目录形条目、
   当前无跟踪文件的整棵未来树以及仓库根下的字面量仍然合法。确实要创建新路径的调用者显式传
   `allowMissingScope: true`；它只在输入里生效，不持久化，并记录一条 `scope.unverified` 活动。
@@ -50,8 +53,9 @@
 - **doctor 不再把宿主自己的 group 锚点当成 loader 冲突（F89）**：2.9.6 修好 loader 行读取后，健康的
   0.2.2-rc.5 安装会把发行版 `tower` group 行（`id: tower, group: true`，宿主行 `tower-host` 在其下）
   误判成第二个加载器，doctor 直接报冲突。现在该 group 及其整棵子树被识别为 Tower 自己的行：只有
-  启用的行参与计数（被禁用的重复行仍算已安装、但不会挂载），旧式顶层单行布局继续通过，多于一个
-  启用且含外部行时才失败并点名行 id；loader 读不出来时仍是 `warn`，不是硬失败。
+  启用的行参与计数（被禁用的重复行仍算已安装、但不会挂载），旧式顶层单行布局继续通过；只要多于
+  一个启用的 `dsh-tower` 行就失败（外部行只决定点名哪些 id），loader 读不出来时仍是 `warn`，
+  不是硬失败。
 - **`agent-not-resumable` 有了目录条目，静态守卫也不再漏掉模块内常量（F91）**：`wake: true` 唤醒失败
   的错误码正式进入 `ERROR_CODES`（工具错误码 42 → 43），带有触发条件、不可重试与下一步说明。错误
   目录的守卫现在会解析同文件 `const` 字符串作为第一个参数，保留 120 个字面量下限，负例在遇到未

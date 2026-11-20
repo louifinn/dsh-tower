@@ -35,18 +35,23 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   migration step. Existing mission records remain valid: the new `deferred` flag is simply absent
   until it is set. Nothing an operator configured needs to move:
   - **Scope entries must name tracked paths.** `tower_plan` now validates every scope entry with
-    `git ls-files` after the existing directory expansion. An entry whose territory has tracked
-    files but which matches none of them is refused with `invalid-argument`; the message names the
+    `git ls-files` before the existing directory expansion. The directories are collected first so
+    the validator can recognise them, and directory-shaped entries are still stored expanded. An
+    entry whose territory has tracked files but which matches none of them is refused with
+    `invalid-argument`; the message names the
     first failing entry, the nearest existing prefix and up to five candidates, and
     `details.problems` lists each entry. `**`, `.`, directory-shaped entries, a future tree with no
     tracked files yet and root-level literals remain legal. Pass `allowMissingScope: true` when the
     mission will create a new path; the flag is input-only (never stored) and records one
     `scope.unverified` activity entry.
-  - **A planned mission can edit its own scope.** `tower_mission({scope})` on a `planned` mission
-    replaces the fence, increments `scopeGeneration` and keeps it `planned`; it neither starts the
-    mission nor obeys the widen-overlap check. Active and completed missions keep the widening
-    semantics (expand and start). The `allowMissingScope` hatch now also works here and on a later
-    widen, and a widen refusal points at it instead of suggesting a plan-only workaround.
+  - **A planned mission can edit its own scope without starting it.** `tower_mission({scope})` on a
+    `planned` mission replaces the fence, increments `scopeGeneration` and keeps it `planned`; it
+    does not start the mission. It bypasses only the status rule that otherwise limits scope patches
+    to active/completed missions, not the widen-overlap gate: a new fence that overlaps another
+    owning mission that is not terminal, paused or `deferred` is still refused, and the refusal
+    names the overlap and suggests an explicit ordering. Active and completed missions keep the
+    widening semantics (expand and start). The `allowMissingScope` hatch now also works here and on
+    a later widen, and a widen refusal points at it instead of suggesting a plan-only workaround.
   - **`deferred` steps a mission out of the ordering.** tower-only `deferred: true` on a planned or
     active build/artifact mission removes it from the widen-overlap check until `deferred: false`;
     it is persisted on the mission and shown in `tower_inspect`'s mission summary. A planned mission
@@ -61,8 +66,8 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
     without ending its turn; `interrupt: true` is still tower-only and records a roster interrupt.
     `wake: true` starts a turn for a stopped agent: the message is persisted first, an unresumable
     target returns the new `agent-not-resumable` error with a next step, and an unreadable activity
-    catalog is never reported as a wake. Every result carries
-    `{target, pushed, interrupted, woke, reason}`.
+    catalog is never reported as a wake. Each delivery result carries
+    `{target, pushed, interrupted, woke}`, plus a `reason` when there is something to report.
   - **No migration step.** The state schema stays v5 and the config stays at 58 keys in 16 sections.
     The host floor is unchanged at `0.2.2-rc.5`. Update the plugin and **restart DSH**; refresh or
     restart the DSH UI to load the client bundle.
