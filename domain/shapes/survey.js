@@ -48,12 +48,12 @@ export const REACH = Object.freeze({
  * @type {Readonly<Record<string, readonly string[]>>}
  */
 export const SURVEY_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'blocked', 'abandoned']),
+  planned: Object.freeze(['active', 'blocked', 'paused', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
   // W3: `blocked` is derived from open blockers; clearing them is the only way
   // out, and a blocker always wins over a pause (hence paused -> blocked).
   blocked: Object.freeze(['active', 'abandoned']),
-  paused: Object.freeze(['active', 'blocked', 'abandoned']),
+  paused: Object.freeze(['active', 'blocked', 'planned', 'abandoned']),
   completed: Object.freeze([]),
   abandoned: Object.freeze([]),
 })

@@ -1262,7 +1262,6 @@ const FROZEN_STATUS_EDGES = Object.freeze([
   ['activate', 'abandoned', 'active'],
   ['activate', 'blocked', 'active'],
   ['pause', 'blocked', 'paused'],
-  ['pause', 'planned', 'paused'],
   ['pause', 'completed', 'paused'],
   ['pause', 'paused', 'paused'],
   ['pause', 'merged', 'paused'],

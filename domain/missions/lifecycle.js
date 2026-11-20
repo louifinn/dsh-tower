@@ -175,6 +175,23 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   const events = []
 
   const shape = shapeFor(mission.kind)
+  // #205: a planned or active build mission can step out of the widen overlap
+  // check without losing its scope. `deferred=false` clears the flag; a
+  // terminal mission keeps no say in any later decision.
+  if (input.deferred !== undefined) {
+    if (typeof input.deferred !== 'boolean') fail('deferred must be a boolean')
+    const statusAfter = input.status ?? mission.status
+    if (!shape.reach.ownsPaths || !['planned', 'active'].includes(statusAfter)) {
+      fail(`deferred is only valid for planned or active missions, not ${statusAfter}`)
+    }
+    if (input.deferred) {
+      /** @type {any} */ (mission).deferred = true
+      changes.push('deferred=true')
+    } else {
+      delete /** @type {any} */ (mission).deferred
+      changes.push('deferred=false')
+    }
+  }
   // W3: `blocked` is derived state, `paused` is a deliberate stop. Clearing the
   // blockers is what resumes a blocked mission, so it is applied before any
   // status patch: `{clear_blockers:true,status:"active"}` and
@@ -230,7 +247,16 @@ export function applyMissionUpdate({ mission, state, input, config }) {
         fail(`mission ${mission.id} cannot move from ${mission.status} to ${input.status}`, 'invalid-transition')
       }
       if (input.status === 'paused') {
+        if (mission.status === 'planned' && input.pause_cause === undefined) {
+          fail('pausing a planned mission requires an explicit pause_cause', 'invalid-argument')
+        }
         mission.pauseCause = normalizePauseCause(input.pause_cause)
+      }
+      if (mission.status === 'paused' && input.status === 'planned') {
+        // Returning to planning is a planning decision, not a resume: the
+        // pause is over, so its cause no longer describes the mission and no
+        // authorization reference is needed.
+        delete mission.pauseCause
       }
       if (mission.status === 'paused' && input.status === 'active') {
         const requireAuthorization = config.mode.requireResumeAuthorization === true
@@ -320,25 +346,35 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     if (!shape.reach.ownsPaths) {
       fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
     }
-    if (!['active', 'completed'].includes(mission.status)) {
-      fail(`scope can only be widened for active or completed missions, not ${mission.status}`)
+    // A planned mission edits its fence while it is still being planned; that
+    // is not a widen and must not start the mission. Active and completed
+    // missions keep the original widening semantics.
+    const plannedEdit = mission.status === 'planned'
+    if (!plannedEdit && !['active', 'completed'].includes(mission.status)) {
+      fail(`scope can only be edited for planned, widened for active or completed missions, not ${mission.status}`)
     }
     const scope = normalizeScope(input.scope)
     const others = state.missions.filter((entry) => {
       if (entry.id === mission.id) return false
+      // #205: a paused mission is stopped and a deferred mission has stepped
+      // out of the ordering; neither can fence a widen until it moves again.
+      if (/** @type {any} */ (entry).deferred === true) return false
+      if (entry.status === 'paused') return false
       const other = shapeFor(entry.kind)
       return other.reach.ownsPaths && !other.isTerminal(entry.status)
     })
     const caseInsensitive = state.caseInsensitive === true
     for (const other of others) {
       if (scopesOverlap(scope, other.scope, { caseInsensitive })) {
-        fail(`widened scope overlaps mission ${other.id}; retire it or add an explicit ordering`)
+        fail(
+          `widened scope overlaps mission ${other.id}; retire it, pause it, mark it deferred, or add an explicit ordering`,
+        )
       }
     }
     mission.scope = scope
     mission.scopeGeneration = (mission.scopeGeneration ?? 1) + 1
-    mission.status = 'active'
-    changes.push('scope widened')
+    if (!plannedEdit) mission.status = 'active'
+    changes.push(plannedEdit ? 'scope edited' : 'scope widened')
   }
 
   if (changes.length === 0) fail('tower_mission requires at least one change')

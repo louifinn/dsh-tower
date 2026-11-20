@@ -155,6 +155,38 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.7 #205 evidence (2026-11-20)
+
+#205 makes a planned mission's fence editable, adds the `deferred` ordering flag, allows
+`planned ↔ paused`, and makes the widen `allowMissingScope` hatch reachable through the
+registered tool. Same bounded runner and machine as the 2.9.6 block; declarations are
+counted, so the one skip is included in the total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Focused gate (6 files) | `node --test tests/domain-missions.test.mjs tests/protocol.e2e.test.mjs tests/state-machine.test.mjs tests/tool-schemas.test.mjs tests/surface.test.mjs tests/exposure.test.mjs` | **53** | 53 pass, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **122** | 122 pass, 0 fail (122 × 3 seeds × 100 runs = 36,600 generated inputs) |
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1377** | 1376 pass, 1 skip, 0 fail |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs). The #205 cases run inside the
+batches: a planned scope edit staying `planned` with `scopeGeneration` +1, the widen
+overlap skipped for `deferred` and paused missions while a real in-flight overlap still
+rejects, `planned → paused` requiring `pause_cause` and `paused → planned` clearing it
+without authorization in [`domain-missions.test.mjs`](domain-missions.test.mjs) and
+[`state-machine.test.mjs`](state-machine.test.mjs); the registered-tool end-to-end proof
+that `tower_mission({ scope, allowMissingScope: true })` widens to a path that does not
+exist yet, and the `broad-scope` plan warning with its quiet counterpart, in
+[`protocol.e2e.test.mjs`](protocol.e2e.test.mjs); the transition-tool reachability of
+`planned ↔ paused` in [`exposure.test.mjs`](exposure.test.mjs); and the regenerated
+shape reference in [`shapes.md`](../docs/reference/shapes.md). The supporting static
+gates also pass on this tree: `npm run docs:check`, every `npm run
+docs:check:generated:<name>` target (`tools`, `events`, `shapes`, `config`, `blockers`,
+`types`, `locale`, `components`), `npm run types:check` and `npm run
+architecture:check`; the surface baseline was re-pinned from measurement in
+[`scripts/surface-baseline.json`](../scripts/surface-baseline.json) with the date and
+reason on the record.
+
 ### 2.9.6 release evidence (2026-11-20)
 
 The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
@@ -202,7 +234,7 @@ passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (r
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
 `TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.6 release evidence](#296-release-evidence-2026-11-20) above, and the W5
+the current totals are in [2.9.7 #205 evidence](#297-205-evidence-2026-11-20) above, and the W5
 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
@@ -291,7 +323,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.6 release evidence](#296-release-evidence-2026-11-20) above.
+[2.9.7 #205 evidence](#297-205-evidence-2026-11-20) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

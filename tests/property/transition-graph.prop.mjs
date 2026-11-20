@@ -219,7 +219,13 @@ runProperty({
         draftMission.blockers = ['transition graph probe blocker']
         input = { clear_blockers: true, note: NOTE }
       } else {
-        input = { status: target, note: NOTE, authorization: AUTHORIZATION }
+        input = {
+          status: target,
+          note: NOTE,
+          authorization: AUTHORIZATION,
+          // A planned mission needs an explicit cause before it may be paused.
+          ...(target === 'paused' ? { pause_cause: 'user' } : {}),
+        }
       }
       applyMissionUpdate({ mission: draftMission, state: draftState, input, config: MODEL_CONFIG })
       assert.equal(draftMission.status, target, `${status} -> ${target}: the accepted patch did not write the status`)

@@ -53,6 +53,25 @@ const findingSummarySchema = S.obj({
   closedAt: S.any,
 })
 
+/**
+ * #205: a plan-time ordering advisory, never a gate verdict. It is deliberately
+ * *not* a `domain/shapes/blockers.js` entry: that registry is the failure
+ * vocabulary a gate can promote (`warningByDefault`), while this warning can
+ * never block and is only reported by `tower_plan`. The code lives here, with
+ * the plan output contract it belongs to, instead of being spelled at the
+ * emission site (F91/F95: no uncatalogued codes hidden in a module-local
+ * constant).
+ */
+export const PLAN_WARNING_BROAD_SCOPE = 'broad-scope'
+
+const planWarningSchema = S.obj({
+  code: S.str,
+  message: S.str,
+  missionId: S.any,
+  missionIds: S.arr(S.str),
+  depId: S.any,
+})
+
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
 // additive; `required` lists the fields a successful value carries on every
 // path. spawn's `worktree` is required although its value is nullable: the
@@ -76,7 +95,10 @@ const SCHEMAS = {
     },
     ['created', 'repoRoot', 'commonDir', 'statePath', 'base', 'revision', 'missions'],
   ),
-  plan: S.obj({ revision: S.int, missions: S.arr(missionSummarySchema) }, ['revision', 'missions']),
+  plan: S.obj(
+    { revision: S.int, missions: S.arr(missionSummarySchema), warnings: S.arr(planWarningSchema) },
+    ['revision', 'missions'],
+  ),
   mission: S.obj({ revision: S.int, mission: S.obj() }, ['revision', 'mission']),
   status: S.obj(
     {

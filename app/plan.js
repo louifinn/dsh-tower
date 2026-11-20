@@ -1,5 +1,6 @@
 // Mission planning use case.
 import { TowerToolError } from '../domain/errors.js'
+import { PLAN_WARNING_BROAD_SCOPE } from '../domain/contracts/outputs.js'
 import { nextMissionNumber, addAutoDeps, assertAcyclic } from '../domain/planning.js'
 import {
   normalizePlanMissions,
@@ -56,6 +57,40 @@ function planNeedsRead(input) {
   return (input?.missions ?? []).some((mission) => shapeFor(mission?.kind).fields.readCommit)
 }
 
+/**
+ * #205: a mission that claims the whole repository (`**`) fences every later
+ * planned edit and widening. When other owning missions are still in flight,
+ * the plan is legal but the ordering trap is worth naming: the broad mission is
+ * usually release preparation, and it belongs last, not in front of live work.
+ * The warning never blocks the plan.
+ * @param {import('../types/index.js').Mission[]} created
+ * @param {import('../types/index.js').Mission[]} existing
+ * @returns {Array<{ code: string, missionId: string, missionIds: string[], message: string }>}
+ */
+function broadScopeWarnings(created, existing) {
+  const inFlight = [...existing, ...created].filter((mission) => {
+    const shape = shapeFor(mission.kind)
+    if (!shape.reach.ownsPaths) return false
+    if (!['planned', 'active'].includes(mission.status)) return false
+    return /** @type {any} */ (mission).deferred !== true
+  })
+  /** @type {Array<{ code: string, missionId: string, missionIds: string[], message: string }>} */
+  const warnings = []
+  for (const mission of created) {
+    if (!shapeFor(mission.kind).reach.ownsPaths || !mission.scope.includes('**')) continue
+    const others = inFlight.filter((entry) => entry.id !== mission.id)
+    if (others.length === 0) continue
+    const ids = others.map((entry) => entry.id).join(', ')
+    warnings.push({
+      code: PLAN_WARNING_BROAD_SCOPE,
+      missionId: mission.id,
+      missionIds: others.map((entry) => entry.id),
+      message: `mission ${mission.id} claims the whole repository ("**") while ${ids} ${others.length === 1 ? 'is' : 'are'} still planned or active; it will fence any later planned edit or widening — plan the release-preparation mission last, or mark it deferred or pause it before another mission widens`,
+    })
+  }
+  return warnings
+}
+
 export async function plan(tower, input = {}) {
   return tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
@@ -96,6 +131,7 @@ export async function plan(tower, input = {}) {
         })),
       )
     }
+    warnings.push(...broadScopeWarnings(created, state.missions))
     const swept = await sweepArchive(tower, state, { now })
     state.revision += 1
     state.updatedAt = now
