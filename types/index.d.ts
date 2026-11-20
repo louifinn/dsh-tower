@@ -68,6 +68,7 @@ export type ErrorCode =
   | 'acceptance-human-only'
   | 'worker-limit'
   | 'rate-limited'
+  | 'agent-not-resumable'
   | 'takeover-refused'
   | 'reload-unavailable'
   | 'reload-failed'

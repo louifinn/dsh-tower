@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 42 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 43 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -46,6 +46,7 @@
 | `acceptance-human-only` | artifact mission 只有在人类接受整个已提交 tip 后才能合并；agent 不能代为接受。 | worker 对 artifact mission 调用 tower_mission accept |
 | `worker-limit` | 仓库达到 `spawn.maxLiveWorkers` 个活跃 worker。 | 默认上限下 spawn 第五个 worker |
 | `rate-limited` | 达到 `tower_send` 的每分钟速率限制。 | 超出 `send.maxPerMinute`；稍后重试 |
+| `agent-not-resumable` | `wake:true` 的目标无法恢复，已持久化的消息因此无法启动一回合。 | 向处于 stopped 状态且没有续接状态的 agent 调用 `tower_send({wake:true})` |
 | `takeover-refused` | mission 仍有运行中的 worker。 | 在 `tower_interrupt` 之前调用 `tower_spawn({takeover:true})` |
 | `reload-unavailable` | 当前 profile 中没有可用的 DSH HMR 服务。 | 在没有 HMR 的 profile 上调用 `tower_reload` / `/tower reload` |
 | `reload-failed` | HMR reload 失败。 | `reconcileProfile` 抛错；检查 DSH 日志并重启 |
