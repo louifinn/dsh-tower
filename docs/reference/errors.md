@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 42 tool error codes.
+release defines 43 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -54,6 +54,7 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `acceptance-human-only` | An artifact mission merges on a human acceptance of the committed tip; an agent cannot accept. | no | only the tower may ask the human through the approval channel; the recorded acceptance always says by:"human" | a worker calls tower_mission accept for an artifact mission |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers | spawning a fifth worker with the default limit |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute | `send.maxPerMinute` exceeded |
+| `agent-not-resumable` | A wake:true target cannot be resumed, so its persisted message cannot start a turn. | no | choose a running agent or a resumable direct child (tower_inspect view:"roster"); the message stays in the target's inbox until that agent runs again | `tower_send({wake:true})` to a stopped agent with no continuation state |
 | `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover | `tower_spawn({op:"takeover"})` before `tower_interrupt` |
 | `reload-unavailable` | The DSH HMR service is not available in this profile. | no | restart DSH instead of reloading | `tower_reload` / `/tower reload` on a profile without HMR |
 | `reload-failed` | The HMR reload failed; check the DSH log and restart if needed. | no | check the DSH log and restart DSH | `reconcileProfile` threw |

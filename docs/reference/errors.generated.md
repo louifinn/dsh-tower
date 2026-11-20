@@ -40,6 +40,7 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `acceptance-human-only` | An artifact mission merges on a human acceptance of the committed tip; an agent cannot accept. | no | only the tower may ask the human through the approval channel; the recorded acceptance always says by:"human" |
 | `worker-limit` | The repository reached spawn.maxLiveWorkers live workers. | no | wait for a live worker to finish or raise spawn.maxLiveWorkers |
 | `rate-limited` | The tower_send per-minute rate limit was reached. | yes | wait for the next per-minute window or raise send.maxPerMinute |
+| `agent-not-resumable` | A wake:true target cannot be resumed, so its persisted message cannot start a turn. | no | choose a running agent or a resumable direct child (tower_inspect view:"roster"); the message stays in the target's inbox until that agent runs again |
 | `takeover-refused` | The mission already has a live worker that was not stopped first. | no | run tower_interrupt for the live worker, then retry the takeover |
 | `reload-unavailable` | The DSH HMR service is not available in this profile. | no | restart DSH instead of reloading |
 | `reload-failed` | The HMR reload failed; check the DSH log and restart if needed. | no | check the DSH log and restart DSH |

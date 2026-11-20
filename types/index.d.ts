@@ -68,6 +68,7 @@ export type ErrorCode =
   | 'acceptance-human-only'
   | 'worker-limit'
   | 'rate-limited'
+  | 'agent-not-resumable'
   | 'takeover-refused'
   | 'reload-unavailable'
   | 'reload-failed'
@@ -209,6 +210,13 @@ export interface MissionBase {
   scopeGeneration?: number
   ownerGeneration?: number
   pauseCause?: string | null
+  /**
+   * #205: tower-only ordering flag for a planned or active mission that owns
+   * paths (build or artifact): while true it steps out of the widen overlap
+   * check without rewriting its fence. It is a mission field, so it is
+   * persisted with the mission; pass `false` to rejoin the ordering.
+   */
+  deferred?: boolean
   updatedAt?: number
   references?: string[]
   authorizationRef?: string | null
@@ -431,6 +439,8 @@ export interface MissionSummary {
   scopeGeneration: number
   ownerGeneration: number
   pauseCause: string | null
+  /** Whether the mission has stepped out of the widen ordering (#205). */
+  deferred: boolean
   reviewPolicy: ReviewPolicy
   mergedCommit: string | null
   mergedAt: number | null

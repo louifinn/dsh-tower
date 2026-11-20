@@ -22,12 +22,18 @@
 //
 // A static scan of the production sources complements the catalogue properties:
 // every literal `new TowerToolError('<code>', …)` must name a catalogue entry,
-// so a typo cannot ship a code the model cannot look up.
+// so a typo cannot ship a code the model cannot look up. The scan also resolves
+// a module-local `const X = '<code>'` used as the first argument, because F91
+// showed a literal-only scan lets a code shipped through a constant escape the
+// catalogue unnoticed. A first argument that is a genuine runtime value (the
+// error-classification `code` parameter) cannot be resolved statically and
+// stays exempt by design.
 //
 // No shrunk counterexample has been observed across the three PR seeds
 // (131, 40961, 978217) or the long tier.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -46,6 +52,7 @@ import {
   isErrorCode,
   renderErrorMessage,
 } from '../../domain/errors.js'
+import { removeTemp } from '../helpers/cleanup.mjs'
 import { runProperty } from './helpers/harness.mjs'
 
 const CODES = [...ERROR_CODE_VALUES]
@@ -318,58 +325,176 @@ function sourceFiles(dir) {
 }
 
 /**
- * Every production module the static scan covers: the six layered roots plus the
- * root-level entry modules (`index.js` is the `dsh` entry; its siblings are the
- * `bin` shims). Scanning root files by directory listing keeps a code added to an
- * entry point covered without another list to remember to update.
+ * Every production module the static scan covers under `root`: the six layered
+ * roots plus the root-level entry modules (`index.js` is the `dsh` entry; its
+ * siblings are the `bin` shims). Scanning root files by directory listing keeps
+ * a code added to an entry point covered without another list to remember to
+ * update.
  *
+ * @param {string} root repository root
  * @returns {string[]}
  */
-function productionFiles() {
+function productionFiles(root) {
   /** @type {string[]} */
   const files = []
-  for (const dir of SOURCE_DIRS) files.push(...sourceFiles(path.join(REPO_ROOT, dir)))
-  for (const entry of fs.readdirSync(REPO_ROOT, { withFileTypes: true })) {
+  for (const dir of SOURCE_DIRS) files.push(...sourceFiles(path.join(root, dir)))
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!entry.isFile() || !/\.(?:m?js)$/.test(entry.name)) continue
-    files.push(path.join(REPO_ROOT, entry.name))
+    files.push(path.join(root, entry.name))
   }
   return files
 }
 
-// Non-vacuity floor for the static scan. Measured on this tree: 144 total
-// `new TowerToolError(` calls, 125 of them with a literal first argument (19
-// take a runtime code and are exempt by design). A line-scoped scan — the bug
-// this floor guards against — sees only 90 of those 125, because 35 calls put
-// the literal code on the line after `new TowerToolError(`. 120 therefore fails
-// loudly on a regression to per-line matching while still tolerating a handful
-// of legitimate call sites being removed. The current measurement is recorded
-// here; this is not an exact-count assertion.
+// Non-vacuity floor for the literal half of the static scan. Measured on this
+// tree: 144 total `new TowerToolError(` calls, 125 of them with a literal first
+// argument (19 take a runtime code and are exempt by design). A line-scoped scan
+// — the bug this floor guards against — sees only 90 of those 125, because 35
+// calls put the literal code on the line after `new TowerToolError(`. 120
+// therefore fails loudly on a regression to per-line matching while still
+// tolerating a handful of legitimate call sites being removed. The current
+// measurement is recorded here; this is not an exact-count assertion.
 const MIN_LITERAL_CALL_SITES = 120
 
-test('error catalogue, static: every literal TowerToolError code in production sources is catalogued', () => {
-  /** @type {Array<{ file: string, line: number, code: string }>} */
-  const found = []
+/** Escape one identifier for use inside a RegExp. @param {string} text */
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Resolve a module-local `const NAME = '<code>'` from the same file text. Only a
+ * plain single-line string literal is resolved; a template, a concatenation, an
+ * import or a function parameter is a genuine runtime value and stays exempt
+ * (the dynamic-code exemption the catalogue always had).
+ *
+ * @param {string} text the whole file
+ * @param {string} name the first-argument identifier
+ * @returns {string | null} the resolved string, or null when not statically known
+ */
+function resolveLocalCode(text, name) {
+  // Anchor the literal to the end of its line (optionally `;` and a comment):
+  // `const X = 'a' + suffix` must stay unresolved instead of yielding 'a'.
+  const pattern = new RegExp(`\\bconst\\s+${escapeRegExp(name)}\\s*=\\s*(['"])([^'"\\n]*)\\1[ \\t]*;?[ \\t]*(?://[^\\n]*)?(?:\\r?\\n|$)`)
+  const match = pattern.exec(text)
+  return match ? match[2] : null
+}
+
+/**
+ * Every `new TowerToolError(...)` call site the static scan can attribute to a
+ * code: the literal first argument, and an identifier that a module-local
+ * `const` in the same file resolves to a string (F91: a code shipped through a
+ * constant must be checked too). A first argument that cannot be resolved is
+ * recorded as dynamic and exempt.
+ *
+ * @param {string} root repository root
+ * @returns {{
+ *   sites: Array<{ file: string, line: number, code: string, via: string | null }>,
+ *   dynamic: Array<{ file: string, line: number, ident: string }>,
+ * }}
+ */
+function scanTowerToolErrorCodes(root) {
+  /** @type {Array<{ file: string, line: number, code: string, via: string | null }>} */
+  const sites = []
+  /** @type {Array<{ file: string, line: number, ident: string }>} */
+  const dynamic = []
   // Match the WHOLE file text, not each line: `\s*` spans newlines, so a code on
-  // the line after `new TowerToolError(` is captured. A non-literal first
-  // argument (a variable / template / class reference) never matches, preserving
-  // the dynamic-code exemption: only literal codes are required to be catalogued.
+  // the line after `new TowerToolError(` is captured.
   const literal = /new\s+TowerToolError\(\s*(['"])([^'"]+)\1/g
-  for (const file of productionFiles()) {
+  const identifier = /new\s+TowerToolError\(\s*([A-Za-z_$][\w$]*)/g
+  for (const file of productionFiles(root)) {
     const text = fs.readFileSync(file, 'utf8')
+    const relative = path.relative(root, file)
+    const lineOf = (index) => text.slice(0, index).split('\n').length
     for (const match of text.matchAll(literal)) {
-      const line = text.slice(0, match.index).split('\n').length
-      found.push({ file: path.relative(REPO_ROOT, file), line, code: match[2] })
+      sites.push({ file: relative, line: lineOf(match.index), code: match[2], via: null })
+    }
+    for (const match of text.matchAll(identifier)) {
+      const resolved = resolveLocalCode(text, match[1])
+      const site = { file: relative, line: lineOf(match.index) }
+      if (resolved === null) dynamic.push({ ...site, ident: match[1] })
+      else sites.push({ ...site, code: resolved, via: match[1] })
     }
   }
+  return { sites, dynamic }
+}
+
+test('error catalogue, static: every literal or module-local-constant TowerToolError code in production sources is catalogued', () => {
+  const { sites } = scanTowerToolErrorCodes(REPO_ROOT)
+  const literalCount = sites.filter((site) => site.via === null).length
   assert.ok(
-    found.length >= MIN_LITERAL_CALL_SITES,
-    `the whole-file static scan found ${found.length} literal call sites, expected >= ${MIN_LITERAL_CALL_SITES}; ` +
+    literalCount >= MIN_LITERAL_CALL_SITES,
+    `the whole-file static scan found ${literalCount} literal call sites, expected >= ${MIN_LITERAL_CALL_SITES}; ` +
       'a per-line scan cannot see a code on the line after `new TowerToolError(`',
   )
-  const unknown = found.filter(({ code }) => !isErrorCode(code))
+  const unknown = sites.filter(({ code }) => !isErrorCode(code))
   assert.deepEqual(
     unknown,
     [],
-    `uncatalogued codes at ${unknown.map(({ file, line, code }) => `${file}:${line} (${code})`).join(', ')}`,
+    `uncatalogued codes at ${unknown
+      .map(({ file, line, code, via }) => `${file}:${line} (${via === null ? code : `${via} = ${code}`})`)
+      .join(', ')}`,
+  )
+})
+
+test('error catalogue, static: a concatenated module-local constant stays dynamic (fixture)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-error-catalogue-concat-'))
+  t.after(() => removeTemp(dir))
+  const file = path.join(dir, 'tools', 'fixture.js')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(
+    file,
+    [
+      "const CONCATENATED = 'invalid-argument' + '-suffix'",
+      'new TowerToolError(CONCATENATED, "dirty call")',
+      '',
+    ].join('\n'),
+  )
+
+  // Only a bare single-line `const NAME = '<string>'` is statically known. The
+  // first literal of a concatenation is not the runtime code, so attributing it
+  // would hide a real uncatalogued value behind an innocent prefix.
+  const { sites, dynamic } = scanTowerToolErrorCodes(dir)
+  assert.deepEqual(sites, [])
+  assert.deepEqual(
+    dynamic.map(({ file: fixture, line, ident }) => ({ file: fixture, line, ident })),
+    [{ file: path.join('tools', 'fixture.js'), line: 2, ident: 'CONCATENATED' }],
+  )
+})
+
+test('error catalogue, static: a module-local constant changed to an uncatalogued code reddens (fixture)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-error-catalogue-'))
+  t.after(() => removeTemp(dir))
+  const file = path.join(dir, 'tools', 'fixture.js')
+  const source = (resumable) =>
+    [
+      "const CATALOGUED = 'invalid-argument'",
+      `const NOT_CATALOGUED = '${resumable}'`,
+      'new TowerToolError(CATALOGUED, "clean call")',
+      'new TowerToolError(NOT_CATALOGUED, "dirty call")',
+      '',
+    ].join('\n')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, source('not-a-catalogue-code'))
+
+  const { sites } = scanTowerToolErrorCodes(dir)
+  // Both halves are proven at once: the catalogued constant stays clean while
+  // the dirty one is reported by file, line and the constant that carried it.
+  assert.deepEqual(
+    sites.map(({ code, via }) => ({ code, via })),
+    [
+      { code: 'invalid-argument', via: 'CATALOGUED' },
+      { code: 'not-a-catalogue-code', via: 'NOT_CATALOGUED' },
+    ],
+  )
+  const unknown = sites.filter(({ code }) => !isErrorCode(code))
+  assert.deepEqual(
+    unknown.map(({ file, line, code, via }) => `${file}:${line} (${via} = ${code})`),
+    [`${path.join('tools', 'fixture.js')}:4 (NOT_CATALOGUED = not-a-catalogue-code)`],
+  )
+
+  // And it fails for the right reason: cataloguing the constant silences it.
+  fs.writeFileSync(file, source('invalid-argument'))
+  assert.deepEqual(
+    scanTowerToolErrorCodes(dir).sites.filter(({ code }) => !isErrorCode(code)),
+    [],
   )
 })

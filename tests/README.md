@@ -31,7 +31,7 @@ The offline suites are grouped by concern; each file runs as its own process wit
 - `workflow-contract.test.mjs` — the CI contract (#M72/W5-D): `scripts/check-workflow.mjs` must find the canonical `npm run check` on the three supported legs, the four required contexts (those three legs plus the `mount` job), no legacy `test` job, least-privilege permissions, per-ref cancellation, SHA-pinned actions, npm caching, bounded artifact retention and the schedule-only nightly failure reporter. Every rule has a tamper case that edits the real workflow text and expects the named problem, so the gate cannot go vacuous. #M79 adds the tag-push rule: the canonical job must force-fetch the pushed tag ref (`git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"`) before `npm run release:check`, gated by `matrix.release` and `github.ref_type == 'tag'`; tamper cases drop the step, move it after the release check, ungate it, fetch the commit SHA instead of the ref, or drop `--force`.
 - `activity-rotation.test.mjs` — #M76 bounded activity log: the pure policy/segment/plan helpers, append-driven rotation with retention, chronological tail reads across segments (including corrupt/truncated lines), the fallback that keeps appending to the live file when a rename cannot land, and `inspectActivityLog` accounting for doctor/status.
 - `roles.test.mjs` — actor-role matrix with fake `subagents`: workers cannot change status/scope/blockers/pause metadata, workers can update tasks/notes/blockers, reviewers read findings but cannot mutate them, and tower-only tools reject roster workers without side effects.
-- `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering.
+- `interrupt.test.mjs` — `tower_interrupt` targets the child session id, records the roster as interrupted, is idempotent for idle agents, and `tower_send interrupt:true` interrupts before delivering. #203 adds the shipped-patch repro (a plain `tower_send` must not interrupt a running recipient), the idle queue/wake contract (`wake:true` starts a turn, `woke` reports it, an unresumable agent fails with `agent-not-resumable`), the three-state activity rule (an unreadable or empty catalog is never "stopped", so wake never claims `woke:true`, an explicit interrupt stays visible, and a failed wake never tells the caller to pass `wake:true` again), and keeps the repository-config `interruptDefault` override path.
 - `workspace-lock.test.mjs` — the advisory `<git-common-dir>/dsh-tower/tower.lock` (acquire/self reacquire/touch/release/stale takeover/corrupt lock) and the mode-level rule that a second Tower session is refused with `[tower:workspace-busy]` until the first runs `/tower off`.
 - `concurrency.test.mjs` — `spawn.maxLiveWorkers`, `tower_send` per-minute rate limiting, stale roster entries (`spawn.staleMs`), and parallel writers serializing on the state lock with a monotonic revision. Also pins the #148 budget shape: a live survey row does not consume a build slot, a survey spawn is allowed while build slots are full, and a second build is refused with `worker-limit`.
 - `roster-watchdog.test.mjs` — F73 roster truth: an empty descendant catalog is never authoritative; a live row needs consecutive missing observations spanning twice `spawn.staleMs` before it can go stale; a stale-marked row that calls `tower_complete` itself is revived and recorded, because a stopped worker cannot call tools; `staleMs: 0` disables the watchdog without writing state or activity. The race cases are pinned with an injectable seam (`rosterView` parked between the snapshot and the sweep; `checkCompletion` preempted by a sweep): a row revived mid-tick stays active, a completion that races a parked tick closes its row with no `worker-stale` blocker, and a sweep that wins the lock before the commit is re-prepared instead of refused.
@@ -90,14 +90,14 @@ Coverage is a diagnostic, not a gate; the meaningful signal is that the offline 
 
 The offline suite above is example-based; `tests/property/*.prop.mjs` adds generated inputs on top of it, using [fast-check](https://fast-check.dev/) v4 with `node:test` as the only runner. The generators live in `tests/property/arbitraries/` (mission, status, review, finding, config, state, path/scope, commit sha, merge-gate evidence) and produce **schema-shaped values only** — they never read the filesystem, a git repository, a subprocess or the network. The shared harness is `tests/property/helpers/harness.mjs`.
 
-Twelve files carry **121 property cases** (the PR tier therefore generates 121 × 3 seeds × 100 runs = **36,300 inputs** per run; the long tier 121 × 2000 = 242,000):
+Twelve files carry **124 property cases** (the PR tier therefore generates 124 × 3 seeds × 100 runs = **37,200 inputs** per run; the long tier 124 × 2000 = 248,000):
 
 - `smoke.prop.mjs` — the first smoke set: state shape/semantics, config resolution, relative scope entries, absolute/`..` scope rejection, commit-sha shape.
 - `transition-graph.prop.mjs` — the transition table, terminal statuses and edge reachability checked against an independently written model, plus terminal absorption (every status/blocker patch rejected byte-identically, note-only updates accepted).
 - `state-machine.prop.mjs` — the flagship model-based property: an `fc.commands` walk over ten mission operations compared with `tests/property/model/state-machine-model.mjs`; rejected commands are no-ops, accepted commands bump the revision by exactly one and stay atomic, and the merge gate matches the model.
 - `state-semantics-roundtrip.prop.mjs` — `validateState` accepts schema-valid states and rejects 21 semantic corruptions, JSON round-trips are fixed points, and state migration/migration refusal behave as documented.
 - `no-illegal-path.prop.mjs` — illegal mission sequences stay rejected and leave state unchanged; frozen completion/merge blocker matrices; the tower override is pinned.
-- `scope-algebra.prop.mjs` — property 7: `fileInScope` agrees with an independently written naive matcher for `*`/`**`/`?`, `scopesOverlap` is symmetric and a sound over-approximation (a shared concrete file always implies overlap, inline-prefix globs included; overlap may over-approximate but never under-approximates a provably shared path), and case-insensitive mode folds both sides.
+- `scope-algebra.prop.mjs` — property 7: `fileInScope` agrees with an independently written naive matcher for `*`/`**`/`?`, `scopesOverlap` is symmetric and a sound over-approximation (a shared concrete file always implies overlap, inline-prefix globs included; overlap may over-approximate but never under-approximates a provably shared path), and case-insensitive mode folds both sides. The #200 presence property composes a scope only from tracked paths (exact file, directory, `dir/`, `dir/**`, plus `**` and `.`) and asserts `validateScopeEntries` accepts every one, so the planning check has no false positives.
 - `scope-normalization.prop.mjs` — property 8: `normalizeScope` is idempotent, absolute/`..`/hostile inputs are rejected with `invalid-argument`, `validateTitle` accepts Unicode after NFC, counts code points (not UTF-16 units), and rejects bidi/zero-width/control/over-long titles before and after normalization.
 - `gate-monotonicity.prop.mjs` — property 9: worsening completion or merge evidence (extra blocker, open task, missing checks, unknown/stale/busy worker, missing test receipt at a moved tip, worse review status/verdict) never removes an existing blocker or unblocks the gate; unrelated fields leave the blocker set unchanged. The documented exception — `running → inactive` clears `worker-busy` because the roster state *is* the evidence — is frozen explicitly.
 - `config-resolution.prop.mjs` — property 10: `resolveTowerConfig` is total over valid configs, is strictly one-pass idempotent (`resolve(resolve(raw))` deep-equals `resolve(raw)` for every generated config, including `{}`), all 16 `gates.requireTests` × `tests` group cells resolve (the old `true` + `enabled:false` contradiction retired with the `tests.enabled` switch, #136), and a config that still writes `tests.enabled` is rejected as `config-unknown-key`.
@@ -155,6 +155,45 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.7 release evidence (2026-11-21)
+
+2.9.7 makes a planned mission's fence editable, adds the `deferred` ordering flag, allows
+`planned ↔ paused`, and makes the widen `allowMissingScope` hatch reachable through the
+registered tool; a `**` plan now warns from the sanctioned blocker registry, and the mission
+summary shows the persisted `deferred` field. Release preparation re-ran every number below
+on the same bounded runner and machine as the 2.9.6 block; declarations are counted, so the
+one skip is included in the total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Focused gate (6 files) | `node --test tests/domain-missions.test.mjs tests/protocol.e2e.test.mjs tests/state-machine.test.mjs tests/tool-schemas.test.mjs tests/surface.test.mjs tests/exposure.test.mjs` | **57** | 57 pass, 0 fail |
+| Property PR tier (12 files) | `npm run test:property` | **124** | 124 pass, 0 fail (124 × 3 seeds × 100 runs = 37,200 generated inputs) |
+| Bounded offline suite, all 126 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1383** | 1382 pass, 1 skip, 0 fail |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs). The 2.9.7 cases run inside the
+batches: a planned scope edit staying `planned` with `scopeGeneration` +1, the widen
+overlap skipped for `deferred` and paused missions while a real in-flight overlap still
+rejects, `planned → paused` requiring `pause_cause` and `paused → planned` clearing it
+without authorization in [`domain-missions.test.mjs`](domain-missions.test.mjs) and
+[`state-machine.test.mjs`](state-machine.test.mjs); the registered-tool end-to-end proof
+that `tower_mission({ scope, allowMissingScope: true })` widens to a path that does not
+exist yet, the `broad-scope` plan warning with its quiet counterpart, and the raw-state
+proof that `deferred` is stored while `allowMissingScope` is not, in
+[`protocol.e2e.test.mjs`](protocol.e2e.test.mjs); the two-mission batch that must not repeat
+a same-batch companion id in the warning, and the split shape/status deferral refusals
+(F98, F99); `deferred` reachable through `tower_inspect`; the transition-tool reachability
+of `planned ↔ paused` in [`exposure.test.mjs`](exposure.test.mjs); each warning row's own
+generated paragraph (including the plan-only `broad-scope` text) in
+[`blocker-registry.test.mjs`](blocker-registry.test.mjs); and the regenerated shape
+reference in [`shapes.md`](../docs/reference/shapes.md). The supporting static gates also
+pass on this tree: `npm run docs:check`, every `npm run docs:check:generated:<name>` target
+(`tools`, `events`, `shapes`, `config`, `blockers`, `types`, `locale`, `components`),
+`npm run types:check`, `npm run types:coverage`, `npm run architecture:check` and
+`npm run surface:check`. The 2.9.7 surface itself did not move in release preparation: M147
+re-measured the ladder and re-pinned [`scripts/surface-baseline.json`](../scripts/surface-baseline.json)
+with the date and reason on the record, and the committed baseline still matches.
+
 ### 2.9.6 release evidence (2026-11-20)
 
 The bounded suite is **126 `tests/*.test.mjs` files**, run as six sequential `node --test <files...>`
@@ -202,7 +241,7 @@ passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (r
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
 `TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.6 release evidence](#296-release-evidence-2026-11-20) above, and the W5
+the current totals are in [2.9.7 release evidence](#297-release-evidence-2026-11-21) above, and the W5
 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
@@ -291,7 +330,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.6 release evidence](#296-release-evidence-2026-11-20) above.
+[2.9.7 release evidence](#297-release-evidence-2026-11-21) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

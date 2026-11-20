@@ -253,6 +253,12 @@ export const ERROR_CODES = {
     retryable: true,
     nextAction: 'wait for the next per-minute window or raise send.maxPerMinute',
   },
+  'agent-not-resumable': {
+    description: 'A wake:true target cannot be resumed, so its persisted message cannot start a turn.',
+    trigger: '`tower_send({wake:true})` to a stopped agent with no continuation state',
+    retryable: false,
+    nextAction: 'choose a running agent or a resumable direct child (tower_inspect view:"roster"); the message stays in the target\'s inbox until that agent runs again',
+  },
   'takeover-refused': {
     description: 'The mission already has a live worker that was not stopped first.',
     trigger: '`tower_spawn({op:"takeover"})` before `tower_interrupt`',

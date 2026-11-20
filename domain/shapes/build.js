@@ -39,13 +39,16 @@ export const REACH = Object.freeze({
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const BUILD_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'blocked', 'abandoned']),
+  // A planned mission may pause while it is still being planned (with an
+  // explicit pause_cause) and a paused mission may return to planning: that is
+  // a planning decision, not a resume, so it needs no authorization.
+  planned: Object.freeze(['active', 'blocked', 'paused', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
   // `blocked` is derived from open blockers (W3): a blocked mission resumes
   // only by clearing them, never by pausing or completing through the state.
   blocked: Object.freeze(['active', 'abandoned']),
   // A blocker always wins over a pause, which is why paused -> blocked exists.
-  paused: Object.freeze(['active', 'blocked', 'abandoned']),
+  paused: Object.freeze(['active', 'blocked', 'planned', 'abandoned']),
   completed: Object.freeze(['active', 'blocked', 'abandoned']),
   merged: Object.freeze([]),
   abandoned: Object.freeze([]),

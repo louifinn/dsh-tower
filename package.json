@@ -1,6 +1,6 @@
 {
   "name": "dsh-tower",
-  "version": "2.9.6",
+  "version": "2.9.7",
   "type": "module",
   "description": "DSH-native Tower: mission planning, worktree isolation, review-gated merges, and a human-owned Tower mode.",
   "license": "MIT",

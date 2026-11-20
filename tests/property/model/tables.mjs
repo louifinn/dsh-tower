@@ -40,10 +40,12 @@ export const MODEL_STATUSES = Object.freeze([
  * @type {Readonly<Record<string, readonly string[]>>}
  */
 export const MODEL_TRANSITIONS = Object.freeze({
-  planned: Object.freeze(['active', 'blocked', 'abandoned']),
+  // #205: a planned mission pauses with an explicit cause and a paused mission
+  // may return to planning without a resume authorization.
+  planned: Object.freeze(['active', 'blocked', 'paused', 'abandoned']),
   active: Object.freeze(['completed', 'blocked', 'paused', 'abandoned']),
   blocked: Object.freeze(['active', 'abandoned']),
-  paused: Object.freeze(['active', 'blocked', 'abandoned']),
+  paused: Object.freeze(['active', 'blocked', 'planned', 'abandoned']),
   completed: Object.freeze(['active', 'blocked', 'abandoned']),
   merged: Object.freeze([]),
   abandoned: Object.freeze([]),
@@ -57,10 +59,10 @@ export const MODEL_TRANSITIONS = Object.freeze({
  * @type {Readonly<Record<string, readonly string[]>>}
  */
 export const MODEL_STATUS_PATCHES = Object.freeze({
-  planned: Object.freeze(['active', 'abandoned']),
+  planned: Object.freeze(['active', 'paused', 'abandoned']),
   active: Object.freeze(['completed', 'paused', 'abandoned']),
   blocked: Object.freeze(['abandoned']),
-  paused: Object.freeze(['active', 'abandoned']),
+  paused: Object.freeze(['active', 'planned', 'abandoned']),
   completed: Object.freeze(['active', 'abandoned']),
   merged: Object.freeze([]),
   abandoned: Object.freeze([]),

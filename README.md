@@ -191,7 +191,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
       maxDepth: 1
 ```
 
-- 代码中 `mode.allowAgentControl` 默认 `true`；随包 `cordis.patch.yml` 也显式设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）、`send.interruptDefault`、`init.autoGitInit`，并把 `spawn.staleMs` 设为 30s。
+- 代码中 `mode.allowAgentControl` 默认 `true`；随包 `cordis.patch.yml` 也显式设为 `true`：模型可在用户意图/任务状态明确时自行进出，但必须给出理由；设为 `false` 时只有人类能切换。随包 patch 还默认开启 `mode.workspaceLock`（单活塔）和 `init.autoGitInit`，把 `send.interruptDefault` 固定为 `false`——普通 `tower_send` 不会打断正在运行的 agent，确需打断时显式传 `interrupt:true`（仅限塔）；并把 `spawn.staleMs` 设为 30s。`wake:true` 用于在用户明确要求时唤醒已停止的 subagent 并投递消息；目标无法恢复时返回 `agent-not-resumable`。
 - `/tower base <branch>` 可设置会话级 init base 偏好；`/tower on` 会清除活跃 plan mode（`mode.planModePolicy:"refuse"` 则拒绝进入），保证 plan/tower 互斥；Tower 与 Ralph 循环同样按仓库互斥（`mode.ralphPolicy`，见 [ADR 0010](docs/adr/0010-tower-ralph-mutual-exclusion.md)）。
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。三种审查模式、插件页控件位置与单版本别名迁移见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
@@ -214,7 +214,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、42 个工具错误码、26 个进程内事件、58 个配置键、35 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 16 个。
+表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、43 个工具错误码、26 个进程内事件、58 个配置键、36 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 16 个。
 
 五个子系统行默认关闭；`tower_inspect` 的 `doctor` 视图逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
 

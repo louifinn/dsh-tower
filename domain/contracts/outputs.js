@@ -34,6 +34,7 @@ const missionSummarySchema = S.obj({
   blockers: S.arr(S.str),
   tasks: S.any,
   scopeGeneration: S.int,
+  deferred: S.bool,
   mergedCommit: S.any,
   mergedAt: S.any,
   updatedAt: S.any,
@@ -51,6 +52,14 @@ const findingSummarySchema = S.obj({
   at: S.any,
   updatedAt: S.any,
   closedAt: S.any,
+})
+
+const planWarningSchema = S.obj({
+  code: S.str,
+  message: S.str,
+  missionId: S.any,
+  missionIds: S.arr(S.str),
+  depId: S.any,
 })
 
 // Per-tool output schemas. `additionalProperties: true` keeps future fields
@@ -76,7 +85,10 @@ const SCHEMAS = {
     },
     ['created', 'repoRoot', 'commonDir', 'statePath', 'base', 'revision', 'missions'],
   ),
-  plan: S.obj({ revision: S.int, missions: S.arr(missionSummarySchema) }, ['revision', 'missions']),
+  plan: S.obj(
+    { revision: S.int, missions: S.arr(missionSummarySchema), warnings: S.arr(planWarningSchema) },
+    ['revision', 'missions'],
+  ),
   mission: S.obj({ revision: S.int, mission: S.obj() }, ['revision', 'mission']),
   status: S.obj(
     {

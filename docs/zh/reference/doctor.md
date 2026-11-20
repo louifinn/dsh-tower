@@ -159,6 +159,15 @@ Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态
 中的使用，而且仍然不会让 Tower 获得检出记录；orphan 模式是清理路径，并且需要显式启用。这里不会有
 任何自动移除。
 
+`loader-conflicts` 检查读取已挂载 loader 的配置行。随包 `cordis.patch.yml` 把宿主插件作为嵌套行
+（`id: tower-host`、`name: dsh-tower`）挂在必需的 `tower` `cordis:group` 锚点下，因此该锚点及其
+子树中的行都属于 Tower 自身，永远不会被算作冲突。单独一条启用的 `dsh-tower` 行无论出现在哪里都是
+Tower 自己的挂载；锚点之外再出现第二条启用的 `name: dsh-tower` 的行——另一个已安装包声明了同名插件
+行——才是 `fail`，detail 会写明冲突行的 id，action 要求从 profile 的
+`cordis.patch.yml` 移除或禁用该重复行、重启 DSH 并重新运行环境健康检查。被禁用的行属于已安装但
+未挂载，因此永远不算冲突。loader 清单无法读取时该
+检查为 `warn`（`loader inventory unavailable`），绝不是 `pass`。
+
 ### 非 Tower 能力（#188、#189）
 
 其他能力也可以不经过 Tower 编排代理或落地变更。doctor 在 `foreign-capabilities` 检查与

@@ -18,7 +18,8 @@ export const PlanInput = Type.Object({
   missions: Type.Array(
     Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
-      scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
+      scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey. Each entry must match a tracked file (or name an existing directory); pass allowMissingScope to accept a path this mission will create.' })),
+      allowMissingScope: Type.Optional(Type.Boolean({ description: 'Accept scope entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry. The same opt-in works for a later planned edit or widen.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
       deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'build = writes code behind a review gate; survey = read-only investigation that reserves no scope; artifact = writes deliverables (declared via artifacts) that a human accepts at the committed tip instead of a review.' })),
@@ -41,7 +42,9 @@ export const MissionInput = Type.Object({
   task_done: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as done.' })),
   task_drop: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as dropped.' })),
   task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is legitimately descoped.' })),
-  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs; bumps scopeGeneration.' })),
+  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit ordering; an active or completed mission widens it and starts it; bumps scopeGeneration.' })),
+  allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry and never stored on the mission. Works for a plan, a planned edit, or a widening.' })),
+  deferred: Type.Optional(Type.Boolean({ description: 'Tower only: step a planned or active mission that owns paths (build or artifact) out of the overlap check; pass false to rejoin. It never blocks another mission from widening.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
   accept: Type.Optional(Type.Boolean({ description: 'Artifact only: record the human acceptance of the mission\u2019s whole committed tip. The tool asks the human through the DSH approval channel and stamps the record with the current branch tip; a profile without the channel is refused (an acceptance is never auto-recorded) and no argument can make the acceptance agent-made.' })),

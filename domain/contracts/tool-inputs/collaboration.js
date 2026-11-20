@@ -33,7 +33,12 @@ export const SendInput = Type.Object({
   scope: Type.Optional(Type.String({ description: 'Optional scope tag, e.g. the mission id.' })),
   interrupt: Type.Optional(
     Type.Boolean({
-      description: 'Interrupt the recipient\'s current turn before delivering (Kimi-style "message interrupts the running turn"); default false = queue at the next step boundary.',
+      description: 'Interrupt the recipient\'s running turn before delivering (tower only); default false. An idle recipient is never interrupted.',
+    }),
+  ),
+  wake: Type.Optional(
+    Type.Boolean({
+      description: 'Start a turn for a stopped recipient by delivering the persisted message; fails when the agent cannot be resumed. Default false.',
     }),
   ),
   consentRef: Type.Optional(Type.String({ description: 'Optional audit reference recording who consented to this instruction.' })),

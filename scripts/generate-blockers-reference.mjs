@@ -14,7 +14,7 @@ const cell = (value) => String(value ?? '').replace(/\|/g, '\\|').replace(/\s+/g
 const list = (codes) => codes.map((code) => `\`${code}\``).join(', ')
 
 /**
- * @param {ReadonlyArray<{ code: string, kinds: string[], summary: { en: string, zh: string }, reviewOnly?: boolean, warningByDefault?: boolean }>} entries
+ * @param {ReadonlyArray<{ code: string, kinds: string[], summary: { en: string, zh: string }, reviewOnly?: boolean, warningByDefault?: boolean, warningNote?: { en: string, zh: string } }>} entries
  * @returns {{ gate: any[], merge: any[], rebase: any[], shared: any[], review: any[], warning: any[] }}
  */
 function sections(entries) {
@@ -57,23 +57,18 @@ export function renderBlockersReference(entries = BLOCKER_DEFINITIONS) {
     shared.length === 0 ? `rebase 失败（${rebase.length} 个）` : `rebase 失败（${rebase.length} 个；${sharedNames} 与门禁共用）`
   const sharedFooter = shared.length === 0 ? '' : `；${sharedNames} 与门禁共用`
   const reviewNames = list(review.map((entry) => entry.code))
-  const warningNames = list(warning.map((entry) => entry.code))
 
-  const enSurvey =
-    warning.length === 0
-      ? ''
-      : `${warningNames} is special: it is reported as a stable warning in \`plan\`/\`preflight\` by default and
-becomes a merge blocker only when \`gates.requireFreshSurvey\` is \`true\`. Its warning object carries
-\`{code, missionId, depId, readCommit, baseCommit, message}\` so a caller can act without parsing prose.
-
-`
-  const zhSurvey =
-    warning.length === 0
-      ? ''
-      : `${warningNames} 比较特殊：默认只是 \`plan\`/\`preflight\` 的稳定警告；当 \`gates.requireFreshSurvey\` 为 \`true\` 时才会
-变成合并 blocker。其警告对象带有 \`{code, missionId, depId, readCommit, baseCommit, message}\`，调用方无需解析散文即可处理。
-
-`
+  // F96: `warningByDefault` is a family. Each row carries its own narrative —
+  // survey-stale is promotable, broad-scope is plan-only — so the reference
+  // never applies one row's promotion rule and payload to another.
+  const warningParagraphs = (locale) =>
+    warning
+      .map((entry) => entry.warningNote?.[locale])
+      .filter((text) => typeof text === 'string' && text.trim().length > 0)
+      .map((text) => `${text}\n\n`)
+      .join('')
+  const enSurvey = warningParagraphs('en')
+  const zhSurvey = warningParagraphs('zh')
   const enReview =
     review.length === 0
       ? ''

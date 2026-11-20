@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12132,
+        "value": 13276,
         "decisions": [
           {
             "from": 17008,
@@ -272,6 +272,30 @@
             "to": 12132,
             "date": "2026-11-19",
             "note": "#F88/M131: TeardownInput advertises the opt-in orphan sweep as an `orphans` boolean with its protections in the description, and tower_teardown's description names the sweep. Only that one advertised schema and description grow: profiles.tower.inputBytes becomes 12132 (was 11812) and host:active becomes 16,645 B (was 16,262), because tower_teardown is host-admitted. The tool count stays 21/14; worker, reviewer, survey and the mode-off/idle rows do not move."
+          },
+          {
+            "from": 12132,
+            "to": 12269,
+            "date": "2026-11-20",
+            "note": "#203/M141: SendInput advertises the new `wake` boolean with its default-false contract and the interrupt description stops claiming `interrupt` is the shipped default. Only that one advertised schema grows by 137 bytes in every profile that mounts tower_send: tower 12269 (was 12132), worker 6791 (was 6654), reviewer 4508 (was 4371). host:active grows with the description plus schema to 16,770 B (was 16,645); the survey presets do not mount tower_send and do not move. Tool counts stay 14/6/5."
+          },
+          {
+            "from": 12269,
+            "to": 12596,
+            "date": "2026-11-20",
+            "note": "#200/M142: tower_plan's mission object advertises the optional allowMissingScope escape hatch and its scope description states the tracked-file rule, so the one advertised PlanInput schema grows by 327 bytes wherever tower_plan is mounted. profiles.tower.inputBytes becomes 12596 (was 12269); host:active becomes 17,097 B (was 16,770). Worker, reviewer and survey presets do not mount tower_plan and do not move; tool counts stay 14/6/5."
+          },
+          {
+            "from": 12596,
+            "to": 13039,
+            "date": "2026-11-20",
+            "note": "#205/M145: MissionInput now advertises optional allowMissingScope (the widen escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. tower_mission is mounted by the tower, worker and survey presets, so their one advertised schema grows by 443 bytes: tower 13039 (was 12596), worker 7234 (was 6791). Reviewer does not mount tower_mission and does not move; tool counts stay 14/6/5."
+          },
+          {
+            "from": 13039,
+            "to": 13276,
+            "date": "2026-11-21",
+            "note": "#M147: tower_plan's allowMissingScope description now states that the same opt-in works for a later planned edit or widening, and tower_mission's description plus MissionInput's scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully. The tower profile mounts both tools, so its advertised input schema grows by 237 bytes; the tool count stays 14."
           }
         ]
       }
@@ -303,7 +327,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 6654,
+        "value": 7414,
         "decisions": [
           {
             "from": 8159,
@@ -334,6 +358,24 @@
             "to": 6654,
             "date": "2026-11-12",
             "note": "#159: the worker profile mounts tower_mission, whose MissionInput gains the artifact acceptance fields (accept/accept_note). The artifact worker uses the mandatory worker preset, so its tower_complete schema also advertises the declared-deliverable admission in the description."
+          },
+          {
+            "from": 6654,
+            "to": 6791,
+            "date": "2026-11-20",
+            "note": "#203/M141: tower_send advertises the new `wake` boolean, so the worker preset's mounted SendInput grows by 137 bytes. The tool count stays 6."
+          },
+          {
+            "from": 6791,
+            "to": 7234,
+            "date": "2026-11-20",
+            "note": "#205/M145: the worker preset mounts tower_mission, whose MissionInput gains optional allowMissingScope and deferred plus a scope description covering planned edits, so the one advertised schema grows by 443 bytes. The tool count stays 6."
+          },
+          {
+            "from": 7234,
+            "to": 7414,
+            "date": "2026-11-21",
+            "note": "#M147: the worker preset mounts tower_mission, whose description and MissionInput scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully, so its advertised input schema grows by 180 bytes. The tool count stays 6."
           }
         ]
       }
@@ -365,7 +407,7 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4371,
+        "value": 4508,
         "decisions": [
           {
             "from": 5871,
@@ -390,13 +432,19 @@
             "to": 4371,
             "date": "2026-11-12",
             "note": "#163 Phase 4: the reviewer profile loses the tower_findings schema."
+          },
+          {
+            "from": 4371,
+            "to": 4508,
+            "date": "2026-11-20",
+            "note": "#203/M141: tower_send advertises the new `wake` boolean, so the reviewer preset's mounted SendInput grows by 137 bytes. The tool count stays 5."
           }
         ]
       }
     }
   },
   "profileBytes": {
-    "date": "2026-11-12",
+    "date": "2026-11-21",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -408,23 +456,23 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 16645
+        "bytes": 17775
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 8646
+        "bytes": 9392
       },
       "preset:reviewer": {
         "tools": 5,
-        "bytes": 6000
+        "bytes": 6125
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 7586
+        "bytes": 8207
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 7586
+        "bytes": 8207
       }
     },
     "decisions": [
@@ -457,6 +505,26 @@
         "date": "2026-11-19",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#F88/M131: tower_teardown now advertises the opt-in orphan sweep (`orphans` boolean plus its protections) and its description names the sweep, so host:active becomes 14 tools / 16,645 B (was 16,262). Mode-off, idle and the presets are unchanged; the growth exposes an existing capability to callers instead of adding a new tool row."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#203/M141: tower_send now advertises `wake` and its description explains that a stopped agent keeps the message queued unless wake starts a turn, while the interrupt description stops claiming a shipped default. host:active becomes 14 tools / 16,770 B (was 16,645); preset:worker 6/8,771 (was 6/8,646) and preset:reviewer 5/6,125 (was 5/6,000), because both mount tower_send. Mode-off, idle and the survey presets are unchanged, and no tool count moves; this is the honest-receipt capability issue #203 asks for, not a new tool row."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#200/M142: tower_plan now advertises the optional allowMissingScope scope-proof escape hatch and its scope description explains the tracked-file rule, so host:active becomes 14 tools / 17,097 B (was 16,770). Mode-off, idle and every preset are unchanged because only the host profile mounts tower_plan; no tool count moves, and the growth buys the #200 planning check its explicit opt-out."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#205/M145: tower_mission now advertises optional allowMissingScope (widen's escape hatch) and deferred (step out of the widen ordering), and its scope description covers planned edits. Every profile that mounts tower_mission grows by the same 443 bytes: host:active 14/17,540 (was 14/17,097), preset:worker 6/9,214 (was 6/8,771), preset:survey and preset:survey-sandbox 5/8,029 each (was 5/7,586). Reviewer does not mount tower_mission and is unchanged; no tool count moves."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#M147: the mission-field copy is measured after the truthful rewrites. tower_plan's allowMissingScope description now states the same opt-in works for a later planned edit or widening; tower_mission's description and MissionInput's scope/allowMissingScope/deferred descriptions describe planned-edit ordering and build-or-artifact deferral instead of the stale build-only text. host:active becomes 14/17,775 B (was 17,540), preset:worker 6/9,392 (was 9,214), preset:survey and preset:survey-sandbox 5/8,207 each (was 8,029). Mode-off, idle and reviewer are unchanged; no tool count moves — this is copy truth plus the already-advertised fields, not a new capability."
       }
     ]
   }

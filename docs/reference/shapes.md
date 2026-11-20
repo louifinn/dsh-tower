@@ -25,11 +25,11 @@ conflation).
 
 | From | To |
 |---|---|
-| `planned` | `active`, `blocked`, `abandoned` |
+| `planned` | `active`, `blocked`, `paused`, `abandoned` |
 | `active` | `completed`, `blocked`, `paused`, `abandoned` |
 | `completed` | `active`, `blocked`, `abandoned` |
 | `blocked` | `active`, `abandoned` |
-| `paused` | `active`, `blocked`, `abandoned` |
+| `paused` | `active`, `blocked`, `planned`, `abandoned` |
 | `merged` | terminal |
 | `abandoned` | terminal |
 
@@ -37,22 +37,22 @@ conflation).
 
 | From | To |
 |---|---|
-| `planned` | `active`, `blocked`, `abandoned` |
+| `planned` | `active`, `blocked`, `paused`, `abandoned` |
 | `active` | `completed`, `blocked`, `paused`, `abandoned` |
 | `completed` | terminal |
 | `blocked` | `active`, `abandoned` |
-| `paused` | `active`, `blocked`, `abandoned` |
+| `paused` | `active`, `blocked`, `planned`, `abandoned` |
 | `abandoned` | terminal |
 
 ### artifact
 
 | From | To |
 |---|---|
-| `planned` | `active`, `blocked`, `abandoned` |
+| `planned` | `active`, `blocked`, `paused`, `abandoned` |
 | `active` | `completed`, `blocked`, `paused`, `abandoned` |
 | `completed` | `active`, `blocked`, `abandoned` |
 | `blocked` | `active`, `abandoned` |
-| `paused` | `active`, `blocked`, `abandoned` |
+| `paused` | `active`, `blocked`, `planned`, `abandoned` |
 | `merged` | terminal |
 | `abandoned` | terminal |
 
