@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 12269,
+        "value": 12596,
         "decisions": [
           {
             "from": 17008,
@@ -278,6 +278,12 @@
             "to": 12269,
             "date": "2026-11-20",
             "note": "#203/M141: SendInput advertises the new `wake` boolean with its default-false contract and the interrupt description stops claiming `interrupt` is the shipped default. Only that one advertised schema grows by 137 bytes in every profile that mounts tower_send: tower 12269 (was 12132), worker 6791 (was 6654), reviewer 4508 (was 4371). host:active grows with the description plus schema to 16,770 B (was 16,645); the survey presets do not mount tower_send and do not move. Tool counts stay 14/6/5."
+          },
+          {
+            "from": 12269,
+            "to": 12596,
+            "date": "2026-11-20",
+            "note": "#200/M142: tower_plan's mission object advertises the optional allowMissingScope escape hatch and its scope description states the tracked-file rule, so the one advertised PlanInput schema grows by 327 bytes wherever tower_plan is mounted. profiles.tower.inputBytes becomes 12596 (was 12269); host:active becomes 17,097 B (was 16,770). Worker, reviewer and survey presets do not mount tower_plan and do not move; tool counts stay 14/6/5."
           }
         ]
       }
@@ -426,7 +432,7 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 16770
+        "bytes": 17097
       },
       "preset:worker": {
         "tools": 6,
@@ -480,6 +486,11 @@
         "date": "2026-11-20",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#203/M141: tower_send now advertises `wake` and its description explains that a stopped agent keeps the message queued unless wake starts a turn, while the interrupt description stops claiming a shipped default. host:active becomes 14 tools / 16,770 B (was 16,645); preset:worker 6/8,771 (was 6/8,646) and preset:reviewer 5/6,125 (was 5/6,000), because both mount tower_send. Mode-off, idle and the survey presets are unchanged, and no tool count moves; this is the honest-receipt capability issue #203 asks for, not a new tool row."
+      },
+      {
+        "date": "2026-11-20",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#200/M142: tower_plan now advertises the optional allowMissingScope scope-proof escape hatch and its scope description explains the tracked-file rule, so host:active becomes 14 tools / 17,097 B (was 16,770). Mode-off, idle and every preset are unchanged because only the host profile mounts tower_plan; no tool count moves, and the growth buys the #200 planning check its explicit opt-out."
       }
     ]
   }

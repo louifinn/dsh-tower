@@ -88,8 +88,8 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | Tool | Parameters | Purpose / notes |
 |---|---|---|
 | `tower_init` | `op?` (`init` default / `adopt`), `repoRoot`, `base?`, `auto_git_init?`, `snapshot_dirty?`, `reanchor?`, `retire_missing?` | `op:"init"` creates `<git-common-dir>/dsh-tower/state.json`. The only tool that advertises `repoRoot` (bootstrap); it wins over the session directory so an explicit target can be initialized. `auto_git_init` runs `git init` + empty initial commit; `snapshot_dirty` records a dangling snapshot commit of uncommitted tracked changes used as the mission baseline; `reanchor` changes base only when no non-terminal mission exists. `op:"adopt"` reconciles the roster with the durable catalog: provably gone agents are retired (default) or marked `missing` (`retire_missing:false`). Tower-only for both ops. |
-| `tower_plan` | `missions[]` (`title` — printable Unicode, NFC-normalized, ≤120 characters, `scope[]`, `tasks[]?`, `deps[]?`, `kind?` — `build`/`survey`/`artifact`, `artifacts[]?` ≤20, `context?`, `references[]?` ≤20, `reviewPolicy?`, `reviewExemptionReason?`) | Create missions `M1..`; overlapping build scopes auto-add a dependency; rejects unknown deps and cycles. Mission ids stay ASCII (`M1`, `M2`); invisible characters and over-long titles are rejected with `invalid-argument`. `kind:"artifact"` declares concrete deliverable paths in `artifacts[]` (no globs, each inside the scope); they must be committed at the tip before completion and the merge then waits for a human acceptance of that tip. `reviewPolicy:"none"` requires a non-empty reason; when the review gate is on, preflight also requires `gates.allowReviewExemption`. `scope` is a list of file globs relative to the repository root; a directory-shaped entry (`docs/guide/`, or a bare `docs/guide` that exists at plan time) is stored as the explicit subtree glob `docs/guide/**` — see [Mission scopes](#mission-scopes). |
-| `tower_mission` | `id` (alias `missionId`), `status?`, `task_done?`, `task_drop?`+`task_drop_reason?`, `blocker?`, `clear_blockers?`, `note?`, `scope?`, `pause_cause?`, `authorization?`, `accept?`, `accept_note?` | Update one mission. Worker-safe fields are task/blocker/note; `merged` cannot be set here. `blocked` is derived from an open blocker (record `blocker`, never `status:"blocked"`); `clear_blockers` resumes it to `active`. Paused missions record `pause_cause` (user/failure/resource/dependency); resuming a user-paused mission honors `mode.requireResumeAuthorization`. `accept:true` records the human acceptance of an artifact mission's committed tip: the tool asks the human through the DSH approval channel, stamps the current branch tip, and refuses with `approval-unavailable` when the channel is missing — no argument can make an acceptance agent-made (a worker call is refused with `acceptance-human-only`). |
+| `tower_plan` | `missions[]` (`title` — printable Unicode, NFC-normalized, ≤120 characters, `scope[]`, `tasks[]?`, `deps[]?`, `kind?` — `build`/`survey`/`artifact`, `artifacts[]?` ≤20, `context?`, `references[]?` ≤20, `reviewPolicy?`, `reviewExemptionReason?`, `allowMissingScope?`) | Create missions `M1..`; overlapping build scopes auto-add a dependency; rejects unknown deps and cycles. Mission ids stay ASCII (`M1`, `M2`); invisible characters and over-long titles are rejected with `invalid-argument`. `kind:"artifact"` declares concrete deliverable paths in `artifacts[]` (no globs, each inside the scope); they must be committed at the tip before completion and the merge then waits for a human acceptance of that tip. `reviewPolicy:"none"` requires a non-empty reason; when the review gate is on, preflight also requires `gates.allowReviewExemption`. `scope` is a list of file globs relative to the repository root; a directory-shaped entry (`docs/guide/`, or a bare `docs/guide` that exists at plan time) is stored as the explicit subtree glob `docs/guide/**` — see [Mission scopes](#mission-scopes). Every entry is checked against `git ls-files` at plan time: an entry that names a tracked directory but matches nothing in it is rejected with `invalid-argument`, naming the nearest existing prefix and up to five tracked candidates. Pass `allowMissingScope:true` on that mission to accept paths the mission will create; the acceptance is recorded as one `scope.unverified` activity entry and the stored scope is unchanged. |
+| `tower_mission` | `id` (alias `missionId`), `status?`, `task_done?`, `task_drop?`+`task_drop_reason?`, `blocker?`, `clear_blockers?`, `note?`, `scope?`, `pause_cause?`, `authorization?`, `accept?`, `accept_note?` | Update one mission. Worker-safe fields are task/blocker/note; `merged` cannot be set here. `blocked` is derived from an open blocker (record `blocker`, never `status:"blocked"`); `clear_blockers` resumes it to `active`. Paused missions record `pause_cause` (user/failure/resource/dependency); resuming a user-paused mission honors `mode.requireResumeAuthorization`. `scope` widens the fence and follows the same tracked-file presence rule and directory expansion as planning; this tool has no `allowMissingScope` field yet (planned for a later version), so a widening must name a tracked path or an existing directory (a path a mission will create belongs in the original plan with `allowMissingScope`), and the widen rejection message says so without offering the flag. `accept:true` records the human acceptance of an artifact mission's committed tip: the tool asks the human through the DSH approval channel, stamps the current branch tip, and refuses with `approval-unavailable` when the channel is missing — no argument can make an acceptance agent-made (a worker call is refused with `acceptance-human-only`). |
 | `tower_inspect` | `view` (`status`/`roster`/`diff`/`preflight`/`doctor`), `missionId?`, `maxBytes?`, `offset?`, `limit?`, `includeGate?`, `includeArchived?`, `format?` | One read-only tool for five views of the same state (#163 Phase 3). `status`: dashboard by default; `missionId` returns full detail; `offset`/`limit` page active missions (default 20, max 100); `includeGate` adds gate digests; `includeArchived` appends archived summaries; `format:"markdown"` returns the board; a newer/corrupt `state.json` degrades to a read-only on-disk diagnostic instead of failing. `roster`: roster with live activity (`running`/`inactive`/`missing`/`unknown`) and `stale` flags. `diff` (requires `missionId`): merge-base diff, files, commits, capped patch (`maxBytes`); safe for reviewers. `preflight` (requires `missionId`): `{ok, blockers[], branchTip, baseTip, changedFiles, review}`; review blockers only with `review.mode:required`, and artifact missions report `acceptance-missing`/`acceptance-stale` instead (the gate still accepts a recorded human verdict as the whole-tip approval); it rethrows state errors because no gate can be computed from unreadable state. `doctor`: concept-budget surface, git, state schema, config, presets/subagents/HMR, locks, workspace lock, roster, worktree realpath/ownership, test config, leases, the terminal-mission archive and the Ralph stance (`environmentContract.ralphLoop` plus a `ralph-stance` check); returns `{ok, checks[], surface, stateLock, gitLock, stateSchema, archive, environmentContract}` and never writes. `roster`/`diff` require a known actor, `diff` also requires mission participation; `status`/`preflight`/`doctor` stay public so a broken repository can be diagnosed. |
 | `tower_spawn` | `missionId` (alias `id`), `op?` (`spawn` default / `takeover`), `role` (`worker`/`reviewer`), `name?`, `instructions?`, `worktreeRoot?`, `wait?`, `includeDirtyBase?` | Provision/reuse the worktree and start a subagent. Worker uses `tower-worker`; reviewer requires a `completed` mission and uses the read-only `tower-reviewer`; with `review.mode:off` the reviewer role is refused with `[tower:review-disabled]`. `op:"takeover"` replaces a live worker entry that is no longer running (increments ownerGeneration); the old `takeover:true` field is rejected with the replacement path. `wait:true` waits for the result, bounded by `spawn.maxWaitMs` (default 90000); the old `waitMs` field is rejected with that config path. Only one live worker per mission; `spawn.maxLiveWorkers` caps the repository. The report names the placement in `worktree`: `{path, branch, baseCommit}` for a branch worktree and `null` for a survey that reads the shared checkout or a detached sandbox. |
 | `tower_send` | `to`, `subject`, `body`, `scope?`, `interrupt?`, `wake?`, `consentRef?` | Durable message to a roster name, `tower`, or `all`. A running roster agent is steered into its current turn; a stopped one keeps the message for its next turn. `interrupt:true` (tower only) interrupts the running turn first, then delivers. `wake:true` starts a turn for a stopped agent and throws `agent-not-resumable` when that agent cannot be resumed. Activity that cannot be observed (the catalog errors or returns no rows) is never treated as stopped: `wake:true` then reports `woke:false` and says that no wake is claimed, and an explicit `interrupt:true` is still attempted and reported instead of silently skipped. `consentRef` is recorded for audit. Rate-limited by `send.maxPerMinute`. |
@@ -143,6 +143,51 @@ the entry stays literal instead of failing the plan.
 Recommended spellings for a directory subtree are `docs/guide/**` and `docs/guide/`.
 Avoid the bare `docs/guide`: it is expanded only while that directory exists at plan
 time, so the same text can mean a file or a whole subtree depending on the repository.
+
+### A scope entry must name something
+
+Expansion above describes how an entry is stored; presence decides whether it may be
+planned at all. Planning checks the raw entries against `git ls-files` before
+normalising them, so a typo is caught before a mission exists instead of after a
+spawn, when the only way out is abandoning and replanning the mission (#200).
+
+A raw entry passes when it is `**`, `.`, a directory-shaped entry (a trailing
+separator, or a bare path that is a directory in the planning checkout), or when it
+matches at least one tracked path. It also passes when its static prefix — the text
+before the first `*`, `?` or `[`, up to the last separator — is outside every tracked
+tree: planning cannot know whether a mission will create that tree, so `src/**` on a
+README-only repository is a future tree, not a typo. Root-level literals (no
+directory prefix) are unverifiable for the same reason and stay legal, so an unknown
+dependency keeps its own error and the gate fences the path as before.
+
+Everything else is a known territory without a match: an entry whose prefix is
+tracked (or exists in the checkout) but which matches no tracked file is rejected
+with `invalid-argument`. That includes a glob that matches only ignored files in a
+checked-out directory. The message names the first failing entry, the nearest
+existing prefix and up to five tracked candidates in that directory; `details.problems`
+carries `{entry, reason, closestPrefix, candidates}` for each one, and
+`details.operation` says whether a plan or a widening was rejected:
+
+```text
+[tower:invalid-argument] no tracked file matches "tests/teardown*.test.mjs"; nearest
+existing prefix "tests"; tracked files there: tests/cleanup.test.mjs — next: use a
+tracked path such as "tests/cleanup.test.mjs", or pass allowMissingScope: true to
+accept a path a mission will create
+```
+
+Case is folded for presence only: a case-only mismatch is the fence's comparison
+decision (#90), not a missing path, and nothing is rewritten. When the entry really is
+a path a mission will create, pass `allowMissingScope:true` on that mission in
+`tower_plan`; planning accepts the mission's entries without proof and records one
+`scope.unverified` activity entry naming them. The flag is an input decision, not part
+of the stored mission, and the stored scope is unchanged. `tower_mission` widening
+validates the new entries with the same rule, but its input has no escape-hatch field
+yet (the parameter is planned for a later version): a widening must name a tracked
+path or an existing directory, and a future path belongs in the original plan. The
+widen rejection says exactly that and does not offer `allowMissingScope`.
+
+When `git ls-files` fails or returns nothing, presence cannot be proved and planning
+proceeds without the check; the gate still fences the stored scope as before.
 
 ## Workspace lock
 

@@ -45,7 +45,7 @@
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 
-import { caseInsensitiveScopeMatch, fileInScope, normalizeScope, scopesOverlap } from '../../domain/scope.js'
+import { caseInsensitiveScopeMatch, fileInScope, normalizeScope, scopesOverlap, validateScopeEntries } from '../../domain/scope.js'
 import { filePathArb, scopeArb, scopeEntryArb } from './arbitraries/index.mjs'
 import { runProperty } from './helpers/harness.mjs'
 
@@ -372,5 +372,48 @@ runProperty({
     assert.equal(scopesOverlap(['a/*'], ['ab/*']), false)
     // Over-approximation is still allowed and documented, never required false.
     assert.equal(scopesOverlap(['a/**'], ['a']), true, 'the heuristic over-approximates rather than under-approximates')
+  },
+})
+
+// ---------------------------------------------------------------------------
+// #200: presence validation composes with the scope grammar
+//
+// A scope built only from the checkout's own tracked files must always pass
+// `validateScopeEntries`: the exact file, its directory (bare and with a
+// trailing separator), and its subtree glob. `**` and `.` are legal without a
+// match. The generator never invents an untracked path, so any rejection here
+// is a false positive in the new planning check.
+// ---------------------------------------------------------------------------
+
+runProperty({
+  name: 'scope algebra: presence validation accepts every scope built from tracked paths (#200)',
+  arbitrary: fc.array(filePathArb, { minLength: 1, maxLength: 8 }),
+  predicate: (files) => {
+    const trackedPaths = [...new Set(files)]
+    /** @type {Set<string>} */
+    const directories = new Set()
+    /** @type {Set<string>} */
+    const legal = new Set(['**', '.'])
+    for (const file of trackedPaths) {
+      legal.add(file)
+      const slash = file.lastIndexOf('/')
+      if (slash < 0) {
+        // A root-level file is also matched by a root-level star.
+        legal.add('*')
+        continue
+      }
+      const directory = file.slice(0, slash)
+      directories.add(directory)
+      legal.add(directory)
+      legal.add(`${directory}/`)
+      legal.add(`${directory}/**`)
+    }
+    const scope = [...legal]
+    const problems = validateScopeEntries(scope, { trackedPaths, directories })
+    assert.deepEqual(
+      problems,
+      [],
+      `presence validation rejected a scope built from tracked paths: ${JSON.stringify(problems)} for ${JSON.stringify(scope)}`,
+    )
   },
 })

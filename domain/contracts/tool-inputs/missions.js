@@ -18,7 +18,8 @@ export const PlanInput = Type.Object({
   missions: Type.Array(
     Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
-      scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey.' })),
+      scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey. Each entry must match a tracked file (or name an existing directory); pass allowMissingScope to accept a path this mission will create.' })),
+      allowMissingScope: Type.Optional(Type.Boolean({ description: 'Accept scope entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
       deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'build = writes code behind a review gate; survey = read-only investigation that reserves no scope; artifact = writes deliverables (declared via artifacts) that a human accepts at the committed tip instead of a review.' })),
