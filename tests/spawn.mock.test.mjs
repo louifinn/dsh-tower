@@ -27,6 +27,7 @@ const { validateState } = await import('../domain/state.js')
 const { stateShapeError } = await import('../domain/state/schema.js')
 const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
 const { applySpawnOutcome } = await import('../domain/collab/spawn.js')
+const { selectAgentActivity } = await import('../domain/read/views.js')
 
 after(() => removeTemp(home))
 
@@ -649,6 +650,21 @@ test('roster view: agent selects one row, tail keeps the newest rows', async () 
   } finally {
     removeTemp(root)
   }
+})
+
+// R185 P1: attribution matches a roster name/agent id as a whole token, so
+// `worker-m1` never inherits a mission-level line about `worker-m10`.
+test('roster activity: a name is a whole token, never a prefix', () => {
+  const log = [
+    { at: 1, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m10' },
+    { at: 2, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m1' },
+    { at: 3, type: 'spawn', missionId: 'M1', text: 'worker-m1 reported completion' },
+    { at: 4, type: 'spawn', missionId: 'M1', text: 'worker-m10 reported completion' },
+  ]
+  const one = selectAgentActivity(log, { name: 'worker-m1', agentId: 'child-1', missionId: 'M1' }, 50)
+  assert.deepEqual(one.map((entry) => entry.text), ['reserved worker worker-m1', 'worker-m1 reported completion'])
+  const ten = selectAgentActivity(log, { name: 'worker-m10', agentId: 'child-10', missionId: 'M1' }, 50)
+  assert.deepEqual(ten.map((entry) => entry.text), ['reserved worker worker-m10', 'worker-m10 reported completion'])
 })
 
 // F57 root cause: the failed-spawn cleanup writes `state: 'failed', agentId:

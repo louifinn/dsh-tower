@@ -13,7 +13,7 @@ import {
   isWorkerRole,
 } from '../../domain/vocabulary.js'
 import { isTerminal } from '../../domain/shapes/index.js'
-import { agentRowSummary, projectFields, rowChangedSince, selectAgentActivity } from '../../domain/read/views.js'
+import { agentRowSummary, compactAgentSummary, compactMissionSummary, projectFields, rowChangedSince, selectAgentActivity } from '../../domain/read/views.js'
 import { rosterEntryStale } from '../../domain/collab/roster.js'
 import { archiveView } from '../../app/archive.js'
 import { reviewPolicyView } from '../../domain/integration/review.js'
@@ -191,24 +191,31 @@ async function agentStatusView(ctx, tower, args, state, deps) {
   const tail = Number.isInteger(Number(args.tail)) && Number(args.tail) > 0
     ? Number(args.tail)
     : STATUS_AGENT_ACTIVITY_DEFAULT
+  const compact = args.compact === true
   return {
     revision: state.revision,
     repoRoot: tower.root,
     commonDir: tower.commonDir,
     statePath: tower.paths.state,
-    agent: agentRowSummary(entry, {
-      activity: observed ?? (parentKnown ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),
-      observed: observed !== undefined,
-      stale,
-    }),
+    // #207: `compact` keeps the agent identity and the bound mission's
+    // id/status/kind only — no observation, stale or outcome fields.
+    agent: compact
+      ? compactAgentSummary(entry)
+      : agentRowSummary(entry, {
+          activity: observed ?? (parentKnown ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),
+          observed: observed !== undefined,
+          stale,
+        }),
     mission: mission
-      ? {
-          id: mission.id,
-          status: mission.status,
-          title: mission.title ?? null,
-          kind: mission.kind ?? null,
-          owner: mission.owner ?? null,
-        }
+      ? compact
+        ? compactMissionSummary(mission)
+        : {
+            id: mission.id,
+            status: mission.status,
+            title: mission.title ?? null,
+            kind: mission.kind ?? null,
+            owner: mission.owner ?? null,
+          }
       : null,
     activity: selectAgentActivity(log, entry, tail),
   }

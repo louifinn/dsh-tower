@@ -217,15 +217,31 @@ export function selectRosterRows(rows, input = {}) {
 }
 
 /**
+ * A roster name or agent id is only attributed to a log entry when it appears
+ * as a whole token. `text.includes(name)` made `worker-m1` match a line about
+ * `worker-m10`, crediting one agent with another's events. Both ends of the
+ * match must be a non-word character (or the start/end of the text).
+ * @param {string} text
+ * @param {string} needle
+ * @returns {boolean}
+ */
+function textNamesToken(text, needle) {
+  if (!needle) return false
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`).test(text)
+}
+
+/**
  * #207: one agent's bounded recent activity, newest last.
  *
  * The activity log entries are `{at, type, missionId?, text}` and the writers
  * embed the roster name/agent id in the text (`reserved worker worker-m1`,
  * `worker-m1 reported completion`, ...), so an entry belongs to an agent when
  * it names the agent explicitly, or when its text carries the row's name or
- * agent id and it belongs to the row's mission. Mission-level entries that name
- * nobody never leak into a single agent's tail. The result is the compact
- * `{at, event, text}` shape so a caller can render one agent without the table.
+ * agent id as a whole token and it belongs to the row's mission. Mission-level
+ * entries that name nobody never leak into a single agent's tail. The result is
+ * the compact `{at, event, text}` shape so a caller can render one agent
+ * without the table.
  *
  * @param {Array<Record<string, any>>} [activity] newest-last log entries
  * @param {Record<string, any>} [entry] the roster row
@@ -253,7 +269,7 @@ export function selectAgentActivity(activity = [], entry = {}, limit = 5) {
       if (String(record.missionId) !== missionId) return false
     }
     const text = typeof record.text === 'string' ? record.text : ''
-    return (name !== null && text.includes(name)) || (agentId !== null && text.includes(agentId))
+    return (name !== null && textNamesToken(text, name)) || (agentId !== null && textNamesToken(text, agentId))
   })
 
   const wanted = Number(limit)
@@ -289,6 +305,36 @@ export function agentRowSummary(entry, observation = {}) {
     if (entry?.[key] !== undefined) summary[key] = entry[key]
   }
   return summary
+}
+
+/**
+ * #207: with `compact:true` the single-agent views keep only the identity a
+ * caller needs to name the agent and read its state — no observation counters,
+ * stale flag, activity or outcome fields. Status adds its own compact mission
+ * shape through `compactMissionSummary`.
+ * @param {Record<string, any>} entry
+ * @returns {{ name: any, role: any, missionId: any, state: any }}
+ */
+export function compactAgentSummary(entry) {
+  return {
+    name: entry?.name ?? null,
+    role: entry?.role ?? null,
+    missionId: entry?.missionId ?? null,
+    state: entry?.state ?? null,
+  }
+}
+
+/**
+ * #207: the compact mission shape a `status {agent, compact:true}` view carries.
+ * @param {Record<string, any>} mission
+ * @returns {{ id: any, status: any, kind: any }}
+ */
+export function compactMissionSummary(mission) {
+  return {
+    id: mission?.id ?? null,
+    status: mission?.status ?? null,
+    kind: mission?.kind ?? null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -398,20 +444,32 @@ export function observationFingerprint(observation) {
 
 /**
  * The wait condition over one observation, in the shared state vocabulary.
+ *
+ * The target kind decides the fact, never the other kind's row: an agent's
+ * `settled`/`inactive` reads only that roster row, so a completed mission that
+ * still has a live reviewer never reports the agent as settled (R185 P1). A
+ * mission's `settled` reads only its status, and its `inactive` is true when
+ * every roster row is settled — a mission with no rows (planned, artifact, or
+ * completed before any spawn) is inactive rather than an eternal timeout.
+ * `completed` is always the mission status, including for an agent target: the
+ * agent's `completed` means its bound mission completed/merged.
+ *
  * @param {{ mission?: any, row?: any, rows?: any[] }} observation
  * @param {string} until
  */
 export function waitConditionMet(observation, until) {
+  if (observation.row) {
+    // Agent target: `settled` and `inactive` both mean the row rests. The
+    // mission status is deliberately not consulted (R185 P1).
+    if (until === 'completed') return COMPLETED_MISSION_STATUSES.has(observation.mission?.status ?? null)
+    return SETTLED_AGENT_STATES.has(observation.row.state)
+  }
   const status = observation.mission?.status ?? null
   if (until === 'completed') return COMPLETED_MISSION_STATUSES.has(status)
   if (until === 'inactive') {
-    if (observation.row) return SETTLED_AGENT_STATES.has(observation.row.state)
-    const rows = observation.rows ?? []
-    return rows.length > 0 && rows.every((row) => SETTLED_AGENT_STATES.has(row.state))
+    return (observation.rows ?? []).every((row) => SETTLED_AGENT_STATES.has(row.state))
   }
-  if (SETTLED_MISSION_STATUSES.has(status)) return true
-  if (observation.row) return SETTLED_AGENT_STATES.has(observation.row.state)
-  return false
+  return SETTLED_MISSION_STATUSES.has(status)
 }
 
 /**

@@ -5,7 +5,7 @@
 // `agent` the output is unchanged.
 import { TowerToolError } from '../../domain/errors.js'
 import { rosterEntryStale } from '../../domain/collab/roster.js'
-import { agentRowSummary, selectAgentActivity, selectRosterRows } from '../../domain/read/views.js'
+import { agentRowSummary, compactAgentSummary, selectAgentActivity, selectRosterRows } from '../../domain/read/views.js'
 import { PARENT_STATUS_OK, ROSTER_ACTIVITY } from '../../domain/vocabulary.js'
 
 /** The activity tail is read bounded so one agent view never walks the log. */
@@ -75,11 +75,16 @@ export async function runRosterView(ctx, args, exec, deps) {
     const log = await tower.deps.store.readActivityTail(tower.paths.activity, ROSTER_ACTIVITY_TAIL)
     return {
       revision: view.revision,
-      agent: agentRowSummary(target, {
-        activity: target.activity,
-        observed: target.observed,
-        stale: target.stale,
-      }),
+      // #207: `compact` keeps the identity a caller needs to name the agent
+      // (name/role/missionId/state) without the observation, stale or outcome
+      // fields; the bounded activity tail stays separate.
+      agent: args.compact === true
+        ? compactAgentSummary(target)
+        : agentRowSummary(target, {
+            activity: target.activity,
+            observed: target.observed,
+            stale: target.stale,
+          }),
       activity: selectAgentActivity(log, target, tail),
       parentStatus,
     }

@@ -6,10 +6,6 @@
 // over a temporary git repository, so the authorization row, the repository
 // resolution and the app load path are exercised together.
 //
-// This file is not in the M162 scope fence by mistake: it is a new test file the
-// mission briefing asked for. It is committed from the mission worktree and the
-// scope gap is recorded in the handoff.
-//
 // Run with: node --test tests/wait.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -159,6 +155,183 @@ test('reached: a completed mission satisfies until:"completed"', async () => {
     assert.equal(result.detail.mission.status, 'completed')
     assert.equal(result.detail.mission.id, 'M1')
     assert.ok(Date.now() - started >= 700, 'the wait covered the settle window the test injected')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R185 P1: an agent's `settled` is the row's state, never the bound mission's.
+// A completed mission can still have a live reviewer row; waiting on that agent
+// must not report it settled.
+test('agent settled: a completed mission never settles a live row', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const call = (args) => waitTool(tools).execute({ repoRoot: repo, ...args }, towerExec)
+  try {
+    await attachWorker(tower)
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.status = 'completed'
+      mission.completedAt = Date.now()
+    })
+    const started = Date.now()
+    const timedOut = await call({ agent: 'worker-m1', timeoutMs: 1000 })
+    const elapsed = Date.now() - started
+    assert.equal(timedOut.status, 'timeout', 'a completed mission with a live row is not agent-settled')
+    assert.ok(elapsed >= 1000, `the wait stayed bounded and timed out (${elapsed}ms)`)
+    assert.equal(timedOut.last.agent.state, 'active')
+    // For an agent target, `completed` still means its bound mission.
+    const completed = await call({ agent: 'worker-m1', until: 'completed', timeoutMs: 5000 })
+    assert.equal(completed.status, 'reached')
+    assert.equal(completed.detail.mission.status, 'completed')
+    assert.equal(completed.detail.agent.state, 'active')
+    // Settle the row itself and the default settled wait reaches on the next poll.
+    await mutateState(tower, (state) => {
+      state.roster.find((row) => row.name === 'worker-m1').state = 'inactive'
+    })
+    const reached = await call({ agent: 'worker-m1', timeoutMs: 5000 })
+    assert.equal(reached.status, 'reached')
+    assert.equal(reached.detail.until, 'settled')
+    assert.equal(reached.detail.agent.state, 'inactive')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R185 P1: `paused` is a settled mission status, but it says nothing about a
+// live worker row on that mission — the agent wait must still time out.
+test('agent settled: a paused mission with a live row still times out', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await attachWorker(tower)
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.status = 'paused'
+      mission.pauseCause = 'user'
+      mission.blockers = []
+    })
+    const started = Date.now()
+    const result = await waitTool(tools).execute({ repoRoot: repo, agent: 'worker-m1', timeoutMs: 1000 }, towerExec)
+    const elapsed = Date.now() - started
+    assert.equal(result.status, 'timeout', 'a paused mission does not settle its live worker')
+    assert.ok(elapsed >= 1000, `the wait stayed bounded (${elapsed}ms)`)
+    assert.equal(result.last.agent.state, 'active')
+    assert.equal(result.last.mission.status, 'paused')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R185 P1: a mission with no roster rows is inactive; the old predicate
+// required at least one row and made these waits time out forever.
+test('mission inactive: a completed mission with no roster rows is inactive at once', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.status = 'completed'
+      mission.completedAt = Date.now()
+    })
+    const started = Date.now()
+    const result = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'inactive', timeoutMs: 1000 }, towerExec)
+    const elapsed = Date.now() - started
+    assert.equal(result.status, 'reached')
+    assert.equal(result.detail.until, 'inactive')
+    assert.equal(result.detail.mission.status, 'completed')
+    assert.ok(elapsed < 1000, `a zero-row inactive mission reaches on the first poll (${elapsed}ms)`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('mission inactive: a planned mission with no roster rows is inactive at once', async () => {
+  const { root, repo } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const started = Date.now()
+    const result = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'inactive', timeoutMs: 1000 }, towerExec)
+    const elapsed = Date.now() - started
+    assert.equal(result.status, 'reached')
+    assert.equal(result.detail.until, 'inactive')
+    assert.equal(result.detail.mission.status, 'planned')
+    assert.ok(elapsed < 1000, `a zero-row planned mission is inactive, not a timeout (${elapsed}ms)`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// The settled mission vocabulary is table-driven so a new status cannot be
+// silently omitted from the default wait.
+test('mission settled: every settled status reaches the default wait', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    for (const status of ['completed', 'merged', 'blocked', 'paused', 'abandoned']) {
+      await mutateState(tower, (state) => {
+        const mission = state.missions.find((entry) => entry.id === 'M1')
+        mission.status = status
+        mission.blockers = status === 'blocked' ? ['waiting for review'] : []
+        mission.completedAt = Date.now()
+      })
+      const result = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', timeoutMs: 1000 }, towerExec)
+      assert.equal(result.status, 'reached', `${status} is a settled mission status`)
+      assert.equal(result.detail.mission.status, status)
+      assert.equal(result.detail.until, 'settled')
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// The settled agent vocabulary is table-driven for the same reason: each of the
+// five resting row states must reach the default wait on its own.
+test('agent settled: every settled row state reaches the default wait', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await attachWorker(tower)
+    for (const state of ['inactive', 'retired', 'failed', 'interrupted', 'missing']) {
+      await mutateState(tower, (stateDoc) => {
+        stateDoc.roster.find((row) => row.name === 'worker-m1').state = state
+        stateDoc.missions.find((entry) => entry.id === 'M1').status = 'active'
+      })
+      const result = await waitTool(tools).execute({ repoRoot: repo, agent: 'worker-m1', timeoutMs: 1000 }, towerExec)
+      assert.equal(result.status, 'reached', `${state} is a settled agent state`)
+      assert.equal(result.detail.agent.state, state)
+      assert.equal(result.detail.until, 'settled')
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R185 P1: the reviewer's live case — the row vanishes mid-wait. It existed
+// when the wait began, so its disappearance is the target's final `missing`
+// state (settled), not an unknown target.
+test('agent settled: a row that vanishes mid-wait is reached as missing', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await attachWorker(tower)
+    const pending = waitTool(tools).execute({ repoRoot: repo, agent: 'worker-m1', timeoutMs: 5000 }, towerExec)
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    await mutateState(tower, (state) => {
+      state.roster = state.roster.filter((row) => row.name !== 'worker-m1')
+    })
+    const result = await pending
+    assert.equal(result.status, 'reached')
+    assert.equal(result.detail.until, 'settled')
+    assert.equal(result.detail.agent.name, 'worker-m1')
+    assert.equal(result.detail.agent.state, 'missing')
   } finally {
     removeTemp(root)
   }

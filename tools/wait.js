@@ -16,6 +16,7 @@ import {
   WAIT_UNTILS,
 } from '../domain/contracts/tool-inputs/index.js'
 import {
+  agentSummary,
   observationFingerprint,
   observeWaitTarget,
   waitConditionMet,
@@ -103,6 +104,14 @@ export function registerWaitTool(ctx, deps) {
       const startedAt = Date.now()
       /** @type {string | null} */
       let baseline = null
+      /**
+       * The last roster row observed for an agent target. A row that vanishes
+       * mid-wait is `missing` (a settled state) rather than an unknown target:
+       * the target existed when the wait began, so its absence is the target's
+       * final state, not a typo.
+       * @type {any}
+       */
+      let lastAgentRow = null
 
       for (;;) {
         const { state, reason } = await readState(tower)
@@ -111,8 +120,17 @@ export function registerWaitTool(ctx, deps) {
         }
         const observation = observeWaitTarget(state, target)
         if (!observation.found) {
+          if (lastAgentRow && (until === 'settled' || until === 'inactive')) {
+            return {
+              status: 'reached',
+              waitedMs: Math.max(0, Date.now() - startedAt),
+              target,
+              detail: { until, agent: { ...agentSummary(lastAgentRow), state: 'missing' } },
+            }
+          }
           return { status: 'unknown', waitedMs: Math.max(0, Date.now() - startedAt), target, reason: observation.reason }
         }
+        if (observation.row) lastAgentRow = observation.row
 
         if (until === 'any-change') {
           const fingerprint = observationFingerprint(observation)

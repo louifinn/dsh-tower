@@ -236,7 +236,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 15263,
+        "value": 15379,
         "decisions": [
           {
             "from": 17008,
@@ -320,7 +320,13 @@
             "from": 14166,
             "to": 15263,
             "date": "2026-11-21",
-            "note": "#201: tower_wait adds its own advertised input schema (WaitInput) to the tower profile, so inputBytes grows by 1,097 bytes and the tool count moves 14 -> 15. Worker, reviewer and survey presets do not mount tower_wait and do not move."
+            "note": "#201: tower_wait adds its own advertised input schema (WaitInput, 886 bytes) to the tower profile, while #207 had already grown tower_inspect's InspectInput by 211 bytes (the agent/tail descriptions) in every profile that mounts it. The two together grow the tower profile by 1,097 bytes, 14,166 -> 15,263, and the tool count moves 14 -> 15. Worker, reviewer and survey presets do not mount tower_wait and do not move."
+          },
+          {
+            "from": 15263,
+            "to": 15379,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now says the status/roster agent views keep only the agent identity {name,role,missionId,state} (status also the compact mission id/status/kind), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The tower profile becomes 15,379 bytes (was 15,263); the tool count stays 15."
           }
         ]
       }
@@ -352,7 +358,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 8515,
+        "value": 8631,
         "decisions": [
           {
             "from": 8159,
@@ -413,6 +419,12 @@
             "to": 8515,
             "date": "2026-11-21",
             "note": "#201/#207: tower_inspect's InspectInput grows by 211 bytes because the agent and tail descriptions now state the one-agent activity contract (status/roster only, bounded tail). tower_wait is tower-only and not mounted by the worker preset, so the tool count stays 6."
+          },
+          {
+            "from": 8515,
+            "to": 8631,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The worker preset becomes 8,631 bytes (was 8,515); the tool count stays 6."
           }
         ]
       }
@@ -444,7 +456,7 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 5609,
+        "value": 5725,
         "decisions": [
           {
             "from": 5871,
@@ -487,6 +499,12 @@
             "to": 5609,
             "date": "2026-11-21",
             "note": "#201/#207: tower_inspect's InspectInput grows by 211 bytes because the agent and tail descriptions now state the one-agent activity contract (status/roster only, bounded tail). tower_wait is tower-only and not mounted by the reviewer preset, so the tool count stays 5."
+          },
+          {
+            "from": 5609,
+            "to": 5725,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The reviewer preset becomes 5,725 bytes (was 5,609); the tool count stays 5."
           }
         ]
       }
@@ -505,23 +523,23 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 20113
+        "bytes": 20229
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 10493
+        "bytes": 10609
       },
       "preset:reviewer": {
         "tools": 5,
-        "bytes": 7226
+        "bytes": 7342
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 9308
+        "bytes": 9424
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 9308
+        "bytes": 9424
       }
     },
     "decisions": [
@@ -584,6 +602,11 @@
         "date": "2026-11-21",
         "adr": "docs/adr/0012-bounded-wait-tool.md",
         "note": "#201/#207: tower_wait is the build surface's 22nd tool and the tower profile's 15th (host:active 15/20,113 B, was 14/18,665). tower_inspect's agent/tail descriptions also grow by 211 bytes in every profile that mounts it, so preset:worker becomes 6/10,493 (was 6/10,282), preset:reviewer 5/7,226 (was 5/7,015), preset:survey and preset:survey-sandbox 5/9,308 each (was 5/9,097). Mode-off and idle do not mount either tool and are unchanged."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0012-bounded-wait-tool.md",
+        "note": "#M162 R185: tower_inspect's compact description now states the compact key sets (status/roster with agent keep only {name,role,missionId,state}; status also keeps the compact mission {id,status,kind}), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it: host:active 15/20,229 B (was 20,113), preset:worker 6/10,609 (was 10,493), preset:reviewer 5/7,342 (was 7,226), preset:survey and preset:survey-sandbox 5/9,424 each (was 9,308). Mode-off and idle do not mount tower_inspect and are unchanged; no tool count moves — the compact projection itself was already accepted, this makes its key set explicit."
       }
     ]
   }

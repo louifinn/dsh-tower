@@ -46,8 +46,10 @@ Add `tower_wait` as the 22nd build-surface tool, a tower-only blocking reach:
 
 Per-agent progress (#207) stays on `tower_inspect`: with `agent` (and optional
 `tail`, default 5, max 50) the `status` and `roster` views return only that
-row's bounded activity, never the whole table. The wait tool accepts the same
-agent identity, so a caller can inspect or wait on the same target without
+row's bounded activity, never the whole table. With `compact:true` those views
+keep only the agent identity (`name`, `role`, `missionId`, `state`) and, for
+`status`, the bound mission as `{id, status, kind}`. The wait tool accepts the
+same agent identity, so a caller can inspect or wait on the same target without
 learning a second vocabulary.
 
 ## Consequences
@@ -61,12 +63,13 @@ learning a second vocabulary.
   closed at authorization (or as `unknown` when it disappears mid-wait).
 - The all-on build surface grows from 21 to 22 tools; the default profile
   mounts 17, the tower profile advertises 15, and `host:active` becomes
-  15 tools / 20,113 B of input schema. `host:mode-off` and `host:idle` are
+  15 tools / 20,229 B of input schema. `host:mode-off` and `host:idle` are
   unchanged because they mount neither the tool nor its schema.
 - The wait's 299-character description is inside the 300-character budget; the
   new tool is one more line in `tools.generated.md` and the tools table.
-- `tower_wait` is repository-optional in the same sense as the other tower-only
-  reads: it needs a repository to resolve its catalog, and it writes nothing.
+- `tower_wait` is read-only but not repository-optional: like the rest of the
+  Tower surface it resolves the caller's catalog from a repository path, and it
+  writes nothing while it polls.
 
 ## Rejected alternatives
 
@@ -94,4 +97,7 @@ One tool, no config key, no section, no component:
 `host:active` 14/18,665 → 15/20,113 B, `preset:worker` 6/10,282 → 6/10,493,
 `preset:reviewer` 5/7,015 → 5/7,226, `preset:survey` and
 `preset:survey-sandbox` 5/9,097 → 5/9,308. `host:mode-off` (846 B) and
-`host:idle` (2,185 B) do not move.
+`host:idle` (2,185 B) do not move. R185's explicit compact description adds
+116 B to every profile that mounts `tower_inspect`: tower 15,379, worker 8,631,
+reviewer 5,725, `host:active` 20,229, and the four presets 10,609 / 7,342 /
+9,424 / 9,424.

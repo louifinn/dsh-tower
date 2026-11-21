@@ -161,6 +161,17 @@ test('every tool output satisfies its declared schema across a full mission', as
     assert.equal(single.total, undefined)
     assert.ok(Array.isArray(single.activity))
     assert.ok(single.activity.length <= 5, 'the default activity tail is bounded')
+    // #207 P2: `compact` keeps only the agent identity, plus the bound
+    // mission's id/status/kind for the status view — no activity/observed/stale
+    // or outcome keys on the projected agent object.
+    const rosterCompact = await call('tower_inspect', { repoRoot: repo, view: 'roster', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(rosterCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.equal(rosterCompact.agent.name, 'worker-m1')
+    assert.ok(Array.isArray(rosterCompact.activity), 'the compact view still carries the separate bounded activity tail')
+    const statusCompact = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(statusCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.deepEqual(Object.keys(statusCompact.mission).sort(), ['id', 'kind', 'status'])
+    assert.ok('observed' in single.agent && 'stale' in single.agent, 'non-compact keeps the observation fields')
     await assert.rejects(
       () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'roster', agent: 'worker-ghost' }, towerExec),
       (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
