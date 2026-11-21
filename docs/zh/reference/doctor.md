@@ -141,9 +141,18 @@ doctor 不会自动移除 worktree，也没有自动 teardown 策略或配置键
 `no unrecorded worktrees`。该检查把干净检出（可移除）、脏检出（保留）和目录已消失的登记（可
 prune）分开，自身从不移除任何东西；只有显式的 `orphans` 选项会移除，且只处理 worktree root 内的
 干净路径。主检出、所有被 state 引用的路径（mission worktree、sandbox、review checkout）以及 root
-之外的路径都是硬性排除，因此一个检出可以被列出却仍然不可移除。git 记录在 worktree root **之外**
-的检出也会出现在同一检查中，并且永远不会被 Tower 移除：这是有文档记录的边界，操作者要么在
-Tower 之外回收它，要么接受它。
+之外的路径都是硬性排除，因此一个检出可以被列出却仍然不可移除。
+
+同一检查还会统计空壳目录（#214）：review checkout 的内容被移除后，可能在工作树根目录下留下一个
+普通空目录；git 已不再登记它，因此任何 worktree 行都看不到它。空壳会以 `warn` 报告，detail 写出
+数量、最多五个目录名，并建议使用带 `orphans: true` 的 `tower_teardown`；该清扫只删除严格位于 root
+内、未被引用且为空的目录。非空目录会作为 keep 报告，永远不会被删除，doctor 自身仍然不做任何删除。
+review checkout 清理会在检出消失后立即删除自己的空壳，因此这条告警针对的是被中断或绕过 Tower 的
+清理所留下的空壳。
+
+git 记录在 worktree root **之外** 的检出属于其他工具，不属于 Tower（#214）。它仍会出现在同一检查
+中，但位于 `pass` 行：不属于 Tower 管理，不计入未登记 worktree 或空壳数量，也永远不会被 Tower
+移除。操作者在 Tower 之外回收或接受它。
 
 位于 mission 待 provision 路径上的检出会被报告为 in flight，而不会被当作未登记的缺陷：当一个
 尚无 worktree 记录的 mission 仍可能开始 provision（planned、active、paused 或 blocked）时，该检查
@@ -151,8 +160,8 @@ Tower 之外回收它，要么接受它。
 或 `abandoned` 关闭的 mission 不会再次 provision，因此不再保留其路径；声明不创建 worktree 的
 shape（survey）同样不会保留，所以留在 `<worktree root>/<mission id>` 的干净检出就是普通的可移除
 orphan。该保留还采用 fail-closed：如果无法读取 mission 的 kind，其预期路径会被保留并在 decision
-中写明原因，而不是被移除。只有当没有任何保留时才会使用裸 `pass` 文本；存在保留检出时，detail
-会写明 in flight 数量。
+中写明原因，而不是被移除。只有当没有保留、没有空壳且没有外部检出的情况下才会使用裸 `pass` 文本；
+否则 detail 会在对应情况存在期间写明 in flight 数量、空壳数量或外部检出。
 
 Tower 模式不会拒绝 worktree 工具的 `create_worktree`（#187）。姿态是“允许并让 Tower 看得见”：
 未登记的检出是这项检查报告的事实，而不是 Tower 试图禁止的操作。deny 条目会破坏该工具在所有仓库

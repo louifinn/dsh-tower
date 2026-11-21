@@ -324,9 +324,21 @@ dirty ones (kept) and registrations whose directory is gone (prunable), and it n
 anything itself; only the explicit `orphans` option does, and only for clean paths inside the
 worktree root. The main checkout, every path state references (mission worktree, sandbox, review
 checkout) and every path outside the root are hard exclusions, so a checkout can be listed without
-being removable. A checkout git records **outside** the worktree root is reported in the same check
-and is never removed by Tower: that is the documented limit, and the operator either reclaims it
-out of band or accepts it.
+being removable.
+
+The same check also counts empty leftover directories (#214): a review checkout whose contents were
+removed can leave an ordinary empty directory directly under the worktree root, and because git no
+longer registers it, no worktree row shows it. Such a shell is a `warn` that names the count and up
+to five directory names and points at `tower_teardown` with `orphans: true`; that sweep removes only
+empty, unrecorded directories strictly inside the root. A non-empty directory is reported as a keep
+and never deleted, and doctor still removes nothing itself. The review checkout cleanup removes its
+own shell as soon as the checkout is gone, so this warning is for shells left by an interrupted or
+out-of-band cleanup.
+
+A checkout git records **outside** the worktree root belongs to another tool, not to Tower (#214).
+It is named in the same check but on a `pass` row: it is not managed by Tower, is not counted with
+the unrecorded worktrees or empty shells, and is never removed by Tower. The operator reclaims or
+accepts it outside Tower.
 
 A checkout at the path a mission is expected to provision is reported as in flight, never as an
 unrecorded defect: while a mission with no recorded worktree can still start a provision (planned,
@@ -335,8 +347,9 @@ no remedy. A mission closed as `completed`, `merged` or `abandoned` cannot provi
 not reserve its path; neither does a shape that declares no worktree (a survey), so a clean checkout
 left at `<worktree root>/<mission id>` is an ordinary removable orphan. The reservation also fails
 closed: if a mission's kind cannot be read, its expected path is kept with the reason stated in the
-decision instead of being removed. The bare `pass` text is used only when nothing is reserved;
-otherwise the detail names the in-flight count while a reserved checkout exists.
+decision instead of being removed. The bare `pass` text is used only when nothing is reserved,
+nothing is left over and no checkout is foreign; otherwise the detail names the in-flight count, the
+leftover count or the foreign checkout while the condition exists.
 
 Tower mode does not deny the worktree tool's `create_worktree` (#187). The stance is allow and make
 visible: an unrecorded checkout is a fact this check reports, not an operation Tower tries to

@@ -25,29 +25,46 @@
 // re-verified.
 //
 // Usage:
-//   node scripts/release-notes.mjs --version <semver> --since <semver> \
+//   node scripts/release-notes.mjs [--version <semver>] --since <semver> \
 //     [--output <file>] [--check <file>] [--root <dir>]
 //
+// The body is rendered in memory and validated before anything is written: it
+// must start with the `# dsh-tower <version>` heading and be at least
+// MIN_BODY_BYTES long. `--version` defaults to the root package.json version;
+// `--since` must name an existing tag. A run that fails any check exits non-zero
+// and never creates or truncates the output file, so a mangled npm invocation
+// cannot leave a stub Release body behind.
+//
 // Exit codes: 0 success or matching --check; 1 --check mismatch; 2 bad
-// arguments, an unreadable CHANGELOG, `since >= version`, or an empty window.
+// arguments, an unreadable CHANGELOG or package.json, `since >= version`, an
+// empty window, a missing `--since` tag, or a body below the minimum.
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { compareVersions } from '../host/compatibility.js'
 import { parseArgs, runMain, UsageError } from './lib/cli.mjs'
 
-const USAGE = `usage: node scripts/release-notes.mjs --version <semver> --since <semver>
+// A Release body shorter than this is a stub, not notes: the historical npm
+// wrapper bug wrote a 9-byte file while exiting 0, so the CLI refuses anything
+// this small rather than publishing it.
+export const MIN_BODY_BYTES = 200
+
+const USAGE = `usage: node scripts/release-notes.mjs [--version <semver>] --since <semver>
                                      [--output <file>] [--check <file>] [--root <dir>] [--help]
 
-  --version  release version to generate notes for (required, e.g. 2.3.0)
-  --since    previous GitHub Release version, exclusive (required, e.g. 2.1.0)
-  --output   write the notes to this file instead of stdout
+  --version  release version to generate notes for (default: the root package.json version)
+  --since    previous GitHub Release version, exclusive; must name an existing tag
+  --output   write the notes to this file instead of stdout (alias: --out)
   --check    compare the generated notes with this file byte-for-byte
-  --root     repository root that holds CHANGELOG.md (default: current directory)
+  --root     repository root that holds CHANGELOG.md and package.json (default: current directory)
   --help     print this text
 
-A version may be written with or without its "v" tag prefix. The window
-(since, version] is emitted in ascending SemVer order, so tag-only versions
-between the two Releases are included.`
+A version may be written with or without its "v" tag prefix; --since is accepted
+as either the tag name or its version. Each value option may be given at most
+once. The window (since, version] is emitted in ascending SemVer order, so
+tag-only versions between the two Releases are included. The generated body must
+be at least ${MIN_BODY_BYTES} bytes; a shorter body is refused instead of written.`
+
 
 // SemVer 2.0.0 without build metadata: X.Y.Z with an optional pre-release.
 // Numeric core and numeric pre-release identifiers have no leading zeros, so
@@ -65,6 +82,79 @@ function usageError(message) {
   const error = new UsageError(message)
   error.showUsage = true
   return error
+}
+
+// Every value option is single-use. lib/cli's parseArgs overwrites silently, so
+// the repeat is caught here before parsing. `--out` is the same option as
+// `--output`; `--help` is harmless when repeated.
+const SINGLE_USE = new Map([
+  ['--version', '--version'],
+  ['--since', '--since'],
+  ['--output', '--output'],
+  ['--out', '--output'],
+  ['--check', '--check'],
+  ['--root', '--root'],
+])
+
+function rejectRepeatedOptions(argv) {
+  const seen = new Set()
+  for (const arg of argv) {
+    const canonical = SINGLE_USE.get(arg)
+    if (!canonical) continue
+    if (seen.has(canonical)) throw usageError(`${canonical} may be given only once`)
+    seen.add(canonical)
+  }
+}
+
+// A missing --version is not an error: the release being cut is the version the
+// root package.json already declares. An unreadable or versionless manifest is.
+function defaultVersion(root) {
+  const file = path.join(root, 'package.json')
+  let manifest
+  try {
+    manifest = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (error) {
+    throw usageError(`--version <semver> is required (cannot read ${file}: ${error?.message ?? error})`)
+  }
+  if (typeof manifest?.version !== 'string' || manifest.version.trim() === '') {
+    throw usageError(`--version <semver> is required (${file} has no version)`)
+  }
+  return manifest.version
+}
+
+// `--since` names the previous GitHub Release, which must exist as a tag before
+// notes can be built. Both the "vX.Y.Z" and "X.Y.Z" spellings are accepted.
+function requireExistingTag(root, since) {
+  const tags = spawnSync('git', ['-C', root, 'tag', '--list'], { encoding: 'utf8', windowsHide: true })
+  if (tags.error) throw new UsageError(`cannot list git tags under ${root}: ${tags.error.message}`)
+  if (tags.status !== 0) {
+    const detail = String(tags.stderr ?? '').trim() || `git exited ${tags.status}`
+    throw new UsageError(`cannot list git tags under ${root}: ${detail}`)
+  }
+  const names = new Set(String(tags.stdout ?? '').split(/\r?\n/).filter(Boolean))
+  if (!names.has(since) && !names.has(`v${since}`)) {
+    throw new UsageError(
+      `--since ${JSON.stringify(since)} is not an existing tag in ${root} ` +
+        `(looked for ${since} and v${since}); create the release tag first`,
+    )
+  }
+}
+
+// The write guard: the rendered body must be real notes, not a 9-byte stub. It
+// runs before --output touches the file and before --check compares anything.
+export function assertUsableNotes(text, version) {
+  const heading = `# dsh-tower ${version}`
+  if (typeof text !== 'string' || !text.startsWith(`${heading}\n`)) {
+    throw new Error(`generated notes are missing the "${heading}" heading`)
+  }
+  const bytes = Buffer.byteLength(text, 'utf8')
+  if (bytes < MIN_BODY_BYTES) {
+    throw new Error(
+      `generated notes for ${version} are ${bytes} bytes, below the ${MIN_BODY_BYTES}-byte minimum; ` +
+        'refusing to write a stub',
+    )
+  }
+  return bytes
 }
 
 function normalizeVersion(value, flag) {
@@ -200,12 +290,14 @@ function compareWithFile(file, result) {
 }
 
 function cli(argv) {
+  rejectRepeatedOptions(argv)
   const options = parseArgs(argv, {
     initial: { version: null, since: null, output: null, check: null, root: null, help: false },
     values: {
       '--version': 'version',
       '--since': 'since',
       '--output': 'output',
+      '--out': 'output',
       '--check': 'check',
       '--root': 'root',
     },
@@ -231,7 +323,12 @@ function cli(argv) {
 
   let result
   try {
-    result = generateReleaseNotes({ changelog, version: options.version, since: options.since })
+    // Render and validate entirely in memory. The tag check and the stub guard
+    // run before --output creates/truncates a file or --check compares one.
+    const version = options.version ?? defaultVersion(root)
+    result = generateReleaseNotes({ changelog, version, since: options.since })
+    requireExistingTag(root, result.since)
+    assertUsableNotes(result.text, result.version)
   } catch (error) {
     // UsageError messages already name the offending flag; file/data errors are
     // reported with the same prefix and exit 2 (never a partial Release).

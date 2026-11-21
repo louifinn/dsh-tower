@@ -13,7 +13,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { removeTemp } from './helpers/cleanup.mjs'
-import { extractSections, generateReleaseNotes } from '../scripts/release-notes.mjs'
+import {
+  MIN_BODY_BYTES,
+  assertUsableNotes,
+  extractSections,
+  generateReleaseNotes,
+} from '../scripts/release-notes.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const script = path.join(root, 'scripts', 'release-notes.mjs')
@@ -62,11 +67,20 @@ const FIXTURE = [
   '',
   '## 2.1.1（2026-10-23）',
   '',
+  '### 修复',
+  '',
   '- fix: one-one',
+  '- fix: keep the single-version window above the minimum body size',
+  '- fix: refuse a nine-byte stub instead of publishing it',
+  '- fix: validate the tag before any notes file is written',
+  '- fix: reject duplicate and unknown arguments with the usage block',
+  '- fix: never create or truncate the output file on a failed run',
   '',
   '## 2.1.0（2026-10-23）',
   '',
   '- feat: one',
+  '- feat: a stable window after a pre-release is still real notes',
+  '- feat: the minimum-body guard never rejects a stable release window',
   '',
   '## 2.1.0-beta.1（2026-10-22）',
   '',
@@ -74,9 +88,45 @@ const FIXTURE = [
   '',
 ].join('\n')
 
-function makeRoot(changelog = FIXTURE) {
+// Every version a test may name as `--since` (except 2.1.1, which the missing
+// tag test proves is absent) exists as a real tag, and 9.0.0 is stored without
+// the `v` prefix so both tag spellings are covered. 10.0.0 is generated but
+// never tagged: a target version does not need to exist yet.
+const TAG_VERSIONS = [
+  '2.5.0-beta',
+  '2.5.0-alpha.10',
+  '2.5.0-alpha.2',
+  '2.4.0',
+  '2.3.0',
+  '2.2.0',
+  '2.1.2',
+  '2.1.0',
+  '2.1.0-beta.1',
+  '9.0.0',
+]
+
+function git(dir, args) {
+  const result = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', windowsHide: true })
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout || `exit ${result.status}`}`)
+  }
+  return result.stdout ?? ''
+}
+
+function makeRoot(changelog = FIXTURE, { packageVersion = '2.3.0' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-release-notes-'))
   if (changelog !== null) fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), changelog)
+  if (packageVersion !== null) {
+    fs.writeFileSync(path.join(dir, 'package.json'), `${JSON.stringify({ name: 'fixture', version: packageVersion })}\n`)
+  }
+  // `--since` is validated against the real tag list, so the fixture root is a
+  // real repository with real tags. 9.0.0 is tagged without the v prefix.
+  git(dir, ['init', '-q'])
+  git(dir, ['config', 'user.email', 'fixture@example.com'])
+  git(dir, ['config', 'user.name', 'fixture'])
+  git(dir, ['add', '-A'])
+  git(dir, ['commit', '-qm', 'fixture'])
+  for (const version of TAG_VERSIONS) git(dir, ['tag', version === '9.0.0' ? version : `v${version}`])
   return dir
 }
 
@@ -109,7 +159,7 @@ function headingIndexes(text, versions) {
 
 // --- the body shape ----------------------------------------------------------
 
-test('a single-version window emits that section and the single-version line', () => {
+test('a body above the minimum is emitted for a single-version window', () => {
   const dir = makeRoot()
   try {
     const run = runNotes(dir, ['--version', '2.1.1', '--since', '2.1.0'])
@@ -118,6 +168,7 @@ test('a single-version window emits that section and the single-version line', (
       run.stdout.startsWith('# dsh-tower 2.1.1\n\n> 自上一个 Release `v2.1.0` 起的变更。\n\n---\n\n## 2.1.1'),
       run.stdout,
     )
+    assert.ok(Buffer.byteLength(run.stdout, 'utf8') > MIN_BODY_BYTES, String(Buffer.byteLength(run.stdout, 'utf8')))
     assert.ok(run.stdout.includes('## 2.1.1（2026-10-23）'))
     assert.ok(!run.stdout.includes('本 Release 包含'))
     assert.ok(!run.stdout.includes('## 2.1.0（'))
@@ -224,21 +275,121 @@ test('the real CHANGELOG: 2.1.0 to 2.3.0 includes exactly the four later section
 
 // --- argument and window failures -------------------------------------------
 
-test('a missing --version or --since is a usage error (exit 2)', () => {
+test('a missing --since is a usage error; --version falls back to package.json', () => {
   const dir = makeRoot()
   try {
-    const noVersion = runNotes(dir, ['--since', '2.1.0'])
-    assert.equal(noVersion.status, 2, noVersion.output)
-    assert.match(noVersion.stderr, /--version <semver> is required/)
-    assert.match(noVersion.stderr, /usage:/)
-
     const noSince = runNotes(dir, ['--version', '2.3.0'])
     assert.equal(noSince.status, 2, noSince.output)
     assert.match(noSince.stderr, /--since <semver> is required/)
     assert.match(noSince.stderr, /usage:/)
+
+    const defaulted = runNotes(dir, ['--since', '2.1.0'])
+    assert.equal(defaulted.status, 0, defaulted.output)
+    assert.ok(defaulted.stdout.startsWith('# dsh-tower 2.3.0\n\n'), defaulted.stdout)
   } finally {
     cleanup(dir)
   }
+})
+
+test('a missing --version with no package.json is still a usage error', () => {
+  const dir = makeRoot(FIXTURE, { packageVersion: null })
+  try {
+    const run = runNotes(dir, ['--since', '2.1.0'])
+    assert.equal(run.status, 2, run.output)
+    assert.match(run.stderr, /--version <semver> is required/)
+    assert.match(run.stderr, /usage:/)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('unknown options and positional arguments fail without writing anything', () => {
+  const dir = makeRoot()
+  const out = path.join(dir, 'notes.md')
+  try {
+    // The npm-rewritten form that produced the historical 9-byte stub: the
+    // wrapper eats `--version` and leaves `--silent --` in front of the rest.
+    const cases = [
+      ['--version', '2.3.0', '--since', '2.1.0', '--bogus'],
+      ['notes.md'],
+      ['--silent', '--', '--version', '2.3.0', '--since', '2.1.0'],
+    ]
+    for (const args of cases) {
+      const run = runNotes(dir, [...args, '--output', out])
+      assert.equal(run.status, 2, `${args.join(' ')}\n${run.output}`)
+      assert.match(run.stderr, /unknown argument/, run.output)
+      assert.ok(!fs.existsSync(out), `no output for ${args.join(' ')}`)
+    }
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('--version and --since are accepted at most once', () => {
+  const dir = makeRoot()
+  try {
+    const version = runNotes(dir, ['--version', '2.3.0', '--version', '2.3.0', '--since', '2.1.0'])
+    assert.equal(version.status, 2, version.output)
+    assert.match(version.stderr, /--version may be given only once/)
+    assert.match(version.stderr, /usage:/)
+
+    const since = runNotes(dir, ['--version', '2.3.0', '--since', '2.1.0', '--since', '2.1.0'])
+    assert.equal(since.status, 2, since.output)
+    assert.match(since.stderr, /--since may be given only once/)
+
+    const output = runNotes(dir, ['--version', '2.3.0', '--since', '2.1.0', '--output', 'a.md', '--out', 'b.md'])
+    assert.equal(output.status, 2, output.output)
+    assert.match(output.stderr, /--output may be given only once/)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('--since must name an existing tag, with or without the v prefix', () => {
+  const dir = makeRoot()
+  try {
+    const missing = runNotes(dir, ['--version', '2.3.0', '--since', '2.1.1'])
+    assert.equal(missing.status, 2, missing.output)
+    assert.match(missing.stderr, /--since "2\.1\.1" is not an existing tag/)
+    assert.match(missing.stderr, /looked for 2\.1\.1 and v2\.1\.1/)
+
+    const withoutPrefix = runNotes(dir, ['--version', '2.1.1', '--since', '2.1.0'])
+    assert.equal(withoutPrefix.status, 0, withoutPrefix.output)
+    const withPrefix = runNotes(dir, ['--version', '2.1.1', '--since', 'v2.1.0'])
+    assert.equal(withPrefix.status, 0, withPrefix.output)
+    assert.equal(withPrefix.stdout, withoutPrefix.stdout)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('a body below the minimum is refused and never written', () => {
+  const dir = makeRoot()
+  const out = path.join(dir, 'notes.md')
+  try {
+    const short = runNotes(dir, ['--version', '2.2.0', '--since', '2.1.2', '--output', out])
+    assert.equal(short.status, 2, short.output)
+    assert.match(short.stderr, /generated notes for 2\.2\.0 are \d+ bytes, below the 200-byte minimum/)
+    assert.match(short.stderr, /refusing to write a stub/)
+    assert.ok(!fs.existsSync(out), 'a rejected run must not create the output file')
+
+    fs.writeFileSync(out, 'existing notes\n')
+    const again = runNotes(dir, ['--version', '2.2.0', '--since', '2.1.2', '--output', out])
+    assert.equal(again.status, 2, again.output)
+    assert.equal(fs.readFileSync(out, 'utf8'), 'existing notes\n', 'an existing file is never truncated')
+    assert.equal(runNotes(dir, ['--version', '2.2.0', '--since', '2.1.2']).status, 2)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('generated notes must start with the version heading', () => {
+  assert.throws(
+    () => assertUsableNotes('## 2.3.0\n\n- no top-level heading\n', '2.3.0'),
+    /missing the "# dsh-tower 2\.3\.0" heading/,
+  )
+  const valid = `# dsh-tower 2.3.0\n\n${'x'.repeat(MIN_BODY_BYTES)}`
+  assert.ok(assertUsableNotes(valid, '2.3.0') >= MIN_BODY_BYTES)
 })
 
 test('unparsable versions are rejected instead of silently truncated', () => {

@@ -1279,7 +1279,7 @@ test('doctor: an unrecorded checkout inside the root is visible and orphan teard
   }
 })
 
-test('doctor: a checkout outside the worktree root is reported as a documented limit and never removed (#187)', async () => {
+test('doctor: a foreign checkout outside the root is named but never counted as a Tower orphan (#214)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx()
   try {
@@ -1290,11 +1290,17 @@ test('doctor: a checkout outside the worktree root is reported as a documented l
     const external = path.join(outsideRoot, 'external-checkout')
     git(repo, ['worktree', 'add', '-b', 'external-checkout', external, 'HEAD'])
 
+    // #214: a checkout another tool registered outside the root is not Tower's
+    // orphan. It is named so the operator can see it, but the row is a pass and
+    // the count never enters the Tower defect total.
     const report = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const check = report.checks.find((entry) => entry.id === 'worktrees-orphans')
-    assert.equal(check.status, 'warn')
+    assert.equal(check.status, 'pass')
+    assert.match(check.detail, /no unrecorded worktrees/)
     assert.match(check.detail, /outside the worktree root/)
+    assert.match(check.detail, /not managed by Tower/)
     assert.match(check.detail, /never removed by Tower/)
+    assert.equal(check.action, undefined, 'a foreign checkout has no Tower remedy')
     assert.equal(report.ok, true)
 
     const swept = await tower.teardown({ orphans: true })
@@ -1305,8 +1311,50 @@ test('doctor: a checkout outside the worktree root is reported as a documented l
 
     const recheck = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const recheckCheck = recheck.checks.find((entry) => entry.id === 'worktrees-orphans')
-    assert.equal(recheckCheck.status, 'warn', 'the documented limit stays visible until the operator accepts it')
+    assert.equal(recheckCheck.status, 'pass', 'a foreign checkout stays visible without staying an alarm')
     assert.match(recheckCheck.detail, /outside the worktree root/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: empty leftover review-checkout shells are visible and orphan teardown removes them (#214)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shells = ['M52-review-reviewer-m52-r2', 'M54-review-reviewer-m54']
+    for (const name of shells) fs.mkdirSync(path.join(checkoutRoot, name))
+    const kept = path.join(checkoutRoot, 'operator-notes')
+    fs.mkdirSync(kept)
+    fs.writeFileSync(path.join(kept, 'notes.txt'), 'not Tower\'s to delete\n')
+
+    const before = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const check = before.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(check.status, 'warn')
+    assert.match(check.detail, /2 empty leftover directories under the worktree root/)
+    assert.match(check.detail, /M52-review-reviewer-m52-r2/)
+    assert.match(check.detail, /tower_teardown/)
+    assert.match(check.action, /worktree teardown step/)
+    assert.doesNotMatch(check.action, /tower_teardown/, 'the remedy copy never names a tool id')
+    assert.equal(before.ok, true, 'an empty shell is advisory, not a failure')
+    assert.equal(fs.existsSync(path.join(checkoutRoot, shells[0])), true, 'doctor never removes a shell')
+
+    const swept = await tower.teardown({ orphans: true })
+    const removed = swept.orphanWorktrees.leftoversRemoved.map((entry) => path.basename(entry)).sort()
+    assert.deepEqual(removed, shells)
+    assert.equal(fs.existsSync(path.join(checkoutRoot, shells[0])), false)
+    assert.equal(fs.existsSync(kept), true, 'a non-empty unknown directory is preserved')
+    const keptRow = swept.orphanWorktrees.leftovers.find((entry) => path.resolve(entry.path) === path.resolve(kept))
+    assert.equal(keptRow.action, 'keep')
+
+    const after = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(afterCheck.status, 'pass')
+    assert.equal(afterCheck.detail, 'no unrecorded worktrees')
   } finally {
     removeTemp(root)
   }

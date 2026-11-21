@@ -26,6 +26,7 @@ import path from 'node:path'
 import { CLEANUP_ATTEMPTS, TRANSIENT_CLEANUP_ERRORS, assertTempPath, removeOnce, removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
 import { inventoryOrphanWorktrees, teardownWorktreeRoot } from '../app/teardown.js'
+import { removeReviewCheckout } from '../app/reviewCheckout.js'
 import { worktreePath } from '../domain/integration/provision.js'
 
 function tempDir(prefix = 'dsh-tower-cleanup-') {
@@ -677,6 +678,100 @@ test('teardown: an unreadable mission kind keeps its reservation with a reason i
     assert.match(decision.reason, /unknown mission kind "mystery"/)
     assert.equal(inventory.orphans.length, 0)
     assert.equal(inventory.inflight.length, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// #214: a review checkout whose contents were removed can leave an ordinary
+// empty directory behind, and `git worktree list` no longer shows it. The shell
+// sweep is opt-in like the worktree sweep, removes only empty unrecorded
+// directories inside the root, and the review checkout cleanup removes its own
+// shell while the roster row still names it.
+// ---------------------------------------------------------------------------
+
+test('review checkout cleanup removes the empty shell git leaves behind (#214)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-review-shell-')
+  try {
+    const shell = path.join(teardownWorktreeRoot(tower), 'M7-review-reviewer-a')
+    fs.mkdirSync(shell, { recursive: true })
+
+    const removal = await removeReviewCheckout(tower, shell)
+    assert.equal(removal.ok, true, 'an unregistered empty shell is a successful cleanup')
+    assert.equal(fs.existsSync(shell), false, 'the empty directory does not survive the cleanup')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan dry_run previews empty shells and removes nothing (#214)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-leftover-dryrun-')
+  try {
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const first = path.join(checkoutRoot, 'M52-review-reviewer-m52-r2')
+    const second = path.join(checkoutRoot, 'M54-review-reviewer-m54')
+    fs.mkdirSync(first)
+    fs.mkdirSync(second)
+
+    const result = await tower.teardown({ orphans: true, dryRun: true })
+    const report = result.orphanWorktrees
+    const row = report.leftovers.find((entry) => samePath(entry.path, first))
+    assert.equal(row.action, 'remove', 'a dry run predicts the shell removal')
+    assert.equal(row.reason, 'empty leftover directory')
+    assert.deepEqual(report.leftoversRemoved, [])
+    assert.equal(fs.existsSync(first), true, 'a dry run removes nothing')
+    assert.equal(fs.existsSync(second), true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode removes empty shells, keeps non-empty directories and writes no state (#214)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-leftover-sweep-')
+  try {
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shell = path.join(checkoutRoot, 'M82-review-reviewer-m82-r2')
+    fs.mkdirSync(shell)
+    const kept = path.join(checkoutRoot, 'operator-notes')
+    fs.mkdirSync(kept)
+    fs.writeFileSync(path.join(kept, 'notes.txt'), 'not Tower\'s to delete\n')
+    const before = await tower.load()
+
+    const result = await tower.teardown({ orphans: true })
+    const report = result.orphanWorktrees
+    assert.deepEqual(report.leftoversRemoved.map((entry) => path.resolve(entry)), [path.resolve(shell)])
+    assert.equal(fs.existsSync(shell), false, 'the empty shell is removed')
+    assert.equal(fs.existsSync(kept), true, 'a non-empty directory is never touched')
+    const keptRow = report.leftovers.find((entry) => samePath(entry.path, kept))
+    assert.equal(keptRow.action, 'keep')
+    assert.equal(keptRow.reason, 'not an empty directory; kept')
+
+    const after = await tower.load()
+    assert.equal(after.revision, before.revision, 'the shell sweep writes no state record')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: orphan mode never removes a foreign checkout outside the root (#214)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-leftover-foreign-')
+  try {
+    const foreign = addExternalWorktree(tower, 'foreign-checkout')
+    fs.writeFileSync(path.join(foreign, 'scratch.txt'), 'foreign\n')
+
+    const result = await tower.teardown({ orphans: true })
+    const decision = result.orphanWorktrees.decisions.find((entry) => samePath(entry.path, foreign))
+    assert.equal(decision.action, 'keep')
+    assert.equal(decision.reason, 'outside the worktree root')
+    assert.equal(
+      result.orphanWorktrees.leftovers.some((entry) => samePath(entry.path, foreign)),
+      false,
+      'a path outside the root is not even scanned as a leftover',
+    )
+    assert.equal(fs.existsSync(foreign), true)
   } finally {
     removeTemp(root)
   }

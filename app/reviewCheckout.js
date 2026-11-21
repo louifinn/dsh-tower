@@ -8,11 +8,16 @@
 // current branch tip with the existing `tip-moved` blocker. The checkout is
 // removed as soon as the verdict is recorded, so it can never silently drift.
 //
-// This module owns only the checkout lifecycle. The commit stamp and the
+// This module owns the checkout lifecycle, the checkout paths the orphan sweep
+// protects, and the #214 cleanup of the empty shells directly under the worktree
+// root: a checkout whose contents were removed can leave its directory behind,
+// and `git worktree list` no longer reports it. The commit stamp and the
 // admission rules live in `domain/missions/review.js` and `app/review.js`.
 import path from 'node:path'
 import { TowerToolError } from '../domain/errors.js'
 import { validateState } from '../domain/state.js'
+import { sandboxPath, worktreePath } from '../domain/integration/provision.js'
+import { shapeFor } from '../domain/shapes/index.js'
 import { removeSandbox } from './sandbox.js'
 import { resolveCheckoutRoot } from './provision.js'
 
@@ -92,7 +97,23 @@ export async function provisionReviewCheckout(tower, input = {}) {
  * @returns {Promise<{ ok: boolean, removed: boolean, attempts: number, error?: string }>}
  */
 export async function removeReviewCheckout(tower, checkout) {
-  return removeSandbox(tower, checkout)
+  const removal = await removeSandbox(tower, checkout)
+  // #214: git can unregister the checkout and delete its contents while the
+  // directory itself survives (a handle, or a cleanup that stopped at the
+  // `git worktree remove` step). The registration is already gone, so no
+  // `git worktree list` row makes this shell visible; remove it here while the
+  // roster row still names it. A non-empty directory is left to the operator.
+  if (!removal.ok) return removal
+  let empty = false
+  try {
+    empty = await isEmptyDirectory(checkout)
+  } catch {
+    return removal
+  }
+  if (!empty) return removal
+  const cleaned = await removeEmptyDirectory(checkout)
+  if (!cleaned.ok) return { ...removal, error: cleaned.error }
+  return { ...removal, removed: removal.removed || cleaned.removed }
 }
 
 /**
@@ -114,7 +135,7 @@ export async function cleanupReviewCheckout(tower, input) {
     return { checkout: entry.reviewCheckout, entryName: entry.name, missionId: entry.missionId }
   })
   if (!removal) return null
-  const result = await removeSandbox(tower, removal.checkout)
+  const result = await removeReviewCheckout(tower, removal.checkout)
   // A failed removal keeps the path on the row so teardown can retry it; the
   // verdict itself never depends on this advisory cleanup.
   if (!result.ok) return { entry: null, removal: result }
@@ -130,4 +151,297 @@ export async function cleanupReviewCheckout(tower, input) {
     return entry
   })
   return { entry: written, removal: result }
+}
+
+// Checkout path accounting shared with the #185/#214 orphan sweep. A path is
+// protected because state records it, because a provision may be about to
+// record it, or because it is the main checkout; everything else inside the
+// worktree root is a candidate for the explicit `orphans` sweep.
+const CASE_INSENSITIVE_PATHS = process.platform === 'win32'
+export const RESERVED_CHECKOUT_REASON = 'a checkout is being provisioned and is not recorded by state yet'
+// Fail closed: a mission whose kind cannot be read may still provision, so its
+// expected path stays reserved with this reason instead of being swept.
+export const RESERVED_CHECKOUT_UNKNOWN_KIND_REASON = 'a checkout may be in flight because the mission kind could not be read, so the path is kept'
+// A mission cannot start a provision once its work is closed: `completed` (only
+// a merge or acceptance remains), `merged` or `abandoned`. `paused` and
+// `blocked` can resume into a spawn, so they still reserve. This is deliberately
+// not the shape's `isTerminal`: a build's `completed` is not terminal yet.
+const PROVISIONING_CLOSED_STATUSES = new Set(['completed', 'merged', 'abandoned'])
+
+/** Canonical comparison key: absolute, and case-folded on Windows. */
+export function pathKey(value) {
+  const resolved = path.resolve(value)
+  return CASE_INSENSITIVE_PATHS ? resolved.toLowerCase() : resolved
+}
+
+/**
+ * Every checkout path the state claims: mission worktrees, detached sandboxes
+ * and live review checkouts. Teardown protects all of them, and their absence
+ * from a reinitialised state is what makes the old checkouts orphans.
+ * @param {any} state
+ * @returns {Set<string>}
+ */
+export function referencedCheckoutPaths(state) {
+  const paths = new Set()
+  const add = (value) => {
+    if (typeof value === 'string' && value.length > 0) paths.add(pathKey(value))
+  }
+  for (const mission of state.missions ?? []) {
+    add(mission.worktree?.path)
+    add(mission.sandbox)
+  }
+  for (const entry of state.roster ?? []) add(entry.reviewCheckout)
+  return paths
+}
+
+/**
+ * True when `candidate` is a strict descendant of `root`: the root itself, a
+ * sibling and every `..` escape are outside.
+ * @param {string} root
+ * @param {string} candidate
+ * @returns {boolean}
+ */
+export function isInsideWorktreeRoot(root, candidate) {
+  const rel = path.relative(path.resolve(root), path.resolve(candidate))
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
+}
+
+/**
+ * Checkout paths a running provision is about to record, each with the reason
+ * the sweep must keep it. `tower_provision` creates the checkout under the git
+ * lock and commits its record only after releasing it; reserving the expected
+ * path closes that window, so a sweep never deletes the checkout a concurrent
+ * provision just made. A path is reserved only while the mission can still start
+ * a provision: no recorded checkout, the shape declares that kind
+ * (`fields.worktree` or `fields.sandbox`), and the status is not closed. A shape
+ * read that throws keeps the reservation with a recorded reason instead of
+ * removing the path.
+ * @param {any} state
+ * @param {string} root
+ * @returns {Map<string, string>} canonical path -> why the sweep must keep it
+ */
+export function reservedCheckoutPaths(state, root) {
+  /** @type {Map<string, string>} */
+  const reserved = new Map()
+  for (const mission of state.missions ?? []) {
+    let fields = null
+    let shapeError = null
+    try {
+      fields = shapeFor(mission.kind).fields
+    } catch (error) {
+      shapeError = String(error?.message ?? error).slice(0, 160)
+    }
+    if (PROVISIONING_CLOSED_STATUSES.has(mission.status)) continue
+    for (const [recorded, declared, expected] of [
+      [mission.worktree, fields?.worktree, worktreePath(root, mission.id)],
+      [mission.sandbox, fields?.sandbox, sandboxPath(root, mission.id)],
+    ]) {
+      if (recorded) continue
+      if (!fields) reserved.set(pathKey(expected), `${RESERVED_CHECKOUT_UNKNOWN_KIND_REASON}: ${shapeError}`)
+      else if (declared) reserved.set(pathKey(expected), RESERVED_CHECKOUT_REASON)
+    }
+  }
+  return reserved
+}
+
+// #214: the app ports expose no directory enumeration or removal, and the
+// architecture gate only lets adapters import `node:fs`. The leftover sweep
+// therefore reaches `node:fs/promises` lazily from this module, the owner of the
+// review-checkout lifecycle; the proper fix is a readdir/rmdir capability on
+// StorePort, which is outside this mission's scope.
+/** @returns {Promise<any>} */
+function directoryFs() {
+  return import('node:fs/promises')
+}
+
+/**
+ * Direct child directory names of `root`, sorted. A missing root has no
+ * children; files and links are ignored so only ordinary directories are ever
+ * considered.
+ * @param {string} root
+ * @returns {Promise<string[]>}
+ */
+export async function directChildDirectories(root) {
+  const entries = await (await directoryFs()).readdir(root, { withFileTypes: true })
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+}
+
+/**
+ * True when `dir` holds no entries. `readdir` rather than a cached stat keeps a
+ * concurrent checkout from being mistaken for an empty shell.
+ * @param {string} dir
+ * @returns {Promise<boolean>}
+ */
+export async function isEmptyDirectory(dir) {
+  return (await (await directoryFs()).readdir(dir)).length === 0
+}
+
+/**
+ * Remove one empty directory. A vanished or now-non-empty directory is a benign
+ * keep (`ENOENT`/`ENOTEMPTY`/`EEXIST`): the caller re-checks both, and a busy
+ * Windows handle is a retryable removal failure.
+ * @param {string} dir
+ * @returns {Promise<{ ok: boolean, removed: boolean, error?: string }>}
+ */
+export async function removeEmptyDirectory(dir) {
+  try {
+    await (await directoryFs()).rmdir(dir)
+    return { ok: true, removed: true }
+  } catch (error) {
+    const code = String(/** @type {any} */ (error)?.code ?? '')
+    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') return { ok: true, removed: false }
+    return {
+      ok: false,
+      removed: false,
+      error: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240),
+    }
+  }
+}
+
+/**
+ * #214: ordinary directories directly under the worktree root that neither
+ * state nor `git worktree list` claims. They are the shells a review checkout
+ * leaves behind when its contents were removed but the directory survived; a
+ * non-empty or unreadable directory is reported as a keep, never removed.
+ * @param {string} root
+ * @param {any} state
+ * @param {Set<string>} registered canonical keys from `git worktree list`
+ * @returns {Promise<{ leftovers: any[], error: string | null }>}
+ */
+export async function inventoryEmptyLeftovers(root, state, registered) {
+  const referenced = referencedCheckoutPaths(state)
+  const reserved = reservedCheckoutPaths(state, root)
+  const leftovers = []
+  let names
+  try {
+    names = await directChildDirectories(root)
+  } catch (error) {
+    if (/** @type {any} */ (error)?.code === 'ENOENT') return { leftovers, error: null }
+    return {
+      leftovers,
+      error: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240),
+    }
+  }
+  for (const name of names) {
+    const entryPath = path.join(root, name)
+    const key = pathKey(entryPath)
+    if (referenced.has(key) || reserved.has(key) || registered.has(key)) continue
+    try {
+      leftovers.push(
+        (await isEmptyDirectory(entryPath))
+          ? { name, path: entryPath, action: 'remove', reason: 'empty leftover directory' }
+          : { name, path: entryPath, action: 'keep', reason: 'not an empty directory; kept' },
+      )
+    } catch (error) {
+      leftovers.push({
+        name,
+        path: entryPath,
+        action: 'keep',
+        reason: `could not inspect the directory: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 200)}`,
+      })
+    }
+  }
+  return { leftovers, error: null }
+}
+
+/**
+ * #214: remove the empty leftover directories the inventory marked, re-checking
+ * each one on a freshly loaded state under the git lock. A path state now
+ * claims, a reserved path, a registered checkout, a path outside the root, a
+ * non-empty directory and a failed removal are all kept; only an empty ordinary
+ * directory with no other owner can be removed.
+ * @param {any} tower
+ * @param {{ root: string, leftovers: any[] }} inventory
+ * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ */
+export async function sweepEmptyLeftovers(tower, inventory) {
+  const decisions = inventory.leftovers.map((entry) => ({ ...entry }))
+  const targets = decisions.filter((entry) => entry.action === 'remove')
+  if (targets.length === 0) return { decisions, removed: [] }
+
+  const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
+    let state
+    try {
+      state = await tower.load()
+    } catch (error) {
+      return { phase: 'unreadable', detail: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240) }
+    }
+    const referenced = referencedCheckoutPaths(state)
+    const reserved = reservedCheckoutPaths(state, inventory.root)
+    const registered = new Set((await tower.deps.vcs.listWorktrees(tower.root)).map((entry) => pathKey(entry.path)))
+    const results = new Map()
+    for (const entry of targets) {
+      const key = pathKey(entry.path)
+      const keep = (reason) => results.set(key, { action: 'keep', reason })
+      if (referenced.has(key)) {
+        keep('referenced by state')
+        continue
+      }
+      const reservedReason = reserved.get(key)
+      if (reservedReason) {
+        keep(reservedReason)
+        continue
+      }
+      if (registered.has(key)) {
+        keep('registered as a git worktree')
+        continue
+      }
+      if (!isInsideWorktreeRoot(inventory.root, entry.path)) {
+        keep('outside the worktree root')
+        continue
+      }
+      let info = null
+      try {
+        info = await tower.deps.store.stat(entry.path)
+      } catch {
+        info = null
+      }
+      if (!info) {
+        results.set(key, { action: 'removed', reason: 'the directory was already gone' })
+        continue
+      }
+      if (!info.isDirectory()) {
+        keep('not a directory')
+        continue
+      }
+      let empty = false
+      try {
+        empty = await isEmptyDirectory(entry.path)
+      } catch (error) {
+        keep(`could not inspect the directory: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 200)}`)
+        continue
+      }
+      if (!empty) {
+        keep('not empty')
+        continue
+      }
+      const removal = await removeEmptyDirectory(entry.path)
+      if (!removal.removed) {
+        keep(removal.ok ? 'the directory was already gone or changed' : removal.error ?? 'the removal failed')
+        continue
+      }
+      results.set(key, { action: 'removed', reason: 'empty leftover directory' })
+    }
+    return { phase: 'done', results }
+  }, tower.gitMutexOptions({ phase: 'teardown' }))
+
+  if (outcome.phase === 'unreadable') {
+    for (const entry of targets) {
+      const row = decisions.find((candidate) => candidate.path === entry.path)
+      if (!row) continue
+      row.action = 'keep'
+      row.reason = `state could not be re-read before the sweep: ${outcome.detail}`
+    }
+    return { decisions, removed: [] }
+  }
+
+  const removed = []
+  for (const entry of decisions) {
+    const swept = outcome.results.get(pathKey(entry.path))
+    if (!swept) continue
+    entry.action = swept.action
+    entry.reason = swept.reason
+    if (swept.action === 'removed') removed.push(entry.path)
+  }
+  return { decisions, removed }
 }
