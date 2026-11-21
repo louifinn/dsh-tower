@@ -62,6 +62,23 @@ stdout/stderr 文件、SHA-256 哈希、退出码、计数、required 名称、w
   通过回执（`tests-missing`）。测试门禁与审查独立：即使策略为 `review.mode:optional`（默认）或
   `off`，测试门禁仍检查分支 tip。
 
+## 完成证据与 run id（#206）
+
+完成检查只是一条声明，不是回执。旧形态 `{name, command?, exitCode?, evidence?}` 仍然可用，
+手写检查不受影响；`checks` 正是 `gates.requireChecks` 读取、review 与 preflight 展示的内容。
+
+`tower_test` 把每次运行记录为回执，并分配持久 `id`（`run-1`、`run-2`…），在 mission 内唯一，
+并与回执同寿命（只保留最近 50 条）。`tower_complete` 接受 `checks: [{name, runId}]`，其中
+`runId` 必须指向该 mission `testRuns` 中的回执：未知 id 或属于其他 mission 的 id 会在任何状态
+写入之前以 `invalid-argument` 拒绝。存储的检查就是 `{name, runId}`；同时携带 `command`、
+`exitCode` 或 `evidence` 也允许并会一并存储。
+
+preflight 会把声称的 `command` 或 `exitCode` 没有任何 mission 回执中的命令佐证的检查，作为
+提示性警告 `checks-unverified` 报告。它绝不进入 `blockers[]`，也不改变 `ok`，并在消息中给出
+补救方式：用 `tower_test` 记录运行、以 `checks: [{name, runId}]` 引用它，或删除该声明。
+`gates.requireChecks` 不变，默认仍为关闭；带 `missionId` 的 `tower_inspect`（`view:"status"`）
+会展示该 mission 的 `testRuns`，每条都带 `id`。
+
 ## 信任边界
 
 发现命令是仓库控制的代码。`tests.allowPackageDiscovery:false` 会禁用 package 块；CI 或策略 profile

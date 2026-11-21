@@ -1,6 +1,6 @@
 // Merge/preflight gate evaluation.
 import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
-import { completionBlockers, mergeGateBlockers } from '../domain/gate.js'
+import { completionBlockers, mergeGateBlockers, unverifiedCheckWarnings } from '../domain/gate.js'
 import { fullMission } from '../domain/summary.js'
 import { latestReview, reviewsForBranch } from '../domain/integration/review.js'
 import { assertActionSupported } from '../domain/shapes/index.js'
@@ -197,7 +197,7 @@ export async function evaluateGate(tower, input) {
         review: latest,
         blockers,
       }),
-      warnings: sandboxWarnings,
+      warnings: [...sandboxWarnings, ...unverifiedCheckWarnings(mission)],
       ...(archivedEntry ? { archived: true } : {}),
     }
   }

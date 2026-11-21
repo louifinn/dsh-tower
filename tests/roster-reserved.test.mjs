@@ -21,6 +21,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
+import { defaultDeps } from '../adapters/default.js'
 import { precheckWorkerOwnership } from '../app/spawn-prechecks.js'
 import { STALLED_RESERVATION_GRACE_MS } from '../app/roster.js'
 import { runAdoptView } from '../tools/views/adopt.js'
@@ -501,6 +502,104 @@ test('adopt marks an authoritative absence missing when retire_missing is false'
     assert.deepEqual(second.missing, ['ghost-1'])
     const state = await assertValidState(tower)
     assert.equal(state.roster[0].state, 'missing')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+/** Provision M1's branch worktree and return the checkout path state recorded. */
+async function provisionM1(tower) {
+  await tower.provision({ missionId: 'M1' })
+  const worktree = (await tower.load()).missions[0].worktree
+  assert.ok(worktree?.path, 'provision must record the mission worktree')
+  return worktree.path
+}
+
+// #204: adopt reports the leftover work each mission's checkout still carries,
+// so a tower that restarted can see a dirty or unmerged branch without probing
+// every checkout by hand. The roster reconciliation is unchanged.
+test('#204 adopt reports a dirty mission worktree alongside the roster', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    fs.writeFileSync(path.join(worktreePath, 'scratch.txt'), 'uncommitted\n')
+    await seedRow(tower, {
+      name: 'worker-m1',
+      role: 'worker',
+      missionId: 'M1',
+      parentSessionId: 'tower-agent',
+      state: 'failed',
+      agentId: null,
+      spawnedAt: Date.now(),
+    })
+    const result = await adopt(tower, repo)
+    assert.deepEqual(result.reaped, [], 'a provisioned worktree is not a reservation')
+    assert.deepEqual(result.unresolvable.map((row) => row.name), ['worker-m1'], 'retire semantics are unchanged')
+    assert.ok(Array.isArray(result.missions), 'adopt must report the mission worktrees')
+    assert.equal(result.missions.length, 1)
+    const mission = result.missions[0]
+    assert.equal(mission.id, 'M1')
+    assert.equal(mission.class, 'dirty')
+    assert.ok(mission.dirty.files >= 1, JSON.stringify(mission.dirty))
+    assert.ok(mission.dirty.sample.includes('scratch.txt'), JSON.stringify(mission.dirty.sample))
+    assert.match(String(mission.lastCommit.sha), /^[0-9a-f]{40}$/)
+    assert.equal(typeof mission.lastActivityAt, 'number')
+    assert.match(mission.suggestedAction, /commit|discard/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#204 adopt distinguishes clean, unmerged, missing and external worktrees', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    let result = await adopt(tower, repo)
+    assert.equal(result.missions[0].class, 'clean')
+    assert.equal(result.missions[0].dirty.files, 0)
+    assert.equal(result.missions[0].suggestedAction, 'none')
+
+    fs.writeFileSync(path.join(worktreePath, 'src.txt'), 'unmerged\n')
+    git(worktreePath, ['add', '-A'])
+    git(worktreePath, ['commit', '-m', 'unmerged work'])
+    result = await adopt(tower, repo)
+    assert.equal(result.missions[0].class, 'unmerged')
+    assert.equal(result.missions[0].dirty.files, 0)
+    assert.match(result.missions[0].suggestedAction, /tower_merge/)
+
+    fs.rmSync(worktreePath, { recursive: true, force: true })
+    result = await adopt(tower, repo)
+    assert.equal(result.missions[0].class, 'missing')
+    assert.match(result.missions[0].suggestedAction, /re-provision|abandon/)
+
+    // A directory at the recorded path that git no longer registers is an
+    // external leftover, not a mission checkout.
+    git(repo, ['worktree', 'remove', '--force', worktreePath])
+    fs.mkdirSync(worktreePath)
+    result = await adopt(tower, repo)
+    assert.equal(result.missions[0].class, 'external')
+    assert.match(result.missions[0].suggestedAction, /not registered|re-provision/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#204 adopt degrades one unreadable worktree to unknown without failing', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    const vcs = Object.freeze({
+      ...defaultDeps.vcs,
+      countCommits: async () => {
+        throw new Error('probe exploded')
+      },
+    })
+    const failing = await Tower.open(repo, { ...defaultDeps, vcs })
+    const result = await adopt(failing, repo)
+    assert.equal(result.missions.length, 1)
+    assert.equal(result.missions[0].class, 'unknown')
+    assert.equal(result.missions[0].worktreePath, worktreePath)
+    assert.match(result.missions[0].suggestedAction, /probe exploded|manually/)
   } finally {
     removeTemp(root)
   }

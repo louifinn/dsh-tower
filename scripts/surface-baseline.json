@@ -358,7 +358,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 8631,
+        "value": 8774,
         "decisions": [
           {
             "from": 8159,
@@ -425,6 +425,12 @@
             "to": 8631,
             "date": "2026-11-21",
             "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The worker preset becomes 8,631 bytes (was 8,515); the tool count stays 6."
+          },
+          {
+            "from": 8631,
+            "to": 8774,
+            "date": "2026-11-22",
+            "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so the worker preset's mounted CompleteInput grows by 143 bytes. The tool count stays 6; tower and reviewer do not mount tower_complete and do not move."
           }
         ]
       }
@@ -511,7 +517,7 @@
     }
   },
   "profileBytes": {
-    "date": "2026-11-21",
+    "date": "2026-11-22",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -527,7 +533,7 @@
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 10609
+        "bytes": 10752
       },
       "preset:reviewer": {
         "tools": 5,
@@ -535,11 +541,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 9424
+        "bytes": 9567
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 9424
+        "bytes": 9567
       }
     },
     "decisions": [
@@ -607,6 +613,11 @@
         "date": "2026-11-21",
         "adr": "docs/adr/0012-bounded-wait-tool.md",
         "note": "#M162 R185: tower_inspect's compact description now states the compact key sets (status/roster with agent keep only {name,role,missionId,state}; status also keeps the compact mission {id,status,kind}), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it: host:active 15/20,229 B (was 20,113), preset:worker 6/10,609 (was 10,493), preset:reviewer 5/7,342 (was 7,226), preset:survey and preset:survey-sandbox 5/9,424 each (was 9,308). Mode-off and idle do not mount tower_inspect and are unchanged; no tool count moves — the compact projection itself was already accepted, this makes its key set explicit."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so every preset that mounts tower_complete grows by 143 bytes: preset:worker 6/10,752 (was 6/10,609), preset:survey and preset:survey-sandbox 5/9,567 each (was 5/9,424). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves — the field is optional, so hand-written checks keep working."
       }
     ]
   }

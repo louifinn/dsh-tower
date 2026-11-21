@@ -177,7 +177,13 @@ const SCHEMAS = {
     ['missionId', 'branch', 'baseTip', 'branchTip', 'mergeBase', 'files', 'commits', 'truncated', 'patch'],
   ),
   adopt: S.obj(
-    { retired: S.arr(S.str), skippedUnknownParents: S.arr(S.str), roster: S.arr(S.obj()), parentStatus: S.obj() },
+    {
+      retired: S.arr(S.str),
+      skippedUnknownParents: S.arr(S.str),
+      roster: S.arr(S.obj()),
+      parentStatus: S.obj(),
+      missions: S.arr(S.obj()),
+    },
     ['retired', 'skippedUnknownParents', 'roster', 'parentStatus'],
   ),
   send: S.obj({ message: S.obj(), deliveries: S.arr(S.obj()) }, ['message', 'deliveries']),
@@ -234,6 +240,7 @@ const SCHEMAS = {
       baseTip: S.any,
       changedFiles: S.any,
       review: S.any,
+      warnings: S.arr(S.obj()),
     },
     ['ok', 'blockers', 'missionId'],
   ),
@@ -371,7 +378,10 @@ const SCHEMAS = {
 
 // #163 Phase 4: dispatchers carry one of several documented shapes, so no
 // field is required by every path; the union keeps each shape visible.
-SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties }, [])
+// `adopt.missions` is adopt-only: DSH's output validator type-checks every
+// declared property even when it is absent, so the shared init/adopt view
+// leaves that array open while SCHEMAS.adopt keeps its documented shape.
+SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties, missions: S.any }, [])
 SCHEMAS.findingOps = S.obj({ ...SCHEMAS.finding.properties, ...SCHEMAS.findings.properties }, [])
 SCHEMAS.importOps = S.obj({ ...SCHEMAS.importLegacy.properties, ...SCHEMAS.legacyMap.properties }, [])
 

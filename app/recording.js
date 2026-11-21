@@ -12,7 +12,16 @@ export async function recordTestRun(tower, input = {}) {
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) fail(`unknown mission "${input.missionId}"`)
     if (!mission.testRuns) mission.testRuns = []
-    const rawReceipt = { ...input.receipt, recordedAt: Date.now() }
+    // #206: receipts carry a durable id so `tower_complete` checks can cite the
+    // run that backs them. Callers may supply an id; otherwise mint the next
+    // `run-N` in this mission (ids are only unique within a mission).
+    const supplied = input.receipt && typeof input.receipt.id === 'string' ? input.receipt.id.trim() : ''
+    const highest = mission.testRuns.reduce((max, run) => {
+      const match = /^run-(\d+)$/.exec(String(run?.id ?? ''))
+      return match ? Math.max(max, Number(match[1])) : max
+    }, 0)
+    const receiptId = supplied || `run-${highest + 1}`
+    const rawReceipt = { id: receiptId, ...input.receipt, recordedAt: Date.now() }
     // Keep state bounded even when a repository reports a huge suite.
     const tests = Array.isArray(rawReceipt.tests) ? rawReceipt.tests : []
     const receipt = tests.length > 100

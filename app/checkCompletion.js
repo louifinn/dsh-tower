@@ -166,7 +166,7 @@ async function commitCompletion(tower, input, prepared) {
     const mission = state.missions.find((entry) => entry.id === input.missionId)
     if (!mission) throw new TowerToolError('mission-not-found', `unknown mission "${input.missionId}"`)
     const commits = prepared.commits
-    const checks = normalizeChecks(input.checks)
+    const checks = normalizeChecks(input.checks, { mission, missions: state.missions })
     const now = Date.now()
     // The revision guard above proves the roster is exactly what the admission
     // check saw; revive a mis-marked stale row and close it in the same write.

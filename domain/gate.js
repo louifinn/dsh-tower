@@ -2,7 +2,7 @@
 // @ts-check
 import { shapeFor } from './shapes/index.js'
 import { blocker as blockerRecord } from './shapes/blockers.js'
-import { passingDiscovery } from './evidence.js'
+import { EVIDENCE_SOURCE, evidenceEntries, passingDiscovery } from './evidence.js'
 import { dependencySatisfied } from './integration/gate.js'
 import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
@@ -22,6 +22,63 @@ import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integr
  */
 export function completionBlockers(mission, config = {}) {
   return shapeFor(mission.kind).completionBlockers(mission, config)
+}
+
+/** Advisory warning code for a completion check no recorded run corroborates (#206). */
+export const UNVERIFIED_CHECK_WARNING = 'checks-unverified'
+
+/**
+ * Advisory warnings for completion checks that claim command evidence no
+ * recorded test run corroborates (#206). Warnings never block a merge: a check
+ * written before durable run ids existed is still accepted, but preflight
+ * points the operator at the `tower_test` + `checks: [{ name, runId }]` remedy.
+ *
+ * Evidence goes through domain/evidence.js (the single reader), and the code is
+ * deliberately not a blocker code, so it stays out of the blocker registry.
+ * @param {Mission} mission
+ * @returns {Array<{ code: string, missionId: string, check: string, message: string }>}
+ */
+export function unverifiedCheckWarnings(mission) {
+  if (!mission || typeof mission !== 'object') return []
+  const entries = evidenceEntries(shapeFor(mission.kind).evidence, mission)
+  /** @type {Array<{ command: string, exitCode: number | null }>} */
+  const recorded = []
+  for (const entry of entries) {
+    if (entry.source !== EVIDENCE_SOURCE.DISCOVERY) continue
+    const commands = Array.isArray(entry.entry?.commands) ? entry.entry.commands : []
+    for (const command of commands) {
+      if (!command || typeof command.command !== 'string' || !command.command.trim()) continue
+      recorded.push({
+        command: command.command.trim(),
+        exitCode: Number.isInteger(command.exitCode) ? command.exitCode : null,
+      })
+    }
+  }
+  // evidenceEntries lists completion checks newest first; warnings follow the
+  // report order an operator reads.
+  const claims = entries.filter((entry) => entry.source === EVIDENCE_SOURCE.COMPLETION).reverse()
+  /** @type {Array<{ code: string, missionId: string, check: string, message: string }>} */
+  const warnings = []
+  for (const claim of claims) {
+    const check = claim.entry
+    const claimCommand = typeof check?.command === 'string' ? check.command.trim() : ''
+    const claimExit = Number.isInteger(check?.exitCode) ? check.exitCode : null
+    // A name-only or evidence-only check makes no command claim, and a check
+    // that cites a durable run id is already backed by that receipt.
+    if (!claimCommand && claimExit === null) continue
+    if (typeof check?.runId === 'string' && check.runId.trim()) continue
+    const corroborated = recorded.some((entry) => (!claimCommand || entry.command === claimCommand)
+      && (claimExit === null || entry.exitCode === claimExit))
+    if (corroborated) continue
+    const claimText = claimCommand ? `command "${claimCommand}"` : `exit code ${claimExit}`
+    warnings.push({
+      code: UNVERIFIED_CHECK_WARNING,
+      missionId: mission.id,
+      check: String(check?.name ?? ''),
+      message: `check "${String(check?.name ?? '')}" claims ${claimText} but no recorded test run corroborates it; record the run with tower_test and cite checks:[{name, runId}] on tower_complete, or drop the claim`,
+    })
+  }
+  return warnings
 }
 
 /**
