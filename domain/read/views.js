@@ -219,8 +219,11 @@ export function selectRosterRows(rows, input = {}) {
 /**
  * A roster name or agent id is only attributed to a log entry when it appears
  * as a whole token. `text.includes(name)` made `worker-m1` match a line about
- * `worker-m10`, crediting one agent with another's events. Both ends of the
- * match must be a non-word character (or the start/end of the text).
+ * `worker-m10`, crediting one agent with another's events. `-` is also part of
+ * a name token: the generated names are `role-mission-suffix` (`worker-m1-2`),
+ * so a word-character boundary alone still let `worker-m1` match `worker-m1-2`.
+ * Both ends of the match must be outside `[A-Za-z0-9_-]` (or the start/end of
+ * the text).
  * @param {string} text
  * @param {string} needle
  * @returns {boolean}
@@ -228,7 +231,7 @@ export function selectRosterRows(rows, input = {}) {
 function textNamesToken(text, needle) {
   if (!needle) return false
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`).test(text)
+  return new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`).test(text)
 }
 
 /**

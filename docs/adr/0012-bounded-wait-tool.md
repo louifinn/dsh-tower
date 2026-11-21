@@ -46,11 +46,14 @@ Add `tower_wait` as the 22nd build-surface tool, a tower-only blocking reach:
 
 Per-agent progress (#207) stays on `tower_inspect`: with `agent` (and optional
 `tail`, default 5, max 50) the `status` and `roster` views return only that
-row's bounded activity, never the whole table. With `compact:true` those views
-keep only the agent identity (`name`, `role`, `missionId`, `state`) and, for
-`status`, the bound mission as `{id, status, kind}`. The wait tool accepts the
-same agent identity, so a caller can inspect or wait on the same target without
-learning a second vocabulary.
+row's bounded activity, never the whole table. `status` without `agent` is the
+dashboard and has no bounded tail, so `tail` on `status` requires `agent` and is
+otherwise refused with `invalid-argument` instead of being silently ignored;
+`roster` without `agent` accepts `tail` as the newest-N-rows bound. With
+`compact:true` those views keep only the agent identity (`name`, `role`,
+`missionId`, `state`) and, for `status`, the bound mission as `{id, status,
+kind}`. The wait tool accepts the same agent identity, so a caller can inspect or
+wait on the same target without learning a second vocabulary.
 
 ## Consequences
 

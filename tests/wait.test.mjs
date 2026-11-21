@@ -266,6 +266,47 @@ test('mission inactive: a planned mission with no roster rows is inactive at onc
   }
 })
 
+// R186 P2-3: `inactive` is "every roster row is settled", not "the mission is
+// settled OR every row is settled". A mission with a live row must time out even
+// when its status is terminal, and it must reach only after the row itself
+// settles — the regression catcher for that OR.
+test('mission inactive: a live worker row keeps the mission from being inactive', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    // Recording the spawn moves the planned mission to `active`; the live row
+    // is the fact `inactive` must consult.
+    await attachWorker(tower)
+    const started = Date.now()
+    const timedOut = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'inactive', timeoutMs: 1000 }, towerExec)
+    const elapsed = Date.now() - started
+    assert.equal(timedOut.status, 'timeout', 'an active row is not inactive')
+    assert.ok(elapsed >= 1000, `the wait stayed bounded and timed out (${elapsed}ms)`)
+    assert.equal(timedOut.last.mission.status, 'active')
+    assert.equal(timedOut.last.roster[0].state, 'active')
+    // The P1-B shape: a terminal mission status does not make its live row
+    // settled. `inactive` must still time out here.
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.status = 'completed'
+      mission.completedAt = Date.now()
+    })
+    const stillLive = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'inactive', timeoutMs: 1000 }, towerExec)
+    assert.equal(stillLive.status, 'timeout', 'a completed mission with a live row is not inactive')
+    assert.equal(stillLive.last.mission.status, 'completed')
+    assert.equal(stillLive.last.roster[0].state, 'active')
+    await tower.recordSpawnOutcome({ missionId: 'M1', name: 'worker-m1', state: 'inactive', detail: 'mission finished' })
+    const reached = await waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'inactive', timeoutMs: 5000 }, towerExec)
+    assert.equal(reached.status, 'reached')
+    assert.equal(reached.detail.until, 'inactive')
+    assert.equal(reached.detail.mission.status, 'completed', 'the mission status alone never decided; the row did')
+    assert.equal(reached.detail.agent, undefined, 'a mission target reports the mission, not one row')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 // The settled mission vocabulary is table-driven so a new status cannot be
 // silently omitted from the default wait.
 test('mission settled: every settled status reaches the default wait', async () => {
@@ -429,6 +470,63 @@ test('any-change: returns on the first observed change after the baseline poll',
     assert.equal(result.status, 'reached')
     assert.match(String(result.detail.mission.title), /^Changed while waiting \d+$/)
     assert.equal(result.detail.until, 'any-change')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R186: `any-change` observes the same target as the other modes, so a row that
+// vanishes mid-wait is a reached change reported as `missing`, not `unknown`.
+test('any-change: a row that vanishes mid-wait is reached as missing', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await attachWorker(tower)
+    const pending = waitTool(tools).execute({ repoRoot: repo, agent: 'worker-m1', until: 'any-change', timeoutMs: 5000 }, towerExec)
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    await mutateState(tower, (state) => {
+      state.roster = state.roster.filter((row) => row.name !== 'worker-m1')
+    })
+    const result = await pending
+    assert.equal(result.status, 'reached')
+    assert.equal(result.detail.until, 'any-change')
+    assert.equal(result.detail.agent.name, 'worker-m1')
+    assert.equal(result.detail.agent.state, 'missing')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R186: the observed projection is the mission/agent summary plus roster rows.
+// A task edit changes state (and the revision) but not that projection, so it
+// must not wake `any-change`; a title edit must.
+test('any-change: a task edit is outside the observed projection', async () => {
+  const { root, repo, tower } = await seeded()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    let settled = false
+    const pending = waitTool(tools).execute({ repoRoot: repo, missionId: 'M1', until: 'any-change', timeoutMs: 8000 }, towerExec)
+    const tracked = pending.then((value) => {
+      settled = true
+      return value
+    })
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.tasks = [...(mission.tasks ?? []), { text: 'not projected', status: 'open' }]
+    })
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    assert.equal(settled, false, 'a task-only edit does not wake any-change')
+    await mutateState(tower, (state) => {
+      const mission = state.missions.find((entry) => entry.id === 'M1')
+      mission.title = 'projected change'
+    })
+    const result = await tracked
+    assert.equal(result.status, 'reached')
+    assert.equal(result.detail.until, 'any-change')
+    assert.equal(result.detail.mission.title, 'projected change')
   } finally {
     removeTemp(root)
   }

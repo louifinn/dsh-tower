@@ -184,6 +184,22 @@ test('every tool output satisfies its declared schema across a full mission', as
       () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 51 }, towerExec),
       (error) => error.code === 'invalid-argument',
     )
+    // R186: `tail` bounds one agent's activity or the newest roster rows; the
+    // status dashboard has no tail to cut, so the combination is refused
+    // instead of silently ignored.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 3 }, towerExec),
+      (error) => error.code === 'invalid-argument' && /tail only with agent/.test(error.message),
+    )
+    // With `agent`, tail still bounds that one row's status activity.
+    const statusTail = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', tail: 2 })
+    assert.ok(statusTail.activity.length <= 2, 'status + agent + tail bounds the activity')
+    // R186: an unknown agent on `status` alone is refused, never answered with
+    // the dashboard.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', agent: 'worker-ghost' }, towerExec),
+      (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
+    )
 
     await call('tower_send', { repoRoot: repo, to: 'worker-m1', subject: 'note', body: 'read me' })
     await call('tower_inbox', { repoRoot: repo }, workerExec)

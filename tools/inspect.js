@@ -69,6 +69,16 @@ export function registerInspectTool(ctx, deps) {
       if (args.agent !== undefined && args.missionId !== undefined) {
         throw new TowerToolError('invalid-argument', 'tower_inspect takes missionId or agent, not both')
       }
+      // `tail` bounds one agent's activity (status/roster with `agent`) or the
+      // newest roster rows (roster without `agent`). `status` without `agent`
+      // renders the dashboard, which has no tail to bound, so reject the
+      // combination instead of silently dropping the argument.
+      if (args.tail !== undefined && args.view === INSPECT_VIEW.status && args.agent === undefined) {
+        throw new TowerToolError(
+          'invalid-argument',
+          'tower_inspect view "status" takes tail only with agent; pass agent, use the roster view, or omit tail',
+        )
+      }
       if (args.tail !== undefined && !AGENT_VIEWS.has(args.view)) {
         throw new TowerToolError('invalid-argument', `tower_inspect tail is available with view "status" or "roster"`)
       }

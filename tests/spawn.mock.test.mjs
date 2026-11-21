@@ -654,17 +654,32 @@ test('roster view: agent selects one row, tail keeps the newest rows', async () 
 
 // R185 P1: attribution matches a roster name/agent id as a whole token, so
 // `worker-m1` never inherits a mission-level line about `worker-m10`.
+// R186 P2-2: `-` is part of a generated name (`role-mission-suffix`), so
+// `worker-m1` must also not match `worker-m1-2` in either direction.
 test('roster activity: a name is a whole token, never a prefix', () => {
   const log = [
     { at: 1, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m10' },
     { at: 2, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m1' },
     { at: 3, type: 'spawn', missionId: 'M1', text: 'worker-m1 reported completion' },
     { at: 4, type: 'spawn', missionId: 'M1', text: 'worker-m10 reported completion' },
+    { at: 5, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m1-2' },
+    { at: 6, type: 'spawn', missionId: 'M1', text: 'worker-m1-2 reported completion' },
   ]
   const one = selectAgentActivity(log, { name: 'worker-m1', agentId: 'child-1', missionId: 'M1' }, 50)
   assert.deepEqual(one.map((entry) => entry.text), ['reserved worker worker-m1', 'worker-m1 reported completion'])
   const ten = selectAgentActivity(log, { name: 'worker-m10', agentId: 'child-10', missionId: 'M1' }, 50)
   assert.deepEqual(ten.map((entry) => entry.text), ['reserved worker worker-m10', 'worker-m10 reported completion'])
+  // The suffixed row is a different agent on the same mission: its text-only
+  // hits belong to it alone, and the base name does not claim them.
+  const suffixed = selectAgentActivity(
+    log,
+    { name: 'worker-m1-2', agentId: 'child-1-2', missionId: 'M1' },
+    50,
+  )
+  assert.deepEqual(suffixed.map((entry) => entry.text), [
+    'reserved worker worker-m1-2',
+    'worker-m1-2 reported completion',
+  ])
 })
 
 // F57 root cause: the failed-spawn cleanup writes `state: 'failed', agentId:

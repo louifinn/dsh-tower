@@ -12,7 +12,7 @@
 //        survey-sandbox) own theirs through `ctx.tools.restrict({ allow })` in
 //        their policy modules; the host session has no preset, so its L0 is
 //        "the mounted surface" and L1 is the only subtraction. #163 landed the
-//        consolidated 21-tool surface and the role predicates; this table
+//        consolidated 22-tool surface and the role predicates; this table
 //        follows that build.
 //   L1 — this module. A pure function of (phase, registered names). Exposure
 //        only subtracts: a phase row may hide a registered tool, never invent

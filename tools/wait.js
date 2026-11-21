@@ -108,7 +108,8 @@ export function registerWaitTool(ctx, deps) {
        * The last roster row observed for an agent target. A row that vanishes
        * mid-wait is `missing` (a settled state) rather than an unknown target:
        * the target existed when the wait began, so its absence is the target's
-       * final state, not a typo.
+       * final state, not a typo. `any-change` observes the same target, so a
+       * disappearance there is also a reached change, reported as `missing`.
        * @type {any}
        */
       let lastAgentRow = null
@@ -120,7 +121,7 @@ export function registerWaitTool(ctx, deps) {
         }
         const observation = observeWaitTarget(state, target)
         if (!observation.found) {
-          if (lastAgentRow && (until === 'settled' || until === 'inactive')) {
+          if (lastAgentRow && (until === 'settled' || until === 'inactive' || until === 'any-change')) {
             return {
               status: 'reached',
               waitedMs: Math.max(0, Date.now() - startedAt),
