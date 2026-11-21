@@ -27,6 +27,7 @@ const { validateState } = await import('../domain/state.js')
 const { stateShapeError } = await import('../domain/state/schema.js')
 const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
 const { applySpawnOutcome } = await import('../domain/collab/spawn.js')
+const { selectAgentActivity } = await import('../domain/read/views.js')
 
 after(() => removeTemp(home))
 
@@ -636,7 +637,12 @@ test('roster view: agent selects one row, tail keeps the newest rows', async () 
     assert.ok(all.roster[0].lastObservedAt >= observedAt, 'observation time is the observation clock')
 
     const one = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, agent: 'worker-m2' })
-    assert.deepEqual(one.roster.map((row) => row.name), ['worker-m2'])
+    // #207: a single-agent roster view is the row plus its bounded activity
+    // tail, never the roster table.
+    assert.equal(one.agent.name, 'worker-m2')
+    assert.equal(one.roster, undefined, 'the single-agent view never returns the whole table')
+    assert.ok(Array.isArray(one.activity), 'the single-agent view carries the activity tail')
+    assert.ok(one.activity.length <= 5, 'the activity tail is bounded')
 
     const tail = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, tail: 1 })
     assert.deepEqual(tail.roster.map((row) => row.name), ['worker-m2'], 'tail keeps the newest roster row')
@@ -644,6 +650,36 @@ test('roster view: agent selects one row, tail keeps the newest rows', async () 
   } finally {
     removeTemp(root)
   }
+})
+
+// R185 P1: attribution matches a roster name/agent id as a whole token, so
+// `worker-m1` never inherits a mission-level line about `worker-m10`.
+// R186 P2-2: `-` is part of a generated name (`role-mission-suffix`), so
+// `worker-m1` must also not match `worker-m1-2` in either direction.
+test('roster activity: a name is a whole token, never a prefix', () => {
+  const log = [
+    { at: 1, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m10' },
+    { at: 2, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m1' },
+    { at: 3, type: 'spawn', missionId: 'M1', text: 'worker-m1 reported completion' },
+    { at: 4, type: 'spawn', missionId: 'M1', text: 'worker-m10 reported completion' },
+    { at: 5, type: 'spawn', missionId: 'M1', text: 'reserved worker worker-m1-2' },
+    { at: 6, type: 'spawn', missionId: 'M1', text: 'worker-m1-2 reported completion' },
+  ]
+  const one = selectAgentActivity(log, { name: 'worker-m1', agentId: 'child-1', missionId: 'M1' }, 50)
+  assert.deepEqual(one.map((entry) => entry.text), ['reserved worker worker-m1', 'worker-m1 reported completion'])
+  const ten = selectAgentActivity(log, { name: 'worker-m10', agentId: 'child-10', missionId: 'M1' }, 50)
+  assert.deepEqual(ten.map((entry) => entry.text), ['reserved worker worker-m10', 'worker-m10 reported completion'])
+  // The suffixed row is a different agent on the same mission: its text-only
+  // hits belong to it alone, and the base name does not claim them.
+  const suffixed = selectAgentActivity(
+    log,
+    { name: 'worker-m1-2', agentId: 'child-1-2', missionId: 'M1' },
+    50,
+  )
+  assert.deepEqual(suffixed.map((entry) => entry.text), [
+    'reserved worker worker-m1-2',
+    'worker-m1-2 reported completion',
+  ])
 })
 
 // F57 root cause: the failed-spawn cleanup writes `state: 'failed', agentId:

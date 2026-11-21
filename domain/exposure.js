@@ -12,7 +12,7 @@
 //        survey-sandbox) own theirs through `ctx.tools.restrict({ allow })` in
 //        their policy modules; the host session has no preset, so its L0 is
 //        "the mounted surface" and L1 is the only subtraction. #163 landed the
-//        consolidated 21-tool surface and the role predicates; this table
+//        consolidated 22-tool surface and the role predicates; this table
 //        follows that build.
 //   L1 — this module. A pure function of (phase, registered names). Exposure
 //        only subtracts: a phase row may hide a registered tool, never invent
@@ -79,6 +79,9 @@ export const EXPOSURE_TABLE = Object.freeze({
   // active: read-only views and health (status/roster/diff/preflight/doctor
   // are views of one `tower_inspect`, #163 Phase 3)
   tower_inspect: { off: false, idle: false, active: true },
+  // active: one bounded wait (#201) is a read of state and the roster; it is
+  // tower-only and never part of a role preset.
+  tower_wait: { off: false, idle: false, active: true },
   tower_inbox: { off: false, idle: false, active: true },
   // active: collaboration
   tower_send: { off: false, idle: false, active: true },

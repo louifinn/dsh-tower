@@ -33,6 +33,9 @@ export const TOWER_ONLY_TOOLS = Object.freeze([
   'tower_import',
   'tower_reload',
   'tower_resource',
+  // #201: one bounded wait over the whole roster is an operator action, not a
+  // worker/reviewer contract; the worker presets never mount it.
+  'tower_wait',
 ])
 
 /**

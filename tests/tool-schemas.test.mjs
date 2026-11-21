@@ -119,6 +119,15 @@ test('every tool output satisfies its declared schema across a full mission', as
     const missionId = planned.missions[0].id
     await call('tower_inspect', { repoRoot: repo, view: 'status' })
 
+    // #201: a bounded wait returns one conclusion. The planned mission cannot
+    // reach `completed` inside the timeout, and an absent mission is unknown —
+    // never a timeout.
+    const waited = await call('tower_wait', { repoRoot: repo, missionId, timeoutMs: 1000 })
+    assert.equal(waited.status, 'timeout')
+    assert.equal(waited.target.missionId, missionId)
+    const missing = await call('tower_wait', { repoRoot: repo, missionId: 'M999', timeoutMs: 1000 })
+    assert.equal(missing.status, 'unknown')
+
     const spawned = await call('tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
     assert.equal(spawned.preset, 'custom-worker', 'repo config spawn.workerPreset wins over the profile')
     const workerExec = { agent: { id: spawned.agentId } }
@@ -138,6 +147,59 @@ test('every tool output satisfies its declared schema across a full mission', as
 
     const completed = await call('tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
     assert.equal(completed.mission.status, 'completed')
+
+    // #207: `agent` narrows both views to one row plus its bounded activity and
+    // never returns the whole table.
+    const lone = await call('tower_inspect', { repoRoot: repo, view: 'roster', agent: 'worker-m1', tail: 3 })
+    assert.equal(lone.agent.name, 'worker-m1')
+    assert.equal(lone.roster, undefined, 'an agent view is not the roster table')
+    assert.ok(Array.isArray(lone.activity))
+    assert.ok(lone.activity.length <= 3)
+    const single = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1' })
+    assert.equal(single.agent.name, 'worker-m1')
+    assert.equal(single.missions, undefined, 'an agent status view is not a mission page')
+    assert.equal(single.total, undefined)
+    assert.ok(Array.isArray(single.activity))
+    assert.ok(single.activity.length <= 5, 'the default activity tail is bounded')
+    // #207 P2: `compact` keeps only the agent identity, plus the bound
+    // mission's id/status/kind for the status view — no activity/observed/stale
+    // or outcome keys on the projected agent object.
+    const rosterCompact = await call('tower_inspect', { repoRoot: repo, view: 'roster', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(rosterCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.equal(rosterCompact.agent.name, 'worker-m1')
+    assert.ok(Array.isArray(rosterCompact.activity), 'the compact view still carries the separate bounded activity tail')
+    const statusCompact = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(statusCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.deepEqual(Object.keys(statusCompact.mission).sort(), ['id', 'kind', 'status'])
+    assert.ok('observed' in single.agent && 'stale' in single.agent, 'non-compact keeps the observation fields')
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'roster', agent: 'worker-ghost' }, towerExec),
+      (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
+    )
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', agent: 'worker-m1', missionId }, towerExec),
+      (error) => error.code === 'invalid-argument',
+    )
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 51 }, towerExec),
+      (error) => error.code === 'invalid-argument',
+    )
+    // R186: `tail` bounds one agent's activity or the newest roster rows; the
+    // status dashboard has no tail to cut, so the combination is refused
+    // instead of silently ignored.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 3 }, towerExec),
+      (error) => error.code === 'invalid-argument' && /tail only with agent/.test(error.message),
+    )
+    // With `agent`, tail still bounds that one row's status activity.
+    const statusTail = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', tail: 2 })
+    assert.ok(statusTail.activity.length <= 2, 'status + agent + tail bounds the activity')
+    // R186: an unknown agent on `status` alone is refused, never answered with
+    // the dashboard.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', agent: 'worker-ghost' }, towerExec),
+      (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
+    )
 
     await call('tower_send', { repoRoot: repo, to: 'worker-m1', subject: 'note', body: 'read me' })
     await call('tower_inbox', { repoRoot: repo }, workerExec)

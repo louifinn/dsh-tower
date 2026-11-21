@@ -85,6 +85,9 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
   tower_rebase: towerOnly('rebase missions'),
   tower_teardown: towerOnly('tear down worktrees'),
   tower_recover: towerOnly('recover Tower state'),
+  // #201: a bounded wait observes the whole roster/mission catalog, so it stays
+  // a tower action; the handler never writes and the matrix is the gate.
+  tower_wait: towerOnly('wait for a Tower target'),
   tower_batch: towerOnly('manage evidence batches'),
   tower_resource: towerOnly('manage resource leases'),
   // #163 Phase 4: snapshot import and audit-only mapping share one resource.

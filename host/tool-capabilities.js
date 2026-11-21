@@ -28,6 +28,7 @@ import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js
 import { importLegacySnapshot, validateLegacyMap } from '../adapters/legacy.js'
 import { registerInspectTool } from '../tools/inspect.js'
 import { registerRecoverTool } from '../tools/recover.js'
+import { registerWaitTool } from '../tools/wait.js'
 import { registerTestTool } from '../tools/test.js'
 import { registerBatchTool } from '../tools/batch.js'
 import { registerResourceTool } from '../tools/resource.js'
@@ -307,6 +308,9 @@ export function registerCoreTowerTools(ctx, options = {}) {
   // repairs can be left behind by any crashed mutation, so an off state would be
   // worse than uninstalling the plugin.
   registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
+  // #201: the one blocking read. It is appended after every existing tool so
+  // the shipped registration order of the other 21 tools is unchanged.
+  registerWaitTool(ctx, { openTower, define, requireTowerActor })
 }
 
 /** Evidence batches — the `tower-batch` component. */
