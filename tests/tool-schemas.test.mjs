@@ -223,6 +223,14 @@ test('every tool output satisfies its declared schema across a full mission', as
     assert.equal(reviewer.preset, 'tower-reviewer')
     assert.equal(activations.length, 2)
     const reviewerExec = { agent: { id: reviewer.agentId } }
+    // #202: the reviewer produces run evidence through the same read-only
+    // whitelist the shipped tool advertises; this walk validates the output
+    // shape (the worktree has no node_modules here, so tsc is unavailable and
+    // the summary carries the documented spawn.nodeModules remedy).
+    const verified = await call('tower_verify', { repoRoot: repo, missionId, checks: [{ kind: 'tsc' }] }, reviewerExec)
+    assert.equal(verified.ok, false)
+    assert.equal(verified.checks[0].status, 'unavailable')
+    assert.match(verified.checks[0].runId, /^run-\d+$/)
     await call(
       'tower_review',
       {

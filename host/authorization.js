@@ -99,6 +99,15 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? 'reviewers may not run test discovery'
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
+  // #202: the run-evidence counterpart of tower_review. Only the assigned
+  // reviewer runs it: the worker already has tower_test and a shell in its own
+  // preset, and an ordinary tower session reads recorded runs through
+  // tower_inspect instead of re-running them.
+  tower_verify: Object.freeze({
+    allow: Object.freeze([A.reviewer]),
+    denial: (actor) =>
+      `only an assigned reviewer may run the read-only verification whitelist; ${actor.name} is ${actor.role}`,
+  }),
   // tower_reload is repository-optional (#163): the tool may run without a
   // repository so a broken profile can still be reloaded. That contract is tool
   // identity registered in `host/tool-profiles.js`, not a guess about whether a

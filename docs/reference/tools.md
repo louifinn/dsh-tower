@@ -10,22 +10,22 @@ never writes Tower state or the board into its mission worktree.
 escape hatch (it may run without one to reload a broken profile).
 ## Tool sets
 
-The default profile registers **17 tools**: `tower_init` (`op:"init"`/`"adopt"`), `tower_plan`,
+The default profile registers **18 tools**: `tower_init` (`op:"init"`/`"adopt"`), `tower_plan`,
 `tower_spawn`, `tower_mission`, `tower_interrupt`, `tower_merge`, `tower_rebase`,
 `tower_teardown`, `tower_send`, `tower_inbox`, `tower_finding`, `tower_inspect`
-(five read-only views), `tower_complete`, `tower_review`, `tower_mode`, `tower_recover` and
-`tower_wait`.
-The build still exposes up to 22 tools when every optional row is on: the 17 default tools plus `tower_batch`
+(five read-only views), `tower_complete`, `tower_review`, `tower_verify`, `tower_mode`,
+`tower_recover` and `tower_wait`.
+The build still exposes up to 23 tools when every optional row is on: the 18 default tools plus `tower_batch`
 (`tower-batch`), `tower_import` (`tower-import`), `tower_resource` (`tower-leases`),
 `tower_test` (`tower-tests`) and `tower_reload` (`tower-hmr`).
 
 What each profile **advertises** is narrower than what ships. The tower session does not mount
-`tower_complete` or `tower_review` — they are owned by the worker/survey and reviewer role
-sessions (#163 Phase 5). Calling one from a tower session anyway fails with an actionable
-`not-authorized` hint naming the role entry (`tower_spawn({role:"worker"})`) instead of an
-unknown-tool error. The measured profile surfaces are tower 15 tools / 18,266 B of input schema,
-worker 6 / 11,661 B, and reviewer 5 / 5,725 B; `docs/reference/surface-budget.md` records the
-baseline and every change.
+`tower_complete`, `tower_review` or `tower_verify` — they are owned by the worker/survey and
+reviewer role sessions (#163 Phase 5, #202). Calling one from a tower session anyway fails with an
+actionable `not-authorized` hint naming the role entry (`tower_spawn({role:"worker"})` or
+`tower_spawn({role:"reviewer"})`) instead of an unknown-tool error. The measured profile surfaces are
+tower 15 tools / 18,871 B of input schema, worker 6 / 11,661 B, and reviewer 6 / 7,260 B;
+`docs/reference/surface-budget.md` records the baseline and every change.
 
 ## Default-off subsystems
 
@@ -42,7 +42,40 @@ reports it as "disabled by component <id>". To enable one, set its
 | `tower-tests` | `tower_test` | remove `disabled: true` from the `tower-tests` row and restart DSH |
 | `tower-hmr` | `tower_reload` | remove `disabled: true` from the `tower-hmr` row and restart DSH |
 
-The tools still exist and stay in the all-on 22; they are off, not deleted.
+The tools still exist and stay in the all-on 23; they are off, not deleted.
+
+## Reviewer verification whitelist (#202)
+
+A reviewer preset has no shell, so before #202 a review could only restate the worker's prose.
+`tower_verify` gives the reviewer three read-only things to run in the mission worktree — never a
+command string, never a shell, and never an arbitrary argument list:
+
+| `kind` | What runs | Arguments |
+|---|---|---|
+| `tests` | `node --test <files>` | `files`: 1–30 repository-relative `tests/*.test.mjs` paths; absolute paths, `..` segments, and shell text are rejected before anything executes |
+| `tsc` | the worktree's own `typescript` with `--noEmit` | none |
+| `shards` | `node --test` on one batch of the default 25-file `tests/*.test.mjs` plan | `batch`: 1-based batch number (default 1); it never runs the whole suite |
+
+```
+tower_verify({missionId:"M7", checks:[
+  {kind:"tests", files:["tests/verify.test.mjs"]},
+  {kind:"tsc"},
+], timeoutMs:120000})
+```
+
+Every check runs sequentially in the mission worktree and is recorded in `mission.testRuns` with its
+own `runId`. The result row is `{check, kind, command, status, exitCode, durationMs, summary,
+truncated, runId}`; `status` is `passed`, `failed`, `timeout`, `error` or `unavailable`. `timeoutMs`
+defaults to 120000, must be 5000–600000, and a timeout kills the whole process tree and records
+`status: "timeout"`. A missing worktree `node_modules` makes `tsc` record `unavailable` with the
+remedy: install dependencies, or spawn with `spawn.nodeModules: "link"` (M166). The tool is
+read-only: it changes no mission status and writes nothing except the run receipts.
+
+The evidence is citable, not free text. `tower_complete` checks accept `{name, runId}` and
+`normalizeChecks` refuses a `runId` that is not in the mission's `testRuns`; a reviewer can cite the
+same id in its `tower_review` checks (for example `checks: ["run-3"]`), because a review check is a
+string list. Only the reviewer role may call `tower_verify`; a worker session uses `tower_test` for
+its own discovery, and the tool is not on the tower profile.
 
 `tower_mission` uses `id` (alias `missionId`); every other mission-scoped tool uses `missionId`
 (alias `id`). Other input aliases: `task_done`/`taskDone`, `task_drop`/`taskDrop`,

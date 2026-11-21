@@ -120,7 +120,7 @@
     },
     "tools": {
       "seed": 27,
-      "value": 22,
+      "value": 23,
       "decisions": [
         {
           "from": 27,
@@ -150,6 +150,13 @@
           "date": "2026-11-21",
           "adr": "docs/adr/0012-bounded-wait-tool.md",
           "note": "#201: tower_wait adds the one bounded blocking reach (reached/timeout/unknown, 1000-600000 ms, tower-only). It is a 22nd tool rather than a tower_inspect mode because a read-only view must not block, and every role preset must stay non-blocking."
+        },
+        {
+          "from": 22,
+          "to": 23,
+          "date": "2026-11-22",
+          "adr": "docs/adr/0009-role-phase-exposure.md",
+          "note": "#202: tower_verify adds the reviewer's verifiable read surface (a fixed whitelist: node --test on tests/*.test.mjs files, tsc --noEmit, one shard batch) and records each run in mission.testRuns. It is a 23rd tool rather than a tower_test mode because the evidence contract differs: tower_test is the worker's own package-discovery confirmation, while tower_verify is an independent reviewer run whose runId a review check cites. The tool is role-owned, so the tower profile stays at 15."
         }
       ]
     },
@@ -463,7 +470,7 @@
     "reviewer": {
       "tools": {
         "seed": 7,
-        "value": 5,
+        "value": 6,
         "decisions": [
           {
             "from": 7,
@@ -482,12 +489,18 @@
             "to": 5,
             "date": "2026-11-12",
             "note": "#163 Phase 4: tower_findings folds into tower_finding."
+          },
+          {
+            "from": 5,
+            "to": 6,
+            "date": "2026-11-22",
+            "note": "#202: the reviewer allow-list gains tower_verify, the read-only verification whitelist it cites as review evidence. The worker profile keeps tower_test and gains nothing, and the tower profile is unchanged because tower_verify is role-owned."
           }
         ]
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 5725,
+        "value": 7260,
         "decisions": [
           {
             "from": 5871,
@@ -536,6 +549,12 @@
             "to": 5725,
             "date": "2026-11-21",
             "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The reviewer preset becomes 5,725 bytes (was 5,609); the tool count stays 5."
+          },
+          {
+            "from": 5725,
+            "to": 7260,
+            "date": "2026-11-22",
+            "note": "#202: the reviewer preset mounts tower_verify, whose VerifyInput advertises the three whitelisted check kinds and the bounded timeout, adding 1,535 bytes. The reviewer preset becomes 7,260 bytes (was 5,725); the tool count moves 5 -> 6 in the tools decision above."
           }
         ]
       }
@@ -561,8 +580,8 @@
         "bytes": 13617
       },
       "preset:reviewer": {
-        "tools": 5,
-        "bytes": 7342
+        "tools": 6,
+        "bytes": 9202
       },
       "preset:survey": {
         "tools": 5,
@@ -653,6 +672,11 @@
         "date": "2026-11-22",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#217: the PlanInput dry_run/key growth adds 605 advertised bytes to host:active (15 tools / 23,699 B, was 23,094). Mode-off, idle and the worker/reviewer/survey presets do not mount tower_plan and are unchanged; no tool count moves."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "#202: the reviewer preset mounts tower_verify, so preset:reviewer becomes 6 tools / 9,202 B (was 5 tools / 7,342 B): 1,535 advertised input bytes plus the tool name and description. Mode-off, idle, host:active, preset:worker and the survey presets do not mount tower_verify and are unchanged; the build surface grows 22 -> 23 tools, recorded in surfaces.tools."
       }
     ]
   }

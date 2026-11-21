@@ -20,6 +20,7 @@ import { DiffInput, MergeInput, RebaseInput, TeardownInput } from './integration
 import { InspectInput } from './inspect.js'
 import { WaitInput, WAIT_DEFAULT_TIMEOUT_MS, WAIT_MAX_TIMEOUT_MS, WAIT_MIN_TIMEOUT_MS, WAIT_UNTILS } from './wait.js'
 import { FindingInput } from './findings.js'
+import { VerifyInput, VERIFY_DEFAULT_TIMEOUT_MS, VERIFY_KINDS, VERIFY_MAX_CHECKS, VERIFY_MAX_FILES, VERIFY_MAX_TIMEOUT_MS, VERIFY_MIN_TIMEOUT_MS } from './verify.js'
 import {
   BatchInput,
   DoctorInput,
@@ -56,6 +57,13 @@ export {
   WAIT_MAX_TIMEOUT_MS,
   WAIT_MIN_TIMEOUT_MS,
   WAIT_UNTILS,
+  VerifyInput,
+  VERIFY_DEFAULT_TIMEOUT_MS,
+  VERIFY_KINDS,
+  VERIFY_MAX_CHECKS,
+  VERIFY_MAX_FILES,
+  VERIFY_MAX_TIMEOUT_MS,
+  VERIFY_MIN_TIMEOUT_MS,
   FindingInput,
   BatchInput,
   DoctorInput,
@@ -88,6 +96,7 @@ const ToolInputs = {
   tower_recover: RecoverInput,
   tower_wait: WaitInput,
   tower_test: TestInput,
+  tower_verify: VerifyInput,
   tower_batch: BatchInput,
   tower_resource: ResourceInput,
   tower_import: ImportInput,

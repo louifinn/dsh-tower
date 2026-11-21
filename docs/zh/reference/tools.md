@@ -10,21 +10,22 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 仓库时重载损坏的 profile）。
 ## 工具集
 
-本构建最多 22 个工具（全开）；默认 profile 注册 **17 个工具**：`tower_init`（`op:"init"`/`"adopt"`）、`tower_plan`、
+本构建最多 23 个工具（全开）；默认 profile 注册 **18 个工具**：`tower_init`（`op:"init"`/`"adopt"`）、`tower_plan`、
 `tower_spawn`、`tower_mission`、`tower_interrupt`、`tower_merge`、`tower_rebase`、
 `tower_teardown`、`tower_send`、`tower_inbox`、`tower_finding`、`tower_inspect`（五个只读视图）、
-`tower_complete`、`tower_review`、`tower_mode`、`tower_recover` 与 `tower_wait`。全部开启的构建面为
-**22 个工具**：17 个默认工具加 `tower_batch`（`tower-batch`）、`tower_import`（`tower-import`）、
+`tower_complete`、`tower_review`、`tower_verify`、`tower_mode`、`tower_recover` 与 `tower_wait`。全部开启的构建面为
+**23 个工具**：18 个默认工具加 `tower_batch`（`tower-batch`）、`tower_import`（`tower-import`）、
 `tower_resource`（`tower-leases`）、`tower_test`（`tower-tests`）和 `tower_reload`
 （`tower-hmr`）。`tower_inspect` 把 status、roster、diff、preflight、doctor 五个只读视图收进
 一个工具，用 `view` 选择；`tower_init`、`tower_finding` 和 `tower_import` 把同一资源的动作
 收进各自的 `op`。
 
-每个 profile **实际挂载**的工具比构建面更窄。控制塔会话不挂载 `tower_complete` 与
-`tower_review`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5）。从控制塔
-会话强行调用会得到可执行的 `not-authorized` 提示（指出 `tower_spawn({role:"worker"})` 入口），
-而不是 unknown tool。实测 profile：tower 15 个工具 / 18,266 B 输入 schema，worker 6 / 11,661 B，
-reviewer 5 / 5,725 B；基线记录在 `docs/reference/surface-budget.md`。
+每个 profile **实际挂载**的工具比构建面更窄。控制塔会话不挂载 `tower_complete`、`tower_review`
+与 `tower_verify`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5、#202）。
+从控制塔会话强行调用会得到可执行的 `not-authorized` 提示（指出
+`tower_spawn({role:"worker"})` 或 `tower_spawn({role:"reviewer"})` 入口），
+而不是 unknown tool。实测 profile：tower 15 个工具 / 18,871 B 输入 schema，worker 6 / 11,661 B，
+reviewer 6 / 7,260 B；基线记录在 `docs/reference/surface-budget.md`。
 
 ## 默认关闭的子系统
 
@@ -41,7 +42,38 @@ reviewer 5 / 5,725 B；基线记录在 `docs/reference/surface-budget.md`。
 | `tower-tests` | `tower_test` | 删除 `tower-tests` 行的 `disabled: true` 并重启 DSH |
 | `tower-hmr` | `tower_reload` | 删除 `tower-hmr` 行的 `disabled: true` 并重启 DSH |
 
-工具仍然存在并留在全开 22 个之中：它们是关闭，不是删除。
+工具仍然存在并留在全开 23 个之中：它们是关闭，不是删除。
+
+## Reviewer 验证白名单（#202）
+
+reviewer preset 没有 shell，因此 #202 之前评审只能复述 worker 的文字。`tower_verify` 给 reviewer
+三件可在 mission worktree 中执行的只读检查——没有命令字符串、没有 shell，也没有任意参数列表：
+
+| `kind` | 执行内容 | 参数 |
+|---|---|---|
+| `tests` | `node --test <files>` | `files`：1–30 个仓库相对的 `tests/*.test.mjs` 路径；绝对路径、`..` 段和 shell 文本都会在执行前被拒绝 |
+| `tsc` | 用 worktree 自己的 `typescript` 运行 `--noEmit` | 无 |
+| `shards` | 对默认 25 文件分片计划的某一批运行 `node --test` | `batch`：1 起的批次号（默认 1）；它不会跑完整套件 |
+
+```
+tower_verify({missionId:"M7", checks:[
+  {kind:"tests", files:["tests/verify.test.mjs"]},
+  {kind:"tsc"},
+], timeoutMs:120000})
+```
+
+每个检查依次在 mission worktree 中运行，并以各自的 `runId` 记录进 `mission.testRuns`。结果行是
+`{check, kind, command, status, exitCode, durationMs, summary, truncated, runId}`；`status` 为
+`passed`、`failed`、`timeout`、`error` 或 `unavailable`。`timeoutMs` 默认 120000，必须在
+5000–600000 之间；超时会杀掉整个进程树并记录 `status: "timeout"`。worktree 缺少 `node_modules`
+时 `tsc` 记录 `unavailable` 并给出补救：安装依赖，或用 M166 的 `spawn.nodeModules: "link"` 启动。
+该工具是只读的：不改变 mission 状态，除了 run 收据之外不写任何东西。
+
+证据是可引用的编号，不是自由文本。`tower_complete` 的 checks 支持 `{name, runId}`，
+`normalizeChecks` 会拒绝不在该 mission `testRuns` 中的 `runId`；reviewer 可以在 `tower_review`
+的 checks 中引用同一个 id（例如 `checks: ["run-3"]`，因为 review 的 checks 是字符串列表）。
+只有 reviewer 角色能调用 `tower_verify`；worker 会话用自己的 `tower_test` 做 discovery，
+控制塔 profile 不挂载该工具。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、

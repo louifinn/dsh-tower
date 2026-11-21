@@ -386,10 +386,10 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   })
   assert.deepEqual(first, second, 'profile bytes depend on iteration order')
   // The host ladder is measured over the default host-admitted surface: the 17
-  // mounted tools minus the two #163 role-owned tools, not the 22-tool all-on
-  // build surface (R103, #201 and R185 re-measured 2026-11-21; #215/#216
-  // re-measured the bulk tower_mission schema on 2026-11-22, and #217 the
-  // tower_plan dry_run/key schema on the same day).
+  // mounted tools minus the two #163 role-owned tools, not the 23-tool all-on
+  // build surface (#202 adds tower_verify; R103, #201 and R185 re-measured
+  // 2026-11-21; #215/#216 re-measured the bulk tower_mission schema on
+  // 2026-11-22, and #217 the tower_plan dry_run/key schema on the same day).
   assert.deepEqual(first['host:mode-off'], { tools: 1, bytes: 846 })
   assert.deepEqual(first['host:idle'], { tools: 2, bytes: 2185 })
   assert.deepEqual(first['host:active'], { tools: 15, bytes: 23699 })
@@ -399,7 +399,7 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   assert.equal(hostNames.includes('tower_review'), false, 'role tools never enter the host ladder')
   // The all-on build surface is bigger by exactly the role tools and the six
   // optional rows; it is a build-surface figure, not a session profile.
-  assert.equal(exposedNames('active', surface.names).length, 22)
+  assert.equal(exposedNames('active', surface.names).length, 23)
   assert.ok(first['host:mode-off'].bytes < first['host:active'].bytes)
   // Drift and growth findings.
   const stale = validateProfileBytes(
