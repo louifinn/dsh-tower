@@ -3,6 +3,7 @@ import { SCHEMAS, output } from '../../domain/contracts/outputs.js'
 import { TowerToolError } from '../../domain/errors.js'
 import { RosterInput } from '../../domain/contracts/tool-inputs/index.js'
 import { rosterEntryStale } from '../../domain/collab/roster.js'
+import { selectRosterRows } from '../../domain/read/views.js'
 import { PARENT_STATUS_OK, ROSTER_ACTIVITY } from '../../domain/vocabulary.js'
 
 /**
@@ -13,10 +14,13 @@ export async function runRosterView(ctx, args, exec, deps) {
   const { define } = deps
       const tower = await deps.openTower(args.repoRoot)
       const view = await tower.rosterView()
+      // #211: `agent`/`tail` narrow the roster before the catalog is queried, so
+      // a large roster costs one parent lookup instead of every parent's list.
+      const selected = selectRosterRows(view.roster, { agent: args.agent, tail: args.tail })
       const subagents = ctx.get('subagents')
       if (!subagents) throw new TowerToolError('spawn-unavailable', 'subagents service is unavailable; cannot observe roster')
 
-      const parents = [...new Set(view.roster.map((entry) => entry.parentSessionId).filter(Boolean))]
+      const parents = [...new Set(selected.map((entry) => entry.parentSessionId).filter(Boolean))]
       const activity = new Map()
       const parentStatus = {}
       for (const parent of parents) {
@@ -31,7 +35,7 @@ export async function runRosterView(ctx, args, exec, deps) {
 
       const staleMs = Number(tower.config.spawn?.staleMs) || 0
       const now = Date.now()
-      const roster = view.roster.map((entry) => {
+      const roster = selected.map((entry) => {
         const observed = activity.get(entry.agentId)
         const known = parentStatus[entry.parentSessionId] === PARENT_STATUS_OK
         // #160: the one shared spawn.staleMs rule (domain/collab/roster.js);

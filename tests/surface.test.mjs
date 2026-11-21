@@ -155,9 +155,9 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 14, inputBytes: 13276 },
-    worker: { tools: 6, inputBytes: 7414 },
-    reviewer: { tools: 5, inputBytes: 4508 },
+    tower: { tools: 14, inputBytes: 14166 },
+    worker: { tools: 6, inputBytes: 8304 },
+    reviewer: { tools: 5, inputBytes: 5398 },
   })
   // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
   // read-only views into tower_inspect. Each change is a dated decision, so the
@@ -165,7 +165,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(baseline.profiles.tower.tools.value, 14)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 5)
-  for (const [profile, bytes] of [['tower', 13276], ['worker', 7414], ['reviewer', 4508]]) {
+  for (const [profile, bytes] of [['tower', 14166], ['worker', 8304], ['reviewer', 5398]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)

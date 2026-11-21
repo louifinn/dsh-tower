@@ -72,6 +72,9 @@ export async function recordSpawnOutcome(tower, input) {
     }
     applySpawnOutcome(entry, input, now)
     state.revision += 1
+    // #211: a per-row stamp lets tower_inspect status sinceRevision return only
+    // rows written after the caller's last read.
+    entry.revision = state.revision
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
@@ -98,6 +101,7 @@ export async function recordInterrupt(tower, input) {
     const now = Date.now()
     applyInterrupt(entry, input, now)
     state.revision += 1
+    entry.revision = state.revision
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
@@ -125,6 +129,7 @@ export async function reserveRoster(tower, input) {
     const entry = reserveRosterEntry({ roster: state.roster, input: { ...input, reservationId }, now })
     state.roster.push(entry)
     state.revision += 1
+    entry.revision = state.revision
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
@@ -164,6 +169,11 @@ export async function recordSpawn(tower, input) {
     })
     mission.updatedAt = now
     state.revision += 1
+    // The new row and every row this spawn retired changed at this revision.
+    for (const row of state.roster) {
+      if (row.spawnedAt === now || row.outcomeAt === now) row.revision = state.revision
+    }
+    mission.revision = state.revision
     state.updatedAt = now
 
     validateState(state, tower.paths.state)

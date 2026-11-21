@@ -12,6 +12,17 @@ import {
 } from '../domain/collab/roster.js'
 import { unreadMessages } from '../domain/collab/messages.js'
 
+/**
+ * #211: stamp the roster rows a use case changed with the revision it just
+ * wrote, so `tower_inspect status sinceRevision` can return only newer rows.
+ * @param {any} state
+ * @param {any[]} rows
+ * @returns {void}
+ */
+function stampRevision(state, rows) {
+  for (const row of rows) row.revision = state.revision
+}
+
 export async function recordRosterObservations(tower, { present = [], absent = [], confirmations = 2, windowMs = 0 }) {
     return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
@@ -23,6 +34,12 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       )
       if (changed) {
         state.revision += 1
+        const presentIds = new Set(present)
+        const absentIds = new Set(absent)
+        stampRevision(
+          state,
+          (state.roster ?? []).filter((row) => presentIds.has(row.agentId) || absentIds.has(row.agentId)),
+        )
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
@@ -59,6 +76,10 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       const revived = reviveSelfReportedEntry(state.roster ?? [], { missionId, agentId, now })
       if (!revived.revived) return { revived: false }
       state.revision += 1
+      stampRevision(
+        state,
+        (state.roster ?? []).filter((row) => row.name === revived.name && row.missionId === missionId),
+      )
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await tower.writeState(state, held)
@@ -80,6 +101,10 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       const { released } = reconcileInactive(state.roster ?? [], activity, now)
       if (released.length > 0) {
         state.revision += 1
+        stampRevision(
+          state,
+          (state.roster ?? []).filter((row) => released.includes(row.name)),
+        )
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
@@ -262,6 +287,10 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       const { retired } = retireEntries(state.roster ?? [], agentIds, now)
       if (retired.length > 0) {
         state.revision += 1
+        stampRevision(
+          state,
+          (state.roster ?? []).filter((row) => retired.includes(row.agentId)),
+        )
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
@@ -283,6 +312,10 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       const { missing } = markMissingEntries(state.roster ?? [], agentIds, now)
       if (missing.length > 0) {
         state.revision += 1
+        stampRevision(
+          state,
+          (state.roster ?? []).filter((row) => missing.includes(row.agentId)),
+        )
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
@@ -309,6 +342,11 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       )
       if (marked.length > 0 || idled.length > 0) {
         state.revision += 1
+        const names = new Set([...marked, ...idled])
+        stampRevision(
+          state,
+          (state.roster ?? []).filter((row) => names.has(row.name)),
+        )
         state.updatedAt = now
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)

@@ -65,9 +65,15 @@ export function isStalledReservation(entry) {
  * @returns {RosterEntry}
  */
 export function applySpawnOutcome(entry, input, now) {
+  const outcome = input.detail ? String(input.detail).slice(0, 1000) : null
   entry.state = input.state ?? 'failed'
-  entry.outcome = input.detail ? String(input.detail).slice(0, 1000) : null
+  entry.outcome = outcome
   entry.outcomeAt = now
+  // #210: a dead subagent must leave a diagnostic behind even when a later
+  // replacement overwrites `outcome` with "replaced by ...". A non-failed
+  // outcome clears the field so a reused row never reports a stale failure.
+  if (entry.state === 'failed') entry.failureReason = outcome ?? entry.failureReason ?? null
+  else delete entry.failureReason
   clearStale(entry)
   return entry
 }
@@ -212,6 +218,10 @@ export function recordSpawnEntry({ roster, missions = [], mission, input, spawnT
     // for the same mission and the old idle worker would block forever.
     for (const old of previous) {
       if (old.state === 'retired' || old.state === 'reserved') continue
+      // #210: the overwritten outcome is the only record of why the dead agent
+      // stopped, so preserve it (and keep failureReason untouched) before the
+      // replacement stamps "replaced by ...".
+      old.previousOutcome = old.outcome ?? null
       old.state = 'retired'
       old.outcome = `replaced by ${input.name}${input.takeover ? ' (takeover)' : ''}`
       old.outcomeAt = now

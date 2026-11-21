@@ -12,4 +12,11 @@ export const InspectInput = Type.Object({
   includeGate: Type.Optional(Type.Boolean({ description: 'Status: add preflight gate digests for the page.' })),
   includeArchived: Type.Optional(Type.Boolean({ description: 'Status: append archived mission summaries.' })),
   format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'Status: "markdown" returns the human-readable board.' })),
+  checks: Type.Optional(Type.Boolean({ description: 'Doctor: return only the check rows (id/status/detail/action), without the diagnostic sections.' })),
+  compact: Type.Optional(Type.Boolean({ description: 'Doctor: return only {ok, checks}; passing rows keep id/status, non-passing rows also keep detail.' })),
+  fields: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'Status: project each mission to exactly these keys.' })),
+  sinceRevision: Type.Optional(Type.Integer({ minimum: 0, description: 'Status: only missions/roster rows changed after this state revision (0 means no filter).' })),
+  agent: Type.Optional(Type.String({ minLength: 1, description: 'Roster: only the row with this name or agent id.' })),
+  tail: Type.Optional(Type.Integer({ minimum: 1, description: 'Roster: only the newest N rows.' })),
+  stat: Type.Optional(Type.Boolean({ description: 'Diff: return per-file {path, added, deleted} counts instead of patch bytes.' })),
 }, { additionalProperties: false })

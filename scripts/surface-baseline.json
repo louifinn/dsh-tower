@@ -223,7 +223,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 13276,
+        "value": 14166,
         "decisions": [
           {
             "from": 17008,
@@ -296,6 +296,12 @@
             "to": 13276,
             "date": "2026-11-21",
             "note": "#M147: tower_plan's allowMissingScope description now states that the same opt-in works for a later planned edit or widening, and tower_mission's description plus MissionInput's scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully. The tower profile mounts both tools, so its advertised input schema grows by 237 bytes; the tool count stays 14."
+          },
+          {
+            "from": 13276,
+            "to": 14166,
+            "date": "2026-11-21",
+            "note": "#210/#211: tower_inspect's InspectInput now advertises the read-projections (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat). Seven optional fields with their descriptions grow the one advertised schema by 890 bytes in every profile that mounts tower_inspect; the tool count stays 14."
           }
         ]
       }
@@ -327,7 +333,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 7414,
+        "value": 8304,
         "decisions": [
           {
             "from": 8159,
@@ -376,6 +382,12 @@
             "to": 7414,
             "date": "2026-11-21",
             "note": "#M147: the worker preset mounts tower_mission, whose description and MissionInput scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully, so its advertised input schema grows by 180 bytes. The tool count stays 6."
+          },
+          {
+            "from": 7414,
+            "to": 8304,
+            "date": "2026-11-21",
+            "note": "#210/#211: the worker preset mounts tower_inspect, whose InspectInput gains the seven optional projection fields (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so the one advertised schema grows by 890 bytes. The tool count stays 6."
           }
         ]
       }
@@ -407,7 +419,7 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4508,
+        "value": 5398,
         "decisions": [
           {
             "from": 5871,
@@ -438,6 +450,12 @@
             "to": 4508,
             "date": "2026-11-20",
             "note": "#203/M141: tower_send advertises the new `wake` boolean, so the reviewer preset's mounted SendInput grows by 137 bytes. The tool count stays 5."
+          },
+          {
+            "from": 4508,
+            "to": 5398,
+            "date": "2026-11-21",
+            "note": "#210/#211: the reviewer preset mounts tower_inspect, whose InspectInput gains the seven optional projection fields (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so the one advertised schema grows by 890 bytes. The tool count stays 5."
           }
         ]
       }
@@ -456,23 +474,23 @@
       },
       "host:active": {
         "tools": 14,
-        "bytes": 17775
+        "bytes": 18665
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 9392
+        "bytes": 10282
       },
       "preset:reviewer": {
         "tools": 5,
-        "bytes": 6125
+        "bytes": 7015
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 8207
+        "bytes": 9097
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 8207
+        "bytes": 9097
       }
     },
     "decisions": [
@@ -525,6 +543,11 @@
         "date": "2026-11-21",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#M147: the mission-field copy is measured after the truthful rewrites. tower_plan's allowMissingScope description now states the same opt-in works for a later planned edit or widening; tower_mission's description and MissionInput's scope/allowMissingScope/deferred descriptions describe planned-edit ordering and build-or-artifact deferral instead of the stale build-only text. host:active becomes 14/17,775 B (was 17,540), preset:worker 6/9,392 (was 9,214), preset:survey and preset:survey-sandbox 5/8,207 each (was 8,029). Mode-off, idle and reviewer are unchanged; no tool count moves — this is copy truth plus the already-advertised fields, not a new capability."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#210/#211: tower_inspect now advertises the read projections (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so every profile that mounts it grows by the same 890 bytes: host:active 14/18,665 B (was 17,775), preset:worker 6/10,282 (was 9,392), preset:reviewer 5/7,015 (was 6,125), preset:survey and preset:survey-sandbox 5/9,097 each (was 8,207). Mode-off and idle do not mount tower_inspect and are unchanged; no tool count moves — the fields are optional and off by default."
       }
     ]
   }
