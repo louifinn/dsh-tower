@@ -155,7 +155,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 15, inputBytes: 18266 },
+    tower: { tools: 15, inputBytes: 18871 },
     worker: { tools: 6, inputBytes: 11661 },
     reviewer: { tools: 5, inputBytes: 5725 },
   })
@@ -166,7 +166,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(baseline.profiles.tower.tools.value, 15)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 5)
-  for (const [profile, bytes] of [['tower', 18266], ['worker', 11661], ['reviewer', 5725]]) {
+  for (const [profile, bytes] of [['tower', 18871], ['worker', 11661], ['reviewer', 5725]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)
@@ -242,8 +242,9 @@ test('the tower_inspect doctor view prints the surface counts plus the baseline 
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
     // #118: the doctor line, the generated reference and docs:check agree.
-    // #162: the Ralph-stance policy adds the 58th config key.
-    assert.equal(report.surface.line, surfaceLine({ configKeys: 58, sections: 16, tools: 22 }))
+    // #162: the Ralph-stance policy adds the 58th config key; #218 adds
+    // spawn.nodeModules as the 59th.
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 59, sections: 16, tools: 22 }))
     assert.equal(current.tools, 22)
     assert.equal(current.tools, documentedToolNames().length)
     const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')

@@ -201,6 +201,11 @@ export const Config = Schema.object({
       .description(
         'Roster entries older than this age that an authoritative catalog has not shown for consecutive misses spanning twice this window are marked stale and block merge (0 disables; an empty/partial catalog never marks).',
       ),
+    nodeModules: Schema.union(['none', 'link'])
+      .default('none')
+      .description(
+        'Dependency visibility for a spawned worker. none = the worktree has no node_modules; link = tower_spawn creates <worktree>/node_modules as a junction to the baseline checkout\'s installed node_modules and records it on the worktree, so commands in the worktree see the dependencies without a second install. The target must already exist; teardown removes only the recorded link (never the target or a directory), and doctor reports dangling or unrecorded links.',
+      ),
     maxWaitMs: Schema.natural()
       .min(1000)
       .max(600000)

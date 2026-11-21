@@ -76,6 +76,18 @@ The shipped `cordis.patch.yml` overrides two code defaults: `init.autoGitInit` a
 interrupt. Every other value in the generated page is what the resolver returns before repository
 config.
 
+`spawn.nodeModules` controls dependency visibility in a provisioned worktree (#218). It defaults to
+`none`: the worktree has no `node_modules`, so dependency-installing or dependency-checking commands
+cannot run there. `link` makes `tower_spawn` create `<worktree>/node_modules` as a junction to the
+baseline checkout's installed `node_modules` before the roster reservation commits, and records
+`{target, path, createdAt}` on `mission.worktree.nodeModulesLink` and the roster row. The target must
+already exist: a missing target refuses the spawn with `invalid-argument` and a remedy, and an
+existing unrecorded path is refused rather than overwritten. Teardown unlinks only the recorded link
+(never its target or any directory), and `tower_inspect({view:"doctor"})` reports a dangling,
+missing, replaced or unrecorded link under the `worktree-links` check. Because the link resolves to
+the baseline install, the worktree sees the same dependency versions without a second install; a
+worker that must install its own dependencies should keep `none`.
+
 ## Example
 
 ```yaml

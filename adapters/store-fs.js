@@ -234,5 +234,12 @@ export function createStorePort() {
     // that gained a file after the inspection is never deleted.
     readdir: (dir) => fsp.readdir(dir),
     rmdir: (dir) => fsp.rmdir(dir),
+    // Optional StorePort link capabilities (#218/F100). `lstat` must not follow
+    // the entry: teardown decides from `isSymbolicLink()` that a `node_modules`
+    // junction is a link the tool may unlink, not a directory to recurse into.
+    // `symlink` takes the optional type so spawn can request a Windows junction,
+    // which works across volumes and needs no symlink privilege.
+    lstat: (target) => fsp.lstat(target),
+    symlink: (target, linkPath, type) => fsp.symlink(target, linkPath, type),
   })
 }

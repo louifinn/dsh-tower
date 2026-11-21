@@ -704,6 +704,49 @@ test('doctor: an active mission with a dirty worktree still warns (F61)', async 
   }
 })
 
+test('doctor: an unrecorded and a dangling worktree node_modules link are reported (#218/F100)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await tower.plan({ missions: [{ title: 'Link audit', scope: ['src/**'], tasks: ['write'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const target = path.join(repo, 'node_modules')
+    fs.mkdirSync(target)
+    fs.writeFileSync(path.join(target, 'sentinel.txt'), 'keep\n')
+    const linkPath = path.join(provisioned.worktree.path, 'node_modules')
+    fs.symlinkSync(target, linkPath, 'junction')
+
+    const first = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const unrecorded = first.checks.find((entry) => entry.id === 'worktree-links')
+    assert.equal(unrecorded.status, 'warn')
+    assert.match(unrecorded.detail, /unrecorded/)
+    assert.match(unrecorded.detail, /node_modules/)
+    assert.equal(first.ok, true, 'a kept link is a warning, never a failing environment')
+
+    // Record the same link, then remove its target: the link dangles and teardown
+    // would keep the checkout, so doctor must name it.
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === 'M1')
+    mission.worktree.nodeModulesLink = { target, path: linkPath, createdAt: Date.now() }
+    state.revision += 1
+    state.updatedAt = Date.now()
+    validateState(state, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, state)
+    fs.rmSync(target, { recursive: true, force: true })
+
+    const second = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const dangling = second.checks.find((entry) => entry.id === 'worktree-links')
+    assert.equal(dangling.status, 'warn')
+    assert.match(dangling.detail, /dangling/)
+    assert.match(dangling.detail, /node_modules/)
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, 'doctor never removes the link')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('detectHostVersion: DSH_INSTALL_DIR/package.json is a fallback source (F62)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-host-version-'))
   const home = path.join(root, 'home')

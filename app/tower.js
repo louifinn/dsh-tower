@@ -231,16 +231,19 @@ function assertScopeEntries(scope, trackedPaths, directories, operation) {
  * entries are recorded afterwards by `recordUnverifiedPlanScope`.
  * @param {Tower} tower
  * @param {any} input
- * @returns {Promise<any>}
+ * @returns {Promise<{ input: any, problems: Array<Record<string, any>> }>}
  */
-async function expandedPlanInput(tower, input) {
-  if (!input || typeof input !== 'object' || !Array.isArray(input.missions)) return input
+async function inspectPlanInput(tower, input) {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.missions)) return { input, problems: [] }
   const allowMissing = input.allowMissingScope === true
   /** @type {string[] | null | undefined} */
   let trackedPaths
   let listed = false
+  /** @type {Array<Record<string, any>>} */
+  const problems = []
   const missions = []
-  for (const mission of input.missions) {
+  for (let index = 0; index < input.missions.length; index += 1) {
+    const mission = input.missions[index]
     if (mission === null || typeof mission !== 'object' || Array.isArray(mission) || !Array.isArray(mission.scope)) {
       missions.push(mission)
       continue
@@ -251,11 +254,15 @@ async function expandedPlanInput(tower, input) {
         trackedPaths = await trackedPathList(tower)
         listed = true
       }
-      if (trackedPaths !== null && trackedPaths !== undefined) assertScopeEntries(mission.scope, trackedPaths, directories, 'plan')
+      if (trackedPaths !== null && trackedPaths !== undefined) {
+        for (const problem of validateScopeEntries(mission.scope, { trackedPaths, directories })) {
+          problems.push({ ...problem, index })
+        }
+      }
     }
     missions.push({ ...mission, scope: expandScopeDirectories(mission.scope, { directories }) })
   }
-  return { ...input, missions }
+  return { input: { ...input, missions }, problems }
 }
 
 /**
@@ -491,8 +498,11 @@ export class Tower {
 
   async plan(input = {}) {
     await this.assertBaseCheckout('tower_plan')
-    const planned = await plan(this, await expandedPlanInput(this, input))
-    await recordUnverifiedPlanScope(this, input, planned)
+    const dryRun = input?.dry_run === true
+    const inspected = await inspectPlanInput(this, input)
+    const planned = await plan(this, inspected.input, { dryRun, scopeProblems: inspected.problems })
+    // A preview creates nothing, so it has no unverified scope to record.
+    if (!dryRun) await recordUnverifiedPlanScope(this, input, planned)
     return planned
   }
 

@@ -342,6 +342,183 @@ export async function removeEmptyDirectory(store, dir) {
   }
 }
 
+// #218/F100: a worktree may contain a `node_modules` junction pointing at the
+// baseline checkout's installed dependencies (created by `spawn.nodeModules:
+// "link"`). `git worktree remove --force` deletes the checkout recursively, so a
+// link must be unlinked by Tower first — and a link Tower did not create blocks
+// the removal instead of being followed. These helpers only ever `unlink` a link
+// the worktree record names, or `rmdir` a directory proved empty; nothing here
+// recurses into a directory.
+const NODE_MODULES_LINK_NAME = 'node_modules'
+
+/** @param {any} worktree */
+function registeredNodeModulesLink(worktree) {
+  const record = worktree?.nodeModulesLink
+  if (!record || typeof record !== 'object') return null
+  if (typeof record.target !== 'string') return null
+  const linkPath = typeof record.path === 'string' && record.path.length > 0
+    ? record.path
+    : typeof worktree?.path === 'string'
+      ? path.join(worktree.path, NODE_MODULES_LINK_NAME)
+      : null
+  if (linkPath === null) return null
+  return { linkPath, target: record.target, createdAt: record.createdAt }
+}
+
+/**
+ * The direct children of one directory with their link/type fact. `null` means
+ * the store cannot enumerate/lstat, so the caller keeps today's behavior rather
+ * than guessing (the real fs store always exposes both).
+ * @param {any} tower
+ * @param {string} dir
+ * @returns {Promise<Array<{ name: string, path: string, link: boolean, directory: boolean }> | null>}
+ */
+async function inspectWorktreeTopLevel(tower, dir) {
+  const store = tower.deps.store
+  if (typeof store.readdir !== 'function') return null
+  let names
+  try {
+    names = await store.readdir(dir)
+  } catch {
+    return null
+  }
+  const entries = []
+  for (const name of [...names].sort()) {
+    const entryPath = path.join(dir, name)
+    let info = null
+    if (typeof store.lstat === 'function') {
+      try {
+        info = await store.lstat(entryPath)
+      } catch {
+        info = null
+      }
+    }
+    entries.push({
+      name,
+      path: entryPath,
+      link: typeof info?.isSymbolicLink === 'function' && info.isSymbolicLink() === true,
+      directory: typeof info?.isDirectory === 'function' && info.isDirectory() === true,
+    })
+  }
+  return entries
+}
+
+/** @param {string} left @param {string} right */
+function sameEntryPath(left, right) {
+  try {
+    return pathKey(left) === pathKey(right)
+  } catch {
+    return path.resolve(left) === path.resolve(right)
+  }
+}
+
+/**
+ * Unlink the recorded `node_modules` link just before the checkout removal, and
+ * refuse the removal when any OTHER link/junction sits at the top level: git's
+ * recursive delete must never walk through a link Tower cannot prove it owns.
+ * @param {any} tower
+ * @param {{ path: string, nodeModulesLink?: any }} worktree
+ * @returns {Promise<{ available: boolean, blocked: boolean, link: any, kept: Array<{ name: string, reason: string }> }>}
+ */
+export async function prepareLinkSafeRemoval(tower, worktree) {
+  const entries = await inspectWorktreeTopLevel(tower, worktree.path)
+  if (entries === null) return { available: false, blocked: false, link: null, kept: [] }
+  const registration = registeredNodeModulesLink(worktree)
+  const kept = []
+  for (const entry of entries) {
+    if (!entry.link) continue
+    if (registration && sameEntryPath(entry.path, registration.linkPath)) continue
+    kept.push({
+      name: entry.name,
+      reason: 'unrecorded link or junction kept in place; teardown never follows or deletes a link it did not create',
+    })
+  }
+  if (kept.length > 0) return { available: true, blocked: true, link: null, kept }
+  if (!registration) return { available: true, blocked: false, link: null, kept: [] }
+  const entry = entries.find((candidate) => sameEntryPath(candidate.path, registration.linkPath))
+  // A recorded path that is gone needs no unlink; one that turned into a real
+  // directory is not a link and is left for git to remove with the checkout.
+  if (!entry || !entry.link) return { available: true, blocked: false, link: null, kept: [] }
+  try {
+    await tower.deps.store.unlink(registration.linkPath)
+  } catch (error) {
+    return {
+      available: true,
+      blocked: true,
+      link: null,
+      kept: [{ name: NODE_MODULES_LINK_NAME, reason: `the recorded node_modules link could not be unlinked: ${String(error?.message ?? error).slice(0, 160)}` }],
+    }
+  }
+  return {
+    available: true,
+    blocked: false,
+    link: { action: 'removed', path: registration.linkPath, target: registration.target },
+    kept: [],
+  }
+}
+
+/**
+ * After `git worktree remove` (which may leave ignored files behind), settle the
+ * residual directory without ever recursing: unlink only the recorded link,
+ * remove only proved-empty directories, keep everything else and say so.
+ * @param {any} tower
+ * @param {string} dir
+ * @param {{ path: string, nodeModulesLink?: any } | null} worktree
+ * @returns {Promise<{ available: boolean, decisions: Array<{ name: string, action: string, reason: string }> }>}
+ */
+export async function settleResidualWorktree(tower, dir, worktree) {
+  const store = tower.deps.store
+  const entries = await inspectWorktreeTopLevel(tower, dir)
+  if (entries === null) return { available: false, decisions: [] }
+  const registration = worktree ? registeredNodeModulesLink(worktree) : null
+  /** @type {Array<{ name: string, action: string, reason: string }>} */
+  const decisions = []
+  for (const entry of entries) {
+    if (entry.link) {
+      if (registration && sameEntryPath(entry.path, registration.linkPath)) {
+        try {
+          await store.unlink(entry.path)
+          decisions.push({ name: entry.name, action: 'removed', reason: 'recorded node_modules link; its target was not touched' })
+        } catch (error) {
+          decisions.push({ name: entry.name, action: 'kept', reason: `the recorded link could not be unlinked: ${String(error?.message ?? error).slice(0, 160)}` })
+        }
+      } else {
+        decisions.push({ name: entry.name, action: 'kept', reason: 'unrecorded link or junction; teardown does not delete links it did not create' })
+      }
+      continue
+    }
+    if (entry.directory) {
+      if (typeof store.rmdir !== 'function') {
+        decisions.push({ name: entry.name, action: 'kept', reason: 'directory kept: this store cannot remove directories' })
+        continue
+      }
+      try {
+        const children = await store.readdir(entry.path)
+        if (children.length > 0) {
+          decisions.push({ name: entry.name, action: 'kept', reason: 'directory is not empty' })
+          continue
+        }
+        await store.rmdir(entry.path)
+        decisions.push({ name: entry.name, action: 'removed', reason: 'empty directory' })
+      } catch (error) {
+        decisions.push({ name: entry.name, action: 'kept', reason: `directory kept: ${String(error?.message ?? error).slice(0, 160)}` })
+      }
+      continue
+    }
+    decisions.push({ name: entry.name, action: 'kept', reason: 'file kept; teardown removes only recorded links and empty directories' })
+  }
+  // Remove the now-empty shell itself, still without touching any content.
+  if (typeof store.rmdir === 'function') {
+    try {
+      const left = await store.readdir(dir)
+      if (left.length === 0) await store.rmdir(dir)
+    } catch {
+      // a shell that is gone or still populated is not this helper's failure
+    }
+  }
+  return { available: true, decisions }
+}
+
 /**
  * #214: ordinary directories directly under the worktree root that neither
  * state nor `git worktree list` claims. They are the shells a review checkout

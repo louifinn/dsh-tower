@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 58 · sections: 16 · tools: 22 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 59 · sections: 16 · tools: 22 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -18,11 +18,11 @@ It returns:
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 58,
+    "configKeys": 59,
     "sections": 16,
     "tools": 22,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 58 · sections: 16 · tools: 22"
+    "line": "config keys: 59 · sections: 16 · tools: 22"
   },
   "stateLock": {
     "held": true,
@@ -344,6 +344,13 @@ A checkout git records **outside** the worktree root belongs to another tool, no
 It is named in the same check but on a `pass` row: it is not managed by Tower, is not counted with
 the unrecorded worktrees or empty shells, and is never removed by Tower. The operator reclaims or
 accepts it outside Tower.
+
+A worktree may carry a recorded `node_modules` junction (`spawn.nodeModules:"link"`, #218). The
+`worktree-links` check reports three states as a `warn`: the recorded target is missing (`dangling`),
+the recorded path is gone or is no longer a link (`missing`/`replaced`), and an unrecorded link sits
+at `<worktree>/node_modules`. Doctor never follows, creates or removes a link. Teardown unlinks only
+the recorded link and keeps a checkout that holds an unrecorded one, so this warning explains why a
+checkout stayed behind; the pass reading is `no dangling or unrecorded worktree links`.
 
 A checkout at the path a mission is expected to provision is reported as in flight, never as an
 unrecorded defect: while a mission with no recorded worktree can still start a provision (planned,

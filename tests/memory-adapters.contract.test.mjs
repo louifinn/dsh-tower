@@ -344,9 +344,11 @@ test('the commit-mutex, exclusive-copy and directory capabilities are optional, 
   assert.deepEqual([...STORE_OPTIONAL_METHODS].sort(), [
     'clearStateCommitLock',
     'copyFileExclusive',
+    'lstat',
     'readStateCommitLock',
     'readdir',
     'rmdir',
+    'symlink',
   ])
   assert.equal(
     typeof realStore.readStateCommitLock,
