@@ -105,7 +105,11 @@ handle was still open), for example `M12-review-reviewer-a`; doctor's `worktrees
 them and points here. The sweep never touches the main checkout, a state-referenced path, a path
 outside the root, a non-empty directory or a registered checkout, and `dry_run: true` previews every
 decision. A checkout another tool registered outside the worktree root is foreign to Tower: doctor
-names it on a passing row and the sweep keeps it, so reclaim it with the tool that created it.
+names it on a passing row and the sweep keeps it, so reclaim it with the tool that created it. If the
+configured store does not expose directory enumeration (the optional `readdir`/`rmdir` capabilities),
+neither doctor nor the sweep can see empty shells: doctor warns that the capability is unavailable and
+the teardown report carries `leftoversUnavailable` plus a warning, so remove those directories
+manually.
 
 ## Ownership handoff
 

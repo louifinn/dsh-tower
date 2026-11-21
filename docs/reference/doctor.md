@@ -335,6 +335,11 @@ and never deleted, and doctor still removes nothing itself. The review checkout 
 own shell as soon as the checkout is gone, so this warning is for shells left by an interrupted or
 out-of-band cleanup.
 
+Directory enumeration is an optional store capability (#214). When the configured store does not
+expose it, the check cannot tell whether a directory is an empty shell, so it reports a `warn` naming
+that limitation instead of a `pass`: the sweep cannot clean those shells and an unsupported store is
+never mistaken for a clean worktree root.
+
 A checkout git records **outside** the worktree root belongs to another tool, not to Tower (#214).
 It is named in the same check but on a `pass` row: it is not managed by Tower, is not counted with
 the unrecorded worktrees or empty shells, and is never removed by Tower. The operator reclaims or

@@ -29,7 +29,8 @@ import {
   resolveHostVersion,
 } from '../host/compatibility.js'
 import { writeJsonAtomic, stateCommitLockPath } from '../adapters/store.js'
-import { FOREIGN_CAPABILITIES, foreignCapabilityStatus } from '../host/doctor-acceptance.js'
+import { FOREIGN_CAPABILITIES, foreignCapabilityStatus, orphanWorktreeCheck } from '../host/doctor-acceptance.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
 import { validateJsonSchema } from './schema-validator.mjs'
@@ -1355,6 +1356,30 @@ test('doctor: empty leftover review-checkout shells are visible and orphan teard
     const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')
     assert.equal(afterCheck.status, 'pass')
     assert.equal(afterCheck.detail, 'no unrecorded worktrees')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a store without directory enumeration warns instead of passing the shell check (#214)', async () => {
+  const { root, repo } = seedRepo()
+  try {
+    const base = createDefaultDeps()
+    const { readdir: _readdir, rmdir: _rmdir, ...store } = base.store
+    const tower = await Tower.open(repo, { ...base, store })
+    await tower.init({})
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shell = path.join(checkoutRoot, 'M61-review-reviewer-m61-r2')
+    fs.mkdirSync(shell)
+
+    const check = await orphanWorktreeCheck(tower, await tower.load())
+    assert.equal(check.status, 'warn', 'a store that cannot enumerate directories is never a clean pass')
+    assert.match(check.detail, /does not expose directory enumeration/)
+    assert.match(check.detail, /tower_teardown cannot clean empty review-checkout shells/)
+    assert.match(check.action, /worktree teardown step/)
+    assert.doesNotMatch(check.detail, /no unrecorded worktrees/)
+    assert.equal(fs.existsSync(shell), true, 'doctor stays read-only')
   } finally {
     removeTemp(root)
   }

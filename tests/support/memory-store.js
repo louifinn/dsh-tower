@@ -229,6 +229,39 @@ export function createMemoryStore(options = {}) {
     if (!files.delete(target)) throw missingFile(target, 'unlink')
   }
 
+  // Optional directory capabilities (#214). Direct child names only, sorted for
+  // a stable diagnostic; the port promises no order.
+  async function readdir(dir) {
+    const target = normalizePath(dir)
+    if (!dirs.has(target)) throw missingFile(target, 'scandir')
+    const prefix = `${target}/`
+    const names = new Set()
+    for (const file of files.keys()) {
+      if (parentOf(file) === target) names.add(file.slice(prefix.length))
+    }
+    for (const entry of dirs) {
+      if (entry !== target && parentOf(entry) === target) names.add(entry.slice(prefix.length))
+    }
+    return [...names].sort()
+  }
+
+  /** Non-recursive, like fs.rmdir: a non-empty directory throws ENOTEMPTY. */
+  async function rmdir(dir) {
+    const target = normalizePath(dir)
+    if (!dirs.has(target)) throw missingFile(target, 'rmdir')
+    const prefix = `${target}/`
+    const populated =
+      [...files.keys()].some((file) => file.startsWith(prefix)) ||
+      [...dirs].some((entry) => entry !== target && entry.startsWith(prefix))
+    if (populated) {
+      const error = new Error(`ENOTEMPTY: directory not empty, rmdir '${target}'`)
+      error.code = 'ENOTEMPTY'
+      error.path = target
+      throw error
+    }
+    dirs.delete(target)
+  }
+
   async function readGitLock() {
     return { record: null, raw: null }
   }
@@ -287,6 +320,8 @@ export function createMemoryStore(options = {}) {
     renameWithRetry: rename,
     stat,
     unlink,
+    readdir,
+    rmdir,
     readGitLock,
     gitLockView,
     shortHash,

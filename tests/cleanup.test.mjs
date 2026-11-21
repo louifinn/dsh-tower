@@ -26,7 +26,8 @@ import path from 'node:path'
 import { CLEANUP_ATTEMPTS, TRANSIENT_CLEANUP_ERRORS, assertTempPath, removeOnce, removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
 import { inventoryOrphanWorktrees, teardownWorktreeRoot } from '../app/teardown.js'
-import { removeReviewCheckout } from '../app/reviewCheckout.js'
+import { DIRECTORY_SCAN_UNSUPPORTED, removeReviewCheckout } from '../app/reviewCheckout.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import { worktreePath } from '../domain/integration/provision.js'
 
 function tempDir(prefix = 'dsh-tower-cleanup-') {
@@ -772,6 +773,36 @@ test('teardown: orphan mode never removes a foreign checkout outside the root (#
       'a path outside the root is not even scanned as a leftover',
     )
     assert.equal(fs.existsSync(foreign), true)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a store without directory enumeration reports the shell sweep as unavailable (#214)', async () => {
+  const { root, repo } = seedRepo('dsh-tower-leftover-nofs-')
+  const base = createDefaultDeps()
+  const { readdir: _readdir, rmdir: _rmdir, ...store } = base.store
+  const tower = await Tower.open(repo, { ...base, store })
+  try {
+    await tower.init({})
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shell = path.join(checkoutRoot, 'M91-review-reviewer-m91')
+    fs.mkdirSync(shell)
+
+    const result = await tower.teardown({ orphans: true })
+    const report = result.orphanWorktrees
+    assert.equal(report.leftoversUnavailable, DIRECTORY_SCAN_UNSUPPORTED)
+    assert.deepEqual(report.leftoversRemoved, [], 'nothing is removed without the capability')
+    assert.equal(fs.existsSync(shell), true, 'the shell survives a store that cannot enumerate directories')
+    assert.ok(
+      result.warnings.some((line) => /does not expose directory enumeration/.test(line)),
+      'the report names the missing capability instead of claiming a clean sweep',
+    )
+    assert.ok(
+      result.warnings.some((line) => /tower_teardown cannot clean review-checkout shells/.test(line)),
+      'the warning names the operation that cannot work',
+    )
   } finally {
     removeTemp(root)
   }

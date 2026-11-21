@@ -94,7 +94,7 @@ export async function provisionReviewCheckout(tower, input = {}) {
  * blocks the verdict, and `tower_teardown`/`tower_recover` retry it later.
  * @param {any} tower
  * @param {string} checkout
- * @returns {Promise<{ ok: boolean, removed: boolean, attempts: number, error?: string }>}
+ * @returns {Promise<{ ok: boolean, removed: boolean, attempts: number, error?: string, emptyDirectoryCheck?: { available: boolean, reason: string } }>}
  */
 export async function removeReviewCheckout(tower, checkout) {
   const removal = await removeSandbox(tower, checkout)
@@ -104,14 +104,22 @@ export async function removeReviewCheckout(tower, checkout) {
   // `git worktree list` row makes this shell visible; remove it here while the
   // roster row still names it. A non-empty directory is left to the operator.
   if (!removal.ok) return removal
-  let empty = false
+  let inspection
   try {
-    empty = await isEmptyDirectory(checkout)
+    inspection = await isEmptyDirectory(tower.deps.store, checkout)
   } catch {
     return removal
   }
-  if (!empty) return removal
-  const cleaned = await removeEmptyDirectory(checkout)
+  // A store without directory enumeration cannot tell whether the shell is
+  // empty. Report the limitation rather than claim the cleanup finished.
+  if (!inspection.available) {
+    return { ...removal, emptyDirectoryCheck: { available: false, reason: String(inspection.reason) } }
+  }
+  if (!inspection.empty) return removal
+  const cleaned = await removeEmptyDirectory(tower.deps.store, checkout)
+  if (!cleaned.available) {
+    return { ...removal, emptyDirectoryCheck: { available: false, reason: String(cleaned.reason) } }
+  }
   if (!cleaned.ok) return { ...removal, error: cleaned.error }
   return { ...removal, removed: removal.removed || cleaned.removed }
 }
@@ -121,7 +129,7 @@ export async function removeReviewCheckout(tower, checkout) {
  * The recorded commit stays: it is the evidence the review was based on.
  * @param {any} tower
  * @param {{ name: string, missionId?: string | null }} input
- * @returns {Promise<{ entry: any, removal: { ok: boolean, removed: boolean, attempts: number, error?: string } } | null>}
+ * @returns {Promise<{ entry: any, removal: { ok: boolean, removed: boolean, attempts: number, error?: string, emptyDirectoryCheck?: { available: boolean, reason: string } } } | null>}
  */
 export async function cleanupReviewCheckout(tower, input) {
   const removal = await tower.withStateLock(async (_paths, held) => {
@@ -244,55 +252,91 @@ export function reservedCheckoutPaths(state, root) {
   return reserved
 }
 
-// #214: the app ports expose no directory enumeration or removal, and the
-// architecture gate only lets adapters import `node:fs`. The leftover sweep
-// therefore reaches `node:fs/promises` lazily from this module, the owner of the
-// review-checkout lifecycle; the proper fix is a readdir/rmdir capability on
-// StorePort, which is outside this mission's scope.
-/** @returns {Promise<any>} */
-function directoryFs() {
-  return import('node:fs/promises')
+// #214: directory enumeration and removal are optional StorePort filesystem
+// capabilities (ports/store.js), the same precedent as `copyFileExclusive`. The
+// app layer feature-detects them and reports the limitation; it never reaches for
+// the filesystem module directly, which the architecture gate keeps inside
+// adapters/**. A store that exposes neither must not be read as "no shells": every
+// caller surfaces `available: false` and the reason instead.
+export const DIRECTORY_SCAN_UNSUPPORTED = 'the store does not expose directory enumeration'
+export const DIRECTORY_REMOVAL_UNSUPPORTED = 'the store does not expose empty-directory removal'
+
+/**
+ * Feature-detect the optional directory capabilities. A store may expose
+ * neither, only enumeration, or both; each caller names the one it needs.
+ * @param {any} store
+ * @returns {{ readdir: ((dir: string) => Promise<string[]>) | null, rmdir: ((dir: string) => Promise<void>) | null }}
+ */
+export function directoryCapabilities(store) {
+  return {
+    readdir: typeof store?.readdir === 'function' ? (dir) => store.readdir(dir) : null,
+    rmdir: typeof store?.rmdir === 'function' ? (dir) => store.rmdir(dir) : null,
+  }
 }
 
 /**
  * Direct child directory names of `root`, sorted. A missing root has no
- * children; files and links are ignored so only ordinary directories are ever
- * considered.
+ * children; files are skipped so only directories are ever considered. A store
+ * without `readdir` returns `available: false` with the reason; callers must
+ * report that instead of reading the empty `directories` as "no shells".
+ * @param {any} store
  * @param {string} root
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ available: boolean, reason: string | null, directories: string[] }>}
  */
-export async function directChildDirectories(root) {
-  const entries = await (await directoryFs()).readdir(root, { withFileTypes: true })
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+export async function directChildDirectories(store, root) {
+  const { readdir } = directoryCapabilities(store)
+  if (!readdir) return { available: false, reason: DIRECTORY_SCAN_UNSUPPORTED, directories: [] }
+  const names = await readdir(root)
+  const directories = []
+  for (const name of names) {
+    try {
+      const info = await store.stat(path.join(root, name))
+      if (info?.isDirectory()) directories.push(name)
+    } catch {
+      // A child that vanished between the listing and the stat is not a shell.
+    }
+  }
+  return { available: true, reason: null, directories: directories.sort() }
 }
 
 /**
- * True when `dir` holds no entries. `readdir` rather than a cached stat keeps a
- * concurrent checkout from being mistaken for an empty shell.
+ * Whether `dir` holds no entries. `readdir` rather than a cached stat keeps a
+ * concurrent checkout from being mistaken for an empty shell. Without the
+ * capability the answer is `available: false`, never "empty".
+ * @param {any} store
  * @param {string} dir
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ available: boolean, reason: string | null, empty: boolean }>}
  */
-export async function isEmptyDirectory(dir) {
-  return (await (await directoryFs()).readdir(dir)).length === 0
+export async function isEmptyDirectory(store, dir) {
+  const { readdir } = directoryCapabilities(store)
+  if (!readdir) return { available: false, reason: DIRECTORY_SCAN_UNSUPPORTED, empty: false }
+  return { available: true, reason: null, empty: (await readdir(dir)).length === 0 }
 }
 
 /**
  * Remove one empty directory. A vanished or now-non-empty directory is a benign
  * keep (`ENOENT`/`ENOTEMPTY`/`EEXIST`): the caller re-checks both, and a busy
- * Windows handle is a retryable removal failure.
+ * Windows handle is a retryable removal failure. Without the capability nothing
+ * is attempted and the result says why.
+ * @param {any} store
  * @param {string} dir
- * @returns {Promise<{ ok: boolean, removed: boolean, error?: string }>}
+ * @returns {Promise<{ ok: boolean, removed: boolean, available: boolean, reason?: string, error?: string }>}
  */
-export async function removeEmptyDirectory(dir) {
+export async function removeEmptyDirectory(store, dir) {
+  const { rmdir } = directoryCapabilities(store)
+  if (!rmdir) return { ok: false, removed: false, available: false, reason: DIRECTORY_REMOVAL_UNSUPPORTED }
   try {
-    await (await directoryFs()).rmdir(dir)
-    return { ok: true, removed: true }
+    await rmdir(dir)
+    return { ok: true, removed: true, available: true }
   } catch (error) {
     const code = String(/** @type {any} */ (error)?.code ?? '')
-    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') return { ok: true, removed: false }
+    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') {
+      return { ok: true, removed: false, available: true }
+    }
     return {
       ok: false,
       removed: false,
+      available: true,
       error: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240),
     }
   }
@@ -302,33 +346,42 @@ export async function removeEmptyDirectory(dir) {
  * #214: ordinary directories directly under the worktree root that neither
  * state nor `git worktree list` claims. They are the shells a review checkout
  * leaves behind when its contents were removed but the directory survived; a
- * non-empty or unreadable directory is reported as a keep, never removed.
+ * non-empty or unreadable directory is reported as a keep, never removed. A
+ * store without directory enumeration returns `available: false` with the
+ * reason, which every caller must surface rather than report a clean sweep.
+ * @param {any} store
  * @param {string} root
  * @param {any} state
  * @param {Set<string>} registered canonical keys from `git worktree list`
- * @returns {Promise<{ leftovers: any[], error: string | null }>}
+ * @returns {Promise<{ leftovers: any[], error: string | null, available: boolean, reason: string | null }>}
  */
-export async function inventoryEmptyLeftovers(root, state, registered) {
+export async function inventoryEmptyLeftovers(store, root, state, registered) {
   const referenced = referencedCheckoutPaths(state)
   const reserved = reservedCheckoutPaths(state, root)
   const leftovers = []
-  let names
+  let scan
   try {
-    names = await directChildDirectories(root)
+    scan = await directChildDirectories(store, root)
   } catch (error) {
-    if (/** @type {any} */ (error)?.code === 'ENOENT') return { leftovers, error: null }
+    if (/** @type {any} */ (error)?.code === 'ENOENT') {
+      return { leftovers, error: null, available: true, reason: null }
+    }
     return {
       leftovers,
       error: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240),
+      available: false,
+      reason: null,
     }
   }
-  for (const name of names) {
+  if (!scan.available) return { leftovers, error: null, available: false, reason: scan.reason }
+  for (const name of scan.directories) {
     const entryPath = path.join(root, name)
     const key = pathKey(entryPath)
     if (referenced.has(key) || reserved.has(key) || registered.has(key)) continue
     try {
+      const inspection = await isEmptyDirectory(store, entryPath)
       leftovers.push(
-        (await isEmptyDirectory(entryPath))
+        inspection.empty
           ? { name, path: entryPath, action: 'remove', reason: 'empty leftover directory' }
           : { name, path: entryPath, action: 'keep', reason: 'not an empty directory; kept' },
       )
@@ -341,7 +394,7 @@ export async function inventoryEmptyLeftovers(root, state, registered) {
       })
     }
   }
-  return { leftovers, error: null }
+  return { leftovers, error: null, available: true, reason: null }
 }
 
 /**
@@ -351,13 +404,23 @@ export async function inventoryEmptyLeftovers(root, state, registered) {
  * non-empty directory and a failed removal are all kept; only an empty ordinary
  * directory with no other owner can be removed.
  * @param {any} tower
- * @param {{ root: string, leftovers: any[] }} inventory
- * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ * @param {{ root: string, leftovers: any[], leftoverScanAvailable?: boolean, leftoverScanReason?: string | null }} inventory
+ * @returns {Promise<{ decisions: any[], removed: string[], available: boolean, reason?: string }>}
  */
 export async function sweepEmptyLeftovers(tower, inventory) {
   const decisions = inventory.leftovers.map((entry) => ({ ...entry }))
+  // A store without directory enumeration cannot have produced leftover rows;
+  // if an unsupported inventory reaches here anyway, remove nothing and say so.
+  if (inventory.leftoverScanAvailable === false) {
+    return {
+      decisions,
+      removed: [],
+      available: false,
+      reason: inventory.leftoverScanReason ?? DIRECTORY_SCAN_UNSUPPORTED,
+    }
+  }
   const targets = decisions.filter((entry) => entry.action === 'remove')
-  if (targets.length === 0) return { decisions, removed: [] }
+  if (targets.length === 0) return { decisions, removed: [], available: true }
 
   const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
     let state
@@ -404,18 +467,26 @@ export async function sweepEmptyLeftovers(tower, inventory) {
         keep('not a directory')
         continue
       }
-      let empty = false
+      let inspection
       try {
-        empty = await isEmptyDirectory(entry.path)
+        inspection = await isEmptyDirectory(tower.deps.store, entry.path)
       } catch (error) {
         keep(`could not inspect the directory: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 200)}`)
         continue
       }
-      if (!empty) {
+      if (!inspection.available) {
+        keep(String(inspection.reason))
+        continue
+      }
+      if (!inspection.empty) {
         keep('not empty')
         continue
       }
-      const removal = await removeEmptyDirectory(entry.path)
+      const removal = await removeEmptyDirectory(tower.deps.store, entry.path)
+      if (!removal.available) {
+        keep(String(removal.reason))
+        continue
+      }
       if (!removal.removed) {
         keep(removal.ok ? 'the directory was already gone or changed' : removal.error ?? 'the removal failed')
         continue
@@ -432,7 +503,7 @@ export async function sweepEmptyLeftovers(tower, inventory) {
       row.action = 'keep'
       row.reason = `state could not be re-read before the sweep: ${outcome.detail}`
     }
-    return { decisions, removed: [] }
+    return { decisions, removed: [], available: true }
   }
 
   const removed = []
@@ -443,5 +514,5 @@ export async function sweepEmptyLeftovers(tower, inventory) {
     entry.reason = swept.reason
     if (swept.action === 'removed') removed.push(entry.path)
   }
-  return { decisions, removed }
+  return { decisions, removed, available: true }
 }

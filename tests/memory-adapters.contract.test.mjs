@@ -25,6 +25,7 @@ import { STORE_OPTIONAL_METHODS } from '../ports/store.js'
 import { VCS_OPTIONAL_METHODS, VCS_PORT } from '../ports/vcs.js'
 import { createDefaultDeps } from '../adapters/default.js'
 import { TowerToolError } from '../domain/errors.js'
+import { DIRECTORY_SCAN_UNSUPPORTED, inventoryEmptyLeftovers } from '../app/reviewCheckout.js'
 import { createMemoryStore, MEMORY_SCHEME } from './support/memory-store.js'
 import { createScriptedVcs } from './support/scripted-vcs.js'
 
@@ -339,11 +340,13 @@ test('the store stat result the directory fence reads is declared and implemente
   }
 })
 
-test('the commit-mutex and exclusive-copy capabilities are optional, never required (F71)', async () => {
+test('the commit-mutex, exclusive-copy and directory capabilities are optional, never required (F71, #214)', async () => {
   assert.deepEqual([...STORE_OPTIONAL_METHODS].sort(), [
     'clearStateCommitLock',
     'copyFileExclusive',
     'readStateCommitLock',
+    'readdir',
+    'rmdir',
   ])
   assert.equal(
     typeof realStore.readStateCommitLock,
@@ -355,7 +358,7 @@ test('the commit-mutex and exclusive-copy capabilities are optional, never requi
     assert.equal(typeof fsStore[method], 'function', `the filesystem store must expose ${method}`)
     assert.ok(
       !PORTS.store.contract.methods.includes(method),
-      `store.${method} must not be required: an in-memory store has no second writer or filesystem to repair`,
+      `store.${method} must not be required: an implementation without a filesystem need not provide it`,
     )
   }
   assert.doesNotThrow(
@@ -377,6 +380,53 @@ test('the commit-mutex and exclusive-copy capabilities are optional, never requi
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('directory enumeration and removal are optional capabilities the caller reports (#214)', async () => {
+  const fsStore = createDefaultDeps().store
+  const memory = createMemoryStore()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-store-dirs-'))
+  try {
+    const shell = path.join(root, 'shell')
+    fs.mkdirSync(shell)
+    fs.writeFileSync(path.join(root, 'not-a-dir.txt'), 'x')
+    fs.mkdirSync(path.join(shell, 'busy'))
+    assert.deepEqual(await fsStore.readdir(root), ['not-a-dir.txt', 'shell'])
+    await assert.rejects(() => fsStore.rmdir(shell), { code: 'ENOTEMPTY' })
+    fs.rmdirSync(path.join(shell, 'busy'))
+    await fsStore.rmdir(shell)
+    assert.equal(fs.existsSync(shell), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+
+  // The in-memory double implements the same semantics without a disk. A plain
+  // absolute path (not the `tower-mem://` scheme) so `path.join` in the caller
+  // sees the same path the store keys on.
+  const memRoot = '/virtual/dirs/root'
+  const memShell = `${memRoot}/shell`
+  await memory.ensureDir(memShell)
+  await memory.writeText(`${memRoot}/note.txt`, 'kept')
+  assert.deepEqual(await memory.readdir(memRoot), ['note.txt', 'shell'])
+  await memory.writeText(`${memShell}/inside.txt`, 'x')
+  await assert.rejects(() => memory.rmdir(memShell), { code: 'ENOTEMPTY' })
+  await memory.unlink(`${memShell}/inside.txt`)
+  await memory.rmdir(memShell)
+  assert.equal(await memory.exists(memShell), false)
+
+  // Both are optional: a store without them is still a valid StorePort, and a
+  // caller must report the missing capability instead of "nothing to clean".
+  const { readdir: _readdir, rmdir: _rmdir, ...requiredOnly } = memory
+  assert.doesNotThrow(() => PORTS.store.assert(requiredOnly), 'readdir/rmdir must not be required')
+  const unsupported = await inventoryEmptyLeftovers(requiredOnly, memRoot, { missions: [], roster: [] }, new Set())
+  assert.equal(unsupported.available, false)
+  assert.equal(unsupported.reason, DIRECTORY_SCAN_UNSUPPORTED)
+  assert.deepEqual(unsupported.leftovers, [], 'an unsupported store must not look like a clean sweep')
+  await memory.ensureDir(`${memRoot}/shell-again`)
+  const supported = await inventoryEmptyLeftovers(memory, memRoot, { missions: [], roster: [] }, new Set())
+  assert.equal(supported.available, true)
+  assert.equal(supported.leftovers.find((entry) => entry.name === 'note.txt'), undefined, 'a file is never a shell')
+  assert.equal(supported.leftovers.find((entry) => entry.name === 'shell-again').action, 'remove')
 })
 
 test('the port-call guard sees the optional commit-mutex reads in tools/ (F71)', () => {

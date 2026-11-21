@@ -113,10 +113,12 @@ export function teardownWorktreeRoot(tower) {
  * be about to record so a report can name them instead of hiding them.
  * `leftovers` adds the #214 empty ordinary directories directly under the root
  * that no state row and no registration claims; `leftoverError` is set only when
- * the scan itself failed.
+ * the scan itself failed. `leftoverScanAvailable` is false, with
+ * `leftoverScanReason`, when the store exposes no directory enumeration: the
+ * empty `leftovers` then means "not checked", not "none left".
  * @param {any} tower
  * @param {any} [state] already loaded state, so doctor does not load it twice
- * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[], leftovers: any[], leftoverError: string | null }>}
+ * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[], leftovers: any[], leftoverError: string | null, leftoverScanAvailable: boolean, leftoverScanReason: string | null }>}
  */
 export async function inventoryOrphanWorktrees(tower, state = null) {
   const loaded = state ?? (await tower.load())
@@ -174,7 +176,7 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
   )
   // `seen` is every key `git worktree list` reported, so a registered checkout
   // is never mistaken for an empty shell.
-  const leftovers = await inventoryEmptyLeftovers(root, loaded, seen)
+  const leftovers = await inventoryEmptyLeftovers(tower.deps.store, root, loaded, seen)
   return {
     root,
     decisions,
@@ -183,6 +185,8 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
     inflight,
     leftovers: leftovers.leftovers,
     leftoverError: leftovers.error,
+    leftoverScanAvailable: leftovers.available,
+    leftoverScanReason: leftovers.reason,
   }
 }
 
@@ -224,13 +228,14 @@ function unmatchedExclusions(state, exclude) {
  * its state revisions never invalidate the worktree claims.
  * @param {any} tower
  * @param {any} input
- * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ * @returns {Promise<{ decisions: any[], removed: string[], notes: string[] }>}
  */
 async function teardownReviewCheckouts(tower, input) {
   const state = await tower.load()
   const exclude = new Set(input.exclude ?? [])
   const decisions = []
   const removed = []
+  const notes = []
   for (const entry of state.roster ?? []) {
     const checkout = typeof entry.reviewCheckout === 'string' ? entry.reviewCheckout : null
     if (!checkout) continue
@@ -249,7 +254,14 @@ async function teardownReviewCheckouts(tower, input) {
     }
     const outcome = await cleanupReviewCheckout(tower, { name: entry.name, missionId: entry.missionId })
     if (!outcome || outcome.removal.ok) {
-      decisions.push({ ...row, action: 'removed', reason: outcome ? 'checkout was already gone' : 'checkout and record were already gone' })
+      const limited = outcome?.removal.emptyDirectoryCheck
+      const reason = !outcome
+        ? 'checkout and record were already gone'
+        : limited?.available === false
+          ? `checkout was removed; the empty directory could not be inspected: ${limited.reason}`
+          : 'checkout was already gone'
+      if (limited?.available === false) notes.push(`review checkout ${checkout} may have left an empty shell: ${limited.reason}`)
+      decisions.push({ ...row, action: 'removed', reason })
       removed.push(entry.name)
       continue
     }
@@ -259,7 +271,7 @@ async function teardownReviewCheckouts(tower, input) {
       reason: `checkout cleanup failed after ${outcome.removal.attempts} attempt(s): ${outcome.removal.error}`,
     })
   }
-  return { decisions, removed }
+  return { decisions, removed, notes }
 }
 
 /**
@@ -511,6 +523,12 @@ export async function teardown(tower, input) {
   // #185: the orphan sweep is explicit and never part of a normal teardown. The
   // inventory is read-only; only the real run below removes or prunes anything.
   const orphans = input.orphans === true ? await inventoryOrphanWorktrees(tower, prepared.state) : null
+  const warnings = [...reviews.notes]
+  if (orphans && !orphans.leftoverScanAvailable) {
+    warnings.push(
+      `empty leftover directory sweep is unavailable: ${orphans.leftoverScanReason}; tower_teardown cannot clean review-checkout shells with this store`,
+    )
+  }
   if (prepared.dryRun) {
     // #183: the preview is computed from the same policy inputs as the real
     // sweep, on the state projected after the planned removals and sandbox
@@ -537,6 +555,7 @@ export async function teardown(tower, input) {
       sandboxesRemoved: [],
       archivePreview,
       unmatchedExclude: unmatched.ids,
+      ...(warnings.length > 0 ? { warnings } : {}),
       ...(orphans
         ? {
             orphanWorktrees: {
@@ -547,6 +566,7 @@ export async function teardown(tower, input) {
               leftovers: orphans.leftovers,
               leftoversRemoved: [],
               ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
+              ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
             },
           }
         : {}),
@@ -717,6 +737,7 @@ export async function teardown(tower, input) {
     unmatchedExclude: unmatched.ids,
     archived: archive.archived,
     ...(archive.error ? { archiveError: archive.error } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     ...(orphanSweep && orphans
       ? {
           orphanWorktrees: {
@@ -728,6 +749,7 @@ export async function teardown(tower, input) {
               ? { leftovers: leftoverSweep.decisions, leftoversRemoved: leftoverSweep.removed }
               : {}),
             ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
+            ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
           },
         }
       : {}),
