@@ -10,11 +10,11 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 仓库时重载损坏的 profile）。
 ## 工具集
 
-本构建最多 21 个工具（全开）；默认 profile 注册 **16 个工具**：`tower_init`（`op:"init"`/`"adopt"`）、`tower_plan`、
+本构建最多 22 个工具（全开）；默认 profile 注册 **17 个工具**：`tower_init`（`op:"init"`/`"adopt"`）、`tower_plan`、
 `tower_spawn`、`tower_mission`、`tower_interrupt`、`tower_merge`、`tower_rebase`、
 `tower_teardown`、`tower_send`、`tower_inbox`、`tower_finding`、`tower_inspect`（五个只读视图）、
-`tower_complete`、`tower_review`、`tower_mode` 与 `tower_recover`。全部开启的构建面为
-**21 个工具**：16 个默认工具加 `tower_batch`（`tower-batch`）、`tower_import`（`tower-import`）、
+`tower_complete`、`tower_review`、`tower_mode`、`tower_recover` 与 `tower_wait`。全部开启的构建面为
+**22 个工具**：17 个默认工具加 `tower_batch`（`tower-batch`）、`tower_import`（`tower-import`）、
 `tower_resource`（`tower-leases`）、`tower_test`（`tower-tests`）和 `tower_reload`
 （`tower-hmr`）。`tower_inspect` 把 status、roster、diff、preflight、doctor 五个只读视图收进
 一个工具，用 `view` 选择；`tower_init`、`tower_finding` 和 `tower_import` 把同一资源的动作
@@ -23,8 +23,8 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 每个 profile **实际挂载**的工具比构建面更窄。控制塔会话不挂载 `tower_complete` 与
 `tower_review`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5）。从控制塔
 会话强行调用会得到可执行的 `not-authorized` 提示（指出 `tower_spawn({role:"worker"})` 入口），
-而不是 unknown tool。实测 profile：tower 14 个工具 / 16,017 B 输入 schema，worker 6 / 8,646 B，
-reviewer 5 / 6,000 B；基线记录在 `docs/reference/surface-budget.md`。
+而不是 unknown tool。实测 profile：tower 15 个工具 / 15,263 B 输入 schema，worker 6 / 8,515 B，
+reviewer 5 / 5,609 B；基线记录在 `docs/reference/surface-budget.md`。
 
 ## 默认关闭的子系统
 
@@ -41,7 +41,7 @@ reviewer 5 / 6,000 B；基线记录在 `docs/reference/surface-budget.md`。
 | `tower-tests` | `tower_test` | 删除 `tower-tests` 行的 `disabled: true` 并重启 DSH |
 | `tower-hmr` | `tower_reload` | 删除 `tower-hmr` 行的 `disabled: true` 并重启 DSH |
 
-工具仍然存在并留在全开 21 个之中：它们是关闭，不是删除。
+工具仍然存在并留在全开 22 个之中：它们是关闭，不是删除。
 
 `tower_mission` 使用 `id`（别名 `missionId`）；其他所有 mission 级工具使用 `missionId`
 （别名 `id`）。其他输入别名：`task_done`/`taskDone`、`task_drop`/`taskDrop`、
@@ -84,7 +84,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_init` | `op?`（`init` 默认 / `adopt`）、`repoRoot`、`base?`、`auto_git_init?`、`snapshot_dirty?`、`reanchor?`、`retire_missing?` | `op:"init"` 创建 `<git-common-dir>/dsh-tower/state.json`。唯一声明 `repoRoot` 的工具（引导）；它优先于会话目录，以便显式初始化指定目标。`auto_git_init` 执行 `git init` 并创建空的初始提交；`snapshot_dirty` 记录一个游离快照提交作为 mission 基线；`reanchor` 仅在没有非终态 mission 时修改基线。`op:"adopt"` 把 roster 与持久目录对账：可证明已消失的 agent 会被标记为 retired（默认），或标记为 `missing`（`retire_missing:false`）。两个 op 都仅限控制塔。 |
 | `tower_plan` | `missions[]`（`title`——可打印 Unicode，NFC 规范化，≤120 字符、`scope[]`、`tasks[]?`、`deps[]?`、`kind?`——`build`/`survey`/`artifact`、`artifacts[]?` ≤20、`context?`、`references[]?` ≤20、`reviewPolicy?`、`reviewExemptionReason?`、`allowMissingScope?`） | 创建 mission `M1..`；重叠的 build scope 会自动加依赖；拒绝未知依赖与依赖循环。mission id 保持 ASCII（`M1`、`M2`）；不可见字符与超长标题会以 `invalid-argument` 拒绝。`kind:"artifact"` 在 `artifacts[]` 声明具体的交付物路径（不能是 glob，且必须位于 scope 内）；完成前这些路径必须已提交在分支末端，合并还要求人类接受该末端。`reviewPolicy:"none"` 需要非空理由；审查门禁开启时，preflight 还要求 `gates.allowReviewExemption`。`scope` 是相对仓库根目录的文件 glob 列表；目录形态的条目（`docs/guide/`，或规划时已存在的裸 `docs/guide`）会存成显式的子树 glob `docs/guide/**`——见下文“scope 条目”。规划时每个条目都会与 `git ls-files` 对照：落在已跟踪目录内却匹配不到任何已跟踪文件的条目会以 `invalid-argument` 拒绝，并指出最近的已存在前缀与该目录下最多 5 个已跟踪候选。若该路径确实是 mission 将要创建的，在对应 mission 上传 `allowMissingScope:true`；接受行为会记录为一条 `scope.unverified` 活动条目，存储的 scope 不变。在已有 planned/active build 工作时规划 `**` mission 还会返回非阻塞的 `broad-scope` 警告（见下文“planned 编辑、defer 与暂停”），指出它会把哪些 mission 挡在围栏外。 |
 | `tower_mission` | `id`（别名 `missionId`）、`status?`、`task_done?`、`task_drop?`+`task_drop_reason?`、`task_add?`、`blocker?`、`clear_blockers?`、`note?`、`scope?`、`allowMissingScope?`、`deferred?`、`pause_cause?`、`authorization?`、`accept?`、`accept_note?` | 更新单个 mission。`task_add` 在任务列表尾部追加 1–20 个非空字符串（每个 ≤200 字符），状态为 `open`，且不会重排既有任务索引；planned、active、paused、blocked 的 mission 都允许，completed、merged、abandoned 会以 `invalid-transition` 拒绝且不改变状态。因此追加的 `open` 任务会一直阻止 `tower_complete`，直到被完成或丢弃。worker 可安全使用的字段是 task/blocker/note；不能在这里设置 `merged`。暂停的 mission 记录 `pause_cause`（user/failure/resource/dependency）；planned mission 暂停时必须显式给出原因，`status:"planned"` 会把暂停的 mission 退回规划（清除原因，无需授权），而恢复到 `active` 仍遵循 `mode.requireResumeAuthorization`。`scope` 编辑 planned mission 的围栏（保持 planned）、扩大 active 或 completed 的围栏（并启动它），遵循与规划相同的“必须匹配已跟踪文件”规则与目录展开。`scope` 搭配 `allowMissingScope:true` 可接受尚不匹配任何已跟踪文件的条目（mission 将要创建的路径），适用于 plan、planned 编辑或扩大；接受行为记录为一条 `scope.unverified` 活动条目，该标志不会写入 mission。`deferred` 让 planned 或 active 的拥有路径（build 或 artifact）mission 退出 widen 排序：为 true 时，其他 mission 的编辑或扩大可以与其 scope 重叠，传 false 重新加入；该标志只在 mission 处于 planned/active 时影响排序决策。`accept:true` 记录人类对 artifact mission 已提交末端的接受：工具会通过 DSH 审批通道询问人类，并把当前分支末端写入记录；没有该通道时以 `approval-unavailable` 拒绝，任何参数都不能让接受变成 agent 自批（worker 调用会以 `acceptance-human-only` 拒绝）。 |
-| `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?`、`checks?`、`compact?`、`fields?`、`sinceRevision?`（别名 `since_revision`）、`agent?`、`tail?`、`stat?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板；`fields` 把每个 mission 精确投影为指定字段；`format:"markdown"` 始终渲染完整看板，`sinceRevision` 只过滤 JSON 输出；`sinceRevision` 只保留在该 state revision 之后被逐行标记的行：`missions` 是过滤后的 mission 列表，`roster` 是过滤后的 roster 行**数**——roster 行本身来自 `roster` 视图（`agent`/`tail`），该视图忽略 `sinceRevision`；只有 spawn、interrupt 与 roster 写路径会给行打标记，而 `tower_plan`、`tower_mission`、`tower_complete`、`tower_test`（test-run 回执）、merge、review 与 worktree 写路径不写标记，正数时会漏掉这些变化（`0` 表示不过滤并返回全部行）；带 `missionId` 的 `status` 返回完整详情并忽略 `sinceRevision`；归档摘录不带标记，因此正数时 `includeArchived` 不会追加任何归档；test-run 回执（`testRuns`）只出现在 `missionId` 详情中，列表行里没有；带 worktree 的非终态 mission 还带 `worktreeDirty` 与 `uncommittedPathCount`，每个 mission 最多做一次有界 `git status` 读取，读不到时值为 null）、`roster`（子代理目录的实时活动、`stale` 标记、`lastObservedAt`（最后一次权威目录观测），以及死 agent 诊断字段 `failureReason`（最近一次激活失败的原因；任何非失败结果都会清除它）与 `previousOutcome`（被替换者退休前的 outcome）；`agent` 按名称或 agent id 选一行，`tail` 只保留最新 N 行）、`diff`（mission 分支的 merge-base diff；`stat:true` 用逐文件 `{path, added, deleted}` 计数替代 `patch`/`truncated`，二进制文件两项的值是 `null`，绝不返回 patch 字节）、`preflight`（合并门禁 blockers/warnings；每个 blocker 带有序的 `resolution`，结果顶层带 `order`——依赖合并按祖先优先，随后是 `rebase`，再是其余步骤——以及 `cycle`：`null`，或一个指出相关 mission id 的 `dependency-cycle` 结论与 `break-dependency-cycle` 步骤；不能合并的依赖（survey）给出的步骤是完成它（`complete-mission`），而不是合并它；这里只做诊断，绝不自动 merge 或 rebase；artifact mission 报 `acceptance-missing`/`acceptance-stale`，而不是 review blockers）、`doctor`（环境与 state/git 锁健康，含 Ralph 姿态；`checks:true` 只返回 `{ok, checks}` 且保留完整检查行，`compact:true` 只返回 `{ok, checks}`，通过的检查收缩为 `{id, status}`，未通过的检查额外保留 `detail`；两者同时给出时 compact 优先）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
+| `tower_inspect` | `view`（`status`/`roster`/`diff`/`preflight`/`doctor`）、`missionId?`（diff/preflight 必填）、`maxBytes?`、`offset?`、`limit?`、`includeGate?`、`includeArchived?`、`format?`、`checks?`、`compact?`、`fields?`、`sinceRevision?`（别名 `since_revision`）、`agent?`、`tail?`、`stat?` | 五个只读视图共用一个工具：`status`（面板、单个 mission 详情、分页与 markdown 看板；`fields` 把每个 mission 精确投影为指定字段；`format:"markdown"` 始终渲染完整看板，`sinceRevision` 只过滤 JSON 输出；`sinceRevision` 只保留在该 state revision 之后被逐行标记的行：`missions` 是过滤后的 mission 列表，`roster` 是过滤后的 roster 行**数**——roster 行本身来自 `roster` 视图（`agent`/`tail`），该视图忽略 `sinceRevision`；只有 spawn、interrupt 与 roster 写路径会给行打标记，而 `tower_plan`、`tower_mission`、`tower_complete`、`tower_test`（test-run 回执）、merge、review 与 worktree 写路径不写标记，正数时会漏掉这些变化（`0` 表示不过滤并返回全部行）；带 `missionId` 的 `status` 返回完整详情并忽略 `sinceRevision`；归档摘录不带标记，因此正数时 `includeArchived` 不会追加任何归档；test-run 回执（`testRuns`）只出现在 `missionId` 详情中，列表行里没有；带 worktree 的非终态 mission 还带 `worktreeDirty` 与 `uncommittedPathCount`，每个 mission 最多做一次有界 `git status` 读取，读不到时值为 null）、`roster`（子代理目录的实时活动、`stale` 标记、`lastObservedAt`（最后一次权威目录观测），以及死 agent 诊断字段 `failureReason`（最近一次激活失败的原因；任何非失败结果都会清除它）与 `previousOutcome`（被替换者退休前的 outcome）；`agent` 按名称或 agent id 选一行，`tail` 只保留最新 N 行；带 `agent` 时，`roster` 只返回该行的 `{agent, activity: [{at, event, text}]}`，不返回整张表（`tail` 默认 5，最大 50），`status` 带 `agent` 时只返回该行及其绑定 mission 与有界活动，而不是整个面板（`agent` 与 `missionId` 互斥））、`diff`（mission 分支的 merge-base diff；`stat:true` 用逐文件 `{path, added, deleted}` 计数替代 `patch`/`truncated`，二进制文件两项的值是 `null`，绝不返回 patch 字节）、`preflight`（合并门禁 blockers/warnings；每个 blocker 带有序的 `resolution`，结果顶层带 `order`——依赖合并按祖先优先，随后是 `rebase`，再是其余步骤——以及 `cycle`：`null`，或一个指出相关 mission id 的 `dependency-cycle` 结论与 `break-dependency-cycle` 步骤；不能合并的依赖（survey）给出的步骤是完成它（`complete-mission`），而不是合并它；这里只做诊断，绝不自动 merge 或 rebase；artifact mission 报 `acceptance-missing`/`acceptance-stale`，而不是 review blockers）、`doctor`（环境与 state/git 锁健康，含 Ralph 姿态；`checks:true` 只返回 `{ok, checks}` 且保留完整检查行，`compact:true` 只返回 `{ok, checks}`，通过的检查收缩为 `{id, status}`，未通过的检查额外保留 `detail`；两者同时给出时 compact 优先）。从不写状态或 git；输出与原来的独立工具一致，并带 `view` 字段。diff/preflight 需要 `missionId`；roster/diff 仅对已知 roster 角色开放。 |
 | `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。报告在 `worktree` 里给出放置方式：分支工作树为 `{path, branch, baseCommit}`，读取共享检出或游离 sandbox 的 survey 为 `null`。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`wake?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息。运行中的 roster agent 会被 steer 进当前回合；已停止的 agent 会保留消息，等下次运行时读取。`interrupt:true`（仅 tower）先中断运行中的回合并投递。`wake:true` 为已停止的 agent 启动新回合；若该 agent 无法恢复，则抛出 `agent-not-resumable`。无法观测的活动状态（目录报错或返回空列表）绝不会被当成已停止：此时 `wake:true` 返回 `woke:false` 并说明未声称唤醒；显式 `interrupt:true` 仍会尝试并如实回报，而不是被静默跳过。`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
@@ -100,6 +100,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `/tasks`、`/tower tasks` | — | 人类可用的只读实时 roster 面板：每个存活 roster agent 一行（mission、角色、名称、短分支名、状态、距其最近一条记录事件的静默时长、该事件本身），最静默者在前，最多 20 行，页脚给出 `N live, M stale` 计数与 `tower_interrupt` 处置提示。不消耗模型回合，也不做任何写入（不触碰 `state.json`、activity 日志或 modes store）。过期判定与 `tower_inspect` 的 `roster` 视图及合并门禁使用同一条 `spawn.staleMs` 规则。仅当宿主 profile 未定义其他 `tasks` 命令时插件才注册 `/tasks`；`/tower tasks` 是始终可用的别名，当前 profile 实际采用哪个会在命令描述中说明（#160）。 |
 | `tower_reload` | — | 仅开发用：请求 DSH HMR 对账 profile 并从磁盘重载 Host 插件。`tower-hmr` 组件行开启时注册（该行随包关闭）；在工具结果返回后调度（默认 50 ms）；没有 HMR 时以 `reload-unavailable` 失败。它在 `host/tool-profiles.js` 中登记为唯一的仓库可选工具，因此可以在没有仓库时修复损坏的 profile；决定这一路径的是工具身份，而不是调用者是否传了 `repoRoot`。 |
 | `tower_recover` | `action`（`status`/`clear-stale-lock`/`clear-workspace-lock`）、`confirm?`、`force?` | 恢复诊断，以及针对 state 写锁、短暂存在的 state 提交互斥锁（`state.commit.lock`）和仓库 workspace 锁（`<git-common-dir>/dsh-tower/tower.lock`）的显式 stale 锁修复。当变更报 `state-locked`/`state-commit-busy`，或 `tower_inspect` 的 doctor 报告遗留 `commit-lock` 时，用 `status` 查看 `stateLock` 与 `commitLock`：能解析时返回持有者 `{pid, startedAt, ageMs, heartbeatAgeMs, stale}`，文件存在但无法解析（撕裂写入）时返回 `{unreadable:true, path, error}`（不可读记录是死锁，不是“没有锁”）。`clear-stale-lock` 需要 `confirm:"CLEAR_STALE_LOCK"`，只把 PID 已被证明死亡的记录改名为唯一的数字备份 `.recovered-<timestamp><tick>`（同一毫秒内的两次恢复也不会互相覆盖；输出中的 `backup` 为 state 锁备份，`commitBackup` 为提交互斥锁备份）。`force:true` 还能清理 PID 仍存活但心跳静默（PID 被复用或进程已停止）的记录以及不可读记录；不带 `force` 时不可读记录会以 `state-commit-lock-unreadable`/`state-lock-unreadable` 拒绝并给出可执行的 `nextAction`。被移动的记录始终只改名、绝不 unlink。`status` 还会返回仓库 workspace 锁的 `workspaceLock`：`{path, bytes, mtime, held, self, stale, corrupt, unreadable, torn, aged, reclaimable, pid, sessionId}`。撕裂记录（空、纯空白或不是锁对象）只有在 mtime 超过 30 秒 torn 宽限期后，才会被下一次获取自动回收并改名为 `tower.lock.recovered-<ts>`；新产生的撕裂文件以及所有可解析记录保持原有行为。`clear-workspace-lock` 需要 `confirm:"CLEAR_WORKSPACE_LOCK"`；不带 `force` 时只移动超过宽限期的撕裂记录或 PID 已被证明死亡的记录，活着的持有者、无法证明死亡、新撕裂文件和不可读文件都会被拒绝，并给出路径、字节数、mtime 与可执行的 `nextAction`。`tower_recover` 在 workspace 锁门之前运行（其他仓库工具仍会报 `workspace-busy`，消息现在会带上锁路径、大小与 mtime），但恢复仍绑定 Tower 属主。恢复不会重置状态或 worktree；清理提交互斥锁不替代写者围栏：每次提交仍会校验 state 锁 token 与 `state.json` 的确切字节并对落地修订号分类，因此竞争失败的写者会失败关闭。 |
+| `tower_wait` | `missionId?`（别名 `id`）或 `agent?`（二者恰好一个）、`until?`（默认 `settled` / `completed` / `inactive` / `any-change`）、`timeoutMs?`（1000–600000，默认 30000） | 针对单个 mission 或 roster agent 的一次有界阻塞等待（#201）。每轮只读一次 `state.json`，等待期间从不持有 state 锁，从不写入 state 或 activity，并在轮次之间让出事件循环。只返回一种结论：条件满足时为 `{status:"reached", waitedMs, target, detail}`；超时未满足时为 `{status:"timeout", waitedMs, target, last}`（最后一次有界观测，绝不返回整表）；目标不存在或目录在等待中变为不可读时为 `{status:"unknown", waitedMs, target, reason}`——目标不存在绝不会被伪装成 timeout。仅限控制塔；见下文“等待单个目标”。 |
 | `tower_test` | `missionId`（别名 `id`） | 运行 worktree 的 `package.json` 中 `tower.testDiscovery` 配置的发现命令并记录回执；失败时 `ok:false`。自动准入检查请用 `tower_complete`。 |
 | `tower_batch` | `action`（`create`/`status`/`close`/`abandon`）、`missionIds?`、`exclusions?`、`requiredChecks?`、`receiptPaths?`、`batchId?`、`checks?`、`treeTip?`、`receiptHashes?`、`reason?` | 有限证据批次。create 冻结成员/检查/回执；close 校验每条必需检查与回执哈希；`merged` 成员也可参与 close；abandon 可退掉过期的 open batch 且不删除 mission。成员关系不可变。 |
 | `tower_resource` | `action`（`acquire`/`release`/`status`）、`name?`、`holder?`、`token?`、`ttlMs?`、`force?` | 每个仓库的咨询式租约，位于 `<common>/dsh-tower/leases.json`。没有 OS CPU/内存硬上限；过期的租约需要显式 `force` 与正确 token。 |
@@ -119,6 +120,36 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 ```
 
 `sinceRevision` 使用逐行的 `revision` 标记。只有 spawn、interrupt 与 roster 写路径会给行打标记（spawn 的 reserve/outcome、interrupt，以及 roster 的观测/退休/watchdog 变更）；`tower_plan`、`tower_mission`、`tower_complete`、`tower_test` 的 test-run 回执、merge、review 与 worktree 写路径（`tower_spawn` 的 worktree 供给、`tower_rebase`、`tower_teardown`）只递增 `state.revision` 而不会给行打标记，因此正数会漏掉这些变化。test-run 回执存放在 `testRuns` 中，只出现在 `missionId` 详情里，列表行中没有。在 JSON 看板中，`missions` 是过滤后的 mission 列表，`roster` 是过滤后的 roster 行**数**；roster 行本身来自 `roster` 视图（`agent`/`tail`），该视图忽略 `sinceRevision`。带 `missionId` 的 `status` 返回完整详情并忽略 `sinceRevision`；归档摘录不带标记，因此正数时 `includeArchived` 不会追加任何归档。传 `0` 读取全部行（不过滤）。该过滤只作用于 JSON 输出：`format:"markdown"` 始终渲染完整看板。`compact` 会保留每个未通过检查及其 `detail`，因此更小的 doctor 报告绝不会隐藏失败。
+
+## 等待单个目标
+
+`tower_wait` 是有界读取的另一半（#201）。调用方不必循环轮询 `tower_inspect`，只需指定一个 mission 或一个
+roster agent，就能拿到唯一一种结论：
+
+```json
+{"tool":"tower_wait","arguments":{"missionId":"M7","until":"settled","timeoutMs":120000}}
+{"tool":"tower_wait","arguments":{"agent":"worker-m7","until":"any-change"}}
+```
+
+| 结论 | 条件 | 载荷 |
+|---|---|---|
+| `reached` | 某轮观测时条件已满足：mission 达到 `completed`/`merged`（`completed`）、`completed`/`merged`/`blocked`/`paused`/`abandoned`（mission 的 `settled`/`inactive`）、agent 离开 `active`/`stale` 进入已结算状态，或任何观测事实发生变化（`any-change`）。 | `status`、`waitedMs`、`target`、`detail`（`until` 值及 mission/agent 摘要）。 |
+| `timeout` | 超时前条件始终未满足。 | `status`、`waitedMs`、`target`、`last`——最后一次有界观测（revision、目标行，以及最多 5 行 roster；绝不返回完整 mission/roster 表）。 |
+| `unknown` | 目标不存在，或目录在等待期间变为不可读/被移除。 | `status`、`waitedMs`、`target`、`reason`。不要盲目重试同一目标；先重新读取 roster 或 mission 列表。 |
+
+`until:"settled"` 是默认值。agent 的已结算状态为 `inactive`、`retired`、`failed`、`interrupted` 与 `missing`；
+`stale`、`reserved` 与 `active` 不是已结算，因为 stale 是观测健康事实而非生命周期事实（#210/#211）。
+mission 处于 `completed`、`merged`、`blocked`、`paused` 或 `abandoned` 时是已结算；`until:"inactive"`
+还要求该 mission 的每一行都已结算，或 mission 本身已结算。
+
+保证：
+
+- **有界。** `timeoutMs` 是 1000–600000 的整数（默认 30000）。等待绝不会无限阻塞；越界值以及同时给出
+  `missionId` 与 `agent` 的目标会以 `invalid-argument` 拒绝，并指出边界。
+- **只读。** 等待每轮只读一次 `state.json`，不持有 state 锁，不写 state 或 activity，并在轮次之间让出
+  事件循环（`min(500 ms, remaining)`），因此不会饿死并发写者。
+- **仅限控制塔。** 该工具只暴露在 tower profile 与 `host:active`；worker、reviewer 与 survey preset 都不
+  挂载它。worker 通过 `tower_complete` 汇报进度，角色 preset 必须保持非阻塞。
 
 ## scope 条目
 

@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 58 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 58 · sections: 16 · tools: 22 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -20,9 +20,9 @@ It returns:
   "surface": {
     "configKeys": 58,
     "sections": 16,
-    "tools": 21,
+    "tools": 22,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 58 · sections: 16 · tools: 21"
+    "line": "config keys: 58 · sections: 16 · tools: 22"
   },
   "stateLock": {
     "held": true,

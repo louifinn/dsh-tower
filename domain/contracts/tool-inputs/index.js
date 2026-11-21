@@ -18,6 +18,7 @@ import {
 } from './collaboration.js'
 import { DiffInput, MergeInput, RebaseInput, TeardownInput } from './integration.js'
 import { InspectInput } from './inspect.js'
+import { WaitInput, WAIT_DEFAULT_TIMEOUT_MS, WAIT_MAX_TIMEOUT_MS, WAIT_MIN_TIMEOUT_MS, WAIT_UNTILS } from './wait.js'
 import { FindingInput } from './findings.js'
 import {
   BatchInput,
@@ -50,6 +51,11 @@ export {
   RebaseInput,
   TeardownInput,
   InspectInput,
+  WaitInput,
+  WAIT_DEFAULT_TIMEOUT_MS,
+  WAIT_MAX_TIMEOUT_MS,
+  WAIT_MIN_TIMEOUT_MS,
+  WAIT_UNTILS,
   FindingInput,
   BatchInput,
   DoctorInput,
@@ -80,6 +86,7 @@ const ToolInputs = {
   tower_rebase: RebaseInput,
   tower_teardown: TeardownInput,
   tower_recover: RecoverInput,
+  tower_wait: WaitInput,
   tower_test: TestInput,
   tower_batch: BatchInput,
   tower_resource: ResourceInput,

@@ -353,6 +353,20 @@ const SCHEMAS = {
   // #163 Phase 3: one schema for five views; `view` identifies which shape the
   // value carries and the view-specific fields stay additive.
   inspect: S.obj({ view: S.str }, ['view']),
+  // #201: a bounded wait always concludes. `target` names what was watched;
+  // `detail` describes a reached condition, `last` the final observation of a
+  // timeout (a bounded summary, never a full table), and `reason` an unknown.
+  wait: S.obj(
+    {
+      status: { type: 'string', enum: ['reached', 'timeout', 'unknown'] },
+      waitedMs: S.int,
+      target: S.obj({ missionId: S.str, agent: S.str }),
+      detail: S.obj(),
+      last: S.obj(),
+      reason: S.str,
+    },
+    ['status', 'waitedMs', 'target'],
+  ),
 }
 
 // #163 Phase 4: dispatchers carry one of several documented shapes, so no

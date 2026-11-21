@@ -196,15 +196,15 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - 仓库级配置：在 `<git-common-dir>/dsh-tower/config.json`（通常是 `.git/dsh-tower/config.json`）放入同样的 JSON 结构，可覆盖 `review`/`merge`/`worktrees`/`spawn`；优先级为代码默认 < profile < 仓库配置 < 工具参数。`mode.*` 属于会话级，只在 profile 生效。
 - 所有键与默认值见 [docs/reference/config.md](docs/reference/config.md)；未知键（顶层与分组内）都会被拒绝，防止拼写错误静默失效。三种审查模式、插件页控件位置与单版本别名迁移见[安装、升级与迁移](docs/zh/guide/install-upgrade-migration.md)。工具错误码见 [docs/reference/errors.md](docs/reference/errors.md)。
 
-## 工具（21 个：15 个核心 + 6 个可选）
+## 工具（22 个：16 个核心 + 6 个可选）
 
-最多 21 个工具：15 个核心 + 6 个可选。默认 profile 实际注册 16 个；五个子系统行默认关闭，控制塔会话只挂载其中 14 个（不挂 `tower_complete` / `tower_review`）。
+最多 22 个工具：16 个核心 + 6 个可选。默认 profile 实际注册 17 个；五个子系统行默认关闭，控制塔会话只挂载其中 15 个（不挂 `tower_complete` / `tower_review`）。
 
-`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_spawn` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_import` · `tower_test` · `tower_batch` · `tower_resource` · `tower_reload`
+`tower_init` · `tower_plan` · `tower_mission` · `tower_inspect` · `tower_wait` · `tower_spawn` · `tower_send` · `tower_inbox` · `tower_complete` · `tower_interrupt` · `tower_finding` · `tower_review` · `tower_merge` · `tower_rebase` · `tower_teardown` · `tower_mode` · `tower_recover` · `tower_import` · `tower_test` · `tower_batch` · `tower_resource` · `tower_reload`
 
-上面列出的是 15 个核心工具加 6 个由组件行拥有的可选工具（`tower_import`、`tower_test`、`tower_batch`、`tower_resource`、`tower_reload`，其中 `tower_reload` 属于随包关闭的 `tower-hmr` 行）。`tower_mode` 是会话工具：省略 `active` 只读，传入 `active` 才写；设 `mode.allowAgentControl:false` 可禁用写操作。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。`tower_complete` 与 `tower_review` 分别由 worker/survey 与 reviewer 角色会话挂载；从控制塔误用会得到 `not-authorized` 提示和 `tower_spawn` 角色入口，而不是 unknown tool。`tower_init({op:"adopt"})` 承接旧的 roster 对账，`tower_finding({op:"report"/"list"/"update"})` 与 `tower_import({op:"snapshot"/"map"})` 同理（#163 Phase 4）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
+上面列出的是 16 个核心工具加 6 个由组件行拥有的可选工具（`tower_import`、`tower_test`、`tower_batch`、`tower_resource`、`tower_reload`，其中 `tower_reload` 属于随包关闭的 `tower-hmr` 行）。`tower_mode` 是会话工具：省略 `active` 只读，传入 `active` 才写；设 `mode.allowAgentControl:false` 可禁用写操作。`tower_recover` 属于核心：任何配置都会注册它（#122）；doctor 是只读的 `tower_inspect` `view: "doctor"` 视图。`tower_complete` 与 `tower_review` 分别由 worker/survey 与 reviewer 角色会话挂载；从控制塔误用会得到 `not-authorized` 提示和 `tower_spawn` 角色入口，而不是 unknown tool。`tower_init({op:"adopt"})` 承接旧的 roster 对账，`tower_finding({op:"report"/"list"/"update"})` 与 `tower_import({op:"snapshot"/"map"})` 同理（#163 Phase 4）。mission 级工具同时接受 `id` 作为 `missionId` 的别名；`task_done`/`taskDone` 等 snake/camel 写法均可。
 
-**角色 × 阶段暴露（#164）。** 会话看到的工具是角色契约与宿主阶段的步时投影。Tower 模式关闭的塔会话只暴露 `tower_mode`（846 B）；模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B）；状态存在后暴露默认宿主准入的 14 个工具（16,017 B；随包挂载 16 个，减去 #163 角色谓词保留给 worker/survey 与 reviewer 的 `tower_complete`/`tower_review`）。21 个工具 / 23,109 B 是全部可选行开启时的构建表面，不是任何会话的基线。由 `tower_spawn` 派生的角色 preset 不受阶段梯子影响，继续使用各自的显式 allow-list（worker 6 个塔工具，reviewer 5 个，survey/survey-sandbox 各 5 个）。允许集合每个模型步解析一次并冻结，所以被隐藏的工具与不存在的工具完全一样（`UNKNOWN_TOOL`）；门禁只做减法且失败时放开。逐 profile 的字节基线与门禁规则见[表面预算](docs/reference/surface-budget.md)，设计记录见 [ADR 0009](docs/adr/0009-role-phase-exposure.md)。
+**角色 × 阶段暴露（#164）。** 会话看到的工具是角色契约与宿主阶段的步时投影。Tower 模式关闭的塔会话只暴露 `tower_mode`（846 B）；模式开启但仓库尚无状态文件时加上 `tower_init`（2,185 B）；状态存在后暴露默认宿主准入的 15 个工具（20,113 B；随包挂载 17 个，减去 #163 角色谓词保留给 worker/survey 与 reviewer 的 `tower_complete`/`tower_review`）。22 个工具 / 27,205 B 是全部可选行开启时的构建表面，不是任何会话的基线。由 `tower_spawn` 派生的角色 preset 不受阶段梯子影响，继续使用各自的显式 allow-list（worker 6 个塔工具，reviewer 5 个，survey/survey-sandbox 各 5 个）。允许集合每个模型步解析一次并冻结，所以被隐藏的工具与不存在的工具完全一样（`UNKNOWN_TOOL`）；门禁只做减法且失败时放开。逐 profile 的字节基线与门禁规则见[表面预算](docs/reference/surface-budget.md)，设计记录见 [ADR 0009](docs/adr/0009-role-phase-exposure.md)。
 
 ## 安全与约束
 
@@ -214,7 +214,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：21 个工具、43 个工具错误码、26 个进程内事件、58 个配置键、36 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 16 个。
+表面计数（实时，由 `npm run docs:check` 校验）：22 个工具、43 个工具错误码、26 个进程内事件、58 个配置键、36 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 17 个。
 
 五个子系统行默认关闭；`tower_inspect` 的 `doctor` 视图逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
 
@@ -283,7 +283,7 @@ live suite 需要下载浏览器并真实启动 host，因此移出 push/PR，�
 
 `tests/platform.test.mjs` 用注入的 `platform`/`rename`/`unlink` 在任意 OS 上同时断言 win32 与 POSIX 两条分支；唯一需要真实 Windows 的“rename 覆盖被打开的目标文件”用例在 Linux 上以 `# SKIP` 计入 TAP（`tests 11`、`skipped 1`），而不是静默消失。macOS 不单设 runner：它与 Linux 走同一条 POSIX 分支，这是 #86 的非目标。
 
-`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 16 个 `tower_*` 工具（20 个 `tools/*.js` 模块 + `tower_mode`，减去五个默认关闭子系统行的 `tower_batch`/`tower_import`/`tower_resource`/`tower_test`/`tower_reload`；所有可选能力行全开时为 21 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
+`mount` 断言一次性 profile 的**已加载表面**，而不是 `cordis.patch.yml` 的文本：随包 profile 加载 17 个 `tower_*` 工具（21 个 `tools/*.js` 模块 + `tower_mode`，减去五个默认关闭子系统行的 `tower_batch`/`tower_import`/`tower_resource`/`tower_test`/`tower_reload`；所有可选能力行全开时为 22 个）、3 个内置 skill、`tower-worker` / `tower-reviewer` 两个 preset、`/tower` 命令、一个顶层 `tower` host group 以及可选的顶层能力行（`tower-hmr` 随包关闭）。它不调用模型、不打开浏览器。在维护者的 Windows 机器上实测：host 冷装（含安装）约 100 秒，host 已缓存约 85 秒；CI 中该步骤上限为 3 分钟（`timeout-minutes: 3`），`mount` job 上限 5 分钟。红叉会打印解析后的 profile 路径、host build、已加载计数与每一条未满足的声明。
 
 host build 固定在 `scripts/mount-smoke/host.json`；`scripts/support.json` 记录公开支持基线，`npm run support:check` 保证 package engines、host pin、live 矩阵与 `COMPATIBILITY.md` 最新行一致，单元测试再保证该行与 pin 相等，发布时不再各写一遍。`npm run smoke:fixtures` 用两种种子失败（改名一个工具 id、删除 skills 段）证明 smoke 会以正确原因变红；CI 中它作为非必需的 `mount-fixtures` job 运行，control 与两个种子通过 `--host-dir` 共用一次缓存的 host 安装（本机热跑约 2 分钟）。
 

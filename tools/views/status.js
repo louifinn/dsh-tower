@@ -1,14 +1,27 @@
 // tower_inspect view: status — dashboard and mission detail.
 import { SCHEMAS, output } from '../../domain/contracts/outputs.js'
-import { classifyError } from '../../domain/errors.js'
+import { TowerToolError, classifyError } from '../../domain/errors.js'
 import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { inspectStateVersion } from '../../domain/state.js'
 import { StatusInput } from '../../domain/contracts/tool-inputs/index.js'
-import { ROSTER_INACTIVE_STATES, isMarkdownFormat, isReservedState, isWorkerRole } from '../../domain/vocabulary.js'
+import {
+  PARENT_STATUS_OK,
+  ROSTER_ACTIVITY,
+  ROSTER_INACTIVE_STATES,
+  isMarkdownFormat,
+  isReservedState,
+  isWorkerRole,
+} from '../../domain/vocabulary.js'
 import { isTerminal } from '../../domain/shapes/index.js'
-import { projectFields, rowChangedSince } from '../../domain/read/views.js'
+import { agentRowSummary, projectFields, rowChangedSince, selectAgentActivity } from '../../domain/read/views.js'
+import { rosterEntryStale } from '../../domain/collab/roster.js'
 import { archiveView } from '../../app/archive.js'
 import { reviewPolicyView } from '../../domain/integration/review.js'
+
+/** #207: the bounded activity tail one agent-status call may scan. */
+const STATUS_ACTIVITY_TAIL = 200
+/** #207: default number of activity summaries returned for one agent. */
+const STATUS_AGENT_ACTIVITY_DEFAULT = 5
 
 /**
  * Read the on-disk state version without loading, migrating, or locking it — the
@@ -137,6 +150,71 @@ async function withWorktreeDiagnostics(tower, missions) {
 }
 
 /**
+ * #207: one agent's status is its roster row plus a bounded activity tail — never
+ * the dashboard page. It reuses the same catalog-observation/staleness rule as
+ * the roster view, and the state portrait is truthful even when the subagent
+ * catalog is unavailable (activity `unknown`, `observed: false`).
+ *
+ * @param {any} ctx
+ * @param {any} tower
+ * @param {any} args
+ * @param {any} state loaded state
+ * @param {{ observeActivity?: (ctx: any, tower: any) => Promise<any> }} deps
+ * @returns {Promise<Record<string, any>>}
+ */
+async function agentStatusView(ctx, tower, args, state, deps) {
+  const needle = args.agent
+  const entry = (state.roster ?? []).find(
+    (row) =>
+      row.name === needle ||
+      (row.agentId !== null && row.agentId !== undefined && String(row.agentId) === needle),
+  )
+  if (!entry) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `unknown roster agent "${needle}"; omit agent for the dashboard or use tower_inspect view:"roster" without agent`,
+    )
+  }
+  let observed
+  let parentKnown = false
+  try {
+    const observedView = await deps.observeActivity?.(ctx, tower)
+    observed = observedView?.activity?.[String(entry.agentId)]
+    parentKnown = observedView?.parentStatus?.[entry.parentSessionId] === PARENT_STATUS_OK
+  } catch {
+    // Observation is best effort: the persisted row and its log stay reportable.
+  }
+  const staleMs = Number(tower.config.spawn?.staleMs) || 0
+  const stale = rosterEntryStale(entry, { observed, parentKnown, staleMs, now: Date.now() })
+  const mission = (state.missions ?? []).find((row) => row.id === entry.missionId) ?? null
+  const log = await tower.deps.store.readActivityTail(tower.paths.activity, STATUS_ACTIVITY_TAIL)
+  const tail = Number.isInteger(Number(args.tail)) && Number(args.tail) > 0
+    ? Number(args.tail)
+    : STATUS_AGENT_ACTIVITY_DEFAULT
+  return {
+    revision: state.revision,
+    repoRoot: tower.root,
+    commonDir: tower.commonDir,
+    statePath: tower.paths.state,
+    agent: agentRowSummary(entry, {
+      activity: observed ?? (parentKnown ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),
+      observed: observed !== undefined,
+      stale,
+    }),
+    mission: mission
+      ? {
+          id: mission.id,
+          status: mission.status,
+          title: mission.title ?? null,
+          kind: mission.kind ?? null,
+          owner: mission.owner ?? null,
+        }
+      : null,
+    activity: selectAgentActivity(log, entry, tail),
+  }
+}
+
+/**
  * @param {any} ctx
  * @param {{
  *   define: import('../../types/index.js').DefineTool,
@@ -171,6 +249,12 @@ export async function runStatusView(ctx, args, exec, deps) {
         // failed migration) degrades to an on-disk diagnostic instead (F40).
         if (error?.code === 'not-initialized') throw error
         return degradedStatus(tower, args, { error, components, boardPath, mode, review })
+      }
+      // #207: `status {agent}` is one roster row plus its bounded activity, not
+      // the dashboard. It is handled before the page/detail branches so it can
+      // never accidentally include the whole mission table.
+      if (args.agent !== undefined) {
+        return agentStatusView(ctx, tower, args, statusState, { observeActivity })
       }
       const ownership = (await ownershipView?.(ctx, tower, exec)) ?? null
       const inflight = (statusState.roster ?? []).filter(

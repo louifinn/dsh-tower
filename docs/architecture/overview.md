@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 21 tools, 43 tool error codes, 26 process-local events, 58 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile mounts 16. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 16 mounted tools minus the #163 role-owned `tower_complete`/`tower_review`) — while spawned role presets keep their explicit allow-lists. The 21-tool figure is the all-on build surface, not a session baseline.
+Surface counts (live, checked by `npm run docs:check`): 22 tools, 43 tool error codes, 26 process-local events, 58 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile mounts 17. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 17 mounted tools minus the #163 role-owned `tower_complete`/`tower_review`) — while spawned role presets keep their explicit allow-lists. The 22-tool figure is the all-on build surface, not a session baseline.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -106,9 +106,9 @@ Host plugin (index.js — Cordis apply/effect glue)
  ├─ host/tool-registry.js -> stable registry facade (re-exports the modules below)
  ├─ host/tool-runtime.js -> runtime state, define(), openTower(), shared guards
  ├─ host/tool-capabilities.js -> registration aggregators
- │                    (+ 20 define()-registered tools)
- │                    (+ tower_mode registered by the Host entry, 21 total
- │                       once every optional capability row is on; 16 default)
+ │                    (+ 21 define()-registered tools)
+ │                    (+ tower_mode registered by the Host entry, 22 total
+ │                       once every optional capability row is on; 17 default)
  │                    (tower_inspect/tower_recover are host tools, never switches)
  ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
  ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)

@@ -262,7 +262,7 @@ test('strict ratchet: both configs typecheck and the real gate passes', () => {
   assert.equal(strict.status, 0, strict.stdout || strict.stderr)
   const result = runStrict([])
   assert.equal(result.status, 0, result.stderr || result.stdout)
-  assert.match(result.stdout, /11 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
+  assert.match(result.stdout, /12 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
 })
 
 test('strict ratchet: the pinned list matches the explicit include list', () => {

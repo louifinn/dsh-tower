@@ -636,7 +636,12 @@ test('roster view: agent selects one row, tail keeps the newest rows', async () 
     assert.ok(all.roster[0].lastObservedAt >= observedAt, 'observation time is the observation clock')
 
     const one = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, agent: 'worker-m2' })
-    assert.deepEqual(one.roster.map((row) => row.name), ['worker-m2'])
+    // #207: a single-agent roster view is the row plus its bounded activity
+    // tail, never the roster table.
+    assert.equal(one.agent.name, 'worker-m2')
+    assert.equal(one.roster, undefined, 'the single-agent view never returns the whole table')
+    assert.ok(Array.isArray(one.activity), 'the single-agent view carries the activity tail')
+    assert.ok(one.activity.length <= 5, 'the activity tail is bounded')
 
     const tail = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, tail: 1 })
     assert.deepEqual(tail.roster.map((row) => row.name), ['worker-m2'], 'tail keeps the newest roster row')
