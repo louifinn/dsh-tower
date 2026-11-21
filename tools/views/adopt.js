@@ -1,4 +1,5 @@
 // tower_init view: adopt — reconcile the roster with the subagent catalog.
+import path from 'node:path'
 import { TowerToolError } from '../../domain/errors.js'
 import { reapStalledReservations } from '../../app/roster.js'
 import { PARENT_STATUS_OK, ROSTER_ACTIVITY, ROSTER_STATE } from '../../domain/vocabulary.js'
@@ -14,6 +15,163 @@ const PARENT_STATUS_EMPTY = 'empty: the catalog returned no descendants'
 
 /** Why a row without a parent session was left unjudged: nothing was probed. */
 const PARENT_STATUS_NO_PARENT = 'no-parent: the row names no parent session'
+
+/**
+ * Parse `git status --porcelain` into destination paths, the fallback when the
+ * vcs port has no structured change reader.
+ * @param {string} raw
+ * @returns {string[]}
+ */
+function parsePorcelainPaths(raw) {
+  /** @type {string[]} */
+  const paths = []
+  for (const line of String(raw).split('\n')) {
+    if (line.length < 4) continue
+    let value = line.slice(3).trim()
+    if (value.includes(' -> ')) value = value.slice(value.lastIndexOf(' -> ') + 4)
+    if (value) paths.push(value.replace(/^"(.*)"$/, '$1'))
+  }
+  return paths
+}
+
+/**
+ * Read-only residue report for one recorded mission worktree (#204). Adopt
+ * never repairs anything: it classifies what is left behind and suggests the
+ * next action. `countCommits` is the authoritative probe for unmerged work, so
+ * a failing vcs degrades the whole entry to `unknown` instead of claiming the
+ * checkout is clean.
+ * @param {any} tower
+ * @param {any} mission
+ * @returns {Promise<any>}
+ */
+async function missionResidue(tower, mission) {
+  const worktree = mission.worktree
+  const worktreePath = worktree.path
+  const lastActivityAt = Number(mission.updatedAt ?? mission.startedAt ?? Date.now())
+  const branch = worktree.branch ?? null
+  const dirty = { files: 0, paths: [], sample: [] }
+  try {
+    const entries = await tower.deps.vcs.listWorktrees(tower.root)
+    const resolved = path.resolve(worktreePath)
+    const registered = entries.some((entry) => typeof entry?.path === 'string' && path.resolve(entry.path) === resolved)
+    const exists = await tower.deps.store.exists(worktreePath)
+    if (!exists) {
+      return {
+        id: mission.id,
+        status: mission.status,
+        branch,
+        tip: null,
+        lastCommit: null,
+        worktreePath,
+        dirty,
+        lastActivityAt,
+        class: 'missing',
+        suggestedAction: 're-provision the mission worktree, or abandon the mission if its work is gone',
+      }
+    }
+    if (!registered) {
+      return {
+        id: mission.id,
+        status: mission.status,
+        branch,
+        tip: null,
+        lastCommit: null,
+        worktreePath,
+        dirty,
+        lastActivityAt,
+        class: 'external',
+        suggestedAction: 'a directory exists at the recorded worktree path but is not registered with git; remove it or re-provision the mission',
+      }
+    }
+    // `worktreeChanges` is an optional VcsPort capability: read it through a
+    // fully optional chain, then fall back to the porcelain parser when the
+    // adapter does not provide it.
+    const readChanges = tower.deps?.vcs?.worktreeChanges
+    const changes = typeof readChanges === 'function'
+      ? await readChanges(worktreePath)
+      : parsePorcelainPaths(await tower.git(worktreePath, ['status', '--porcelain']))
+    /** @type {string[]} */
+    const paths = []
+    for (const change of Array.isArray(changes) ? changes : []) {
+      const value = typeof change?.path === 'string' ? change.path : ''
+      if (value && !paths.includes(value)) paths.push(value)
+    }
+    const tip = await tower.revParse(worktreePath, 'HEAD')
+    const base = worktree.baseCommit ?? mission.baseCommit ?? null
+    const commits = base ? await tower.deps.vcs.countCommits(worktreePath, base) : 0
+    const residue = { files: paths.length, paths: paths.slice(0, 20), sample: paths.slice(0, 5) }
+    if (paths.length > 0) {
+      return {
+        id: mission.id,
+        status: mission.status,
+        branch,
+        tip,
+        lastCommit: { sha: tip, at: lastActivityAt },
+        worktreePath,
+        dirty: residue,
+        lastActivityAt,
+        class: 'dirty',
+        suggestedAction: 'commit or discard the uncommitted changes in the mission worktree, then re-run adopt',
+      }
+    }
+    if (commits > 0) {
+      return {
+        id: mission.id,
+        status: mission.status,
+        branch,
+        tip,
+        lastCommit: { sha: tip, at: lastActivityAt },
+        worktreePath,
+        dirty: residue,
+        lastActivityAt,
+        class: 'unmerged',
+        suggestedAction: 'review the branch and run tower_merge for this mission',
+      }
+    }
+    return {
+      id: mission.id,
+      status: mission.status,
+      branch,
+      tip,
+      lastCommit: { sha: tip, at: lastActivityAt },
+      worktreePath,
+      dirty: residue,
+      lastActivityAt,
+      class: 'clean',
+      suggestedAction: 'none',
+    }
+  } catch (error) {
+    return {
+      id: mission.id,
+      status: mission.status,
+      branch,
+      tip: null,
+      lastCommit: null,
+      worktreePath,
+      dirty,
+      lastActivityAt,
+      class: 'unknown',
+      suggestedAction: `worktree probe failed: ${String(error?.message ?? error)}; inspect the checkout manually`,
+    }
+  }
+}
+
+/**
+ * Every non-terminal mission with a recorded worktree, classified by the
+ * residue it left behind. Missing/external entries are reported without a
+ * probe; the rest are inspected once, in state order.
+ * @param {any} tower
+ * @returns {Promise<any[]>}
+ */
+async function missionResidues(tower) {
+  const state = await tower.load()
+  const pending = (Array.isArray(state.missions) ? state.missions : [])
+    .filter((mission) => mission?.worktree?.path && mission.status !== 'merged' && mission.status !== 'abandoned')
+  /** @type {any[]} */
+  const missions = []
+  for (const mission of pending) missions.push(await missionResidue(tower, mission))
+  return missions
+}
 
 /**
  * Post-authorization body of `tower_init({ op: 'adopt' })`.
@@ -107,6 +265,7 @@ export async function runAdoptView(ctx, args, exec, deps) {
   return {
     retired,
     missing,
+    missions: await missionResidues(tower),
     reaped: reaped.map((entry) => entry.name),
     unreaped: unreaped.map((entry) => ({
       name: entry.name,

@@ -18,6 +18,8 @@ import {
 } from '../domain/evidence.js'
 import { buildShape, EVIDENCE as BUILD_EVIDENCE } from '../domain/shapes/build.js'
 import { surveyShape, EVIDENCE as SURVEY_EVIDENCE } from '../domain/shapes/survey.js'
+import { normalizeChecks } from '../domain/missions/completion.js'
+import { unverifiedCheckWarnings } from '../domain/gate.js'
 
 const TIP = '0123456789abcdef0123456789abcdef01234567'
 
@@ -162,4 +164,67 @@ test('passingDiscovery binds a receipt to the branch tip it ran on', () => {
   assert.equal(passingDiscovery(buildShape.evidence, { testRuns: [receipt({ ok: false })] }, TIP), null)
   assert.equal(passingDiscovery(buildShape.evidence, { testRuns: [receipt({ treeTip: null })] }, TIP), null)
   assert.equal(passingDiscovery(surveyShape.evidence, { testRuns: [receipt()] }, TIP), null)
+})
+
+// #206: a completion check may cite one recorded run by its durable id instead
+// of hand-filling the command/exit code. The id is resolved against the same
+// mission's testRuns; another mission's id is a caller mistake, not evidence.
+test('completion checks may cite a recorded test run of the same mission', () => {
+  const run = (id) => receipt({ id, commands: [{ id: 'smoke', command: 'npm test', exitCode: 0 }] })
+  const mission = { id: 'M1', testRuns: [run('run-1'), run('run-2')] }
+  const scoped = { mission, missions: [mission, { id: 'M2', testRuns: [run('run-7')] }] }
+
+  assert.deepEqual(normalizeChecks([{ name: 'unit', runId: ' run-1 ' }], scoped), [{ name: 'unit', runId: 'run-1' }])
+  assert.throws(
+    () => normalizeChecks([{ name: 'unit', runId: 'run-9' }], scoped),
+    (error) => error.code === 'invalid-argument' && /run-9/.test(error.message) && /recorded test run/.test(error.message),
+  )
+  assert.throws(
+    () => normalizeChecks([{ name: 'unit', runId: 'run-7' }], scoped),
+    (error) => error.code === 'invalid-argument' && /M2/.test(error.message) && /belongs/.test(error.message),
+  )
+  assert.throws(() => normalizeChecks([{ name: 'unit', runId: 7 }], scoped), /runId must be a non-empty string/)
+  // A runId is meaningless without the mission it must resolve against.
+  assert.throws(() => normalizeChecks([{ name: 'unit', runId: 'run-1' }]), /mission/)
+  // Legacy hand-filled checks are untouched by the new field.
+  assert.deepEqual(
+    normalizeChecks([{ name: ' manual ', command: ' npm test ', exitCode: 0, evidence: ' ok ' }], scoped),
+    [{ name: 'manual', command: 'npm test', exitCode: 0, evidence: 'ok' }],
+  )
+})
+
+// #206: a claimed command or exit code with no recorded run behind it is a
+// preflight WARNING, never a blocker; the wording names the remedy. A legacy
+// check that claims nothing (only a name) stays silent.
+test('an unverified check claim warns and names the runId remedy', () => {
+  const mission = {
+    id: 'M1',
+    completionReport: {
+      checks: [
+        { name: 'unit', command: 'npm test', exitCode: 0 },
+        { name: 'lint', command: 'npm run lint' },
+        { name: 'exit-only-ok', exitCode: 0 },
+        { name: 'exit-only-bad', exitCode: 7 },
+        { name: 'tests', runId: 'run-1' },
+        { name: 'free-text' },
+      ],
+    },
+    testRuns: [receipt({ id: 'run-1', commands: [{ id: 'smoke', command: 'npm test', exitCode: 0 }] })],
+  }
+  const warnings = unverifiedCheckWarnings(mission)
+  assert.deepEqual(
+    warnings.map((warning) => warning.check),
+    ['lint', 'exit-only-bad'],
+  )
+  for (const warning of warnings) {
+    assert.equal(warning.code, 'checks-unverified')
+    assert.equal(warning.missionId, 'M1')
+    assert.match(warning.message, /runId/)
+    assert.match(warning.message, /tower_test/)
+  }
+  assert.match(warnings[0].message, /npm run lint/)
+  assert.match(warnings[1].message, /exit code 7/)
+  // No completion report (or no claims) means nothing to warn about.
+  assert.deepEqual(unverifiedCheckWarnings({ id: 'M2' }), [])
+  assert.deepEqual(unverifiedCheckWarnings({ id: 'M3', completionReport: { checks: [] } }), [])
 })
