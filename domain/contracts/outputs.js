@@ -97,7 +97,17 @@ const SCHEMAS = {
     { revision: S.int, missions: S.arr(missionSummarySchema), warnings: S.arr(planWarningSchema) },
     ['revision', 'missions'],
   ),
-  mission: S.obj({ revision: S.int, mission: S.obj() }, ['revision', 'mission']),
+  mission: S.obj(
+    {
+      revision: S.int,
+      mission: S.obj(),
+      atomic: S.bool,
+      missions: S.arr(S.obj()),
+      results: S.arr(S.obj()),
+      sandboxCleanup: S.obj(),
+    },
+    ['revision'],
+  ),
   status: S.obj(
     {
       ok: S.bool,
@@ -105,6 +115,9 @@ const SCHEMAS = {
       commonDir: S.str,
       statePath: S.str,
       base: S.str,
+      head: S.any,
+      headDetached: S.bool,
+      baseWarning: S.any,
       revision: S.int,
       counts: S.obj(),
       stateError: S.str,

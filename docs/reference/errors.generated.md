@@ -15,6 +15,7 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `finding-not-found` | No finding with that id exists. | no | list findings with tower_finding |
 | `invalid-transition` | The requested state transition is not allowed. | no | — |
 | `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status |
+| `base-mismatch` | The checked-out branch differs from the recorded state.base, so planning and spawning would split the repository. | no | check out the recorded base branch; if this checkout is the intended base, run tower_init({base:"<branch>", reanchor:true}) when no mission is in flight |
 | `state-locked` | Another Tower writer holds the state lock. | yes | wait for the other Tower writer to finish, then retry |
 | `state-corrupt` | The Tower state file is unreadable or invalid. | no | restore state.json from a backup, or re-initialize after filing the corruption |
 | `state-version-unsupported` | The Tower state file uses a schema version this build cannot read or downgrade. | no | upgrade dsh-tower to a release that supports this state schemaVersion |

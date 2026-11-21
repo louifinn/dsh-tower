@@ -10,7 +10,7 @@ import {
   assertKnownDependencies,
   newMission,
 } from '../domain/missions/plan.js'
-import { applyMissionUpdate, normalizePauseCause } from '../domain/missions/lifecycle.js'
+import { applyMissionUpdate, normalizeMissionBatch, normalizePauseCause } from '../domain/missions/lifecycle.js'
 import {
   normalizeChecks,
   assertCompletionRequest,
@@ -710,4 +710,48 @@ test('finding policy normalizes, filters, transitions, and projects', () => {
     (error) => error.code === 'invalid-transition',
   )
   assert.equal(findingUpdateView(finding, findings).action, 'updated')
+})
+
+// #216: bulk normalization is one pure gate in the lifecycle module. It keeps
+// the forms mutually exclusive, keeps every bulk item inside the single-form
+// field set, and refuses to smuggle human acceptance through a batch.
+test('bulk mission normalization: one form, closed fields, atomic default', () => {
+  assert.equal(normalizeMissionBatch({ id: 'M1', status: 'active' }), null)
+
+  const batches = normalizeMissionBatch({ missions: [{ id: ' M1 ', note: ' x ' }] })
+  assert.equal(batches.atomic, true)
+  assert.deepEqual(batches.items, [{ id: 'M1', fields: { note: ' x ' } }])
+
+  const perMission = normalizeMissionBatch({
+    missions: [
+      { id: 'M1', status: 'abandoned', note: 'cleanup' },
+      { id: 'M2', deferred: true },
+    ],
+    atomic: false,
+  })
+  assert.equal(perMission.atomic, false)
+  assert.deepEqual(perMission.items.map((item) => item.id), ['M1', 'M2'])
+  assert.deepEqual(perMission.items[0].fields, { status: 'abandoned', note: 'cleanup' })
+  assert.deepEqual(perMission.items[1].fields, { deferred: true })
+
+  const shorthand = normalizeMissionBatch({ ids: ['M1', 'M2'], status: 'active', note: 'start' })
+  assert.deepEqual(shorthand.items, [
+    { id: 'M1', fields: { status: 'active', note: 'start' } },
+    { id: 'M2', fields: { status: 'active', note: 'start' } },
+  ])
+
+  assert.throws(
+    () => normalizeMissionBatch({ id: 'M1', missions: [{ id: 'M2' }] }),
+    (error) => error.code === 'invalid-argument' && /not more than one/.test(error.message),
+  )
+  assert.throws(() => normalizeMissionBatch({ missions: [] }), /at least one/)
+  assert.throws(() => normalizeMissionBatch({ ids: [] }), /at least one/)
+  assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1', note: 'x' }, { id: 'M1', note: 'y' }] }), /duplicate/)
+  assert.throws(() => normalizeMissionBatch({ ids: ['M1', 'M1'], status: 'active' }), /duplicate/)
+  assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1', nope: true }] }), /unknown field/)
+  assert.throws(() => normalizeMissionBatch({ missions: [{}] }), /requires id/)
+  assert.throws(() => normalizeMissionBatch({ ids: ['M1'], task_done: 'write it' }), /missions/)
+  assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1', accept: true }] }), /accept/)
+  assert.throws(() => normalizeMissionBatch({ atomic: false, id: 'M1' }), /atomic/)
+  assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1' }], ids: ['M2'] }), /not more than one/)
 })

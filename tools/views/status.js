@@ -8,6 +8,7 @@ import {
   PARENT_STATUS_OK,
   ROSTER_ACTIVITY,
   ROSTER_INACTIVE_STATES,
+  baseMismatchMessage,
   isMarkdownFormat,
   isReservedState,
   isWorkerRole,
@@ -55,20 +56,26 @@ async function inspectOnDiskState(tower) {
  * never migrates, writes, or creates a backup.
  * @param {any} tower
  * @param {any} args
- * @param {{ error: any, components: any, boardPath: string, mode: any, review: any }} context
+ * @param {{ error: any, components: any, boardPath: string, mode: any, review: any, headView?: { head: string | null, headDetached: boolean } }} context
  */
-async function degradedStatus(tower, args, { error, components, boardPath, mode, review }) {
+async function degradedStatus(tower, args, { error, components, boardPath, mode, review, headView }) {
   const { raw, info } = await inspectOnDiskState(tower)
   // A corrupt document has no base/revision to trust; the branch this checkout
   // resolved from is still a useful, non-fabricated fallback.
   const base = typeof raw?.base === 'string' && raw.base.length > 0 ? raw.base : tower.branch ?? ''
   const revision = Number.isInteger(raw?.revision) && raw.revision >= 0 ? raw.revision : 0
+  const { head = null, headDetached = false } = headView ?? {}
   const common = {
     ok: false,
     repoRoot: tower.root,
     commonDir: tower.commonDir,
     statePath: tower.paths.state,
     base,
+    head,
+    headDetached,
+    ...(head !== null && head !== base
+      ? { baseWarning: baseMismatchMessage({ base, head, detached: headDetached, action: 'tower_plan and tower_spawn' }) }
+      : {}),
     revision,
     counts: {},
     missions: [],
@@ -236,6 +243,9 @@ async function agentStatusView(ctx, tower, args, state, deps) {
 export async function runStatusView(ctx, args, exec, deps) {
   const { define, workspaceHook, spawnBackoffView, observeActivity, componentReport, ownershipView } = deps
       const tower = await deps.openTower(args.repoRoot)
+      // #215: the live HEAD label is a read-only git fact, available even when
+      // the state file itself is unreadable (degraded status below).
+      const headView = await tower.currentHeadView()
       // #121: report the mounted optional components, including the exact
       // "disabled by component <id>" reason. A capability that is off must be a
       // visible fact of the dashboard, never a silent absence from the tools.
@@ -255,7 +265,7 @@ export async function runStatusView(ctx, args, exec, deps) {
         // tower_init. Every other load failure (a newer/corrupt schema, a
         // failed migration) degrades to an on-disk diagnostic instead (F40).
         if (error?.code === 'not-initialized') throw error
-        return degradedStatus(tower, args, { error, components, boardPath, mode, review })
+        return degradedStatus(tower, args, { error, components, boardPath, mode, review, headView })
       }
       // #207: `status {agent}` is one roster row plus its bounded activity, not
       // the dashboard. It is handled before the page/detail branches so it can

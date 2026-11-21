@@ -203,3 +203,16 @@ export const CAPABILITY_STANCE = Object.freeze({
   deploymentConfig: 'deployment-config',
 })
 export const CAPABILITY_STANCES = Object.freeze(Object.values(CAPABILITY_STANCE))
+
+/**
+ * #215: one message for both the fail-closed plan/spawn check and the status
+ * warning. It names the recorded base, the actual HEAD label, and the two ways
+ * out: check the base out, or reanchor while nothing is in flight.
+ * @param {{ base: string, head: string, detached?: boolean, action?: string }} params
+ * @returns {string}
+ */
+export function baseMismatchMessage({ base, head, detached = false, action = 'this operation' }) {
+  const current = detached ? `HEAD is detached at ${head}` : `the checked-out branch is "${head}"`
+  const reanchorBase = detached ? '<branch>' : head
+  return `${action} refuses because ${current} but state.base is "${base}"; check out "${base}" (git checkout "${base}") or run tower_init({base:"${reanchorBase}", reanchor:true}) to move the base (allowed only when no mission is in flight)`
+}

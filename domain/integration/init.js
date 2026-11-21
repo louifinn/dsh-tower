@@ -74,7 +74,9 @@ export function claimCaller(owner, caller) {
  */
 export function reanchorBlockedMessage(missions) {
   const active = missions.filter((mission) => !shapeFor(mission.kind).isTerminal(mission.status))
-  return active.length > 0 ? `cannot reanchor base while ${active.length} mission(s) are not merged or abandoned` : null
+  if (active.length === 0) return null
+  const ids = active.map((mission) => mission.id).filter((id) => typeof id === 'string' && id.length > 0)
+  return `cannot reanchor base while ${active.length} mission(s) are not merged or abandoned${ids.length > 0 ? `: ${ids.join(', ')}` : ''}`
 }
 
 /**

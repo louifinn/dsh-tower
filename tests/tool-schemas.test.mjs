@@ -12,6 +12,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { ToolInputs } from '../domain/contracts/tool-inputs/index.js'
 import { SCHEMAS } from '../domain/contracts/outputs.js'
 import { Tower } from '../host/tower.js'
 import { teardownWorktreeRoot } from '../app/teardown.js'
@@ -417,4 +418,54 @@ test('tower_teardown admits the opt-in orphan sweep through its registered contr
   } finally {
     removeTemp(root)
   }
+})
+
+// #206: `runId` belongs to the CompleteInput contract itself, not to a
+// module-load patch in tools/complete.js. The registered parameters must be the
+// same object the contract exports, and a second registration must not append
+// anything to the shared schema.
+test('tower_complete.runId is part of the input contract, not a module-load patch', () => {
+  const checkItem = ToolInputs.tower_complete.properties.checks.items
+  assert.equal(checkItem.properties.runId.type, 'string')
+  assert.deepEqual(checkItem.required, ['name'], 'runId stays optional')
+  const first = makeCtx()
+  registerTowerTools(first.ctx)
+  const registered = first.tools.get('tower_complete')
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(registered.parameters)),
+    JSON.parse(JSON.stringify(ToolInputs.tower_complete)),
+    'the registered parameters are the contract object, not a mutated copy',
+  )
+  const snapshot = JSON.stringify(registered.parameters)
+  const second = makeCtx()
+  registerTowerTools(second.ctx)
+  assert.equal(JSON.stringify(second.tools.get('tower_complete').parameters), snapshot)
+  assert.deepEqual(Object.keys(registered.parameters.properties.checks.items.properties).sort(), [
+    'command',
+    'evidence',
+    'exitCode',
+    'name',
+    'runId',
+  ])
+})
+
+// #216: the bulk form is declared on the same closed object: item fields are
+// exactly the single-form fields plus the required `id`, `ids` is a string
+// array, and `atomic` is a boolean. Nothing widens `additionalProperties`.
+test('tower_mission bulk form is a closed schema, not an unknown-field escape hatch', () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const parameters = tools.get('tower_mission').parameters
+  assert.equal(parameters.additionalProperties, false)
+  assert.equal(parameters.properties.missions.type, 'array')
+  assert.deepEqual(parameters.properties.missions.items.required, ['id'])
+  assert.equal(parameters.properties.missions.items.additionalProperties, false)
+  assert.equal(parameters.properties.ids.type, 'array')
+  assert.equal(parameters.properties.ids.items.type, 'string')
+  assert.equal(parameters.properties.atomic.type, 'boolean')
+  const singleFields = Object.keys(parameters.properties).filter((key) => !['missions', 'ids', 'atomic'].includes(key))
+  // Human acceptance remains a single-mission action: the bulk item schema
+  // carries every other per-mission field and nothing more.
+  const expected = singleFields.filter((key) => !['accept', 'accept_note'].includes(key))
+  assert.deepEqual(Object.keys(parameters.properties.missions.items.properties).sort(), expected.sort())
 })
