@@ -217,8 +217,8 @@ test('the gate catches drift, duplicates, a stale default, a changed count, a ha
   assert.ok(
     problemsFor((dir) => {
       const file = path.join(dir, CONFIG_REFERENCE_FILE)
-      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('config keys: 58', 'config keys: 57'))
-    }).some((problem) => problem.includes('header says 57 config keys')),
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('config keys: 59', 'config keys: 58'))
+    }).some((problem) => problem.includes('header says 58 config keys')),
   )
 
   assert.ok(

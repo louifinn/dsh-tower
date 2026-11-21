@@ -1,4 +1,5 @@
 // Spawn reservation/outcome and roster recording use cases.
+import path from 'node:path'
 import { TowerToolError } from '../domain/errors.js'
 import {
   applySpawnOutcome,
@@ -8,6 +9,7 @@ import {
   rosterProjection,
 } from '../domain/collab/spawn.js'
 import { validateState } from '../domain/state.js'
+import { shapeFor } from '../domain/shapes/index.js'
 
 function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
@@ -115,6 +117,83 @@ export async function recordInterrupt(tower, input) {
   })
 }
 
+/**
+ * #218: `spawn.nodeModules: "link"` gives a worktree the baseline checkout's
+ * installed dependencies without a second install. The link is recorded on the
+ * worktree (and copied to the roster row) before the reservation is persisted:
+ * teardown may only remove a link whose `{target, path}` matches that record,
+ * so a link a worker created by hand is never treated as the tool's own.
+ *
+ * A junction is used on Windows: it needs no symlink privilege and survives the
+ * cross-volume case. The target must already exist — refusing with a remedy is
+ * better than a worktree whose commands fail with a confusing module error.
+ * @param {any} tower
+ * @param {any} state
+ * @param {any} mission
+ * @param {any} entry
+ * @param {number} now
+ * @returns {Promise<{ target: string, path: string, createdAt: number } | null>}
+ */
+async function linkWorktreeDependencies(tower, state, mission, entry, now) {
+  if (tower.config?.spawn?.nodeModules !== 'link') return null
+  const worktree = mission?.worktree
+  if (!worktree || typeof worktree.path !== 'string' || worktree.path.length === 0) return null
+  // Only a branch-worktree placement has a private checkout to link.
+  if (shapeFor(mission.kind).spawn.provisioning !== 'branch-worktree') return null
+  const store = tower.deps.store
+  const baselineRoot = typeof state.repoRoot === 'string' && state.repoRoot.length > 0 ? state.repoRoot : tower.root
+  const target = path.join(baselineRoot, 'node_modules')
+  const linkPath = path.join(worktree.path, 'node_modules')
+  let targetInfo = null
+  try {
+    targetInfo = await store.stat(target)
+  } catch {
+    targetInfo = null
+  }
+  if (!targetInfo || targetInfo.isDirectory() !== true) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `spawn.nodeModules is "link" but the baseline checkout has no installed dependencies at ${target}`,
+      {
+        nextAction: `install dependencies in ${baselineRoot} first (for example npm install), or set spawn.nodeModules to "none"`,
+      },
+    )
+  }
+  const registered = worktree.nodeModulesLink
+  if (registered && registered.target === target && registered.path === linkPath) {
+    // A retried spawn may find the link it already created; keep the record.
+    entry.nodeModulesLink = { target, path: linkPath, createdAt: registered.createdAt ?? now }
+    return entry.nodeModulesLink
+  }
+  let occupied = false
+  try {
+    occupied = await store.exists(linkPath)
+  } catch {
+    occupied = false
+  }
+  if (occupied) {
+    throw new TowerToolError(
+      'invalid-argument',
+      `spawn.nodeModules is "link" but ${linkPath} already exists and is not the link this repository recorded`,
+      {
+        nextAction: `remove ${linkPath} by hand (it may be a junction — delete the link, not its target), or set spawn.nodeModules to "none"`,
+      },
+    )
+  }
+  if (typeof store.symlink !== 'function') {
+    throw new TowerToolError(
+      'invalid-argument',
+      'this store cannot create links, so spawn.nodeModules: "link" is unavailable here',
+      { nextAction: 'set spawn.nodeModules to "none"' },
+    )
+  }
+  await store.symlink(target, linkPath, 'junction')
+  const record = { target, path: linkPath, createdAt: now }
+  worktree.nodeModulesLink = record
+  entry.nodeModulesLink = { ...record }
+  return record
+}
+
 /** Reserve a roster name before activation so a failed spawn is recoverable. */
 export async function reserveRoster(tower, input) {
   return tower.withStateLock(async (_paths, held) => {
@@ -128,6 +207,12 @@ export async function reserveRoster(tower, input) {
     const reservationId = globalThis.crypto.randomUUID()
     const entry = reserveRosterEntry({ roster: state.roster, input: { ...input, reservationId }, now })
     state.roster.push(entry)
+    // #218: create and record the dependency link before the reservation is
+    // written. A failure leaves the in-memory state unpersisted, so the spawn
+    // aborts with no reserved row; a crash between link and write leaves an
+    // unregistered link, which teardown keeps and doctor reports (never a
+    // recursive delete).
+    await linkWorktreeDependencies(tower, state, mission, entry, now)
     state.revision += 1
     entry.revision = state.revision
     state.updatedAt = now

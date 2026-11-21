@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 58,
+      "value": 59,
       "decisions": [
         {
           "from": 64,
@@ -74,6 +74,13 @@
           "date": "2026-11-12",
           "adr": "docs/adr/0010-tower-ralph-mutual-exclusion.md",
           "note": "#162 adds one mode policy key, ralphPolicy (stop/refuse, default stop), mirroring planModePolicy for the Ralph stance: entering Tower mode with a live Ralph loop either stops and records it or refuses the entry. Tool denial stays #161's owner-derived default (no name is added to mode.denyTools); #162 adds only the command-owner surface and the loop sensor, so no tool, section or component moves."
+        },
+        {
+          "from": 58,
+          "to": 59,
+          "date": "2026-11-22",
+          "adr": "docs/adr/0004-surface-budget.md",
+          "note": "#217/#218: spawn.nodeModules (none|link, default none) adds one tuning key: it chooses whether tower_spawn materialises <worktree>/node_modules as a junction to the baseline checkout installed node_modules or leaves the worktree without one. It is not a component row and no tool or section moves; the key only decides dependency visibility for a spawned worktree."
         }
       ]
     },
@@ -236,7 +243,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 18266,
+        "value": 18871,
         "decisions": [
           {
             "from": 17008,
@@ -333,6 +340,12 @@
             "to": 18266,
             "date": "2026-11-22",
             "note": "#216: MissionInput advertises the bulk form — missions[] (same 13 per-mission fields, closed item object), the ids lifecycle shorthand and the atomic boolean — plus a bulk-aware description. tower_mission is mounted by the tower profile, so its one advertised schema grows by 2,887 bytes and the profile becomes 18,266 (was 15,379); the tool count stays 15. The #215 base check adds no input fields."
+          },
+          {
+            "from": 18266,
+            "to": 18871,
+            "date": "2026-11-22",
+            "note": "#217: PlanInput advertises the optional top-level dry_run flag and the optional per-mission key, and its descriptions state the dry-run report and key/dep rules, so the one advertised schema grows by 605 bytes wherever tower_plan is mounted: profiles.tower.inputBytes becomes 18,871 (was 18,266). Worker, reviewer and survey presets do not mount tower_plan and do not move; the tool count stays 15."
           }
         ]
       }
@@ -541,7 +554,7 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 23094
+        "bytes": 23699
       },
       "preset:worker": {
         "tools": 6,
@@ -635,6 +648,11 @@
         "date": "2026-11-22",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#215/#216: tower_mission now advertises the bulk form (missions[], ids, atomic) and a description that names it, so every profile that mounts tower_mission grows by 2,865 advertised bytes: host:active 23,094 B (was 20,229), preset:worker 13,617 (was 10,752), preset:survey and preset:survey-sandbox 12,432 each (was 9,567). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#217: the PlanInput dry_run/key growth adds 605 advertised bytes to host:active (15 tools / 23,699 B, was 23,094). Mode-off, idle and the worker/reviewer/survey presets do not mount tower_plan and are unchanged; no tool count moves."
       }
     ]
   }

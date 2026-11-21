@@ -34,7 +34,12 @@ export function registerPlanTool(ctx, deps) {
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'plan missions')
       await assertPresetsAvailable(ctx, tower.config)
-      return tower.plan({ missions: args.missions })
+      // #217: a dry run validates the plan (scope, keys, deps, overlaps) but
+      // creates nothing; forward the flag instead of dropping it.
+      return tower.plan({
+        missions: args.missions,
+        ...(args.dry_run === true ? { dry_run: true } : {}),
+      })
     },
   })
 }

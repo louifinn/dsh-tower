@@ -90,7 +90,7 @@ export function registerSpawnTool(ctx, deps) {
           }
         }
         let activation = null, agentId = null, entry = null
-        await tower.reserveRoster({
+        const reservation = await tower.reserveRoster({
           missionId: mission.id,
           name,
           role,
@@ -164,6 +164,7 @@ export function registerSpawnTool(ctx, deps) {
           maxDepth: config.spawn.maxDepth ?? 1,
           ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
           worktree: worktree ? { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit } : null,
+          nodeModulesLink: reservation?.nodeModulesLink ?? null,
           sandbox,
           review: review ? { commit: review.commit, checkout: review.path } : null,
           provisioning,

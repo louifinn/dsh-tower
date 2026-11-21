@@ -808,3 +808,96 @@ test('teardown: a store without directory enumeration reports the shell sweep as
   }
 })
 
+// #218/F100: a worktree may hold a `node_modules` junction to the baseline
+// checkout's installed dependencies. Teardown must unlink only the link the
+// worktree record names, never recurse through it, and keep (with a reason) any
+// link it cannot prove it created. The target sentinel proves the target was
+// untouched in every case.
+function seedDependencies(repo) {
+  const target = path.join(repo, 'node_modules')
+  fs.mkdirSync(target, { recursive: true })
+  fs.writeFileSync(path.join(target, 'sentinel.txt'), 'keep\n')
+  return target
+}
+
+function linkDependencies(target, worktreePath) {
+  const linkPath = path.join(worktreePath, 'node_modules')
+  fs.symlinkSync(target, linkPath, 'junction')
+  return linkPath
+}
+
+test('teardown: the recorded node_modules junction is unlinked and its target is untouched (#218)', async () => {
+  const { root, repo, tower } = await setupRepo('dsh-tower-link-recorded-')
+  try {
+    const target = seedDependencies(repo)
+    const { mission, worktree } = await mergedMission(tower)
+    const linkPath = linkDependencies(target, worktree.path)
+    editState(tower, (state) => {
+      const record = state.missions.find((entry) => entry.id === mission.id)
+      record.worktree.nodeModulesLink = { target, path: linkPath, createdAt: Date.now() }
+    })
+
+    const result = await tower.teardown({ force: true })
+
+    assert.ok(result.removed.includes(mission.id))
+    assert.equal(fs.existsSync(worktree.path), false, 'the checkout was removed')
+    assert.equal(fs.existsSync(path.join(target, 'sentinel.txt')), true, 'the link target and its contents survive')
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'removed')
+    assert.deepEqual(decision.nodeModulesLink, { action: 'removed', path: linkPath, target })
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: an unrecorded junction keeps the checkout instead of being followed (#218/F100)', async () => {
+  const { root, repo, tower } = await setupRepo('dsh-tower-link-unrecorded-')
+  try {
+    const target = seedDependencies(repo)
+    const { mission, worktree } = await mergedMission(tower)
+    const linkPath = linkDependencies(target, worktree.path)
+
+    const result = await tower.teardown({ force: true })
+
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'keep')
+    assert.match(decision.reason, /link Tower did not create|unrecorded link/)
+    assert.equal(fs.existsSync(worktree.path), true, 'the checkout is kept, not partially deleted')
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, 'the junction itself is untouched')
+    assert.equal(fs.existsSync(path.join(target, 'sentinel.txt')), true, 'the target and its contents survive')
+    assert.equal(result.removed.includes(mission.id), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: residual entries are settled without recursion — empty dirs removed, files kept (#218/F100)', async () => {
+  const { root, repo, tower } = await setupRepo('dsh-tower-link-residual-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    // Simulate the shell `git worktree remove` can leave behind on Windows: the
+    // checkout registration is gone, but the directory reappears with junk.
+    const realGit = tower.git.bind(tower)
+    tower.git = async (cwd, args, options) => {
+      const output = await realGit(cwd, args, options)
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        fs.mkdirSync(path.join(worktree.path, 'empty-leftover'), { recursive: true })
+        fs.writeFileSync(path.join(worktree.path, 'leftover-notes.txt'), 'keep\n')
+      }
+      return output
+    }
+
+    const result = await tower.teardown({ force: true })
+
+    const decision = result.decisions.find((entry) => entry.missionId === mission.id)
+    assert.equal(decision.action, 'removed')
+    const residuals = new Map((decision.residuals ?? []).map((entry) => [entry.name, entry]))
+    assert.equal(residuals.get('empty-leftover')?.action, 'removed', 'an empty directory is removed')
+    assert.equal(residuals.get('leftover-notes.txt')?.action, 'kept', 'an unknown file is kept with a decision')
+    assert.equal(fs.existsSync(path.join(worktree.path, 'empty-leftover')), false)
+    assert.equal(fs.existsSync(path.join(worktree.path, 'leftover-notes.txt')), true)
+  } finally {
+    removeTemp(root)
+  }
+})
+

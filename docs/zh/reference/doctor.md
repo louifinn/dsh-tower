@@ -158,6 +158,12 @@ git 记录在 worktree root **之外** 的检出属于其他工具，不属于 T
 中，但位于 `pass` 行：不属于 Tower 管理，不计入未登记 worktree 或空壳数量，也永远不会被 Tower
 移除。操作者在 Tower 之外回收或接受它。
 
+工作树可能带有已登记的 `node_modules` junction（`spawn.nodeModules:"link"`，#218）。`worktree-links`
+检查把三种状态报告为 `warn`：登记的目标已缺失（`dangling`）、登记的路径已消失或不再是链接
+（`missing`/`replaced`），以及 `<worktree>/node_modules` 处存在未登记的链接。doctor 从不跟随、
+创建或删除链接。teardown 只删除登记过的链接，并保留含未登记链接的检出，因此这条告警能解释检出
+为何被留下；通过时的 detail 为 `no dangling or unrecorded worktree links`。
+
 位于 mission 待 provision 路径上的检出会被报告为 in flight，而不会被当作未登记的缺陷：当一个
 尚无 worktree 记录的 mission 仍可能开始 provision（planned、active、paused 或 blocked）时，该检查
 会在 detail 中追加 `N checkout(s) in flight (kept)`，并且不给出处置动作。以 `completed`、`merged`
@@ -232,7 +238,7 @@ auto-review 包中的变更，不是 Tower 的变更，因此在这里声称兼�
 实时子代理目录。
 
 `subsystems` 逐个列出五个默认关闭的组件行（`tower-batch`、`tower-import`、`tower-leases`、
-`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 21 个之中。
+`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 22 个之中（2.9.0 为 21 个）。
 `components` 检查会写明该行是关闭而非删除，并给出开启步骤。`deprecated-tool-names` 检查扫描
 `mode.denyTools` 中 #163 合并或移除的旧名（`tower_control`、`tower_adopt`、`tower_findings`、
 `tower_import_legacy`、`tower_legacy_map`、`tower_status`、`tower_roster`、`tower_diff`、

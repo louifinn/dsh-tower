@@ -1,11 +1,8 @@
 // Worktree teardown use case.
 //
-// #51 two-phase: eligibility diagnostics (ownership, registration, dirty
-// state) run outside the state lock; each removal runs its git commands under
-// the git lock and is committed in its own short state lock. Every removal
-// therefore bumps the state revision exactly once, and the revision is
-// revalidated immediately before the irreversible git mutation so a stale
-// decision never removes a worktree that changed hands.
+// #51 two-phase: eligibility diagnostics run outside the state lock; each removal
+// runs under the git lock and commits in its own short state lock, with the
+// revision revalidated before the irreversible mutation.
 import path from 'node:path'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
@@ -24,12 +21,21 @@ import {
 } from '../domain/integration/teardown.js'
 import { previewArchive, sweepArchive } from './archive.js'
 import { cleanupSandbox } from './sandbox.js'
-import { cleanupReviewCheckout, inventoryEmptyLeftovers, isInsideWorktreeRoot, pathKey, referencedCheckoutPaths, reservedCheckoutPaths, sweepEmptyLeftovers } from './reviewCheckout.js'
+import {
+  cleanupReviewCheckout,
+  inventoryEmptyLeftovers,
+  isInsideWorktreeRoot,
+  pathKey,
+  prepareLinkSafeRemoval,
+  referencedCheckoutPaths,
+  reservedCheckoutPaths,
+  settleResidualWorktree,
+  sweepEmptyLeftovers,
+} from './reviewCheckout.js'
 
-// #184: `git worktree remove` retries a transient Windows lock (a terminal or
-// job tool still holding a directory handle) with the same bounded pattern as
-// sandbox/review-checkout cleanup: the attempt count is reported in the decision
-// and a permanent failure keeps the mission record instead of failing the call.
+// #184: retry a transient Windows lock with the bounded pattern used by
+// sandbox/review-checkout cleanup; the attempt count is reported, and a
+// permanent failure keeps the mission record instead of failing the call.
 export const WORKTREE_CLEANUP_ATTEMPTS = 3
 export const WORKTREE_RETRY_DELAY_MS = 50
 
@@ -81,11 +87,9 @@ async function removeWorktree(tower, worktreePath, options = {}) {
   return { ok: false, attempts: used, error: String(/** @type {any} */ (lastError)?.message ?? lastError).slice(0, 400) }
 }
 
-// #185: `git worktree list` also reports checkouts Tower never recorded — an
-// external `create_worktree` call, one orphaned by a lost state file, or an
-// interrupted run's leftover. Only the explicit `orphans: true` sweep sees them;
-// it is opt-in and never removes the main checkout, a path state records, a path
-// outside the resolved worktree root, a dirty checkout, or a branch.
+// #185: `git worktree list` also reports checkouts Tower never recorded. Only the
+// explicit `orphans: true` sweep sees them; it never removes the main checkout, a
+// recorded path, a path outside the root, a dirty checkout, or a branch.
 
 /**
  * The worktree root the sweep searches: configured root, else `tower_provision`'s
@@ -467,16 +471,26 @@ async function sweepOrphanWorktrees(tower, inventory) {
         keep('uncommitted changes')
         continue
       }
+      // #218/F100: an orphan has no registration, so any top-level link is kept:
+      // git's recursive removal must never be allowed to walk through it.
+      const linkPlan = await prepareLinkSafeRemoval(tower, { path: entry.path })
+      if (linkPlan.blocked) {
+        keep(`contains a link Tower did not create: ${linkPlan.kept.map((kept) => `${kept.name} (${kept.reason})`).join('; ')}`)
+        continue
+      }
       const removal = await removeWorktree(tower, entry.path)
       if (!removal.ok) {
         keep(`remove failed after ${removal.attempts} attempt(s): ${removal.error}`, { attempts: removal.attempts })
         continue
       }
       if (removal.repaired) pruneNeeded = true
+      const residual = await settleResidualWorktree(tower, entry.path, null)
       results.set(key, {
         action: 'removed',
         reason: 'eligible',
         ...(removal.attempts > 1 ? { attempts: removal.attempts } : {}),
+        ...(linkPlan.link ? { nodeModulesLink: linkPlan.link } : {}),
+        ...(residual.decisions.length > 0 ? { residuals: residual.decisions } : {}),
       })
     }
     if (pruneNeeded) {
@@ -507,6 +521,8 @@ async function sweepOrphanWorktrees(tower, inventory) {
     entry.action = swept.action
     entry.reason = swept.reason
     if (swept.attempts) entry.attempts = swept.attempts
+    if (swept.nodeModulesLink) entry.nodeModulesLink = swept.nodeModulesLink
+    if (swept.residuals) entry.residuals = swept.residuals
     if (swept.action === 'removed') removed.push(entry.path)
     if (swept.action === 'pruned') pruned.push(entry.path)
   }
@@ -583,10 +599,8 @@ export async function teardown(tower, input) {
       continue
     }
 
-    // Phase 2 (#51): the irreversible git work runs under the git lock and
-    // never under the state lock. Re-read state without the lock right before
-    // mutating: the git lock may have waited behind another operation, so a
-    // stale candidate is refused while the worktree still exists.
+    // Phase 2 (#51): the irreversible git work runs under the git lock, never
+    // under the state lock, after a fresh read proves the candidate is not stale.
     const outcome = await tower.deps.store.withGitLock(tower.paths, async () => {
       let fresh
       try {
@@ -602,12 +616,12 @@ export async function teardown(tower, input) {
       const mission = current.mission
       const worktree = mission.worktree
       if (!worktree) return { phase: 'skip', reason: 'worktree is already gone' }
-      // #F61: converge a terminal mission whose checkout is gone without
-      // failing the dirty check or the removal itself. The directory may also
-      // have vanished between prepare and this lock, so the check is repeated
-      // here where it protects the git mutation.
+      // #F61: converge a terminal mission whose checkout is gone, repeating the
+      // existence check here where it protects the git mutation.
       let repaired = false
       let attempts = 0
+      let nodeModulesLink = null
+      let residuals = []
       if (await tower.deps.store.exists(worktree.path)) {
         let dirty = true
         try {
@@ -617,6 +631,17 @@ export async function teardown(tower, input) {
         }
         const dirtyKeep = teardownDirtyDecision(dirty, input.force)
         if (dirtyKeep) return { phase: 'skip', reason: dirtyKeep.reason }
+        // #218/F100: unlink the recorded node_modules link before the recursive
+        // git removal; keep the checkout while an unrecorded link could be followed.
+        const linkPlan = await prepareLinkSafeRemoval(tower, worktree)
+        if (linkPlan.blocked) {
+          return {
+            phase: 'link-kept',
+            reason: `no worktree was removed: ${linkPlan.kept.map((kept) => `${kept.name} — ${kept.reason}`).join('; ')}`,
+            links: linkPlan.kept,
+          }
+        }
+        nodeModulesLink = linkPlan.link
         const removal = await removeWorktree(tower, worktree.path, { dirty })
         if (!removal.ok) {
           return {
@@ -626,6 +651,8 @@ export async function teardown(tower, input) {
           }
         }
         attempts = removal.attempts
+        const residual = await settleResidualWorktree(tower, worktree.path, worktree)
+        residuals = residual.decisions
         if (removal.repaired) {
           // The checkout vanished while the retry waited out a Windows handle.
           repaired = true
@@ -654,11 +681,24 @@ export async function teardown(tower, input) {
       } catch (error) {
         branchDeleteError = String(error?.message ?? error).slice(0, 240)
       }
-      return { phase: 'removed', branch: worktree.branch, branchDeleteError, repaired, attempts }
+      return {
+        phase: 'removed',
+        branch: worktree.branch,
+        branchDeleteError,
+        repaired,
+        attempts,
+        ...(nodeModulesLink ? { nodeModulesLink } : {}),
+        ...(residuals.length > 0 ? { residuals } : {}),
+      }
     }, tower.gitMutexOptions({ phase: 'teardown' }))
 
     if (outcome.phase === 'stale') {
       throw new TowerToolError('stale-base', `${STALE}: ${outcome.detail}. No worktree was removed.`)
+    }
+    if (outcome.phase === 'link-kept') {
+      // #218/F100: keep the whole checkout when it holds a link Tower did not create.
+      setDecision(candidate.decision, { action: 'keep', reason: outcome.reason, links: outcome.links })
+      continue
     }
     if (outcome.phase !== 'removed') {
       setDecision(candidate.decision, {
@@ -700,6 +740,8 @@ export async function teardown(tower, input) {
     setDecision(candidate.decision, {
       ...teardownRemovedDecision(outcome),
       ...(outcome.attempts > 0 ? { attempts: outcome.attempts } : {}),
+      ...(outcome.nodeModulesLink ? { nodeModulesLink: outcome.nodeModulesLink } : {}),
+      ...(outcome.residuals ? { residuals: outcome.residuals } : {}),
       ...(outcome.repaired
         ? { repaired: true, reason: 'worktree directory was already gone; the removal was recorded' }
         : {}),

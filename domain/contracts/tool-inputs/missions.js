@@ -18,10 +18,11 @@ export const PlanInput = Type.Object({
   missions: Type.Array(
     Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
+      key: Type.Optional(Type.String({ description: 'Plan-local handle (trimmed, at most 64 characters; not M<number>-shaped) that this plan\'s other missions may name in deps. Resolved to the assigned mission id at creation; never persisted.' })),
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey. Each entry must match a tracked file (or name an existing directory); pass allowMissingScope to accept a path this mission will create.' })),
       allowMissingScope: Type.Optional(Type.Boolean({ description: 'Accept scope entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry. The same opt-in works for a later planned edit or widen.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
-      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
+      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey. A dep may also name an existing mission id, a key defined by this plan, or a would-be id this plan assigns.' })),
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'build = writes code behind a review gate; survey = read-only investigation that reserves no scope; artifact = writes deliverables (declared via artifacts) that a human accepts at the committed tip instead of a review.' })),
       artifacts: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Artifact only: the concrete deliverable paths (no globs) the mission must land. Each path must be inside the mission scope and committed at the branch tip before tower_complete admits completion; the merge gate additionally needs a human acceptance of the whole tip.' })),
       context: Type.Optional(Type.String({ description: "The user's own key sentences, verbatim (max 4096 chars)." })),
@@ -31,6 +32,7 @@ export const PlanInput = Type.Object({
     }, { additionalProperties: false }),
     { description: 'Missions to create, in intended order.' },
   ),
+  dry_run: Type.Optional(Type.Boolean({ description: 'Preview the plan without creating missions, writing state, or bumping the revision: returns per-mission wouldBeId, resolved deps, overlaps, and every problem found. A real failed plan reports the same complete problem set.' })),
 }, { additionalProperties: false })
 
 // The per-mission fields shared by the single form and a bulk item. A bulk item
