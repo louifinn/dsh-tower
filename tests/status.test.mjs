@@ -340,8 +340,9 @@ test('sinceRevision boundary: mission writes bump the revision without stamping 
     const baseline = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
     // A note is a real mission write: it bumps `state.revision`, but no row
     // stamp is written. This is the documented boundary `sinceRevision`
-    // advertises, not a bug: the row must be omitted for a positive value and
-    // returned when the filter is 0.
+    // advertises, not a bug: the mission row must be omitted for a positive
+    // value (`missions` is a row list) and returned when the filter is 0.
+    // `roster` is a filtered row *count*, not a row list, so it stays 0.
     await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', note: 'stamped nowhere' })
 
     const since = await call(tools, 'tower_inspect', {
