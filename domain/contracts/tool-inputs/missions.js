@@ -33,8 +33,10 @@ export const PlanInput = Type.Object({
   ),
 }, { additionalProperties: false })
 
-export const MissionInput = Type.Object({
-  id: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: missionId).' })),
+// The per-mission fields shared by the single form and a bulk item. A bulk item
+// additionally requires `id`. Human acceptance (`accept`/`accept_note`) stays a
+// single-mission action: it goes through the DSH approval channel once.
+const missionFields = {
   status: Type.Optional(enumOf(MISSION_STATUSES, { description: 'New lifecycle status.' })),
   note: Type.Optional(Type.String({ description: 'Append a decision-log note.' })),
   blocker: Type.Optional(Type.String({ description: 'Report a blocker (also sets status to blocked).' })),
@@ -48,8 +50,23 @@ export const MissionInput = Type.Object({
   deferred: Type.Optional(Type.Boolean({ description: 'Tower only: step a planned or active mission that owns paths (build or artifact) out of the overlap check; pass false to rejoin. It never blocks another mission from widening.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
+}
+
+const acceptanceFields = {
   accept: Type.Optional(Type.Boolean({ description: "Artifact only: record the human acceptance of the mission's committed tip through the DSH approval channel; never auto-recorded." })),
   accept_note: Type.Optional(Type.String({ description: 'Optional note stored on the acceptance record (max 4000 chars).' })),
+}
+
+export const MissionInput = Type.Object({
+  id: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: missionId). Pass exactly one of id, missions, or ids.' })),
+  ...missionFields,
+  ...acceptanceFields,
+  missions: Type.Optional(Type.Array(
+    Type.Object({ id: Type.String({ description: 'Mission id, e.g. M1.' }), ...missionFields }, { additionalProperties: false }),
+    { minItems: 1, description: 'Bulk form: update several missions in one call, each item carrying an id plus the same per-mission fields as the single form. Mutually exclusive with id and ids.' },
+  )),
+  ids: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'Bulk shorthand for a pure lifecycle update: apply the lifecycle fields on this call (status, note, blocker, clear_blockers, deferred, pause_cause, authorization) to every listed mission. Mutually exclusive with id and missions; use missions for scope or task edits.' })),
+  atomic: Type.Optional(Type.Boolean({ description: 'Bulk only: true (default) applies the batch all-or-nothing; false applies items in order and reports each result, continuing after a failure.' })),
 }, { additionalProperties: false })
 
 export const StatusInput = Type.Object({
@@ -79,6 +96,7 @@ export const CompleteInput = Type.Object({
         command: Type.Optional(Type.String({ description: 'Command or method used.' })),
         exitCode: Type.Optional(Type.Integer({ description: 'Observed exit code.' })),
         evidence: Type.Optional(Type.String({ description: 'Short evidence line/log reference.' })),
+        runId: Type.Optional(Type.String({ description: 'Id of a recorded test run of this mission (an entry in testRuns, e.g. run-3) returned by tower_test.' })),
       }, { additionalProperties: false }),
       { description: 'Optional evidence ledger entries: {name, command?, exitCode?, evidence?}.' },
     ),

@@ -737,6 +737,33 @@ test('F57: an activation failure is recorded as a failed row, not a corrupt stat
   }
 })
 
+// #215: spawn is refused on a checkout that is not `state.base`, before any
+// provisioning or child activation. The error names both sides and both fixes.
+test('spawn refuses a checkout that is not state.base before provisioning', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-base-')
+  const harness = makeHarness()
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Base check', scope: ['src/**'], tasks: ['write it'] }])
+    const base = (await tower.load()).base
+    git(repo, ['checkout', '-b', 'spawn-side'])
+
+    await assert.rejects(
+      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }),
+      (error) => {
+        assert.equal(error.code, 'base-mismatch')
+        assert.match(error.message, new RegExp(`state\\.base is "${base}"`))
+        assert.match(error.message, /spawn-side/)
+        assert.match(error.message, new RegExp(`check out "${base}"`))
+        assert.match(error.message, /tower_init/)
+        assert.match(error.message, /reanchor:true/)
+        return true
+      },
+    )
+    assert.equal(harness.subagents.activations.length, 0, 'no child is started on a mismatched checkout')
+  } finally {
+    removeTemp(root)
+  }
+})
 // #210: `failureReason` is a diagnostic of the *current* dead attempt. A live
 // agent that later reports a non-failed outcome must not keep reporting the
 // old failure, while a failed outcome without detail keeps the previous reason.

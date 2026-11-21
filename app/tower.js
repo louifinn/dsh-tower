@@ -23,8 +23,9 @@ export { missionSummary } from '../domain/summary.js'
 export { MISSION_STATUSES, SCHEMA_VERSION, MERGE_VERDICTS, FINDING_TYPES, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_TRANSITIONS } from '../domain/mission.js'
 import { TowerToolError } from '../domain/errors.js'
 import { buildMissionEvent } from '../domain/events.js'
+import { normalizeMissionBatch } from '../domain/missions/lifecycle.js'
 import { plan } from './plan.js'
-import { updateMission } from './mission.js'
+import { assertBaseCheckout, readHeadView, updateMission, updateMissionBatch } from './mission.js'
 import { checkCompletion, complete } from './checkCompletion.js'
 import { missionContext } from './missionContext.js'
 import { enrichedMissions } from './enrichedMissions.js'
@@ -478,13 +479,61 @@ export class Tower {
     }
   }
 
+  /** #215: live HEAD; see readHeadView in app/mission.js. */
+  async currentHeadView() {
+    return readHeadView(this)
+  }
+
+  /** #215: refuse a checkout that is not `state.base`; see app/mission.js. */
+  async assertBaseCheckout(action = 'this operation') {
+    return assertBaseCheckout(this, action)
+  }
+
   async plan(input = {}) {
+    await this.assertBaseCheckout('tower_plan')
     const planned = await plan(this, await expandedPlanInput(this, input))
     await recordUnverifiedPlanScope(this, input, planned)
     return planned
   }
 
   async mission(input = {}) {
+    // #216: the bulk form is normalized and validated before any write. Scope
+    // entries on a bulk item get the same directory expansion and tracked-file
+    // check as the single form, item by item.
+    const batch = normalizeMissionBatch(input)
+    if (batch) {
+      for (const item of batch.items) {
+        if (!Array.isArray(item.fields.scope)) continue
+        const directories = await scopeDirectories(this, item.fields.scope)
+        const plannedEdit = await plannedScopeEdit(this, item.id)
+        if (item.fields.allowMissingScope !== true) {
+          const trackedPaths = await trackedPathList(this)
+          if (trackedPaths !== null) {
+            assertScopeEntries(item.fields.scope, trackedPaths, directories, plannedEdit ? 'plan' : 'widen')
+          }
+        }
+        item.unverified = item.fields.allowMissingScope === true && item.fields.scope.length > 0
+          ? { plannedEdit, scope: [...item.fields.scope] }
+          : null
+        item.fields = { ...item.fields, scope: expandScopeDirectories(item.fields.scope, { directories }) }
+      }
+      const result = await updateMissionBatch(this, {
+        atomic: batch.atomic,
+        items: batch.items,
+        actor: input.actor,
+      })
+      const succeeded = new Set(result.results.filter((entry) => entry.ok).map((entry) => entry.id))
+      for (const item of batch.items) {
+        if (!item.unverified || !succeeded.has(item.id)) continue
+        await this.appendActivity({
+          at: Date.now(),
+          type: 'scope.unverified',
+          missionId: item.id,
+          text: `${item.unverified.plannedEdit ? 'edited' : 'widened'} to unverified scope: ${item.unverified.scope.join(', ')}`,
+        })
+      }
+      return result
+    }
     // F18: widening input gets the same directory expansion as planning, so a
     // directory-shaped entry cannot silently widen a fence to nothing.
     // #200: a widened entry must also match a tracked file, so a typo cannot

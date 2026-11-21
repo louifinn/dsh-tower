@@ -236,7 +236,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 15379,
+        "value": 18266,
         "decisions": [
           {
             "from": 17008,
@@ -327,6 +327,12 @@
             "to": 15379,
             "date": "2026-11-21",
             "note": "#M162 R185: tower_inspect's compact description now says the status/roster agent views keep only the agent identity {name,role,missionId,state} (status also the compact mission id/status/kind), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The tower profile becomes 15,379 bytes (was 15,263); the tool count stays 15."
+          },
+          {
+            "from": 15379,
+            "to": 18266,
+            "date": "2026-11-22",
+            "note": "#216: MissionInput advertises the bulk form — missions[] (same 13 per-mission fields, closed item object), the ids lifecycle shorthand and the atomic boolean — plus a bulk-aware description. tower_mission is mounted by the tower profile, so its one advertised schema grows by 2,887 bytes and the profile becomes 18,266 (was 15,379); the tool count stays 15. The #215 base check adds no input fields."
           }
         ]
       }
@@ -358,7 +364,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 8774,
+        "value": 11661,
         "decisions": [
           {
             "from": 8159,
@@ -431,6 +437,12 @@
             "to": 8774,
             "date": "2026-11-22",
             "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so the worker preset's mounted CompleteInput grows by 143 bytes. The tool count stays 6; tower and reviewer do not mount tower_complete and do not move."
+          },
+          {
+            "from": 8774,
+            "to": 11661,
+            "date": "2026-11-22",
+            "note": "#216: the worker preset mounts tower_mission, whose MissionInput advertises the bulk form (missions/ids/atomic), so its one advertised schema grows by 2,887 bytes and the preset becomes 11,661 (was 8,774). The tool count stays 6; #215 adds no input fields."
           }
         ]
       }
@@ -529,11 +541,11 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 20229
+        "bytes": 23094
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 10752
+        "bytes": 13617
       },
       "preset:reviewer": {
         "tools": 5,
@@ -541,11 +553,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 9567
+        "bytes": 12432
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 9567
+        "bytes": 12432
       }
     },
     "decisions": [
@@ -618,6 +630,11 @@
         "date": "2026-11-22",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so every preset that mounts tower_complete grows by 143 bytes: preset:worker 6/10,752 (was 6/10,609), preset:survey and preset:survey-sandbox 5/9,567 each (was 5/9,424). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves — the field is optional, so hand-written checks keep working."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#215/#216: tower_mission now advertises the bulk form (missions[], ids, atomic) and a description that names it, so every profile that mounts tower_mission grows by 2,865 advertised bytes: host:active 23,094 B (was 20,229), preset:worker 13,617 (was 10,752), preset:survey and preset:survey-sandbox 12,432 each (was 9,567). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged."
       }
     ]
   }

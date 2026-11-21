@@ -690,6 +690,228 @@ test('a same-batch broad-scope warning names a companion mission once', async ()
   }
 })
 
+// #215: plan/spawn must refuse a checkout that is not `state.base`. The check
+// runs before any state write, so a refused plan leaves state.json byte-identical.
+test('tower_plan refuses a checkout that is not state.base and writes no state', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-base-mismatch-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    const statePath = tower.paths.state
+    const before = fs.readFileSync(statePath)
+    const base = (await tower.load()).base
+    git(repo, ['checkout', '-b', 'side-branch'])
+
+    await assert.rejects(
+      () => tower.plan({ missions: [{ title: 'Feature', scope: ['src/feature/**'] }] }),
+      (error) => {
+        assert.equal(error.code, 'base-mismatch')
+        assert.match(error.message, new RegExp(`state\\.base is "${base}"`))
+        assert.match(error.message, /side-branch/)
+        assert.match(error.message, new RegExp(`check out "${base}"`))
+        assert.match(error.message, /tower_init/)
+        assert.match(error.message, /reanchor:true/)
+        return true
+      },
+    )
+    assert.deepEqual(fs.readFileSync(statePath), before, 'a refused plan must not write state.json')
+
+    // The status view shows both sides and warns about the mismatch.
+    const status = await tower.status()
+    assert.equal(status.base, base)
+    assert.equal(status.head, 'side-branch')
+    assert.match(status.baseWarning, /state\.base/)
+    assert.match(status.baseWarning, /side-branch/)
+
+    // On the base branch the same plan succeeds.
+    git(repo, ['checkout', base])
+    const planned = await tower.plan({ missions: [{ title: 'Feature', scope: ['src/feature/**'] }] })
+    assert.equal(planned.missions.length, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #215: the reanchor refusal names the missions that block the move, so the
+// operator knows which ones must be closed first.
+test('tower_init reanchor refusal lists the blocking mission ids', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-reanchor-ids-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    const base = (await tower.load()).base
+    git(repo, ['branch', 'release'])
+    await tower.plan({ missions: [{ title: 'Open mission', scope: ['src/**'] }] })
+
+    await assert.rejects(
+      () => tower.init({ base: 'release', reanchor: true }),
+      (error) => {
+        assert.equal(error.code, 'invalid-transition')
+        assert.match(error.message, /cannot reanchor base while 1 mission\(s\) are not merged or abandoned/)
+        assert.match(error.message, /M1/)
+        return true
+      },
+    )
+    const state = await tower.load()
+    assert.equal(state.base, base, 'a refused reanchor leaves the base alone')
+    assert.equal(state.missions[0].status, 'planned')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #216: bulk tower_mission. `ids` is the pure-lifecycle shorthand; every mission
+// gets its own activity record and the call keeps exactly one bulk record.
+test('tower_mission bulk abandon records one activity per mission plus one bulk record', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-bulk-abandon-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({
+      missions: [
+        { title: 'First', scope: ['src/first/**'] },
+        { title: 'Second', scope: ['src/second/**'] },
+        { title: 'Third', scope: ['src/third/**'] },
+      ],
+    })
+    const beforeRevision = (await tower.load()).revision
+    const result = await tower.mission({ ids: ['M1', 'M2', 'M3'], status: 'abandoned', note: 'cleanup after plan' })
+
+    assert.equal(result.atomic, true)
+    assert.equal(result.revision, beforeRevision + 1)
+    assert.deepEqual(result.missions.map((mission) => mission.id), ['M1', 'M2', 'M3'])
+    assert.ok(result.missions.every((mission) => mission.status === 'abandoned'))
+
+    const activity = await tower.deps.store.readActivityTail(tower.paths.activity, 20)
+    const perMission = activity.filter((entry) => entry.type === 'mission' && entry.missionId !== undefined)
+    assert.deepEqual(perMission.map((entry) => entry.missionId).sort(), ['M1', 'M2', 'M3'])
+    const bulk = activity.filter((entry) => entry.type === 'mission.bulk')
+    assert.equal(bulk.length, 1)
+    assert.match(bulk[0].text, /M1, M2, M3/)
+    assert.match(bulk[0].text, /atomic/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #216: atomic:true is all-or-nothing — an unknown id rolls the whole batch back
+// before the single state write.
+test('tower_mission bulk is all-or-nothing on an unknown id', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-bulk-atomic-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({
+      missions: [
+        { title: 'First', scope: ['src/first/**'] },
+        { title: 'Second', scope: ['src/second/**'] },
+      ],
+    })
+    const statePath = tower.paths.state
+    const before = fs.readFileSync(statePath)
+    await assert.rejects(
+      () => tower.mission({ missions: [{ id: 'M1', status: 'abandoned', note: 'gone' }, { id: 'M99', note: 'unknown' }] }),
+      (error) => error.code === 'mission-not-found' && /M99/.test(error.message),
+    )
+    assert.deepEqual(fs.readFileSync(statePath), before, 'a rolled-back batch must not write state.json')
+    const state = await tower.load()
+    assert.equal(state.missions.find((mission) => mission.id === 'M1').status, 'planned')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #216: the bulk item form mixes lifecycle and scope; the shorthand stays
+// lifecycle-only and points at the per-mission form for anything else.
+test('tower_mission bulk applies status and scope per mission', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-bulk-mixed-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({
+      missions: [
+        { title: 'First', scope: ['src/first/**'] },
+        { title: 'Second', scope: ['src/second/**'] },
+      ],
+    })
+    const result = await tower.mission({
+      missions: [
+        { id: 'M1', status: 'active', scope: ['src/first/deep/**'] },
+        { id: 'M2', deferred: true, note: 'wait for M1' },
+      ],
+    })
+    const [first, second] = result.missions
+    assert.equal(first.status, 'active')
+    assert.deepEqual(first.scope, ['src/first/deep/**'])
+    assert.equal(second.deferred, true)
+
+    await assert.rejects(
+      () => tower.mission({ ids: ['M1'], task_done: 'write it' }),
+      (error) => error.code === 'invalid-argument' && /missions/.test(error.message),
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #216: atomic:false applies items in order, keeps going after a failure, and
+// reports each item instead of rolling the successful ones back.
+test('tower_mission bulk partial mode reports each item and keeps successes', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-bulk-partial-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({
+      missions: [
+        { title: 'First', scope: ['src/first/**'] },
+        { title: 'Second', scope: ['src/second/**'] },
+      ],
+    })
+    const beforeRevision = (await tower.load()).revision
+    const result = await tower.mission({
+      missions: [
+        { id: 'M1', status: 'active' },
+        { id: 'M99', status: 'active' },
+      ],
+      atomic: false,
+    })
+    assert.equal(result.atomic, false)
+    assert.deepEqual(result.results.map((entry) => entry.ok), [true, false])
+    assert.equal(result.results[1].code, 'mission-not-found')
+    assert.match(result.results[1].error, /M99/)
+    assert.equal(result.revision, beforeRevision + 1)
+    assert.deepEqual(result.missions.map((mission) => mission.id), ['M1'])
+    const state = await tower.load()
+    assert.equal(state.missions.find((mission) => mission.id === 'M1').status, 'active')
+    const activity = await tower.deps.store.readActivityTail(tower.paths.activity, 20)
+    const bulk = activity.filter((entry) => entry.type === 'mission.bulk')
+    assert.equal(bulk.length, 1)
+    assert.match(bulk[0].text, /partial/)
+    assert.match(bulk[0].text, /M1/)
+    assert.match(bulk[0].text, /M99/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('mission transitions: blocked resumes through clear_blockers and can complete again', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-transition-'))
   const repo = path.join(root, 'repo')

@@ -2,21 +2,7 @@
 import { SCHEMAS, output } from '../domain/contracts/outputs.js'
 import { TowerToolError } from '../domain/errors.js'
 import { CompleteInput } from '../domain/contracts/tool-inputs/index.js'
-import { Type } from '../domain/contracts/tool-inputs/shared.js'
 import { isCompleteAdmission } from '../domain/vocabulary.js'
-
-// #206: a check may cite the recorded test run that backs it. The shared
-// CompleteInput schema is defined in domain/contracts/tool-inputs/missions.js,
-// which is outside this mission's fence, so the field is added to the same
-// exported object here. The registry and the ToolInputs map both hold this
-// reference, so runtime validation and tests/tool-contracts.test.mjs agree.
-// Move the field into missions.js once that contract file is in scope.
-const checkItem = /** @type {any} */ (CompleteInput).properties?.checks?.items
-if (checkItem && checkItem.properties && !checkItem.properties.runId) {
-  checkItem.properties.runId = Type.String({
-    description: 'Id of a recorded test run of this mission (an entry in testRuns, e.g. run-3) returned by tower_test.',
-  })
-}
 
 /**
  * @param {any} ctx

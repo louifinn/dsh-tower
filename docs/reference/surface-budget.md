@@ -126,6 +126,14 @@ returns `reached`, `timeout` or `unknown` within a 1000–600000 ms bound
 (default 30000). Per-agent progress (#207) rides the existing `tower_inspect`
 `status`/`roster` views; no second read tool appears.
 
+M165 (#215/#216) added the bulk `tower_mission` form (a closed `missions[]`
+array, the `ids` lifecycle shorthand and `atomic`): every profile that mounts
+`tower_mission` grows by 2,887 input-schema bytes — tower 15 tools / 18,266 B,
+worker 6 / 11,661 — and by 2,865 advertised bytes, so `host:active` reads
+23,094 B, `preset:worker` 13,617 and `preset:survey`/`preset:survey-sandbox`
+12,432 each. Mode-off, idle and `preset:reviewer` do not mount `tower_mission`
+and are unchanged; no tool count moves.
+
 ## Role × phase exposure (#164)
 
 `tower_mode` is the only tool a host session advertises with Tower mode off.
@@ -137,13 +145,13 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **20,229 B /
+- `active` — mode on, state exists: the default host-admitted set, **23,094 B /
   15 tools** (the 17 mounted tools minus the #163 role-owned
   `tower_complete`/`tower_review`, which a non-role session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**27,321 B / 22 tools**, and that figure is a build-surface statement, never a
+**30,329 B / 22 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -154,8 +162,8 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **10,609 B / 6 tools**, `preset:reviewer` **7,342 B / 5**,
-`preset:survey` and `preset:survey-sandbox` **9,424 B / 5** each (the
+`preset:worker` **13,617 B / 6 tools**, `preset:reviewer` **7,342 B / 5**,
+`preset:survey` and `preset:survey-sandbox` **12,432 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
@@ -174,7 +182,7 @@ that names an existing ADR under `docs/adr/` (`profile-bytes-growth`).
 `tests/exposure.test.mjs` also enforces that every registered tool has a phase
 row ("no implicit all"), that every legal mission transition's driving tool is
 exposed to the profile that owns it, and that the host ladder stays on the
-default host-admitted surface (15 tools / 20,229 B) rather than the 22-tool
+default host-admitted surface (15 tools / 23,094 B) rather than the 22-tool
 build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys

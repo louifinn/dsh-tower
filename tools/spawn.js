@@ -39,6 +39,8 @@ export function registerSpawnTool(ctx, deps) {
       const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
+      // #215: refuse a checkout that is not state.base before provisioning.
+      await tower.assertBaseCheckout('tower_spawn')
       const role = args.role ?? DEFAULT_ROLE
       // Repository config (if any) already overrides the profile config here.
       const config = tower.config

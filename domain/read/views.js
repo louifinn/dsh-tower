@@ -4,6 +4,7 @@
 import { reviewsNewestFirst } from '../integration/review.js'
 import { FINDING_STATUSES, MISSION_STATUSES } from '../mission.js'
 import { fullMission, findingSummary, taskCounts } from '../summary.js'
+import { baseMismatchMessage } from '../vocabulary.js'
 
 /** @typedef {import('../../types/index.js').Mission} Mission */
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
@@ -46,6 +47,8 @@ export function missionDetailView({ state, mission, activity }) {
  * @param {number | null} [input.archivedMissions] archived mission count, or null when unreadable
  * @param {object} [input.archive] archive index view/diagnostic
  * @param {{ held: boolean, pid?: number | null, phase?: string | null, heldMs?: number | null }} [input.gitLock]
+ * @param {string | null} [input.head] the live checked-out branch or detached SHA (#215)
+ * @param {boolean} [input.headDetached]
  * @returns {object}
  */
 export function statusView({
@@ -58,6 +61,8 @@ export function statusView({
   archivedMissions = 0,
   archive = null,
   gitLock = { held: false },
+  head = null,
+  headDetached = false,
 }) {
   /** @type {Record<string, number>} */
   const counts = {}
@@ -76,6 +81,14 @@ export function statusView({
     commonDir: state.commonDir,
     statePath,
     base: state.base,
+    head,
+    headDetached,
+    // #215: the dashboard shows the two sides side by side and warns when the
+    // checkout is not on the recorded base, instead of letting the mismatch
+    // surface later as a broken merge.
+    ...(head !== null && head !== state.base
+      ? { baseWarning: baseMismatchMessage({ base: state.base, head, detached: headDetached, action: 'tower_plan and tower_spawn' }) }
+      : {}),
     revision: state.revision,
     towerAgentId: state.towerAgentId ?? null,
     ownerMissing: !state.towerAgentId,

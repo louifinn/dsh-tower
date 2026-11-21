@@ -387,10 +387,11 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   assert.deepEqual(first, second, 'profile bytes depend on iteration order')
   // The host ladder is measured over the default host-admitted surface: the 17
   // mounted tools minus the two #163 role-owned tools, not the 22-tool all-on
-  // build surface (R103, #201 and R185 re-measured 2026-11-21).
+  // build surface (R103, #201 and R185 re-measured 2026-11-21; #215/#216
+  // re-measured the bulk tower_mission schema on 2026-11-22).
   assert.deepEqual(first['host:mode-off'], { tools: 1, bytes: 846 })
   assert.deepEqual(first['host:idle'], { tools: 2, bytes: 2185 })
-  assert.deepEqual(first['host:active'], { tools: 15, bytes: 20229 })
+  assert.deepEqual(first['host:active'], { tools: 15, bytes: 23094 })
   const hostNames = hostAdmittedNames(surface)
   assert.equal(hostNames.length, 15)
   assert.equal(hostNames.includes('tower_complete'), false, 'role tools never enter the host ladder')
