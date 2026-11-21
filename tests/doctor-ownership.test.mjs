@@ -293,6 +293,46 @@ test('doctor and status agree: the owner mode is off and takeover is available',
   }
 })
 
+test('doctor projections: checks-only and compact shrink the report without losing a non-pass check', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const full = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const checksOnly = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, checks: true })
+    const compact = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, compact: true })
+    const both = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, checks: true, compact: true })
+
+    // Default report is unchanged: the full diagnostic sections stay.
+    assert.equal(full.subsystems.length, 5)
+    assert.ok(full.environmentContract)
+    assert.ok(full.checks.length > 0)
+
+    // checks:true keeps every check row and drops the other sections.
+    assert.deepEqual(Object.keys(checksOnly).sort(), ['checks', 'ok', 'view'])
+    assert.deepEqual(checksOnly.checks, full.checks)
+    assert.equal(checksOnly.ok, full.ok)
+
+    // compact:true keeps only the verdict-bearing rows, and is much smaller.
+    assert.deepEqual(Object.keys(compact).sort(), ['checks', 'ok', 'view'])
+    assert.equal(compact.ok, full.ok)
+    const nonPassIds = full.checks.filter((row) => row.status !== 'pass').map((row) => row.id)
+    const compactNonPassIds = compact.checks.filter((row) => row.status !== 'pass').map((row) => row.id)
+    assert.deepEqual(compactNonPassIds, nonPassIds, 'every non-pass check survives compaction')
+    for (const row of compact.checks) {
+      if (row.status === 'pass') assert.deepEqual(Object.keys(row).sort(), ['id', 'status'])
+      else assert.equal(typeof row.detail, 'string')
+    }
+    const fullBytes = Buffer.byteLength(JSON.stringify(full))
+    const compactBytes = Buffer.byteLength(JSON.stringify(compact))
+    assert.ok(compactBytes * 2 < fullBytes, `compact ${compactBytes} B is much smaller than ${fullBytes} B`)
+    // compact wins when both projections are requested.
+    assert.deepEqual(both, compact)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('doctor presets failure names the visible preset rows and offers both remedies (#F69)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx({ agentPresets: { list: async () => [] } })

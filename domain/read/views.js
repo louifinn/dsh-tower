@@ -158,3 +158,100 @@ export function diffView({ mission, baseTip, branchTip, mergeBase, files, commit
     patch: fullPatch.slice(0, limit),
   }
 }
+
+/**
+ * #211: `sinceRevision` keeps a row only when it was stamped at a later state
+ * revision. Rows written before per-row stamps existed carry no revision;
+ * `sinceRevision: 0` therefore means "no filter" (and is the documented way to
+ * see legacy rows), while a positive value never returns them.
+ * @param {{ revision?: unknown }} row
+ * @param {unknown} sinceRevision
+ * @returns {boolean}
+ */
+export function rowChangedSince(row, sinceRevision) {
+  const since = Number(sinceRevision)
+  if (!Number.isInteger(since) || since <= 0) return true
+  return Number.isInteger(row?.revision) && /** @type {number} */ (row.revision) > since
+}
+
+/**
+ * #211: `fields` projects read rows to exactly the requested keys. Unknown keys
+ * are omitted instead of reported, so a caller may ask for a superset.
+ * @param {object[]} rows
+ * @param {unknown} fields
+ * @returns {object[]}
+ */
+export function projectFields(rows, fields) {
+  if (!Array.isArray(fields) || fields.length === 0) return rows
+  const keys = [...new Set(fields.filter((field) => typeof field === 'string' && field.length > 0))]
+  return rows.map((row) => {
+    /** @type {Record<string, unknown>} */
+    const projected = {}
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) projected[key] = /** @type {any} */ (row)[key]
+    }
+    return projected
+  })
+}
+
+/**
+ * #211: narrow the roster view to one agent (`name` or `agentId`) and/or the
+ * newest `tail` rows. Extraction happens after observation enrichment, so a
+ * caller sees the same fields for every row.
+ * @param {object[]} rows
+ * @param {{ agent?: unknown, tail?: unknown }} [input]
+ * @returns {object[]}
+ */
+export function selectRosterRows(rows, input = {}) {
+  let selected = rows
+  const agent = typeof input.agent === 'string' && input.agent.length > 0 ? input.agent : null
+  if (agent) {
+    selected = selected.filter((row) => {
+      const candidate = /** @type {any} */ (row)
+      return candidate.name === agent || (candidate.agentId !== null && candidate.agentId !== undefined && String(candidate.agentId) === agent)
+    })
+  }
+  const tail = Number(input.tail)
+  if (Number.isInteger(tail) && tail > 0) selected = selected.slice(-tail)
+  return selected
+}
+
+/**
+ * #211: `tower_inspect doctor` projections. `checks:true` returns the full
+ * check rows without the diagnostic sections; `compact:true` additionally strips
+ * every passing row to `{id, status}` and drops `action`. Defaults are the
+ * untouched report.
+ * @param {any} report
+ * @param {{ checks?: boolean, compact?: boolean }} [input]
+ * @returns {any}
+ */
+export function doctorProjection(report, input = {}) {
+  if (!input.checks && !input.compact) return report
+  const rows = (report.checks ?? []).map((row) => {
+    if (!input.compact) return row
+    if (row.status === 'pass') return { id: row.id, status: row.status }
+    return { id: row.id, status: row.status, ...(row.detail === undefined ? {} : { detail: row.detail }) }
+  })
+  return { ok: report.ok, checks: rows }
+}
+
+/**
+ * #211: parse `git diff --numstat` output into `{path, added, deleted}` rows.
+ * A binary file reports `-`; it becomes null rather than NaN.
+ * @param {unknown} output
+ * @returns {{ path: string, added: number | null, deleted: number | null }[]}
+ */
+export function parseNumstat(output) {
+  return String(output ?? '')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [added, deleted, ...rest] = line.split('\t')
+      return {
+        path: rest.join('\t'),
+        added: added === '-' ? null : Number(added),
+        deleted: deleted === '-' ? null : Number(deleted),
+      }
+    })
+}
+

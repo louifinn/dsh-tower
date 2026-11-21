@@ -47,6 +47,7 @@ export function registerInspectTool(ctx, deps) {
       includeGate: ['include_gate'],
       includeArchived: ['include_archived'],
       maxBytes: ['max_bytes'],
+      sinceRevision: ['since_revision'],
     },
     output: output(SCHEMAS.inspect),
     validateArgs(args) {

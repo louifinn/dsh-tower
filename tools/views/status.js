@@ -5,6 +5,8 @@ import { SCHEMA_VERSION } from '../../domain/mission.js'
 import { inspectStateVersion } from '../../domain/state.js'
 import { StatusInput } from '../../domain/contracts/tool-inputs/index.js'
 import { ROSTER_INACTIVE_STATES, isMarkdownFormat, isReservedState, isWorkerRole } from '../../domain/vocabulary.js'
+import { isTerminal } from '../../domain/shapes/index.js'
+import { projectFields, rowChangedSince } from '../../domain/read/views.js'
 import { archiveView } from '../../app/archive.js'
 import { reviewPolicyView } from '../../domain/integration/review.js'
 
@@ -76,6 +78,65 @@ async function degradedStatus(tower, args, { error, components, boardPath, mode,
 }
 
 /**
+ * #210: a terminal mission's checkout is a diagnostic for the doctor, not a
+ * live-work fact, so it carries no dirty fields. A missing path has none either.
+ * @param {any} mission
+ * @returns {boolean}
+ */
+function missionTerminal(mission) {
+  try {
+    return isTerminal(mission.kind, mission.status)
+  } catch {
+    // An unknown kind cannot be proven non-terminal: be silent, never throw.
+    return true
+  }
+}
+
+/**
+ * #210: at most one bounded `git status` read per non-terminal mission. Failures
+ * are reported as unknown (null) instead of failing the whole dashboard.
+ * @param {any} tower
+ * @param {any} mission
+ * @returns {Promise<{ worktreeDirty?: boolean | null, uncommittedPathCount?: number | null }>}
+ */
+async function worktreeDiagnostics(tower, mission) {
+  const path = mission?.worktree?.path
+  if (typeof path !== 'string' || path.length === 0) return {}
+  if (missionTerminal(mission)) return {}
+  try {
+    const vcs = tower.deps?.vcs
+    /** @type {unknown} */
+    let changes
+    if (vcs && typeof vcs.worktreeChanges === 'function') {
+      changes = await vcs.worktreeChanges(path)
+    } else {
+      const porcelain = await tower.git(path, ['status', '--porcelain'])
+      changes = String(porcelain ?? '')
+        .split('\n')
+        .filter((line) => line.length > 0)
+    }
+    const count = Array.isArray(changes) ? changes.length : 0
+    return { worktreeDirty: count > 0, uncommittedPathCount: count }
+  } catch {
+    return { worktreeDirty: null, uncommittedPathCount: null }
+  }
+}
+
+/**
+ * @param {any} tower
+ * @param {any[]} missions
+ * @returns {Promise<any[]>}
+ */
+async function withWorktreeDiagnostics(tower, missions) {
+  return Promise.all(
+    missions.map(async (mission) => {
+      const diagnostics = await worktreeDiagnostics(tower, mission)
+      return Object.keys(diagnostics).length > 0 ? { ...mission, ...diagnostics } : mission
+    }),
+  )
+}
+
+/**
  * @param {any} ctx
  * @param {{
  *   define: import('../../types/index.js').DefineTool,
@@ -121,11 +182,22 @@ export async function runStatusView(ctx, args, exec, deps) {
           tower.status({ missionIds: [args.missionId] }),
           tower.missionDetail(args.missionId),
         ])
+        const filtered = status.missions.filter((mission) => mission.id === args.missionId)
+        // #210: one bounded worktree read per mission per call — the mission row
+        // and the mission detail describe the same checkout, so share the probe.
+        const diagnostics = await worktreeDiagnostics(tower, detail?.mission ?? filtered[0])
+        const missions = Object.keys(diagnostics).length > 0
+          ? filtered.map((mission) => ({ ...mission, ...diagnostics }))
+          : filtered
+        let enrichedDetail = detail
+        if (detail?.mission && Object.keys(diagnostics).length > 0) {
+          enrichedDetail = { ...detail, mission: { ...detail.mission, ...diagnostics } }
+        }
         return {
           ...status,
-          missions: status.missions.filter((mission) => mission.id === args.missionId),
+          missions: projectFields(missions, args.fields),
           missionId: args.missionId,
-          detail,
+          detail: enrichedDetail,
           boardPath,
           mode,
           spawn,
@@ -136,10 +208,21 @@ export async function runStatusView(ctx, args, exec, deps) {
       }
       const state = await tower.load()
       const index = await tower.archiveIndex()
-      const activeIds = state.missions.map((mission) => mission.id)
-      const archivedIds = index.ok
-        ? index.missions.map((entry) => entry.id).filter((id) => !activeIds.includes(id))
+      const allActiveIds = state.missions.map((mission) => mission.id)
+      // #211: sinceRevision filters before paging, the same way the dashboard
+      // pages ids — otherwise `total`/`nextOffset` describe rows not returned.
+      // Mission rows carry the per-row stamp written by the spawn/roster use
+      // cases; archived summaries have none and are therefore excluded.
+      const sinceProvided = args.sinceRevision !== undefined
+      const activeIds = sinceProvided
+        ? allActiveIds.filter((id) => rowChangedSince(state.missions.find((mission) => mission.id === id), args.sinceRevision))
+        : allActiveIds
+      const archivedIdsRaw = index.ok
+        ? index.missions.map((entry) => entry.id).filter((id) => !allActiveIds.includes(id))
         : []
+      const archivedIds = sinceProvided
+        ? archivedIdsRaw.filter((id) => rowChangedSince(index.missions.find((entry) => entry.id === id), args.sinceRevision))
+        : archivedIdsRaw
       // Hot state pages first, then archived summaries on demand (#73).
       const ids = args.includeArchived === true ? [...activeIds, ...archivedIds] : activeIds
       const total = ids.length
@@ -169,7 +252,7 @@ export async function runStatusView(ctx, args, exec, deps) {
       }
       const result = {
         ...status,
-        missions: page,
+        missions: projectFields(await withWorktreeDiagnostics(tower, page), args.fields),
         total,
         offset,
         nextOffset: offset + page.length < total ? offset + page.length : null,
@@ -179,6 +262,10 @@ export async function runStatusView(ctx, args, exec, deps) {
         review,
         components,
         ownership,
+      }
+      // The roster count describes the same filtered view as `missions`.
+      if (sinceProvided) {
+        result.roster = (state.roster ?? []).filter((row) => rowChangedSince(row, args.sinceRevision)).length
       }
       if (isMarkdownFormat(args.format)) {
         const state = await tower.load()

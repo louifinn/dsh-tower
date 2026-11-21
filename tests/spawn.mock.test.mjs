@@ -26,6 +26,7 @@ const { buildActivationSpec, resolveSpawnProvider, usesNestedActivation } = awai
 const { validateState } = await import('../domain/state.js')
 const { stateShapeError } = await import('../domain/state/schema.js')
 const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
+const { applySpawnOutcome } = await import('../domain/collab/spawn.js')
 
 after(() => removeTemp(home))
 
@@ -605,6 +606,46 @@ test('F57: a stalled reservation left by a failed dispatch does not wedge the mi
   }
 })
 
+// #210/#211: the roster view can be narrowed to one agent and to the last N
+// rows instead of always returning the whole roster (once 182 KB).
+test('roster view: agent selects one row, tail keeps the newest rows', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-roster-projection-')
+  const harness = makeHarness()
+  try {
+    const { tower } = await initAndPlan(repo, [
+      { title: 'Projection one', scope: ['src/**'] },
+      { title: 'Projection two', scope: ['lib/**'] },
+    ])
+    const first = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.equal(first.name, 'worker-m1')
+    await tower.recordSpawn({
+      missionId: 'M2',
+      name: 'worker-m2',
+      role: 'worker',
+      agentId: 'child-2',
+      parentSessionId: 'tower-agent',
+    })
+    // The catalog observed the first agent: the observation timestamp is
+    // persisted and shown on the row.
+    const observedAt = Date.now()
+    await tower.recordRosterObservations({ present: [first.agentId] })
+
+    const all = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
+    assert.deepEqual(all.roster.map((row) => row.name), ['worker-m1', 'worker-m2'])
+    assert.ok(Number.isFinite(all.roster[0].lastObservedAt), 'observation time is visible')
+    assert.ok(all.roster[0].lastObservedAt >= observedAt, 'observation time is the observation clock')
+
+    const one = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, agent: 'worker-m2' })
+    assert.deepEqual(one.roster.map((row) => row.name), ['worker-m2'])
+
+    const tail = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, tail: 1 })
+    assert.deepEqual(tail.roster.map((row) => row.name), ['worker-m2'], 'tail keeps the newest roster row')
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
 // F57 root cause: the failed-spawn cleanup writes `state: 'failed', agentId:
 // null`. That is the truthful terminal record, so it must validate — otherwise
 // the cleanup is swallowed and the reservation stays `reserved` forever.
@@ -635,12 +676,46 @@ test('F57: an activation failure is recorded as a failed row, not a corrupt stat
     assert.equal(row.state, 'failed')
     assert.equal(row.agentId, null)
     assert.match(String(row.outcome), /spawn failed before activation/)
+    // #210: the failure reason is a durable diagnostic field, not only the
+    // human-readable activity text.
+    assert.match(String(row.failureReason), /spawn failed before activation/)
+    assert.match(String(row.failureReason), /activation channel closed/)
 
     // The truthful terminal row releases the mission: a retry spawns at once.
     const report = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
     assert.equal(report.agentId, 'child-1')
+
+    // Replacing the failed row overwrites `outcome` with "replaced by ...". The
+    // diagnostic must survive: failureReason stays, and the overwritten outcome
+    // is preserved as previousOutcome.
+    const replaced = await tower.load()
+    const retired = replaced.roster.find((entry) => entry.name === 'worker-m1')
+    assert.equal(retired.state, 'retired')
+    assert.match(String(retired.outcome), /replaced by/)
+    assert.match(String(retired.failureReason), /activation channel closed/)
+    assert.match(String(retired.previousOutcome), /spawn failed before activation/)
+    assert.match(String(retired.previousOutcome), /activation channel closed/)
     await settle()
   } finally {
     removeTemp(root)
   }
+})
+
+// #210: `failureReason` is a diagnostic of the *current* dead attempt. A live
+// agent that later reports a non-failed outcome must not keep reporting the
+// old failure, while a failed outcome without detail keeps the previous reason.
+test('applySpawnOutcome: a non-failed outcome clears the dead-agent diagnostic', () => {
+  const now = 1_700_000_000_000
+  const entry = { state: 'failed', outcome: 'old', outcomeAt: now - 2000, failureReason: 'activation channel closed' }
+  applySpawnOutcome(entry, { state: 'inactive', detail: 'idle' }, now)
+  assert.equal(entry.state, 'inactive')
+  assert.equal(entry.outcome, 'idle')
+  assert.equal(entry.outcomeAt, now)
+  assert.equal(Object.hasOwn(entry, 'failureReason'), false, 'a non-failed outcome clears failureReason')
+
+  applySpawnOutcome(entry, { state: 'failed' }, now + 1000)
+  assert.equal(entry.failureReason, null, 'a failed outcome without detail records no reason')
+  entry.failureReason = 'first reason'
+  applySpawnOutcome(entry, { state: 'failed' }, now + 2000)
+  assert.equal(entry.failureReason, 'first reason', 'a failed outcome without detail keeps the last reason')
 })

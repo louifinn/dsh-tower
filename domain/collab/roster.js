@@ -60,10 +60,14 @@ export function recordRosterObservations(roster, { present = [], absent = [], co
   let changed = false
   for (const entry of roster) {
     if (presentIds.has(entry.agentId)) {
+      // #210: an authoritative catalog sighting is durable evidence that the
+      // agent was alive at this time; the roster view exposes it so a dead
+      // subagent leaves diagnostics instead of only a vanished row.
+      entry.lastObservedAt = now
+      changed = true
       if (entry.absentObservations !== undefined) {
         delete entry.absentObservations
         delete entry.absentSince
-        changed = true
       }
       continue
     }
