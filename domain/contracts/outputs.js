@@ -14,7 +14,15 @@ const S = {
   any: {},
 }
 
-const blockerSchema = S.obj({ code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool }, ['code', 'detail'])
+const resolutionStepSchema = S.obj(
+  { step: S.int, action: S.str, missionId: S.str, missionIds: S.arr(S.str) },
+  ['step', 'action'],
+)
+const dependencyCycleSchema = S.obj({ code: S.str, missionIds: S.arr(S.str), detail: S.str }, ['code', 'missionIds', 'detail'])
+const blockerSchema = S.obj(
+  { code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool, resolution: S.arr(resolutionStepSchema) },
+  ['code', 'detail'],
+)
 const worktreeSchema = S.obj({ path: S.str, branch: S.str, baseCommit: S.str })
 // A placement is a union, not an object: a build owns a branch worktree
 // (`{path, branch, baseCommit}`), while a survey reads the shared checkout or a
@@ -219,6 +227,8 @@ const SCHEMAS = {
     {
       ok: S.bool,
       blockers: S.arr(blockerSchema),
+      order: S.arr(resolutionStepSchema),
+      cycle: { oneOf: [dependencyCycleSchema, { type: 'null' }] },
       missionId: S.str,
       branchTip: S.any,
       baseTip: S.any,

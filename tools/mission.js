@@ -15,7 +15,7 @@ export function registerMissionTool(ctx, deps) {
     description:
       'Update one mission: status, note, blocker, clear blockers, task done/drop, scope edit or widen (tower only; allowMissingScope accepts paths the mission will create), defer (tower only; build or artifact while planned or active), or accept a human-approved tip. merged only by tower_merge.',
     parameters: MissionInput,
-    aliases: {"id":["missionId"],"task_done":["taskDone"],"task_drop":["taskDrop"],"task_drop_reason":["taskDropReason"],"clear_blockers":["clearBlockers"]},
+    aliases: {"id":["missionId"],"task_done":["taskDone"],"task_drop":["taskDrop"],"task_drop_reason":["taskDropReason"],"task_add":["taskAdd"],"clear_blockers":["clearBlockers"]},
     board: true,
     output: output(SCHEMAS.mission),
     async execute(args, exec) {
@@ -70,6 +70,7 @@ export function registerMissionTool(ctx, deps) {
         task_done: args.task_done,
         task_drop: args.task_drop,
         task_drop_reason: args.task_drop_reason,
+        task_add: args.task_add,
         scope: args.scope,
         allowMissingScope: args.allowMissingScope,
         deferred: args.deferred,

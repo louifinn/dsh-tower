@@ -471,6 +471,143 @@ test('tower_inspect status shows the deferred flag on the dashboard and mission 
   }
 })
 
+test('registered tower_mission appends tasks and refuses them on a terminal mission', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-task-add-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Task appends', scope: ['src/**'], tasks: ['write code'] }],
+    })
+    const id = planned.missions[0].id
+    const before = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'status', missionId: id })
+    const appended = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      missionId: id,
+      taskAdd: ['appended one', 'appended two'],
+    })
+    assert.equal(appended.revision, before.revision + 1)
+    assert.deepEqual(
+      appended.mission.tasks.map((task) => ({ text: task.text, status: task.status })),
+      [
+        { text: 'write code', status: 'open' },
+        { text: 'appended one', status: 'open' },
+        { text: 'appended two', status: 'open' },
+      ],
+    )
+    assert.equal(appended.mission.tasks.filter((task) => task.status === 'open').length, 3)
+
+    // Complete directly through tower_mission (not tower_complete) to reach a
+    // terminal status without satisfying the completion gate.
+    await call(tools, 'tower_mission', { repoRoot: repo, id, status: 'active' })
+    await call(tools, 'tower_mission', { repoRoot: repo, id, status: 'completed' })
+    const rawBefore = fs.readFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), 'utf8')
+    await assert.rejects(
+      () => call(tools, 'tower_mission', { repoRoot: repo, id, task_add: ['too late'] }),
+      (error) => error.code === 'invalid-transition' && /terminal mission cannot append tasks/.test(error.message),
+    )
+    const rawAfter = fs.readFileSync(path.join(repo, '.git', 'dsh-tower', 'state.json'), 'utf8')
+    assert.equal(rawAfter, rawBefore, 'a refused append must not change state')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('registered tower_inspect preflight orders dependency merges before a stale-base rebase', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-resolution-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Dependency work', scope: ['src/a/**'] },
+        { title: 'Dependent work', scope: ['src/b/**'], deps: ['M1'] },
+      ],
+    })
+    const tower = await Tower.open(repo)
+    const first = await tower.provision({ missionId: planned.missions[0].id })
+    fs.mkdirSync(path.join(first.worktree.path, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'a', 'a.txt'), 'a\n')
+    git(first.worktree.path, ['add', '-A'])
+    git(first.worktree.path, ['commit', '-m', 'dependency work'])
+
+    const second = await tower.provision({ missionId: planned.missions[1].id })
+    fs.mkdirSync(path.join(second.worktree.path, 'src', 'b'), { recursive: true })
+    fs.writeFileSync(path.join(second.worktree.path, 'src', 'b', 'b.txt'), 'b\n')
+    git(second.worktree.path, ['add', '-A'])
+    git(second.worktree.path, ['commit', '-m', 'dependent work'])
+
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', status: 'completed' })
+    await tower.mission({ id: 'M2', status: 'active' })
+    // Move the base after both branches were cut: M2 is now stale.
+    fs.writeFileSync(path.join(repo, 'base.txt'), 'base moved\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'base moves'])
+
+    const preflight = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'preflight', missionId: 'M2' })
+    assert.equal(preflight.cycle, null)
+    assert.equal(preflight.order[0].action, 'merge-dependency')
+    assert.equal(preflight.order[0].missionId, 'M1')
+    assert.equal(preflight.order[1].action, 'rebase')
+    for (const blocker of preflight.blockers) {
+      assert.ok(blocker.resolution.length > 0, `${blocker.code} has no resolution`)
+    }
+    const stale = preflight.blockers.find((blocker) => blocker.code === 'stale-base')
+    assert.ok(stale, JSON.stringify(preflight.blockers))
+    assert.deepEqual(stale.resolution, [{ step: 1, action: 'rebase' }])
+    const dependency = preflight.blockers.find((blocker) => blocker.code === 'deps-unmerged')
+    assert.ok(dependency, JSON.stringify(preflight.blockers))
+    assert.deepEqual(dependency.resolution, [{ step: 1, action: 'merge-dependency', missionId: 'M1' }])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('registered tower_inspect preflight completes a survey dependency instead of merging it (#208 R182)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-survey-resolution-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Survey the area', kind: 'survey' },
+        { title: 'Build from the survey', scope: ['src/**'], deps: ['M1'] },
+      ],
+    })
+    const tower = await Tower.open(repo)
+    await tower.mission({ id: 'M1', status: 'active' })
+
+    const preflight = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'preflight', missionId: 'M2' })
+    assert.equal(preflight.cycle, null)
+    const dependencyStep = preflight.order.find((step) => step.missionId === 'M1')
+    assert.ok(dependencyStep, JSON.stringify(preflight.order))
+    assert.equal(dependencyStep.action, 'complete-mission')
+    assert.equal(
+      preflight.order.some((step) => step.action === 'merge-dependency' && step.missionId === 'M1'),
+      false,
+      JSON.stringify(preflight.order),
+    )
+    const dependency = preflight.blockers.find((blocker) => blocker.code === 'deps-unmerged')
+    assert.ok(dependency, JSON.stringify(preflight.blockers))
+    assert.deepEqual(dependency.resolution, [{ step: 1, action: 'complete-mission', missionId: 'M1' }])
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('registered tower_plan warns about a ** mission while other work is in flight', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-broad-scope-'))
   const repo = path.join(root, 'repo')

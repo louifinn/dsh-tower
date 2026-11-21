@@ -128,6 +128,9 @@ test('every tool output satisfies its declared schema across a full mission', as
     git(worktree, ['add', '-A'])
     git(worktree, ['commit', '-m', 'schema walk'])
 
+    const appended = await call('tower_mission', { repoRoot: repo, missionId, taskAdd: ['schema-added'] })
+    assert.deepEqual(appended.mission.tasks.at(-1), { text: 'schema-added', status: 'open' })
+    await call('tower_mission', { repoRoot: repo, missionId, taskDone: 'schema-added' })
     await call('tower_mission', { repoRoot: repo, missionId, taskDone: 'write it' })
     await call('tower_mission', { repoRoot: repo, id: ` ${missionId} `, taskDone: 'commit it' })
     await call('tower_inspect', { repoRoot: repo, view: 'status' })

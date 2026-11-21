@@ -41,13 +41,14 @@ export const MissionInput = Type.Object({
   clear_blockers: Type.Optional(Type.Boolean({ description: 'Clear all recorded blockers.' })),
   task_done: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as done.' })),
   task_drop: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as dropped.' })),
-  task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is legitimately descoped.' })),
-  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit ordering; an active or completed mission widens it and starts it; bumps scopeGeneration.' })),
-  allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry and never stored on the mission. Works for a plan, a planned edit, or a widening.' })),
+  task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is dropped.' })),
+  task_add: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { minItems: 1, maxItems: 20, description: 'Append 1–20 non-empty task strings (max 200 characters) at the task-list tail as open tasks; refused on completed, merged, or abandoned missions.' })),
+  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit order; an active or completed one widens and starts; bumps scopeGeneration.' })),
+  allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries matching no tracked file yet, for paths this mission will create; recorded as one scope.unverified activity entry, not stored on the mission.' })),
   deferred: Type.Optional(Type.Boolean({ description: 'Tower only: step a planned or active mission that owns paths (build or artifact) out of the overlap check; pass false to rejoin. It never blocks another mission from widening.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
-  accept: Type.Optional(Type.Boolean({ description: 'Artifact only: record the human acceptance of the mission\u2019s whole committed tip. The tool asks the human through the DSH approval channel and stamps the record with the current branch tip; a profile without the channel is refused (an acceptance is never auto-recorded) and no argument can make the acceptance agent-made.' })),
+  accept: Type.Optional(Type.Boolean({ description: "Artifact only: record the human acceptance of the mission's committed tip through the DSH approval channel; never auto-recorded." })),
   accept_note: Type.Optional(Type.String({ description: 'Optional note stored on the acceptance record (max 4000 chars).' })),
 }, { additionalProperties: false })
 
