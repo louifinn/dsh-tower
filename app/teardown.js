@@ -10,8 +10,7 @@ import path from 'node:path'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { hasLiveAgent } from '../domain/integration/liveness.js'
-import { sandboxPath, worktreePath, worktreeRoot } from '../domain/integration/provision.js'
-import { shapeFor } from '../domain/shapes/index.js'
+import { worktreeRoot } from '../domain/integration/provision.js'
 import {
   ownershipUnverifiedDecision,
   replaceDecision as setDecision,
@@ -25,7 +24,7 @@ import {
 } from '../domain/integration/teardown.js'
 import { previewArchive, sweepArchive } from './archive.js'
 import { cleanupSandbox } from './sandbox.js'
-import { cleanupReviewCheckout } from './reviewCheckout.js'
+import { cleanupReviewCheckout, inventoryEmptyLeftovers, isInsideWorktreeRoot, pathKey, referencedCheckoutPaths, reservedCheckoutPaths, sweepEmptyLeftovers } from './reviewCheckout.js'
 
 // #184: `git worktree remove` retries a transient Windows lock (a terminal or
 // job tool still holding a directory handle) with the same bounded pattern as
@@ -87,22 +86,6 @@ async function removeWorktree(tower, worktreePath, options = {}) {
 // interrupted run's leftover. Only the explicit `orphans: true` sweep sees them;
 // it is opt-in and never removes the main checkout, a path state records, a path
 // outside the resolved worktree root, a dirty checkout, or a branch.
-const CASE_INSENSITIVE_PATHS = process.platform === 'win32'
-const RESERVED_CHECKOUT_REASON = 'a checkout is being provisioned and is not recorded by state yet'
-// Fail closed: a mission whose kind cannot be read may still provision, so its
-// expected path stays reserved with this reason instead of being swept.
-const RESERVED_CHECKOUT_UNKNOWN_KIND_REASON = 'a checkout may be in flight because the mission kind could not be read, so the path is kept'
-// A mission cannot start a provision once its work is closed: `completed` (only
-// a merge or acceptance remains), `merged` or `abandoned`. `paused` and
-// `blocked` can resume into a spawn, so they still reserve. This is deliberately
-// not the shape's `isTerminal`: a build's `completed` is not terminal yet.
-const PROVISIONING_CLOSED_STATUSES = new Set(['completed', 'merged', 'abandoned'])
-
-/** Canonical comparison key: absolute, and case-folded on Windows. */
-function pathKey(value) {
-  const resolved = path.resolve(value)
-  return CASE_INSENSITIVE_PATHS ? resolved.toLowerCase() : resolved
-}
 
 /**
  * The worktree root the sweep searches: configured root, else `tower_provision`'s
@@ -121,77 +104,6 @@ export function teardownWorktreeRoot(tower) {
 }
 
 /**
- * Every checkout path the state claims: mission worktrees, detached sandboxes
- * and live review checkouts. Teardown protects all of them, and their absence
- * from a reinitialised state is what makes the old checkouts orphans.
- * @param {any} state
- * @returns {Set<string>}
- */
-export function referencedCheckoutPaths(state) {
-  const paths = new Set()
-  const add = (value) => {
-    if (typeof value === 'string' && value.length > 0) paths.add(pathKey(value))
-  }
-  for (const mission of state.missions ?? []) {
-    add(mission.worktree?.path)
-    add(mission.sandbox)
-  }
-  for (const entry of state.roster ?? []) add(entry.reviewCheckout)
-  return paths
-}
-
-/**
- * True when `candidate` is a strict descendant of `root`: the root itself, a
- * sibling and every `..` escape are outside.
- * @param {string} root
- * @param {string} candidate
- * @returns {boolean}
- */
-export function isInsideWorktreeRoot(root, candidate) {
-  const rel = path.relative(path.resolve(root), path.resolve(candidate))
-  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
-}
-
-/**
- * Checkout paths a running provision is about to record, each with the reason
- * the sweep must keep it. `tower_provision` creates the checkout under the git
- * lock and commits its record only after releasing it; reserving the expected
- * path closes that window, so a sweep never deletes the checkout a concurrent
- * provision just made. A path is reserved only while the mission can still start
- * a provision: no recorded checkout, the shape declares that kind
- * (`fields.worktree` or `fields.sandbox`), and the status is not closed
- * (`PROVISIONING_CLOSED_STATUSES`). A shape read that throws keeps the
- * reservation with a recorded reason instead of removing the path.
- * @param {any} tower
- * @param {any} state
- * @param {string} root
- * @returns {Map<string, string>} canonical path -> why the sweep must keep it
- */
-function reservedCheckoutPaths(tower, state, root) {
-  /** @type {Map<string, string>} */
-  const reserved = new Map()
-  for (const mission of state.missions ?? []) {
-    let fields = null
-    let shapeError = null
-    try {
-      fields = shapeFor(mission.kind).fields
-    } catch (error) {
-      shapeError = String(error?.message ?? error).slice(0, 160)
-    }
-    if (PROVISIONING_CLOSED_STATUSES.has(mission.status)) continue
-    for (const [recorded, declared, expected] of [
-      [mission.worktree, fields?.worktree, worktreePath(root, mission.id)],
-      [mission.sandbox, fields?.sandbox, sandboxPath(root, mission.id)],
-    ]) {
-      if (recorded) continue
-      if (!fields) reserved.set(pathKey(expected), `${RESERVED_CHECKOUT_UNKNOWN_KIND_REASON}: ${shapeError}`)
-      else if (declared) reserved.set(pathKey(expected), RESERVED_CHECKOUT_REASON)
-    }
-  }
-  return reserved
-}
-
-/**
  * Inventory every git-registered checkout and classify it for the orphan sweep.
  * Read-only: no decision removes anything. Each `{ name, path, action, reason }`
  * row is `remove` (clean, unrecorded, strictly inside the root), `prune`
@@ -199,15 +111,20 @@ function reservedCheckoutPaths(tower, state, root) {
  * state records, a checkout whose provision is in flight, a path outside the
  * root, or uncommitted changes). `inflight` repeats the keep rows a mission may
  * be about to record so a report can name them instead of hiding them.
+ * `leftovers` adds the #214 empty ordinary directories directly under the root
+ * that no state row and no registration claims; `leftoverError` is set only when
+ * the scan itself failed. `leftoverScanAvailable` is false, with
+ * `leftoverScanReason`, when the store exposes no directory enumeration: the
+ * empty `leftovers` then means "not checked", not "none left".
  * @param {any} tower
  * @param {any} [state] already loaded state, so doctor does not load it twice
- * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[] }>}
+ * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[], leftovers: any[], leftoverError: string | null, leftoverScanAvailable: boolean, leftoverScanReason: string | null }>}
  */
 export async function inventoryOrphanWorktrees(tower, state = null) {
   const loaded = state ?? (await tower.load())
   const root = teardownWorktreeRoot(tower)
   const referenced = referencedCheckoutPaths(loaded)
-  const reserved = reservedCheckoutPaths(tower, loaded, root)
+  const reserved = reservedCheckoutPaths(loaded, root)
   const main = pathKey(tower.root)
   const entries = await tower.deps.vcs.listWorktrees(tower.root)
   const decisions = []
@@ -257,12 +174,19 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
   const unrecorded = decisions.filter(
     (entry) => entry.action === 'remove' || entry.action === 'prune' || entry.reason === 'uncommitted changes',
   )
+  // `seen` is every key `git worktree list` reported, so a registered checkout
+  // is never mistaken for an empty shell.
+  const leftovers = await inventoryEmptyLeftovers(tower.deps.store, root, loaded, seen)
   return {
     root,
     decisions,
     orphans: unrecorded,
     external: decisions.filter((entry) => entry.reason === 'outside the worktree root'),
     inflight,
+    leftovers: leftovers.leftovers,
+    leftoverError: leftovers.error,
+    leftoverScanAvailable: leftovers.available,
+    leftoverScanReason: leftovers.reason,
   }
 }
 
@@ -304,13 +228,14 @@ function unmatchedExclusions(state, exclude) {
  * its state revisions never invalidate the worktree claims.
  * @param {any} tower
  * @param {any} input
- * @returns {Promise<{ decisions: any[], removed: string[] }>}
+ * @returns {Promise<{ decisions: any[], removed: string[], notes: string[] }>}
  */
 async function teardownReviewCheckouts(tower, input) {
   const state = await tower.load()
   const exclude = new Set(input.exclude ?? [])
   const decisions = []
   const removed = []
+  const notes = []
   for (const entry of state.roster ?? []) {
     const checkout = typeof entry.reviewCheckout === 'string' ? entry.reviewCheckout : null
     if (!checkout) continue
@@ -329,7 +254,14 @@ async function teardownReviewCheckouts(tower, input) {
     }
     const outcome = await cleanupReviewCheckout(tower, { name: entry.name, missionId: entry.missionId })
     if (!outcome || outcome.removal.ok) {
-      decisions.push({ ...row, action: 'removed', reason: outcome ? 'checkout was already gone' : 'checkout and record were already gone' })
+      const limited = outcome?.removal.emptyDirectoryCheck
+      const reason = !outcome
+        ? 'checkout and record were already gone'
+        : limited?.available === false
+          ? `checkout was removed; the empty directory could not be inspected: ${limited.reason}`
+          : 'checkout was already gone'
+      if (limited?.available === false) notes.push(`review checkout ${checkout} may have left an empty shell: ${limited.reason}`)
+      decisions.push({ ...row, action: 'removed', reason })
       removed.push(entry.name)
       continue
     }
@@ -339,7 +271,7 @@ async function teardownReviewCheckouts(tower, input) {
       reason: `checkout cleanup failed after ${outcome.removal.attempts} attempt(s): ${outcome.removal.error}`,
     })
   }
-  return { decisions, removed }
+  return { decisions, removed, notes }
 }
 
 /**
@@ -496,7 +428,7 @@ async function sweepOrphanWorktrees(tower, inventory) {
       return { phase: 'unreadable', detail: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240) }
     }
     const referenced = referencedCheckoutPaths(state)
-    const reserved = reservedCheckoutPaths(tower, state, inventory.root)
+    const reserved = reservedCheckoutPaths(state, inventory.root)
     const main = pathKey(tower.root)
     const results = new Map()
     let pruneNeeded = false
@@ -591,6 +523,12 @@ export async function teardown(tower, input) {
   // #185: the orphan sweep is explicit and never part of a normal teardown. The
   // inventory is read-only; only the real run below removes or prunes anything.
   const orphans = input.orphans === true ? await inventoryOrphanWorktrees(tower, prepared.state) : null
+  const warnings = [...reviews.notes]
+  if (orphans && !orphans.leftoverScanAvailable) {
+    warnings.push(
+      `empty leftover directory sweep is unavailable: ${orphans.leftoverScanReason}; tower_teardown cannot clean review-checkout shells with this store`,
+    )
+  }
   if (prepared.dryRun) {
     // #183: the preview is computed from the same policy inputs as the real
     // sweep, on the state projected after the planned removals and sandbox
@@ -617,8 +555,20 @@ export async function teardown(tower, input) {
       sandboxesRemoved: [],
       archivePreview,
       unmatchedExclude: unmatched.ids,
+      ...(warnings.length > 0 ? { warnings } : {}),
       ...(orphans
-        ? { orphanWorktrees: { root: orphans.root, decisions: orphans.decisions, removed: [], pruned: [] } }
+        ? {
+            orphanWorktrees: {
+              root: orphans.root,
+              decisions: orphans.decisions,
+              removed: [],
+              pruned: [],
+              leftovers: orphans.leftovers,
+              leftoversRemoved: [],
+              ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
+              ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
+            },
+          }
         : {}),
     }
   }
@@ -760,6 +710,9 @@ export async function teardown(tower, input) {
   // archival. It never touches a mission record: an unrecorded checkout has no
   // mission to stamp, so a successful sweep only reports what it removed.
   const orphanSweep = orphans ? await sweepOrphanWorktrees(tower, orphans) : null
+  // #214: empty shells have no git registration, so they need their own sweep.
+  // It runs under the git lock and never touches a state record.
+  const leftoverSweep = orphans ? await sweepEmptyLeftovers(tower, orphans) : null
 
   // Archival runs under one final short lock. It is policy-driven (age or the
   // hot-terminal cap), so a mission torn down a moment ago stays hot until it
@@ -784,6 +737,7 @@ export async function teardown(tower, input) {
     unmatchedExclude: unmatched.ids,
     archived: archive.archived,
     ...(archive.error ? { archiveError: archive.error } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     ...(orphanSweep && orphans
       ? {
           orphanWorktrees: {
@@ -791,6 +745,11 @@ export async function teardown(tower, input) {
             decisions: orphanSweep.decisions,
             removed: orphanSweep.removed,
             pruned: orphanSweep.pruned,
+            ...(leftoverSweep
+              ? { leftovers: leftoverSweep.decisions, leftoversRemoved: leftoverSweep.removed }
+              : {}),
+            ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
+            ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
           },
         }
       : {}),
