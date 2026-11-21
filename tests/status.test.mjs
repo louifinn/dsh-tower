@@ -13,6 +13,7 @@ import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
 import { boardMarkdown } from '../domain/report.js'
+import { parseNumstat } from '../domain/read/views.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 const exec = { agent: { id: 'tower-status' } }
@@ -324,6 +325,40 @@ test('projections: fields, sinceRevision and worktree dirty diagnostics are opt-
   }
 })
 
+test('sinceRevision boundary: mission writes bump the revision without stamping rows', async () => {
+  const { root, repo } = seedRepo('dsh-tower-status-boundary-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Boundary one', scope: ['src/**'] },
+        { title: 'Boundary two', scope: ['lib/**'] },
+      ],
+    })
+    const baseline = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    // A note is a real mission write: it bumps `state.revision`, but no row
+    // stamp is written. This is the documented boundary `sinceRevision`
+    // advertises, not a bug: the row must be omitted for a positive value and
+    // returned when the filter is 0.
+    await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', note: 'stamped nowhere' })
+
+    const since = await call(tools, 'tower_inspect', {
+      view: 'status',
+      repoRoot: repo,
+      sinceRevision: baseline.revision,
+    })
+    assert.deepEqual(since.missions, [], 'an unstamped mission write is omitted for a positive sinceRevision')
+    assert.equal(since.roster, 0)
+
+    const all = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, sinceRevision: 0 })
+    assert.deepEqual(all.missions.map((mission) => mission.id), ['M1', 'M2'])
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('diff stat: per-file line counts instead of patch bytes', async () => {
   const { root, repo } = seedRepo('dsh-tower-status-diffstat-')
   const { tools } = makeCtx()
@@ -412,5 +447,16 @@ test('markdown board: the newest same-round verdict is latest, storage order is 
     state.reviews.map((entry) => entry.id),
     ['R1', 'R2'],
     'projecting the board must not reorder the ledger',
+  )
+})
+
+test('parseNumstat: binary counts become null and tabbed paths stay intact', () => {
+  assert.deepEqual(
+    parseNumstat('3\t1\tsrc/a.txt\n-\t-\tassets/logo.png\n1\t2\tdir/with\ttab.txt\n'),
+    [
+      { path: 'src/a.txt', added: 3, deleted: 1 },
+      { path: 'assets/logo.png', added: null, deleted: null },
+      { path: 'dir/with\ttab.txt', added: 1, deleted: 2 },
+    ],
   )
 })

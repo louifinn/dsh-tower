@@ -26,6 +26,7 @@ const { buildActivationSpec, resolveSpawnProvider, usesNestedActivation } = awai
 const { validateState } = await import('../domain/state.js')
 const { stateShapeError } = await import('../domain/state/schema.js')
 const { STALLED_RESERVATION_GRACE_MS } = await import('../app/roster.js')
+const { applySpawnOutcome } = await import('../domain/collab/spawn.js')
 
 after(() => removeTemp(home))
 
@@ -698,4 +699,23 @@ test('F57: an activation failure is recorded as a failed row, not a corrupt stat
   } finally {
     removeTemp(root)
   }
+})
+
+// #210: `failureReason` is a diagnostic of the *current* dead attempt. A live
+// agent that later reports a non-failed outcome must not keep reporting the
+// old failure, while a failed outcome without detail keeps the previous reason.
+test('applySpawnOutcome: a non-failed outcome clears the dead-agent diagnostic', () => {
+  const now = 1_700_000_000_000
+  const entry = { state: 'failed', outcome: 'old', outcomeAt: now - 2000, failureReason: 'activation channel closed' }
+  applySpawnOutcome(entry, { state: 'inactive', detail: 'idle' }, now)
+  assert.equal(entry.state, 'inactive')
+  assert.equal(entry.outcome, 'idle')
+  assert.equal(entry.outcomeAt, now)
+  assert.equal(Object.hasOwn(entry, 'failureReason'), false, 'a non-failed outcome clears failureReason')
+
+  applySpawnOutcome(entry, { state: 'failed' }, now + 1000)
+  assert.equal(entry.failureReason, null, 'a failed outcome without detail records no reason')
+  entry.failureReason = 'first reason'
+  applySpawnOutcome(entry, { state: 'failed' }, now + 2000)
+  assert.equal(entry.failureReason, 'first reason', 'a failed outcome without detail keeps the last reason')
 })
