@@ -140,6 +140,116 @@ test('mission lifecycle applies status/task/note/scope transitions', () => {
   assert.deepEqual(current.blockers, ['waiting'])
 })
 
+test('task_add appends open tasks at the tail without reordering existing tasks', () => {
+  const current = mission({
+    status: 'planned',
+    tasks: [
+      { text: 'Done task', status: 'done' },
+      { text: 'Dropped task', status: 'dropped', note: 'obsolete' },
+    ],
+  })
+  const updated = applyMissionUpdate({
+    mission: current,
+    state: { missions: [current] },
+    input: { task_add: [' first new ', 'second new'] },
+    config: config(),
+  })
+  assert.deepEqual(updated.changes, ['task_add="first new"', 'task_add="second new"'])
+  assert.deepEqual(current.tasks, [
+    { text: 'Done task', status: 'done' },
+    { text: 'Dropped task', status: 'dropped', note: 'obsolete' },
+    { text: 'first new', status: 'open' },
+    { text: 'second new', status: 'open' },
+  ])
+  assert.equal(current.status, 'planned')
+})
+
+test('task_add is allowed on paused and blocked missions', () => {
+  const paused = mission({ status: 'paused', pauseCause: 'user' })
+  applyMissionUpdate({
+    mission: paused,
+    state: { missions: [paused] },
+    input: { task_add: ['resume work'] },
+    config: config(),
+  })
+  assert.deepEqual(paused.tasks, [{ text: 'resume work', status: 'open' }])
+  assert.equal(paused.status, 'paused')
+
+  const blocked = mission({ status: 'blocked', blockers: ['waiting on review'] })
+  applyMissionUpdate({
+    mission: blocked,
+    state: { missions: [blocked] },
+    input: { task_add: ['after the blocker'] },
+    config: config(),
+  })
+  assert.deepEqual(blocked.tasks, [{ text: 'after the blocker', status: 'open' }])
+  assert.equal(blocked.status, 'blocked')
+})
+
+test('task_add refuses terminal missions and leaves the task list untouched', () => {
+  for (const status of ['completed', 'merged', 'abandoned']) {
+    const current = mission({ status, tasks: [{ text: 'already done', status: 'done' }] })
+    assert.throws(
+      () =>
+        applyMissionUpdate({
+          mission: current,
+          state: { missions: [current] },
+          input: { task_add: ['reopen'] },
+          config: config(),
+        }),
+      (error) => error.code === 'invalid-transition' && new RegExp(`is ${status}; a terminal mission`).test(error.message),
+    )
+    assert.deepEqual(current.tasks, [{ text: 'already done', status: 'done' }])
+  }
+
+  // A patch that would move the mission to a terminal status is refused before
+  // the status transition, so it cannot append and close in one step.
+  const active = mission()
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: active,
+        state: { missions: [active] },
+        input: { status: 'completed', task_add: ['after completion'] },
+        config: config(),
+      }),
+    (error) => error.code === 'invalid-transition' && /is completed; a terminal mission/.test(error.message),
+  )
+  assert.deepEqual(active.tasks, [])
+  assert.equal(active.status, 'active')
+})
+
+test('task_add validates its array shape and names each constraint', () => {
+  const current = mission()
+  const apply = (task_add) =>
+    applyMissionUpdate({ mission: current, state: { missions: [current] }, input: { task_add }, config: config() })
+  assert.throws(() => apply('one task'), (error) => error.code === 'invalid-argument' && /task_add must be an array/.test(error.message))
+  assert.throws(() => apply([]), /task_add must contain at least one task/)
+  assert.throws(() => apply(Array.from({ length: 21 }, (_, index) => `task ${index}`)), /at most 20 tasks/)
+  assert.throws(() => apply(['ok', '   ']), /task_add\[1\] must be a non-empty string/)
+  assert.throws(() => apply(['x'.repeat(201)]), /task_add\[0\] must be at most 200 characters/)
+  assert.deepEqual(current.tasks, [])
+})
+
+test('appended open tasks keep tower_complete closed until they are handled', () => {
+  const current = mission({
+    owner: 'worker-1',
+    worktree: { path: '/w', branch: 'b', baseCommit: 'c' },
+    tasks: [{ text: 'existing', status: 'done' }],
+  })
+  applyMissionUpdate({
+    mission: current,
+    state: { missions: [current] },
+    input: { task_add: ['new work'] },
+    config: config(),
+  })
+  const worker = { name: 'worker-1', role: 'worker', state: 'active', agentId: 'a1', missionId: 'M1' }
+  assert.throws(
+    () => assertCompletionRequest({ mission: current, roster: [worker], input: { agentId: 'a1', report: 'done' } }),
+    /still has 1 open task/,
+  )
+})
+
 test('mission lifecycle rejects invalid transitions, actor, and scope widening', () => {
   const current = mission()
   const state = { missions: [current, mission({ id: 'M2', status: 'active', scope: ['src/lib/**'] })] }

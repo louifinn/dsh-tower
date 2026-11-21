@@ -157,6 +157,43 @@ export function recordAcceptance({ mission, shape, accept, now }) {
   return acceptanceRecord({ mission, tip: decision.tip, note: decision.note, now })
 }
 
+// #212: `completed` is a terminal task-list state even for a build (which may
+// still return to active for reuse); a task list is never reopened by appending.
+const TASK_LIST_TERMINAL_STATUSES = new Set(['completed', 'merged', 'abandoned'])
+
+/**
+ * Validate `task_add` before any field of the patch mutates the mission. The
+ * appended texts are returned trimmed; appending happens later, after the
+ * task_done/task_drop edits, so a caller that already knows an existing task can
+ * still handle it in the same patch. Non-terminal missions (planned, active,
+ * blocked, paused) may append: a blocked or paused mission still has work to do
+ * when it resumes, while a completed, merged or abandoned one does not.
+ * @param {unknown} value
+ * @param {Mission} mission
+ * @param {string} statusBefore
+ * @param {string | undefined} statusAfter
+ * @returns {string[]}
+ */
+function normalizeTaskAdd(value, mission, statusBefore, statusAfter) {
+  if (!Array.isArray(value)) fail('task_add must be an array of 1–20 task strings')
+  if (value.length === 0) fail('task_add must contain at least one task')
+  if (value.length > 20) fail('task_add may contain at most 20 tasks')
+  const target = statusAfter ?? statusBefore
+  if (TASK_LIST_TERMINAL_STATUSES.has(statusBefore) || TASK_LIST_TERMINAL_STATUSES.has(target)) {
+    fail(
+      `mission ${mission.id} is ${TASK_LIST_TERMINAL_STATUSES.has(statusBefore) ? statusBefore : target}; a terminal mission cannot append tasks`,
+      'invalid-transition',
+    )
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string') fail(`task_add[${index}] must be a non-empty string`)
+    const text = entry.trim()
+    if (text.length === 0) fail(`task_add[${index}] must be a non-empty string`)
+    if (text.length > 200) fail(`task_add[${index}] must be at most 200 characters`)
+    return text
+  })
+}
+
 /**
  * Apply one validated `tower_mission` patch to the mission draft and return
  * the human-readable change list used by the activity log plus the domain
@@ -180,6 +217,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   // A planned mission that starts in the same patch as its scope edit still
   // edits a fence; capture the status before any transition can move it.
   const statusBefore = mission.status
+  const taskAdd = input.task_add === undefined ? [] : normalizeTaskAdd(input.task_add, mission, statusBefore, input.status)
 
   const shape = shapeFor(mission.kind)
   // #205: a planned or active mission that owns paths (build or artifact) can
@@ -315,6 +353,14 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     const notes = /** @type {string[]} */ (mission.notes)
     notes.push(`task dropped: ${task.text} — ${task.note}`)
     changes.push(`task_drop="${task.text}"`)
+  }
+
+  if (taskAdd.length > 0) {
+    const tasks = /** @type {any[]} */ (mission.tasks)
+    for (const text of taskAdd) {
+      tasks.push({ text, status: 'open' })
+      changes.push(`task_add="${text}"`)
+    }
   }
 
   if (input.blocker !== undefined) {

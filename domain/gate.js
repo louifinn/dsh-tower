@@ -3,6 +3,7 @@
 import { shapeFor } from './shapes/index.js'
 import { blocker as blockerRecord } from './shapes/blockers.js'
 import { passingDiscovery } from './evidence.js'
+import { dependencySatisfied } from './integration/gate.js'
 import { isReviewExempt, reviewExemptionInvalid, reviewRequired } from './integration/review.js'
 
 /** @typedef {import('../types/index.js').Blocker} Blocker */
@@ -140,4 +141,277 @@ export function rebaseWaived(mission, review) {
   const rebase = mission.rebase
   if (!rebase) return false
   return review.at <= rebase.at && review.reviewedCommit === rebase.oldTip
+}
+
+// #208: the ordered diagnosis a preflight result carries. These are action
+// names, not blocker codes: one blocker can need more than one step (a
+// dependency blocker names the whole unsatisfied chain before itself), and the
+// order across blockers is the answer. Nothing here executes a step.
+export const RESOLUTION_ACTION = Object.freeze({
+  mergeDependency: 'merge-dependency',
+  rebase: 'rebase',
+  breakDependencyCycle: 'break-dependency-cycle',
+  assignReviewer: 'assign-reviewer',
+  requestCleanReview: 'request-clean-review',
+  reReview: 're-review',
+  waitForWorker: 'wait-for-worker',
+  verifyWorkerStopped: 'verify-worker-stopped',
+  adoptOrInterruptWorker: 'adopt-or-interrupt-worker',
+  recordTests: 'record-tests',
+  recordChecks: 'record-checks',
+  humanAcceptance: 'human-acceptance',
+  completeMission: 'complete-mission',
+  finishTasks: 'finish-tasks',
+  clearMissionBlockers: 'clear-mission-blockers',
+  provisionWorktree: 'provision-worktree',
+  fixScope: 'fix-scope',
+  cleanBase: 'clean-base',
+  refreshSurvey: 'refresh-survey',
+  checkoutBase: 'checkout-base',
+  replanMission: 'replan-mission',
+  fixTests: 'fix-tests',
+  enableReviewExemption: 'enable-review-exemption',
+  reconcileMerge: 'reconcile-merge',
+  resolveConflict: 'resolve-conflict',
+  retryMerge: 'retry-merge',
+  inspectMerge: 'inspect-merge',
+  fixBatch: 'fix-batch',
+  cleanWorktree: 'clean-worktree',
+  checkMissionId: 'check-mission-id',
+  resolveBlocker: 'resolve-blocker',
+})
+
+/** @typedef {{ step: number, action: string, missionId?: string, missionIds?: string[] }} ResolutionStep */
+/** @typedef {{ code: string, missionIds: string[], detail: string }} DependencyCycle */
+/** @typedef {Blocker & { resolution: ResolutionStep[] }} ResolvedBlocker */
+
+// Keep the cycle classification out of a `code: '…'` literal so the static
+// blocker-emission scan does not mistake a conclusion label for a new blocker
+// code (blocker codes are a closed registry owned by domain/shapes/blockers.js).
+const DEPENDENCY_CYCLE_CODE = 'dependency-cycle'
+
+/** @type {Readonly<Record<string, string>>} */
+const BLOCKER_ACTION = Object.freeze({
+  'mission-missing': RESOLUTION_ACTION.checkMissionId,
+  'mission-not-completed': RESOLUTION_ACTION.completeMission,
+  'tasks-open': RESOLUTION_ACTION.finishTasks,
+  'blockers-present': RESOLUTION_ACTION.clearMissionBlockers,
+  'no-check-evidence': RESOLUTION_ACTION.recordChecks,
+  'branch-missing': RESOLUTION_ACTION.provisionWorktree,
+  'stale-base': RESOLUTION_ACTION.rebase,
+  'out-of-scope': RESOLUTION_ACTION.fixScope,
+  'base-dirty': RESOLUTION_ACTION.cleanBase,
+  'broad-scope': RESOLUTION_ACTION.fixScope,
+  'survey-stale': RESOLUTION_ACTION.refreshSurvey,
+  'no-review': RESOLUTION_ACTION.assignReviewer,
+  'review-mission-mismatch': RESOLUTION_ACTION.requestCleanReview,
+  'not-clean': RESOLUTION_ACTION.requestCleanReview,
+  'review-hold': RESOLUTION_ACTION.requestCleanReview,
+  'review-not-approved': RESOLUTION_ACTION.requestCleanReview,
+  'tip-moved': RESOLUTION_ACTION.reReview,
+  'acceptance-missing': RESOLUTION_ACTION.humanAcceptance,
+  'acceptance-stale': RESOLUTION_ACTION.humanAcceptance,
+  'worker-busy': RESOLUTION_ACTION.waitForWorker,
+  'worker-status-unknown': RESOLUTION_ACTION.verifyWorkerStopped,
+  'worker-stale': RESOLUTION_ACTION.adoptOrInterruptWorker,
+  'base-wrong-branch': RESOLUTION_ACTION.checkoutBase,
+  'branch-owned-by-closed-missions': RESOLUTION_ACTION.replanMission,
+  'tests-missing': RESOLUTION_ACTION.recordTests,
+  'tests-failed': RESOLUTION_ACTION.fixTests,
+  'review-exemption-invalid': RESOLUTION_ACTION.enableReviewExemption,
+  'merge-intent-pending': RESOLUTION_ACTION.reconcileMerge,
+  'merge-conflict': RESOLUTION_ACTION.resolveConflict,
+  'merge-hook-failed': RESOLUTION_ACTION.retryMerge,
+  'merge-shape': RESOLUTION_ACTION.inspectMerge,
+  'batch-invalid': RESOLUTION_ACTION.fixBatch,
+  'review-stale': RESOLUTION_ACTION.reReview,
+  'worktree-dirty': RESOLUTION_ACTION.cleanWorktree,
+  'rebase-conflict': RESOLUTION_ACTION.resolveConflict,
+})
+
+/**
+ * The dependency id a `deps-unmerged` blocker names. The integration gate owns
+ * the message shape (`"M2 is completed"`); a blocker whose detail does not parse
+ * still gets the generic fallback step instead of losing its resolution.
+ * @param {Blocker} blocker
+ * @returns {string | null}
+ */
+function dependencyIdOf(blocker) {
+  if (!blocker || blocker.code !== 'deps-unmerged') return null
+  const match = /^(\S+) is /.exec(String(blocker.detail ?? ''))
+  return match ? match[1] : null
+}
+
+/**
+ * Merge state missions with archived summaries for the dependency walk. Live
+ * missions win: the walk reads the current status, and an archived copy of the
+ * same id is stale by definition.
+ * @param {Mission[]} missions
+ * @param {Map<string, any> | any[]} archived
+ * @returns {Map<string, any>}
+ */
+function missionIndex(missions = [], archived = []) {
+  /** @type {Map<string, any>} */
+  const index = new Map()
+  const archivedEntries = archived instanceof Map ? archived.values() : Array.isArray(archived) ? archived : []
+  for (const mission of archivedEntries) {
+    if (mission && typeof mission.id === 'string') index.set(mission.id, mission)
+  }
+  for (const mission of missions) {
+    if (mission && typeof mission.id === 'string') index.set(mission.id, mission)
+  }
+  return index
+}
+
+/**
+ * Post-order walk of the unsatisfied dependency graph: nested dependencies come
+ * before the mission that depends on them (#208). A cycle is reported by the
+ * first repeated id on the DFS stack; members of a cycle get no merge step
+ * because merging cannot break it, while a `break-dependency-cycle` step names
+ * them. The walk is bounded by `done`, so a cycle never recurses forever.
+ * @param {{ roots: string[], currentId: string, index: Map<string, any> }} options
+ * @returns {{ steps: Array<Omit<ResolutionStep, 'step'>>, cycleIds: string[], cyclePath: string }}
+ */
+function dependencyWalk({ roots, currentId, index }) {
+  /** @type {Array<Omit<ResolutionStep, 'step'>>} */
+  const steps = []
+  /** @type {string[]} */
+  const stack = [currentId]
+  const onStack = new Set([currentId])
+  const done = new Set()
+  const emitted = new Set()
+  /** @type {string[]} */
+  const cycleIds = []
+  let cyclePath = ''
+  /** @param {string} id */
+  const recordCycle = (id) => {
+    if (cycleIds.length > 0) return
+    const at = stack.indexOf(id)
+    if (at < 0) return
+    const members = stack.slice(at)
+    cycleIds.push(...members)
+    cyclePath = [...members, id].join(' -> ')
+  }
+  /** @param {string} id */
+  const visit = (id) => {
+    if (onStack.has(id)) {
+      recordCycle(id)
+      return
+    }
+    if (done.has(id)) return
+    const dependency = index.get(id)
+    if (dependency && dependencySatisfied(dependency)) {
+      done.add(id)
+      return
+    }
+    stack.push(id)
+    onStack.add(id)
+    const deps = Array.isArray(dependency?.deps) ? dependency.deps : []
+    for (const child of deps) visit(String(child))
+    stack.pop()
+    onStack.delete(id)
+    done.add(id)
+    // The current mission is never a step to merge itself; it can only reappear
+    // through a cycle, where it is named by the cycle step instead.
+    if (id !== currentId && !emitted.has(id)) {
+      emitted.add(id)
+      steps.push({ action: RESOLUTION_ACTION.mergeDependency, missionId: id })
+    }
+  }
+  for (const root of roots) visit(String(root))
+  const members = new Set(cycleIds)
+  const filtered = steps.filter((step) => !members.has(String(step.missionId)))
+  if (cycleIds.length > 0) {
+    filtered.unshift({ action: RESOLUTION_ACTION.breakDependencyCycle, missionIds: [...cycleIds] })
+  }
+  return { steps: filtered, cycleIds, cyclePath }
+}
+
+/** @param {Array<Omit<ResolutionStep, 'step'>>} steps @returns {ResolutionStep[]} */
+function renumber(steps) {
+  return steps.map((step, index) => ({ step: index + 1, ...step }))
+}
+
+/** @param {Omit<ResolutionStep, 'step'>} step */
+function stepKey(step) {
+  return `${step.action}|${step.missionId ?? ''}|${(step.missionIds ?? []).join(',')}`
+}
+
+/**
+ * Give every preflight blocker an ordered `resolution` and give the whole result
+ * a deduplicated cross-blocker `order` (#208). Dependency merges always come
+ * first, earliest ancestor first; a stale base is rebased only after those
+ * merges; the remaining blockers follow in the order the gate produced them.
+ * A cycle is a conclusion (`cycle`) plus a diagnostic step, never an execution
+ * plan. Pure: it reads only the blocker snapshot and mission records.
+ * @param {{ blockers?: Blocker[], mission?: any, missions?: Mission[], archived?: Map<string, any> | any[] }} [options]
+ * @returns {{ blockers: ResolvedBlocker[], order: ResolutionStep[], cycle: DependencyCycle | null }}
+ */
+export function resolutionPlan({ blockers = [], mission = null, missions = [], archived = [] } = {}) {
+  const list = Array.isArray(blockers) ? blockers : []
+  const current = mission && typeof mission === 'object' ? mission : { id: '', deps: [] }
+  const currentId = typeof current.id === 'string' ? current.id : ''
+  const index = missionIndex(missions, archived)
+
+  // Roots are the mission's declared deps plus any dependency a blocker names
+  // (a stale blocker snapshot must still diagnose, not crash).
+  /** @type {string[]} */
+  const roots = []
+  for (const dep of Array.isArray(current.deps) ? current.deps : []) {
+    const id = String(dep)
+    if (!roots.includes(id)) roots.push(id)
+  }
+  for (const blocker of list) {
+    const id = dependencyIdOf(blocker)
+    if (id && !roots.includes(id)) roots.push(id)
+  }
+
+  const closure = dependencyWalk({ roots, currentId, index })
+  const cycle =
+    closure.cycleIds.length > 0
+      ? {
+          code: DEPENDENCY_CYCLE_CODE,
+          missionIds: [...closure.cycleIds],
+          detail: `dependency cycle: ${closure.cyclePath}; break one dependency edge before resolving`,
+        }
+      : null
+
+  /** @type {Array<Omit<ResolutionStep, 'step'>>} */
+  const order = [...closure.steps]
+  const seen = new Set(order.map(stepKey))
+  /** @param {Omit<ResolutionStep, 'step'>} step */
+  const pushOrder = (step) => {
+    const key = stepKey(step)
+    if (seen.has(key)) return
+    seen.add(key)
+    order.push(step)
+  }
+
+  const resolved = list.map((blocker) => {
+    const depId = dependencyIdOf(blocker)
+    let steps
+    if (depId) {
+      const walk = dependencyWalk({ roots: [depId], currentId, index })
+      steps = walk.steps
+      if (steps.length === 0) steps = [{ action: RESOLUTION_ACTION.mergeDependency, missionId: depId }]
+    } else if (blocker.code === 'stale-base') {
+      steps = [{ action: RESOLUTION_ACTION.rebase }]
+    } else {
+      steps = [{ action: BLOCKER_ACTION[blocker.code] ?? RESOLUTION_ACTION.resolveBlocker }]
+    }
+    return { ...blocker, resolution: renumber(steps) }
+  })
+
+  // Rebase is a consequence of the dependency order, never a competing first
+  // step: every dependency merge is ordered before it even when the integration
+  // gate pushed stale-base first.
+  if (list.some((blocker) => blocker.code === 'stale-base')) {
+    pushOrder({ action: RESOLUTION_ACTION.rebase })
+  }
+  for (const blocker of list) {
+    if (blocker.code === 'deps-unmerged' || blocker.code === 'stale-base') continue
+    pushOrder({ action: BLOCKER_ACTION[blocker.code] ?? RESOLUTION_ACTION.resolveBlocker })
+  }
+
+  return { blockers: resolved, order: renumber(order), cycle }
 }
