@@ -264,6 +264,21 @@ function missionIndex(missions = [], archived = []) {
 }
 
 /**
+ * The action that clears one unsatisfied dependency. A shape with a branch
+ * (build/artifact) is merged; a shape without one (survey) has no merge step at
+ * all, so the plan asks to complete it instead. Naming `merge-dependency` for a
+ * survey would be a step the shape forbids and the gate could never satisfy.
+ * @param {any} dependency mission record from the state or archive index
+ * @returns {string}
+ */
+function dependencyAction(dependency) {
+  // shapeFor(undefined) is the legacy build default, which is mergeable; a
+  // missing record therefore keeps the historic merge step.
+  const mergeable = dependency ? shapeFor(dependency.kind).canMerge : true
+  return mergeable ? RESOLUTION_ACTION.mergeDependency : RESOLUTION_ACTION.completeMission
+}
+
+/**
  * Post-order walk of the unsatisfied dependency graph: nested dependencies come
  * before the mission that depends on them (#208). A cycle is reported by the
  * first repeated id on the DFS stack; members of a cycle get no merge step
@@ -315,7 +330,7 @@ function dependencyWalk({ roots, currentId, index }) {
     // through a cycle, where it is named by the cycle step instead.
     if (id !== currentId && !emitted.has(id)) {
       emitted.add(id)
-      steps.push({ action: RESOLUTION_ACTION.mergeDependency, missionId: id })
+      steps.push({ action: dependencyAction(dependency), missionId: id })
     }
   }
   for (const root of roots) visit(String(root))
@@ -393,7 +408,9 @@ export function resolutionPlan({ blockers = [], mission = null, missions = [], a
     if (depId) {
       const walk = dependencyWalk({ roots: [depId], currentId, index })
       steps = walk.steps
-      if (steps.length === 0) steps = [{ action: RESOLUTION_ACTION.mergeDependency, missionId: depId }]
+      // A stale blocker can name an already satisfied dependency; it still gets
+      // the one action its shape allows rather than an impossible merge.
+      if (steps.length === 0) steps = [{ action: dependencyAction(index.get(depId)), missionId: depId }]
     } else if (blocker.code === 'stale-base') {
       steps = [{ action: RESOLUTION_ACTION.rebase }]
     } else {

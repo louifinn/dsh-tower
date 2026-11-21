@@ -151,6 +151,69 @@ test('resolution order is empty without blockers and a single stale base only re
   assert.equal(stale.cycle, null)
 })
 
+// #208 R182: a survey has no branch to merge (`canMerge: false`), so a
+// `merge-dependency` step names an operation the shape forbids and the gate can
+// never satisfy. The plan asks to complete that dependency instead.
+test('resolution order completes a survey dependency and still merges a build dependency', () => {
+  const mission = { id: 'M2', kind: 'build', status: 'active', deps: ['M1'] }
+  const surveyDependency = { id: 'M1', kind: 'survey', status: 'active', deps: [] }
+  const surveyPlan = resolutionPlan({
+    blockers: [{ code: 'deps-unmerged', detail: 'M1 is active' }],
+    mission,
+    missions: [surveyDependency, mission],
+    archived: [],
+  })
+  assert.deepEqual(surveyPlan.order, [{ step: 1, action: 'complete-mission', missionId: 'M1' }])
+  assert.equal(surveyPlan.order.some((step) => step.action === 'merge-dependency'), false)
+  assert.deepEqual(surveyPlan.blockers[0].resolution, surveyPlan.order)
+
+  // A completed survey satisfies the dependency, so the blocker and the plan disappear.
+  const satisfied = resolutionPlan({
+    blockers: [],
+    mission,
+    missions: [{ ...surveyDependency, status: 'completed' }, mission],
+    archived: [],
+  })
+  assert.deepEqual(satisfied, { blockers: [], order: [], cycle: null })
+
+  // Not a regression: a build dependency is still merged, ancestor-first.
+  const buildPlan = resolutionPlan({
+    blockers: [{ code: 'deps-unmerged', detail: 'M1 is completed' }],
+    mission,
+    missions: [{ id: 'M1', kind: 'build', status: 'completed', deps: [] }, mission],
+    archived: [],
+  })
+  assert.deepEqual(buildPlan.order, [{ step: 1, action: 'merge-dependency', missionId: 'M1' }])
+})
+
+// End-to-end through a real plan/state snapshot: the mission kind a plan stores
+// is what the preflight resolution reads, so the survey action survives wiring.
+test('a planned survey dependency resolves by completing it, not merging it', async () => {
+  const { root, repo } = seedRepo()
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({
+      missions: [
+        { title: 'Survey the area', kind: 'survey' },
+        { title: 'Build from the survey', scope: ['src/**'], deps: ['M1'] },
+      ],
+    })
+    await tower.mission({ id: 'M1', status: 'active' })
+
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === 'M2')
+    const blockers = dependencyBlockers({ deps: mission.deps, state })
+    assert.deepEqual(unmerged(blockers), [{ code: 'deps-unmerged', detail: 'M1 is active' }])
+
+    const plan = resolutionPlan({ blockers, mission, missions: state.missions, archived: [] })
+    assert.deepEqual(plan.order, [{ step: 1, action: 'complete-mission', missionId: 'M1' }])
+    assert.deepEqual(plan.blockers[0].resolution, plan.order)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('preflight accepts a completed survey dependency and still blocks a completed build dependency', async () => {
   const { root, repo } = seedRepo()
   try {

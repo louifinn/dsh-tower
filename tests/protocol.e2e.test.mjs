@@ -572,6 +572,42 @@ test('registered tower_inspect preflight orders dependency merges before a stale
   }
 })
 
+test('registered tower_inspect preflight completes a survey dependency instead of merging it (#208 R182)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-survey-resolution-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Survey the area', kind: 'survey' },
+        { title: 'Build from the survey', scope: ['src/**'], deps: ['M1'] },
+      ],
+    })
+    const tower = await Tower.open(repo)
+    await tower.mission({ id: 'M1', status: 'active' })
+
+    const preflight = await call(tools, 'tower_inspect', { repoRoot: repo, view: 'preflight', missionId: 'M2' })
+    assert.equal(preflight.cycle, null)
+    const dependencyStep = preflight.order.find((step) => step.missionId === 'M1')
+    assert.ok(dependencyStep, JSON.stringify(preflight.order))
+    assert.equal(dependencyStep.action, 'complete-mission')
+    assert.equal(
+      preflight.order.some((step) => step.action === 'merge-dependency' && step.missionId === 'M1'),
+      false,
+      JSON.stringify(preflight.order),
+    )
+    const dependency = preflight.blockers.find((blocker) => blocker.code === 'deps-unmerged')
+    assert.ok(dependency, JSON.stringify(preflight.blockers))
+    assert.deepEqual(dependency.resolution, [{ step: 1, action: 'complete-mission', missionId: 'M1' }])
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('registered tower_plan warns about a ** mission while other work is in flight', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-protocol-broad-scope-'))
   const repo = path.join(root, 'repo')
