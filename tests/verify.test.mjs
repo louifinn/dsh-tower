@@ -11,7 +11,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
-import { killProcessTree } from '../adapters/verify.js'
+import { killProcessTree } from '../adapters/process-tree.js'
 import { roleAllowsTool } from '../host/tool-profiles.js'
 import { PRESET_ALLOWS } from '../domain/exposure.js'
 import { Tower } from '../host/tower.js'

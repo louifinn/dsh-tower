@@ -9,6 +9,7 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
+import { killProcessTree } from './process-tree.js'
 import { fs } from './store-fs.js'
 import { testProcessEnv } from './tests.js'
 import { spawn } from './vcs-git.js'
@@ -16,90 +17,6 @@ import { spawn } from './vcs-git.js'
 const OUTPUT_CAP = 64 * 1024
 const SHARD_SIZE = 25
 const SUMMARY_LIMIT = 240
-// A tree kill must finish quickly: the receipt is written right after it, and a
-// fixpoint that waits on taskkill forever would turn a timeout into a hang.
-const TREE_KILL_BOUND_MS = 2000
-
-/**
- * Ask `taskkill /T` to end the process and every descendant it can enumerate.
- *
- * Resolves `true` when taskkill exited 0 (the tree is gone), `false` when it
- * could not run, errored, or blew `boundMs`. It never rejects: the caller turns
- * `false` into the direct-kill fallback.
- */
-function killTreeWin32(pid, { spawn: spawnFn, boundMs }) {
-  return new Promise((resolve) => {
-    let settled = false
-    let timer = null
-    const finish = (ok) => {
-      if (settled) return
-      settled = true
-      if (timer) clearTimeout(timer)
-      resolve(ok)
-    }
-    let killer
-    try {
-      killer = spawnFn('taskkill', ['/pid', String(pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      })
-    } catch {
-      finish(false)
-      return
-    }
-    timer = setTimeout(() => finish(false), boundMs)
-    timer.unref?.()
-    killer.on('error', () => finish(false))
-    killer.on('close', (code) => finish(code === 0))
-  })
-}
-
-/**
- * Kill a spawned process **and its descendants**.
- *
- * On win32 the ordering is the whole fix: `taskkill /T` is the only call that
- * walks the tree, and it must run while the child pid is still openable. Killing
- * the child first makes taskkill exit 128 ("The process ... not found") without
- * touching the descendants, so a detached grandchild keeps running in the
- * worktree while the receipt already claims `status: "timeout"`. The direct kill
- * is therefore a fallback for when taskkill cannot run at all, never the first
- * move. On POSIX the child was spawned detached, so it leads its own process
- * group and the group kill is a single signal; a direct kill covers the case
- * where the group is already gone.
- *
- * `platform`, `spawn`, and `kill` are injectable so the ordering is testable
- * without spawning anything. Resolves when the attempt is over, not when the
- * process is confirmed dead; `runProcess` still settles on the child's "close".
- *
- * F105: `adapters/tests.js` still carries a copy of the old kill-directly-first
- * ordering; it is a separate follow-up mission, not part of this one.
- */
-export async function killProcessTree(child, options = {}) {
-  if (!child || !child.pid) return
-  const platform = options.platform ?? process.platform
-  const spawnFn = options.spawn ?? spawn
-  const killFn = options.kill ?? ((pid, signal) => process.kill(pid, signal))
-  const direct = () => {
-    try {
-      killFn(child.pid, 'SIGKILL')
-    } catch {
-      // already gone
-    }
-  }
-  if (platform === 'win32') {
-    const killed = await killTreeWin32(child.pid, {
-      spawn: spawnFn,
-      boundMs: options.boundMs ?? TREE_KILL_BOUND_MS,
-    })
-    if (!killed) direct()
-    return
-  }
-  try {
-    killFn(-child.pid, 'SIGKILL')
-  } catch {
-    direct()
-  }
-}
 
 function lastLine(text) {
   const lines = String(text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
