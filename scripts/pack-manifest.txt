@@ -15,11 +15,13 @@ adapters/leases.js
 adapters/legacy.js
 adapters/lock.js
 adapters/persistence.js
+adapters/process-tree.js
 adapters/stateFile.js
 adapters/store-fs.js
 adapters/store.js
 adapters/tests.js
 adapters/vcs-git.js
+adapters/verify.js
 adapters/workspaceLock.js
 adapters/worktreeOwnership.js
 app/archive.js
@@ -70,6 +72,7 @@ docs/adr/0008-process-local-advisory-budgets.md
 docs/adr/0009-role-phase-exposure.md
 docs/adr/0010-tower-ralph-mutual-exclusion.md
 docs/adr/0011-client-budget-covers-logic-not-locale-data.md
+docs/adr/0012-bounded-wait-tool.md
 docs/adr/README.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
@@ -138,6 +141,8 @@ domain/contracts/tool-inputs/integration.js
 domain/contracts/tool-inputs/missions.js
 domain/contracts/tool-inputs/ops.js
 domain/contracts/tool-inputs/shared.js
+domain/contracts/tool-inputs/verify.js
+domain/contracts/tool-inputs/wait.js
 domain/deny-owners.js
 domain/errors.js
 domain/events.js
@@ -197,6 +202,7 @@ host/capability-tests.js
 host/compatibility.js
 host/config.js
 host/doctor-acceptance.js
+host/doctor-links.js
 host/doctor.js
 host/exposure.js
 host/hmr.js
@@ -333,6 +339,7 @@ tools/send.js
 tools/spawn.js
 tools/teardown.js
 tools/test.js
+tools/verify.js
 tools/views/adopt.js
 tools/views/diff.js
 tools/views/doctor.js
@@ -341,6 +348,7 @@ tools/views/import.js
 tools/views/preflight.js
 tools/views/roster.js
 tools/views/status.js
+tools/wait.js
 types/cordis.d.ts
 types/index.d.ts
 ui-bundle/README.md
