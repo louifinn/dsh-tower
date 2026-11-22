@@ -158,7 +158,7 @@ node --test tests/workflow-contract.test.mjs
 
 ### 2.9.8 release evidence (2026-11-22)
 
-2.9.8 closes the eleven issues filed from the two retros about how the tool surface behaves
+2.9.8 closes the fifteen issues filed from the two retros about how the tool surface behaves
 under real use: a bounded blocking wait and per-agent read views, a reviewer-owned read-only
 execution surface with citable `runId`s, batched `tower_mission` plus a plan `dry_run`,
 link-safe teardown, and one shared process-tree kill. Release preparation re-ran every number
