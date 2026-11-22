@@ -12,6 +12,7 @@ import {
 } from '../domain/vocabulary.js'
 import {
   requireKnownActor,
+  requireMissionParticipant,
   requireTowerActor,
 } from './authorization.js'
 import { resolveRepo } from '../adapters/git.js'
@@ -318,8 +319,9 @@ export function registerCoreTowerTools(ctx, options = {}) {
   // never joins the tower/host ladder. The spawn primitive lives in the adapter:
   // tools and host may not import `node:child_process`, and moving it into the
   // tool would put the very shell surface this tool exists to avoid behind the
-  // reviewer's preset.
-  registerVerifyTool(ctx, { openTower, define, actorFor, requireKnownActor, runVerification })
+  // reviewer's preset. `requireMissionParticipant` is the F104 binding: the role
+  // gate says "a reviewer", this says "this mission's reviewer".
+  registerVerifyTool(ctx, { openTower, define, actorFor, requireKnownActor, requireMissionParticipant, runVerification })
 }
 
 /** Evidence batches — the `tower-batch` component. */

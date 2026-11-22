@@ -11,9 +11,16 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { killProcessTree } from '../adapters/verify.js'
 import { roleAllowsTool } from '../host/tool-profiles.js'
 import { PRESET_ALLOWS } from '../domain/exposure.js'
 import { Tower } from '../host/tower.js'
+
+// The slow fixture sleeps this long *before* writing its sentinel. The timeout
+// case kills it with a 5s limit, so a descendant that survived the kill reveals
+// itself about 3s into the assertion window that follows the call.
+const SLOW_SLEEP_MS = 8000
+const TIMEOUT_MS = 5000
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -103,20 +110,53 @@ async function makeVerificationFixture() {
   await call('tower_init', { repoRoot: repo })
   const planned = await call('tower_plan', {
     repoRoot: repo,
-    missions: [{ title: 'Verification surface', scope: ['tests/**'], tasks: ['write a test'], kind: 'build' }],
+    missions: [
+      { title: 'Verification surface', scope: ['tests/**'], tasks: ['write a test'], kind: 'build' },
+      // F104 needs a second live mission: the guard under test is "this actor is
+      // recorded on *that* mission", which is only observable when two exist.
+      { title: 'A neighbouring mission', scope: ['tests/**'], tasks: ['write another test'], kind: 'build' },
+    ],
   })
   const missionId = planned.missions[0].id
+  const otherMissionId = planned.missions[1].id
   const worker = await call('tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
   const workerExec = { agent: { id: worker.agentId } }
   const worktree = worker.worktree.path
+  const otherWorker = await call('tower_spawn', { repoRoot: repo, missionId: otherMissionId, role: 'worker' })
+  const otherWorkerExec = { agent: { id: otherWorker.agentId } }
+  const otherWorktree = otherWorker.worktree.path
+  fs.mkdirSync(path.join(otherWorktree, 'tests'), { recursive: true })
+  fs.writeFileSync(
+    path.join(otherWorktree, 'tests', 'pass.test.mjs'),
+    "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('two plus two', () => assert.equal(2 + 2, 4))\n",
+  )
+  git(otherWorktree, ['add', '-A'])
+  git(otherWorktree, ['commit', '-m', 'add the neighbour mission test'])
+  await call('tower_mission', { repoRoot: repo, missionId: otherMissionId, taskDone: 'write another test' })
+  await call('tower_complete', { repoRoot: repo, missionId: otherMissionId, report: 'neighbour completed' }, otherWorkerExec)
+  const otherReviewer = await call('tower_spawn', { repoRoot: repo, missionId: otherMissionId, role: 'reviewer' })
+  const otherReviewerExec = { agent: { id: otherReviewer.agentId } }
   fs.mkdirSync(path.join(worktree, 'tests'), { recursive: true })
   fs.writeFileSync(
     path.join(worktree, 'tests', 'pass.test.mjs'),
     "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('one plus one', () => assert.equal(1 + 1, 2))\n",
   )
+  // R191 P1: the timeout receipt is only honest if the whole tree died. A plain
+  // sleeping test is not evidence, because Windows tears a child down with its
+  // parent's stdio pipes. So the fixture detaches a grandchild from every pipe
+  // and lets *it* write the sentinel: a direct kill of the orchestrator leaves
+  // that grandchild running, and only a real tree kill ends it. The sentinel
+  // sits beside the repository, not inside it, so a survivor leaves evidence
+  // without dirtying the worktree under test.
+  const sentinel = path.join(root, 'orphan-sentinel.txt')
+  const grandchild = path.join(root, 'orphan-grandchild.mjs')
+  fs.writeFileSync(
+    grandchild,
+    `import fs from 'node:fs'\nawait new Promise((resolve) => setTimeout(resolve, ${SLOW_SLEEP_MS}))\nfs.writeFileSync(${JSON.stringify(sentinel)}, 'a descendant survived the timeout kill')\n`,
+  )
   fs.writeFileSync(
     path.join(worktree, 'tests', 'slow.test.mjs'),
-    "import test from 'node:test'\ntest('never finishes in five seconds', async () => {\n  await new Promise((resolve) => setTimeout(resolve, 30000))\n})\n",
+    `import { spawn } from 'node:child_process'\nimport test from 'node:test'\ntest('leaves a detached grandchild behind', async () => {\n  spawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: 'ignore', detached: true, windowsHide: true }).unref()\n  await new Promise((resolve) => setTimeout(resolve, 60000))\n})\n`,
   )
   git(worktree, ['add', '-A'])
   git(worktree, ['commit', '-m', 'add verification fixture tests'])
@@ -125,7 +165,22 @@ async function makeVerificationFixture() {
   const reviewer = await call('tower_spawn', { repoRoot: repo, missionId, role: 'reviewer' })
   const reviewerExec = { agent: { id: reviewer.agentId } }
 
-  return { root, repo, ctx, tools, call, towerExec, workerExec, reviewerExec, missionId, worktree }
+  return {
+    root,
+    repo,
+    ctx,
+    tools,
+    call,
+    towerExec,
+    workerExec,
+    reviewerExec,
+    missionId,
+    worktree,
+    sentinel,
+    otherMissionId,
+    otherWorktree,
+    otherReviewerExec,
+  }
 }
 
 async function readMission(repo, missionId) {
@@ -224,7 +279,7 @@ test('a timeout kills the tree and records status "timeout"', async () => {
         repoRoot: fixture.repo,
         missionId: fixture.missionId,
         checks: [{ kind: 'tests', files: ['tests/slow.test.mjs'] }],
-        timeoutMs: 5000,
+        timeoutMs: TIMEOUT_MS,
       },
       fixture.reviewerExec,
     )
@@ -238,6 +293,17 @@ test('a timeout kills the tree and records status "timeout"', async () => {
     assert.equal(mission.testRuns.length, 1)
     assert.equal(mission.testRuns[0].status, 'timeout')
     assert.equal(mission.testRuns[0].ok, false)
+
+    // R191 P1: the receipt claiming "timeout" is only true if the descendant
+    // died. The fixture writes its sentinel SLOW_SLEEP_MS after it starts, so a
+    // surviving `node --test` child would surface it inside this window while
+    // the parent call has already returned a timeout receipt.
+    await new Promise((resolve) => setTimeout(resolve, SLOW_SLEEP_MS + 2000))
+    assert.equal(
+      fs.existsSync(fixture.sentinel),
+      false,
+      'a test process outlived the timeout kill and wrote its sentinel; the tree is not actually killed',
+    )
   } finally {
     removeTemp(fixture.root)
   }
@@ -303,6 +369,176 @@ test('a verify runId is citable by tower_complete checks and a bogus one is refu
         ),
       (error) => error.code === 'invalid-argument' && /run-99/.test(error.message),
     )
+  } finally {
+    removeTemp(fixture.root)
+  }
+})
+
+test('killProcessTree asks taskkill for the tree before any direct kill', async () => {
+  // The injected seams record the order of operations. taskkill must be spawned
+  // while the pid is still openable, and the direct kill must never come first:
+  // on Windows `node --test` is an orchestrator whose per-file children die with
+  // it only by accident, so a direct kill strands them (#202 R191 P1).
+  const events = []
+
+  const fakeSpawn = (command, args, options) => {
+    events.push({ type: 'spawn', command, args, options })
+    const emitter = {
+      on(event, handler) {
+        events.push({ type: `on:${event}` })
+        if (event === 'close') setImmediate(() => handler(0))
+        return emitter
+      },
+    }
+    return emitter
+  }
+
+  await killProcessTree(
+    { pid: 4321 },
+    { platform: 'win32', spawn: fakeSpawn, kill: (pid, signal) => events.push({ type: 'kill', pid, signal }) },
+  )
+
+  assert.equal(events[0].type, 'spawn', 'taskkill is the first attempt')
+  assert.equal(events[0].command, 'taskkill')
+  assert.deepEqual(events[0].args, ['/pid', '4321', '/T', '/F'])
+  assert.equal(events[0].options.windowsHide, true)
+  assert.equal(events.some((event) => event.type === 'kill'), false, 'a successful taskkill needs no direct kill')
+
+  // taskkill exiting non-zero (the pid was already gone: exit 128) must fall
+  // back to the direct kill instead of trusting the failed attempt.
+  const fallback = []
+  const failingSpawn = () => ({
+    on(event, handler) {
+      if (event === 'close') setImmediate(() => handler(128))
+      return this
+    },
+  })
+  await killProcessTree(
+    { pid: 99 },
+    { platform: 'win32', spawn: failingSpawn, kill: (pid, signal) => fallback.push({ pid, signal }) },
+  )
+  assert.deepEqual(fallback, [{ pid: 99, signal: 'SIGKILL' }], 'a failed taskkill falls back to the direct kill')
+
+  // A spawn that throws, and a taskkill that never reports, both hit the bound.
+  const threw = []
+  await killProcessTree(
+    { pid: 7 },
+    {
+      platform: 'win32',
+      spawn: () => {
+        throw new Error('taskkill is not on PATH')
+      },
+      kill: (pid, signal) => threw.push({ pid, signal }),
+    },
+  )
+  assert.deepEqual(threw, [{ pid: 7, signal: 'SIGKILL' }], 'a throw falls back to the direct kill')
+
+  const hung = []
+  await killProcessTree(
+    { pid: 8 },
+    { platform: 'win32', boundMs: 20, spawn: () => ({ on: () => {} }), kill: (pid, signal) => hung.push({ pid, signal }) },
+  )
+  assert.deepEqual(hung, [{ pid: 8, signal: 'SIGKILL' }], 'a taskkill that never settles hits the bound')
+})
+
+test('killProcessTree keeps the POSIX group kill and its direct fallback', async () => {
+  const groupKilled = []
+  await killProcessTree(
+    { pid: 500 },
+    { platform: 'linux', spawn: () => assert.fail('POSIX never spawns taskkill'), kill: (pid, signal) => groupKilled.push({ pid, signal }) },
+  )
+  assert.deepEqual(groupKilled, [{ pid: -500, signal: 'SIGKILL' }], 'the detached child leads its own process group')
+
+  const direct = []
+  await killProcessTree(
+    { pid: 501 },
+    {
+      platform: 'darwin',
+      spawn: () => assert.fail('POSIX never spawns taskkill'),
+      kill: (pid, signal) => {
+        if (pid < 0) throw new Error('no such process group')
+        direct.push({ pid, signal })
+      },
+    },
+  )
+  assert.deepEqual(direct, [{ pid: 501, signal: 'SIGKILL' }], 'a missing group falls back to the direct kill')
+})
+
+test('a reviewer recorded on one mission cannot verify another mission', async () => {
+  // F104: the role gate says "a reviewer"; the roster binding says *which*
+  // mission's reviewer. Before the fix any assigned reviewer could run the
+  // whitelist in any worktree and stamp receipts onto a mission it never saw.
+  const fixture = await makeVerificationFixture()
+  try {
+    await assert.rejects(
+      () =>
+        fixture.call(
+          'tower_verify',
+          {
+            repoRoot: fixture.repo,
+            missionId: fixture.otherMissionId,
+            checks: [{ kind: 'tests', files: ['tests/pass.test.mjs'] }],
+          },
+          fixture.reviewerExec,
+        ),
+      (error) =>
+        error.code === 'not-authorized' &&
+        /does not participate in mission/.test(error.message) &&
+        // Both ids are named, so the refusal explains the confusion.
+        error.message.includes(fixture.otherMissionId) &&
+        error.message.includes(fixture.missionId),
+      'a reviewer bound to another mission is refused, not silently admitted',
+    )
+    const neighbour = await readMission(fixture.repo, fixture.otherMissionId)
+    assert.equal(neighbour.testRuns.length, 0, 'the refused call took no receipt on the other mission')
+    const own = await readMission(fixture.repo, fixture.missionId)
+    assert.equal(own.testRuns.length, 0, 'the refused call took no receipt on its own mission either')
+  } finally {
+    removeTemp(fixture.root)
+  }
+})
+
+test('an assigned reviewer still verifies, and its receipt lands on its own mission', async () => {
+  // The binding must not lock out the legitimate caller. A receipt is stored
+  // inside `mission.testRuns`, so its mission is structural rather than a field
+  // on the receipt (tower_test receipts are shaped the same way): the proof is
+  // that the run shows up under the reviewer's own mission and nowhere else.
+  const fixture = await makeVerificationFixture()
+  try {
+    const value = await fixture.call(
+      'tower_verify',
+      {
+        repoRoot: fixture.repo,
+        missionId: fixture.missionId,
+        checks: [{ kind: 'tests', files: ['tests/pass.test.mjs'] }],
+      },
+      fixture.reviewerExec,
+    )
+    assert.equal(value.ok, true)
+    assert.equal(value.missionId, fixture.missionId)
+
+    const mission = await readMission(fixture.repo, fixture.missionId)
+    assert.equal(mission.testRuns.length, 1)
+    const [receipt] = mission.testRuns
+    assert.equal(receipt.id, value.checks[0].runId, 'the returned runId is the stored receipt id')
+    assert.equal(receipt.status, 'passed')
+    assert.equal((await readMission(fixture.repo, fixture.otherMissionId)).testRuns.length, 0, 'the run did not land on a neighbouring mission')
+
+    // The neighbour's own reviewer is confined to its own mission in exactly the
+    // same way, so the guard is a binding and not a single-mission special case.
+    const neighbour = await fixture.call(
+      'tower_verify',
+      {
+        repoRoot: fixture.repo,
+        missionId: fixture.otherMissionId,
+        checks: [{ kind: 'tests', files: ['tests/pass.test.mjs'] }],
+      },
+      fixture.otherReviewerExec,
+    )
+    assert.equal(neighbour.missionId, fixture.otherMissionId)
+    assert.equal(neighbour.checks[0].runId, 'run-1', 'run ids are minted per mission')
+    assert.equal((await readMission(fixture.repo, fixture.missionId)).testRuns.length, 1)
+    assert.equal((await readMission(fixture.repo, fixture.otherMissionId)).testRuns.length, 1)
   } finally {
     removeTemp(fixture.root)
   }

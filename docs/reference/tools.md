@@ -66,8 +66,11 @@ tower_verify({missionId:"M7", checks:[
 Every check runs sequentially in the mission worktree and is recorded in `mission.testRuns` with its
 own `runId`. The result row is `{check, kind, command, status, exitCode, durationMs, summary,
 truncated, runId}`; `status` is `passed`, `failed`, `timeout`, `error` or `unavailable`. `timeoutMs`
-defaults to 120000, must be 5000–600000, and a timeout kills the whole process tree and records
-`status: "timeout"`. A missing worktree `node_modules` makes `tsc` record `unavailable` with the
+defaults to 120000, must be 5000–600000, and a timeout kills the whole process tree before it records
+`status: "timeout"`: on Windows it runs `taskkill /T` against the spawned orchestrator while its pid
+is still openable (a bounded 2 s attempt) and only falls back to a direct kill if that cannot run,
+because `node --test` starts one child per test file and killing the parent first would strand them.
+A missing worktree `node_modules` makes `tsc` record `unavailable` with the
 remedy: install dependencies, or spawn with `spawn.nodeModules: "link"` (M166). The tool is
 read-only: it changes no mission status and writes nothing except the run receipts.
 

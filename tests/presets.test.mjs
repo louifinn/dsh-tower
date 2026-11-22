@@ -56,7 +56,7 @@ test('reviewer preset: read-only surface with diff and review', () => {
   }
   // #202: the reviewer's only execution surface is the fixed read-only
   // whitelist behind tower_verify — no shell, and the worker never gets it.
-  for (const allowed of ['read', 'glob', 'grep', 'tower_inspect', 'tower_inspect', 'tower_verify', 'tower_review', 'skill']) {
+  for (const allowed of ['read', 'glob', 'grep', 'tower_inspect', 'tower_verify', 'tower_review', 'skill']) {
     assert.ok(state.allow.includes(allowed), `reviewer should allow ${allowed}`)
   }
   assert.match(state.section.text, /read-only/i)

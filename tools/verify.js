@@ -76,10 +76,10 @@ function timeoutOf(raw) {
 
 /**
  * @param {any} ctx
- * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireKnownActor: any, runVerification: any }} deps
+ * @param {{ define: import('../types/index.js').DefineTool, openTower: any, actorFor: any, requireKnownActor: any, requireMissionParticipant: any, runVerification: any }} deps
  */
 export function registerVerifyTool(ctx, deps) {
-  const { define, actorFor, requireKnownActor, runVerification } = deps
+  const { define, actorFor, requireKnownActor, requireMissionParticipant, runVerification } = deps
   define(ctx, {
     name: 'tower_verify',
     description:
@@ -93,6 +93,10 @@ export function registerVerifyTool(ctx, deps) {
       const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireKnownActor(actor, 'tower_verify')
+      // F104: being the reviewer role is not enough — the roster row has to
+      // record this session on the mission it is asking about. Without this,
+      // any assigned reviewer could run (and record receipts on) any mission.
+      requireMissionParticipant(actor, args.missionId, 'verify it')
       const timeoutMs = timeoutOf(args.timeoutMs)
       if (!Array.isArray(args.checks) || args.checks.length === 0) refuse('checks must contain at least one check')
       if (args.checks.length > VERIFY_MAX_CHECKS) refuse(`at most ${VERIFY_MAX_CHECKS} checks per call`)
