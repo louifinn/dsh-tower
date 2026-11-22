@@ -88,6 +88,11 @@ export const EXPOSURE_TABLE = Object.freeze({
   tower_finding: { off: false, idle: false, active: true },
   tower_complete: { off: false, idle: false, active: true },
   tower_review: { off: false, idle: false, active: true },
+  // active: reviewer-only whitelisted execution with recorded evidence (#202).
+  // The reviewer preset owns it; the host ladder never advertises it (it is a
+  // ROLE_TOOLS entry), and an ordinary tower session reading a mission uses
+  // tower_inspect instead.
+  tower_verify: { off: false, idle: false, active: true },
   // active: integration and recovery (stable across the rung: `recover` is
   // the escape hatch, never worth a cache bounce — #164 §5)
   tower_merge: { off: false, idle: false, active: true },
@@ -241,6 +246,9 @@ export const PRESET_ALLOWS = Object.freeze({
     'glob',
     'grep',
     'tower_inspect',
+    // #202: the reviewer runs the fixed read-only whitelist and records the
+    // evidence; without it a review can only restate the worker's prose.
+    'tower_verify',
     'tower_send',
     'tower_inbox',
     'tower_finding',

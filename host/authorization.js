@@ -99,6 +99,15 @@ export const AUTHORIZATION_MATRIX = Object.freeze({
         ? 'reviewers may not run test discovery'
         : `tower_test requires a registered roster agent or the tower${ownerRemedy(actor)}`,
   }),
+  // #202: the run-evidence counterpart of tower_review. Only the assigned
+  // reviewer runs it: the worker already has tower_test and a shell in its own
+  // preset, and an ordinary tower session reads recorded runs through
+  // tower_inspect instead of re-running them.
+  tower_verify: Object.freeze({
+    allow: Object.freeze([A.reviewer]),
+    denial: (actor) =>
+      `only an assigned reviewer may run the read-only verification whitelist; ${actor.name} is ${actor.role}`,
+  }),
   // tower_reload is repository-optional (#163): the tool may run without a
   // repository so a broken profile can still be reloaded. That contract is tool
   // identity registered in `host/tool-profiles.js`, not a guess about whether a
@@ -343,10 +352,41 @@ async function inspectViewAccess({ actor, args }) {
  * @param {{ actor: any, args: any }} input
  */
 async function requireParticipant({ actor, args }) {
-  if (actor?.access === A.tower) return
   const missionId = typeof args?.missionId === 'string' ? args.missionId : null
-  if (missionId && actor?.missionId && actor.missionId === missionId) return
-  throw new TowerToolError('not-authorized', `${actor?.role ?? ROLE.unknown} ${actor?.name ?? ROLE.unknown} does not participate in mission ${missionId ?? '(unknown)'}`)
+  requireMissionParticipant(actor, missionId)
+}
+
+/**
+ * The single "is this actor recorded on that mission" rule (F104). Every
+ * per-mission tool must call it: `tower_verify` used to admit any assigned
+ * reviewer to any mission, because only the role was checked and the roster's
+ * mission binding never was. Keeping the comparison here means the kernel's
+ * tower_inspect diff guard and the tool handlers cannot drift apart.
+ *
+ * The message names the caller's own mission as well as the requested one, so a
+ * refusal says which session is confused instead of only that it was refused.
+ *
+ * @param {any} actor resolved actor (see `resolveActor`)
+ * @param {string | null | undefined} missionId requested mission id
+ * @param {string} [action] optional verb for handlers that guard themselves
+ * @returns {string | null} the mission id on success
+ */
+export function requireMissionParticipant(actor, missionId, action) {
+  if (actor?.access === A.tower) return missionId ?? null
+  const requested = typeof missionId === 'string' && missionId.trim() ? missionId.trim() : null
+  if (requested && actor?.missionId && actor.missionId === requested) return requested
+  const who = `${actor?.role ?? ROLE.unknown} ${actor?.name ?? ROLE.unknown}`
+  const suffix = action ? ` may not ${action}` : ''
+  if (!requested) {
+    throw new TowerToolError('not-authorized', `${who} does not participate in a mission: no mission id was requested${suffix}`)
+  }
+  if (!actor?.missionId) {
+    throw new TowerToolError('not-authorized', `${who} does not participate in mission ${requested}: this session is not recorded on any mission${suffix}`)
+  }
+  throw new TowerToolError(
+    'not-authorized',
+    `${who} does not participate in mission ${requested}: this session is recorded on mission ${actor.missionId}${suffix}`,
+  )
 }
 
 /** Actionable owner hint for an authorization failure. */

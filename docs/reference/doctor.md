@@ -8,7 +8,7 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 59 · sections: 16 · tools: 22 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 59 · sections: 16 · tools: 23 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -22,7 +22,7 @@ It returns:
     "sections": 16,
     "tools": 22,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 59 · sections: 16 · tools: 22"
+    "line": "config keys: 59 · sections: 16 · tools: 23"
   },
   "stateLock": {
     "held": true,
@@ -151,13 +151,13 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (22 today; 21 in 2.9.0, 17 default), even though the shipped profile mounts 17 because the
+build surface (23 today; 21 in 2.9.0, 17 default), even though the shipped profile mounts 17 because the
 five subsystem rows ship off; the `components` check names the mounted subset and every
 disabled row.
 
 `subsystems` lists the five default-off rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) as `{id, enabled, tool, enable}`; each
-row's tool stays in the 22 all-on surface. The `components` check detail names each
+row's tool stays in the 23 all-on surface. The `components` check detail names each
 row as off, not deleted, with its enable step. A `deprecated-tool-names` check scans
 `mode.denyTools` for names that #163 merged or removed (`tower_control`, `tower_adopt`,
 `tower_findings`, `tower_import_legacy`, `tower_legacy_map`, `tower_status`,

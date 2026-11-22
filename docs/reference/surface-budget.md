@@ -48,10 +48,10 @@ change still needs an ADR or a provably matching deletion.
 
 The tool count is the **build** surface, not one profile's mounted subset (#121):
 the recorder includes every tool this build can register, so a component row that
-ships off (`tower-hmr`, whose `tower_reload` keeps the count at 22) does not
-shrink the budget. `tower_inspect`'s `doctor` view reports the same 22 and names
+ships off (`tower-hmr`, whose `tower_reload` keeps the count at 23) does not
+shrink the budget. `tower_inspect`'s `doctor` view reports the same 23 and names
 the mounted subset through its `components` check; the mount smoke asserts the
-shipped profile's 17 loaded tools and pins 22 for the all-rows-on surface.
+shipped profile's 18 loaded tools and pins 23 for the all-rows-on surface.
 
 ## Per-profile surfaces (#163)
 
@@ -134,6 +134,18 @@ worker 6 / 11,661 — and by 2,865 advertised bytes, so `host:active` reads
 12,432 each. Mode-off, idle and `preset:reviewer` do not mount `tower_mission`
 and are unchanged; no tool count moves.
 
+#202 adds `tower_verify`, the reviewer's one verifiable read surface: a closed
+whitelist of `{kind:"tests", files:["tests/*.test.mjs"]}`, `{kind:"tsc"}` and
+`{kind:"shards", batch:N}` run in the mission worktree (never a shell, never a
+caller-supplied command) with a recorded run per check. The build surface moves
+22 → 23 and the reviewer allow-list gains the tool, so the reviewer profile
+becomes 6 tools / 7,260 input bytes (was 5 / 5,725; `VerifyInput` is 1,535
+bytes) and `preset:reviewer` 9,202 B (was 7,342). The tool is role-owned
+(`tower_verify` is in `ROLE_TOOLS`), so the tower profile stays 15 tools /
+18,871 B, the host ladder and every other preset are unchanged, and the shipped
+profile now mounts 18 (the #201 note above records 17 for the surface *before*
+this tool).
+
 ## Role × phase exposure (#164)
 
 `tower_mode` is the only tool a host session advertises with Tower mode off.
@@ -145,24 +157,25 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **23,094 B /
-  15 tools** (the 17 mounted tools minus the #163 role-owned
-  `tower_complete`/`tower_review`, which a non-role session never sees).
+- `active` — mode on, state exists: the default host-admitted set, **23,699 B /
+  15 tools** (the 18 default registered tools minus the #163 role-owned
+  `tower_complete`/`tower_review` and the #202 `tower_verify`, which a non-role
+  session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**30,329 B / 22 tools**, and that figure is a build-surface statement, never a
+**32,792 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
-mode-off session stops paying for 13 of the 14 host-admitted schemas and a
+mode-off session stops paying for 14 of the 15 host-admitted schemas and a
 mode-on session pays a prefix that stays stable for its lifetime (the
 arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **13,617 B / 6 tools**, `preset:reviewer` **7,342 B / 5**,
+`preset:worker` **13,617 B / 6 tools**, `preset:reviewer` **9,202 B / 6**,
 `preset:survey` and `preset:survey-sandbox` **12,432 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
@@ -172,18 +185,18 @@ modules import directly — one table, not a copy per consumer.
 `scripts/surface-baseline.json` carries these as a top-level `profileBytes`
 block, measured as the UTF-8 bytes of the advertised `name`, `description` and
 `parameters` fields in fixed key order, over the surface each profile actually
-sees: the host ladder over the default host-admitted session surface (the 17
-mounted tools minus the #163 role tools), the presets over their allow-lists
-intersected with the mounted surface, all from the same shipped-surface load
-`surface:check` already uses, and printed as the `surface: profile bytes:`
-line. The all-on build surface is not a profile and is not measured here. Any
-drift needs a dated decision in the same block; growth additionally needs one
-that names an existing ADR under `docs/adr/` (`profile-bytes-growth`).
-`tests/exposure.test.mjs` also enforces that every registered tool has a phase
-row ("no implicit all"), that every legal mission transition's driving tool is
-exposed to the profile that owns it, and that the host ladder stays on the
-default host-admitted surface (15 tools / 23,094 B) rather than the 22-tool
-build surface (review R103).
+sees: the host ladder over the default host-admitted session surface (the 18
+default registered tools minus the #163/#202 role tools), the presets over
+their allow-lists intersected with the mounted surface, all from the same
+shipped-surface load `surface:check` already uses, and printed as the
+`surface: profile bytes:` line. The all-on build surface is not a profile and
+is not measured here. Any drift needs a dated decision in the same block;
+growth additionally needs one that names an existing ADR under `docs/adr/`
+(`profile-bytes-growth`). `tests/exposure.test.mjs` also enforces that every
+registered tool has a phase row ("no implicit all"), that every legal mission
+transition's driving tool is exposed to the profile that owns it, and that the
+host ladder stays on the default host-admitted surface (15 tools / 23,699 B)
+rather than the 23-tool build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
 and `dev.hotReload` became component rows, so config keys went 64 → 56 and
@@ -370,6 +383,7 @@ them mandatory for every configuration.
 | `tower_spawn` | core | Starts workers and reviewers; the takeover case is `op:"takeover"` and the wait bound is `spawn.maxWaitMs` (#163 Phase 5). |
 | `tower_teardown` | core | Worktree cleanup and archiving. |
 | `tower_test` | optional | Explicit discovery; component `tower-tests`. |
+| `tower_verify` | core | Reviewer-only read execution: the fixed whitelist (node --test on tests/*.test.mjs, tsc --noEmit, one shard batch) in the mission worktree, with each result recorded in `testRuns` (#202). Role-owned, so never on the tower ladder. |
 | `tower_wait` | core | One bounded blocking wait over a mission or roster agent: reached/timeout/unknown, 1000–600000 ms (default 30000), tower-only (#201). |
 
 ## Non-goals

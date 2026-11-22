@@ -360,6 +360,33 @@ const SCHEMAS = {
     },
     ['ok', 'configured'],
   ),
+  // #202: every whitelisted check reports its own recorded run. `status` is one
+  // of passed/failed/timeout/error/unavailable; `runId` is the testRuns entry a
+  // tower_complete/tower_review check may cite.
+  verify: S.obj(
+    {
+      ok: S.bool,
+      missionId: S.str,
+      treeTip: S.any,
+      checks: S.arr(
+        S.obj(
+          {
+            check: S.str,
+            kind: S.str,
+            command: S.str,
+            status: { type: 'string', enum: ['passed', 'failed', 'timeout', 'error', 'unavailable'] },
+            exitCode: { oneOf: [S.int, { type: 'null' }] },
+            durationMs: S.int,
+            summary: S.str,
+            truncated: S.bool,
+            runId: S.str,
+          },
+          ['check', 'kind', 'command', 'status', 'durationMs', 'summary', 'truncated', 'runId'],
+        ),
+      ),
+    },
+    ['ok', 'missionId', 'checks'],
+  ),
   batch: S.obj(
     { ok: S.bool, action: S.str, batch: S.obj(), batches: S.arr(S.obj()), blockers: S.arr(blockerSchema), summary: S.obj() },
     ['ok', 'action'],

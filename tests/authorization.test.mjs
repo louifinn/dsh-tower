@@ -192,6 +192,9 @@ const EXPECTED_MATRIX = Object.freeze({
   tower_resource: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_import: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   tower_test: Object.freeze({ allow: [ACTOR_ACCESS.tower, ACTOR_ACCESS.worker, ACTOR_ACCESS.survey] }),
+  // #202: reviewer-only run evidence; the worker uses tower_test, the tower reads
+  // recorded testRuns through tower_inspect.
+  tower_verify: Object.freeze({ allow: [ACTOR_ACCESS.reviewer] }),
   tower_reload: Object.freeze({ allow: [ACTOR_ACCESS.tower] }),
   // Session tool, not a repository-authorized tool: it keys off the calling
   // agent's session, so every access class reaches the handler's own gates.
@@ -297,13 +300,13 @@ async function setupMembers(prefix) {
 
 test('authorization: the expected map pins every shipped tool and the matrix matches it exactly', async () => {
   const { tools } = makeCtx()
-  // F31: registerTowerTools() defines 21 tools; the Host entry records the
+  // F31: registerTowerTools() defines 22 tools; the Host entry records the
   // session tool it registers directly. The matrix must cover the recorded
-  // build surface (#201: 22) even though the define() aggregate is 21.
+  // build surface (#202: 23) even though the define() aggregate is 22.
   recordToolRegistration('tower_mode')
   const shipped = definedToolNames()
-  assert.equal(tools.size, 21, 'the define() aggregate registers 21 tools')
-  assert.equal(shipped.length, 22, 'the shipped build surface is 22 tools')
+  assert.equal(tools.size, 22, 'the define() aggregate registers 22 tools')
+  assert.equal(shipped.length, 23, 'the shipped build surface is 23 tools')
   const expected = Object.keys(EXPECTED_MATRIX).sort()
   assert.deepEqual(expected, shipped, 'the expected map names exactly the shipped surface')
   assert.deepEqual(Object.keys(AUTHORIZATION_MATRIX).sort(), expected, 'every shipped tool has exactly one policy row')
@@ -617,7 +620,7 @@ test('authorization: unknown is denied everywhere except public rows, the two se
     }
     // Every other row denies an unknown caller, even on an owned repository.
     const guardedRows = Object.keys(EXPECTED_MATRIX).filter((tool) => !EXPECTED_MATRIX[tool].allow.includes(ACTOR_ACCESS.unknown))
-    assert.equal(guardedRows.length, 20, 'all but the two public rows deny the unknown caller')
+    assert.equal(guardedRows.length, 21, 'all but the two public rows deny the unknown caller')
     for (const tool of guardedRows) {
       await assert.rejects(
         () => authorize(tool, unknown, { args: { missionId: 'M1' } }),
