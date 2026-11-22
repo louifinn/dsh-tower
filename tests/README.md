@@ -156,6 +156,49 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+### 2.9.8 release evidence (2026-11-22)
+
+2.9.8 closes the fifteen issues filed from the two retros about how the tool surface behaves
+under real use: a bounded blocking wait and per-agent read views, a reviewer-owned read-only
+execution surface with citable `runId`s, batched `tower_mission` plus a plan `dry_run`,
+link-safe teardown, and one shared process-tree kill. Release preparation re-ran every number
+below on the same bounded runner and machine as the 2.9.7 block; declarations are counted, so
+the one skip is included in the total:
+
+| Run | Command | Declarations | Result |
+|---|---|---|---|
+| Focused gate (8 files) | `node --test tests/wait.test.mjs tests/verify.test.mjs tests/interruption.test.mjs tests/evidence.test.mjs tests/scope-reach.test.mjs tests/cleanup.test.mjs tests/tool-schemas.test.mjs tests/status.test.mjs` | **101** | 101 pass, 0 fail, 0 skip |
+| Property PR tier (12 files) | `npm run test:property` | **124** | 124 pass, 0 fail |
+| Bounded offline suite, all 129 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1480** | 1479 pass, 1 skip, 0 fail |
+| Mount smoke | `npm run smoke:mount` | 18 tools | 18 of 18 tower tools, 3 skills, 4 presets with distinct labels, `/tower` present, 1 top-level bundle row on `@deepseek-ai/dsh@0.2.2-rc.5` (74.2 s) |
+
+The single skip is still the POSIX-only `TMPDIR` guard in
+[`tests/live-harness.test.mjs`](live-harness.test.mjs). The 2.9.8 cases run inside the
+batches: the three wait states and their boundaries, including an unreadable activity catalog
+never claiming a wake and a mission reaching `inactive` only after its live row settles, in
+[`wait.test.mjs`](wait.test.mjs); the closed `tower_verify` whitelist (path rule, closed kind
+union, argument arrays only, one `shards` batch), the reviewer-only enforcement, and the
+mission binding that refuses a reviewer assigned to another mission before touching its
+worktree, in [`verify.test.mjs`](verify.test.mjs); the real-OS proof that a timed-out run's
+grandchild cannot write its sentinel after the 3 s discovery timeout, with a start marker as
+the vacuity guard, in [`interruption.test.mjs`](interruption.test.mjs); a `runId` that must
+exist in the mission's `testRuns` before any state is written, plus the advisory
+`checks-unverified` warning that never becomes a blocker, in
+[`evidence.test.mjs`](evidence.test.mjs); the plan-time scope validation and its plan/widen
+next actions, in [`scope-reach.test.mjs`](scope-reach.test.mjs); link-aware teardown
+(unlink the recorded junction alone, keep a checkout that holds an unrecorded one, remainders
+handled without recursion), in [`cleanup.test.mjs`](cleanup.test.mjs); and the registered-tool
+surface for the new optional `orphans` input, in [`tool-schemas.test.mjs`](tool-schemas.test.mjs).
+The supporting static gates also pass on this tree: `npm run docs:check`, every
+`npm run docs:check:generated:<name>` target (`tools`, `events`, `shapes`, `config`,
+`blockers`, `types`, `locale`, `components`), `npm run types:check`, `npm run types:coverage`,
+`npm run types:strict:check`, `npm run architecture:check`, `npm run surface:check`,
+`npm run blockers:check`, `npm run shape:audit`, `npm run deny:check`, `npm run pack:check`,
+`npm run domain:check` and `npm run support:check`. The 2.9.8 surface itself did not move in
+release preparation beyond what the fix missions re-pinned: `host:active` stays 15 tools /
+23,699 B, the build surface is 23 tools, and [`scripts/surface-baseline.json`](../scripts/surface-baseline.json)
+still matches the committed classification.
+
 ### 2.9.7 release evidence (2026-11-21)
 
 2.9.7 makes a planned mission's fence editable, adds the `deferred` ordering flag, allows
@@ -242,7 +285,7 @@ passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (r
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
 `TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.7 release evidence](#297-release-evidence-2026-11-21) above, and the W5
+the current totals are in [2.9.8 release evidence](#298-release-evidence-2026-11-22) above, and the W5
 table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
@@ -331,7 +374,7 @@ bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean w
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
 are included. It is history: the current totals are in
-[2.9.7 release evidence](#297-release-evidence-2026-11-21) above.
+[2.9.8 release evidence](#298-release-evidence-2026-11-22) above.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|

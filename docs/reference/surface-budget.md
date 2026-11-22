@@ -129,10 +129,21 @@ returns `reached`, `timeout` or `unknown` within a 1000–600000 ms bound
 M165 (#215/#216) added the bulk `tower_mission` form (a closed `missions[]`
 array, the `ids` lifecycle shorthand and `atomic`): every profile that mounts
 `tower_mission` grows by 2,887 input-schema bytes — tower 15 tools / 18,266 B,
-worker 6 / 11,661 — and by 2,865 advertised bytes, so `host:active` reads
-23,094 B, `preset:worker` 13,617 and `preset:survey`/`preset:survey-sandbox`
-12,432 each. Mode-off, idle and `preset:reviewer` do not mount `tower_mission`
-and are unchanged; no tool count moves.
+worker 6 / 11,661 — and by 2,865 advertised bytes, so at that commit
+`host:active` read 23,094 B, `preset:worker` 13,617 and
+`preset:survey`/`preset:survey-sandbox` 12,432 each. Mode-off, idle and
+`preset:reviewer` do not mount `tower_mission` and are unchanged; no tool count
+moves. The two figures it moved (`tower` and `host:active`) are re-measured
+again by #217/#218 below, which is why the ladder further down reads 23,699 B.
+
+#217/#218 added `tower_plan`'s `dry_run` and plan-local `key` fields and
+`spawn.nodeModules`: the two profiles that mount `tower_plan` and `tower_spawn`
+grow by 605 advertised bytes each, so `tower` becomes 15 tools / 18,871 B input
+schema and `host:active` 15 tools / 23,699 B, while `preset:worker` (13,617),
+`preset:reviewer` (7,342) and the two survey presets (12,432 each) do not mount
+either tool and stay put. The config surface grows by exactly one tuning key,
+`spawn.nodeModules` (`none` default / `link`), 58 → 59 keys in the same 16
+sections; no tool, section or component moves.
 
 #202 adds `tower_verify`, the reviewer's one verifiable read surface: a closed
 whitelist of `{kind:"tests", files:["tests/*.test.mjs"]}`, `{kind:"tsc"}` and

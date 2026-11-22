@@ -138,7 +138,7 @@ export function normalizeChecks(checks, scope) {
         if (owner) {
           fail(`checks[${index}].runId "${runId}" belongs to mission ${owner.id}, not ${scope.mission.id}`)
         }
-        fail(`checks[${index}].runId "${runId}" is not a recorded test run of mission ${scope.mission.id}; call tower_test to record one`)
+        fail(`checks[${index}].runId "${runId}" is not a recorded test run of mission ${scope.mission.id}; call tower_test or tower_verify to record one`)
       }
       entry.runId = runId
     }

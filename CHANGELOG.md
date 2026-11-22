@@ -4,6 +4,124 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.8（2026-11-22）
+
+### 新增
+
+- **`tower_wait` 给出一条有界阻塞读取（#201 / ADR 0012）**：此前没有任何工具能「等到某个目标
+  稳定」，调用方只能自己写轮询循环，而 `tower_inspect` 的只读视图又与一切 role preset 的非阻塞
+  契约冲突，所以新增的是工具而不是第六个视图。它只接受一个目标（`missionId` 或 `agent`）与
+  `until`（`settled` 默认 / `completed` / `inactive` / `any-change`），`timeoutMs` 限定在
+  1000–600000 之间（默认 30000），每轮重新读一次 `state.json`，跨等待不持有 state 锁、不写
+  state 或 activity，返回且只返回 `reached`、`timeout`（带最后一次有界观测）或 `unknown`
+  （目标不存在或目录读不出来，缺席不算超时）。构建表面因此 21 → 22，随包 profile 挂载 17 个
+  工具；它是 tower-only，worker/reviewer 的工具数不变。
+- **`tower_inspect` 的 `status`/`roster` 接受单个 `agent`（#207）**：读单一路径不再整表返回：
+  `agent` 按名字或 agent id 选中一行，`roster` 只回 `{agent, activity}`，`status` 只回该行、
+  绑定 mission 与有界 activity，`tail` 取最近 N 条（默认 5、上限 50）。`status` 上的 `tail`
+  必须搭配 `agent`，否则以 `invalid-argument` 拒绝而不是静默忽略；`compact:true` 把两处
+  agent 视图压到身份四元组 `{name, role, missionId, state}`（`status` 另留
+  `{id, status, kind}`），activity 尾巴单独成字段。`sinceRevision` 的边界也在契约里写明：
+  `status` 只回过滤后的 mission 条数，roster 行只来自 `roster` 视图且不受它过滤，只有 spawn、
+  interrupt、roster 三类写入会打行戳，`tower_plan`/`tower_mission`/`tower_complete`/
+  `tower_test`（测试回执）/merge/review/worktree 写入只推 revision 不打戳。
+- **`tower_verify` 让 reviewer 有可复现的只读执行面（#202）**：reviewer 此前只能复述 worker 的
+  叙述：它的 preset 只有 read/glob/grep 加 `tower_inspect`，没有 shell，也无法复现任何断言。
+  新工具只跑一个封闭白名单：`{kind:"tests", files:["tests/xxx.test.mjs"]}`（1–30 个、必须落在
+  mission 工作树内）、`{kind:"tsc"}`、或共享 25 文件分片计划中的**一个** `{kind:"shards", batch:N}`
+  ——永远不是整仓套件、永远不是 shell、永远不接受字符串命令，全部参数在第一次执行前校验完毕。
+  每次检查写入 `mission.testRuns` 一条回执，结果行 `{check, kind, command, status, exitCode,
+  durationMs, summary, truncated, runId}`，`status` 为 `passed`/`failed`/`timeout`/`error`/
+  `unavailable`（缺 `node_modules` 时给出 `spawn.nodeModules:"link"` 这条补救），`timeoutMs`
+  5000–600000（默认 120000）超时会杀掉整棵进程树而不是留下孤儿子进程。工具归 reviewer 所有
+  （`ROLE_TOOLS`、`PRESET_ALLOWS['tower-reviewer']`、授权矩阵），worker preset 不动，所以宿主
+  阶梯不移动：构建表面 22 → 23，reviewer 5 → 6 个工具 / 7,260 输入字节，`preset:reviewer`
+  7,342 → 9,202 B，tower 仍是 15 个工具 / 18,871 B，随包 profile 挂载 18 个。
+- **`tower_mission` 支持批量修改（#216）**：大改动（例如一次给十几个 mission 加同一条 blocker）
+  此前要串行调用并各自推 revision。现在 `missions[]`（每项与单条同形）或生命周期 shorthand
+  `ids[]` 可以一次提交，`atomic` 只在批量下生效且默认为 `true`：一次 `withStateLock`、一次
+  revision、每个 mission 一条 activity 加一条 `mission.bulk`，任何无效或未知 id 都会在写入前
+  回滚整批；`atomic:false` 按顺序应用并逐项回报 `{id, ok, mission?, error?, code?}`。单条输出
+  不变，`accept`/`accept_note` 仍只属于单条（人工验收不能被批量制造）。
+- **`tower_plan` 支持 `dry_run` 与计划内的 `key` 依赖（#217）**：`dry_run:true` 走完全部校验
+  （scope、key、deps、重叠、组件）却不写 state、不创建 mission、不推 revision，返回
+  `{dry_run, ok, revision, missions:[{index, key?, wouldBeId, title, kind, scope, deps, overlaps}],
+  problems}`，`wouldBeId` 就是该 mission 将得到的 id，`deps` 已解析成 id，`problems` 是完整
+  清单而非第一处失败；真实 plan 失败时在 `details.problems` 给出同一份完整清单。mission 上的
+  `key` 只在本批内可被 `deps` 引用（trim 后 ≤64 字符、不能是 `M<n>` 形状、必须唯一、绝不持久化），
+  依赖可以写既有 id、key 或 would-be id，环仍在创建任何东西之前被拒绝。
+- **`spawn.nodeModules: "link"` 让工作树看见依赖（#218）**：工作树默认没有 `node_modules`，任何
+  需要依赖的自检都会落到 `unavailable`。新配置键 `spawn.nodeModules`（`none` 默认 / `link`）在
+  选择 `link` 时把 `<worktree>/node_modules` 建成指向基线检出已安装依赖的 junction，并把
+  `{target, path, createdAt}` 记进 `mission.worktree.nodeModulesLink` 与 roster 行；目标必须先存在，
+  否则 spawn 以 `invalid-argument` 拒绝并给出补救。配置表面因此 58 → 59 个键，仍是 16 个 section。
+- **`tower_init({op:"adopt"})` 返回工作树残留报告（#204）**：adopt 只分类、绝不修复。对每个带
+  记录工作树的非终态 mission 返回 `{id, status, branch, tip, lastCommit, worktreePath,
+  dirty:{files, paths, sample}, lastActivityAt, class, suggestedAction}`，`class` 为 `dirty`、
+  `clean`、`unmerged`、`missing`、`external` 或 `unknown`（探测失败一律降级为 `unknown`，不谎称
+  干净），`suggestedAction` 直接给出下一步（干净时为 `none`）。它不改变 `retire_missing` 语义。
+- **完成证据可以引用 `runId`（#206）**：`tower_complete` 的 `checks` 接受 `{name, runId?, command?,
+  exitCode?, evidence?}`，`runId` 必须指向本站 mission `testRuns` 里的回执，未知或外来 id 在写入
+  任何 state 之前就被 `invalid-argument` 拒绝；没有任何回执佐证的 `command`/`exitCode` 断言会被
+  preflight 报成 **advisory** 的 `checks-unverified` 警告——防护是把关提示，绝不进入 `blockers[]`、
+  绝不翻转 `ok`。
+- **`tower_mission({task_add})` 追加任务（#212）**：补一条/几条任务此前要重排整个任务表。
+  `task_add` 接受 1–20 个非空字符串（每个 ≤200 字符），按顺序追加为 `open` 任务且不改既有
+  索引；planned、active、paused、blocked 都允许，completed/merged/abandoned 以 `invalid-transition`
+  拒绝且不写 state，所以追加出来的 `open` 任务会让 `tower_complete` 保持关闭直到完成或丢弃。
+
+### 变更
+
+- **基线不一致时 `tower_plan` 与 `tower_spawn` 直接拒绝（#215）**：在错误分支上规划会成功，
+  然后在合并时把 mission 搁浅，这是最昂贵的可预防失败。两个工具现在写任何 state 或启动任何
+  agent 之前，都把实时 HEAD 与 `state.base` 对比；不同分支（或 detached HEAD）抛
+  `[tower:base-mismatch]`，同时点名两侧并给出两条补救：检出记录的基线，或在没有在途 mission 时
+  运行 `tower_init({base:"<branch>", reanchor:true})`。被拒绝的调用不写 state；`status` 同时展示
+  base 与 head 并带警告，`reanchor` 的拒绝信息点名挡路的 mission id。新增这一个错误码，工具错误码
+  43 → 44。
+- **preflight 给出有序的解决步骤、顺序与环（#208）**：每个 blocker 现在带一个有序的 `resolution`
+  列表，结果顶层带 `order`（依赖合并先做、再 `rebase`、最后剩下的步骤），并用 `cycle` 报告
+  `null` 或一个点名相关 mission id 的 `dependency-cycle` 结论加一条 `break-dependency-cycle`
+  步骤。不能合并的依赖（survey）被计划成 `complete-mission` 而不是 merge；blocked mission 的
+  任务追加与解决顺序在同一份结果里对齐。它仍然只是诊断，从不 merge 或 rebase。
+- **死掉的子代理留下诊断（#210）**：roster 行除 `stale` 外新增 `lastObservedAt`（目录最后一次
+  权威目击）、`failureReason`（上一次激活失败的原因，任何非失败结局都会清掉它）与
+  `previousOutcome`（被替换的旧行留下的结局，先记录再退役）。`agent-not-resumable`、
+  `unknown`/`missing` 活动现在有据可查，而不是只剩一个消失的行。
+- **读视图可以投影（#211）**：`tower_inspect` 的 `status` 支持 `fields:["id","status"]` 精确投影，
+  `diff` 支持 `stat:true` 用逐文件 `{path, added, deleted}` 替换补丁字节（二进制为 `null`），
+  `doctor` 支持 `checks:true` 与 `compact:true`，非终态 mission 带 `worktreeDirty` 与
+  `uncommittedPathCount`（每个 mission 至多一次有界 `git status`，读不到时为 `null`）。大仓库的
+  一次读取不再必然把整个补丁塞进上下文。
+- **`release-notes` 参数加固（#213）**：`--since` 只允许出现一次且必须命名一个已存在的 tag；缺参、
+  未知 flag、非法版本、`since >= version` 或空窗口都以退出码 2 失败，`--check <file>` 逐字节
+  比对；此前一个拼错的参数可以安静地写出错误的 Release 正文。
+- **空的 review checkout 壳会被清扫（#214）**：checkout 内容被删掉后目录可能留下来，而
+  `git worktree list` 已经不再报告它。teardown 现在清扫工作树根下直属的空壳（`removeSandbox` →
+  `isEmptyDirectory` → `removeEmptyDirectory`，非空目录留给操作员），并把「真的空」与
+  「目录里是别人的工作树」区分开；目录枚举与删除成为可选 `StorePort` 能力（`readdir`/`rmdir`），
+  不支持的 store 会报告 `leftoversUnavailable` 与警告而不是把整个根当成空。doctor 同步提示这一限制。
+
+### 修复
+
+- **teardown 绝不顺着自己没创建的链接走（F100）**：`spawn.nodeModules:"link"` 记录的那条
+  `node_modules` junction 在 git 删除之前被单独解除，目标永远不动；工作树顶层只要还有未记录的
+  链接或 junction，整个 checkout 就以 `keep` 决定留下并给出 `links` 原因。删除之后残留的顶层条目
+  在**不递归**的前提下被处理：解除记录的链接、保留未记录的链接与文件、只删除被证明为空的目录，
+  逐项写进 `residuals`，被解除的记录链接写进 `nodeModulesLink`。
+- **`tower_verify` 绑定到它的 mission（F104）**：仅有 reviewer 角色并不够，roster 行必须记录在
+  被验证的那个 mission 上，否则一个 reviewer 可以对着别人的工作树跑检查并把回执写进别人的
+  `testRuns`。绑定走单一的 `requireMissionParticipant` 规则，`actor.missionId` 与
+  `args.missionId` 不一致时拒绝，`runId` 的措辞也同时补上 `tower_verify`。
+- **`tower_test` 与 `tower_verify` 共用一次进程树终止（F105）**：`tower_test` 带着一份一个月前的
+  win32 终止顺序副本，先直接杀 pid 再 `taskkill`——此时 taskkill 以 128 退出、不再枚举后代，
+  `node --test` 的每文件子进程活过了超时，而回执已经写着 `status:"timeout"`，调用还卡在孤儿
+  进程持有的管道上。CI 从未发现它，因为 POSIX 分支（`process.kill(-pid)`）是对的，而没有任何
+  Linux leg 会诱发超时。现在 `adapters/process-tree.js` 是两个适配器唯一的
+  `killProcessTree`/`killTreeWin32`/`TREE_KILL_BOUND_MS` 实现（仍位于 `adapters/**`，所以
+  `child-process-surface` 规则继续成立），排序只在共享模块里断言一次，`tests/interruption.test.mjs`
+  用真实进程做的回归证明后代不会活过 3 s 超时。
+
 ## 2.9.7（2026-11-21）
 
 ### 新增

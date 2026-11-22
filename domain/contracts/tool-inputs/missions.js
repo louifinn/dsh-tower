@@ -98,7 +98,7 @@ export const CompleteInput = Type.Object({
         command: Type.Optional(Type.String({ description: 'Command or method used.' })),
         exitCode: Type.Optional(Type.Integer({ description: 'Observed exit code.' })),
         evidence: Type.Optional(Type.String({ description: 'Short evidence line/log reference.' })),
-        runId: Type.Optional(Type.String({ description: 'Id of a recorded test run of this mission (an entry in testRuns, e.g. run-3) returned by tower_test.' })),
+        runId: Type.Optional(Type.String({ description: 'Id of a recorded test run (an entry in testRuns, e.g. run-3) returned by tower_test or tower_verify.' })),
       }, { additionalProperties: false }),
       { description: 'Optional evidence ledger entries: {name, command?, exitCode?, evidence?}.' },
     ),

@@ -12,7 +12,7 @@ It returns:
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
-    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17. Source: 0.2.2-rc.3 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
+    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.5: 0.2.2-rc.5 verified on 2026-11-22. Source: 0.2.2-rc.5 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
     { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
     { "id": "foreign-capabilities", "status": "pass", "detail": "no non-Tower capability is available; 4 known types checked" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
@@ -20,7 +20,7 @@ It returns:
   "surface": {
     "configKeys": 59,
     "sections": 16,
-    "tools": 22,
+    "tools": 23,
     "baselineDate": "2026-11-12",
     "line": "config keys: 59 · sections: 16 · tools: 23"
   },

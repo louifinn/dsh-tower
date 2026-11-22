@@ -238,7 +238,7 @@ auto-review 包中的变更，不是 Tower 的变更，因此在这里声称兼�
 实时子代理目录。
 
 `subsystems` 逐个列出五个默认关闭的组件行（`tower-batch`、`tower-import`、`tower-leases`、
-`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 22 个之中（2.9.0 为 21 个）。
+`tower-tests`、`tower-hmr`），字段为 `{id, enabled, tool, enable}`；每一行的工具仍留在全开 23 个之中（2.9.0 为 21 个）。
 `components` 检查会写明该行是关闭而非删除，并给出开启步骤。`deprecated-tool-names` 检查扫描
 `mode.denyTools` 中 #163 合并或移除的旧名（`tower_control`、`tower_adopt`、`tower_findings`、
 `tower_import_legacy`、`tower_legacy_map`、`tower_status`、`tower_roster`、`tower_diff`、
