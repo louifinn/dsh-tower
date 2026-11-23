@@ -51,7 +51,11 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   - **`tower_test` and `tower_verify` timeouts now kill the whole process tree.** A timed-out run
     reports `status: "timeout"` and no descendant survives the kill: the ordering is
     `taskkill /pid <pid> /T /F` **before** any direct kill on Windows (negating the child first makes
-    taskkill exit 128 without enumerating descendants), and the negative process group on POSIX.
+    taskkill exit 128 without enumerating descendants); on POSIX the process table is read
+    (`ps -A -o pid=,ppid=`) **before** any signal so the transitive descendants are known, then the
+    process group is killed and each collected descendant is signalled. The group kill alone is not
+    enough: a descendant spawned with `detached: true` calls `setsid(2)` and lands in a new session
+    *and* group, so it would outlive the kill.
     Both adapters share `adapters/process-tree.js`, so a timeout can no longer leave `node --test`'s
     per-file children holding the capture pipes.
   - **`spawn.nodeModules` defaults to `none`.** A spawned worktree has no `node_modules` unless the

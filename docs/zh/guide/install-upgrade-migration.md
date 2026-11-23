@@ -50,7 +50,9 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   - **`tower_test` 与 `tower_verify` 超时后现在会杀掉整棵进程树。** 超时的运行报告
     `status: "timeout"`，且没有任何后代进程活过这次击杀：Windows 上顺序是
     `taskkill /pid <pid> /T /F` **先于**任何直接 kill（先给子进程发信号会让 taskkill 以 128 退出，
-    根本枚举不到后代），POSIX 上用负进程组。两个 adapter 共用 `adapters/process-tree.js`，因此
+    根本枚举不到后代）；POSIX 上则**先**读进程表（`ps -A -o pid=,ppid=`）拿到全部后代，再杀进程组、
+    再逐个给收集到的后代发信号；只杀进程组不够，以 `detached: true` 派生的后代会调用 `setsid(2)`
+    进入新的会话**和**新的进程组，从而活过这次击杀。两个 adapter 共用 `adapters/process-tree.js`，因此
     超时后不会再有 `node --test` 的逐文件子进程占着管道。
   - **`spawn.nodeModules` 默认为 `none`。** 除非以 `spawn.nodeModules: "link"` 启动 mission，
     派生出的 worktree 没有 `node_modules`；`link` 会把 `<worktree>/node_modules` 建成指向基线检出
