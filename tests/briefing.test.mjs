@@ -239,6 +239,45 @@ test('reviewer briefing: completion checks and prior rounds are injected with a 
   assert.match(text, /Extra tower instructions:\nkeep the diff tiny/)
 })
 
+// #233: two children died after a briefing told them to read a mission with
+// `tower_inspect view:"status"`, which dumped the whole state table (104
+// missions, 422 roster rows, hundreds of KB) into their context. Reading
+// narrowly is a rule, not a hint: it must name this mission's id and the
+// missionId/limit/agent-tail reads, and it must sit inside Rules:.
+test('briefings teach the bounded read in both builders, naming this mission id', () => {
+  const workerText = workerBriefing(fixture())
+  const reviewerText = reviewerBriefing(fixture())
+  const rulesStart = (text) => text.indexOf('\nRules:\n')
+
+  for (const [label, text] of [
+    ['worker', workerText],
+    ['reviewer', reviewerText],
+  ]) {
+    const start = rulesStart(text)
+    assert.ok(start >= 0, `${label} briefing keeps its Rules: block`)
+    const rules = text.slice(start)
+    // The one rule, with its concrete bounded calls.
+    assert.match(rules, /^- Read narrowly, never the whole table:/m, `${label} briefing has the bounded-read rule`)
+    assert.ok(rules.includes('tower_inspect({view:"status",missionId:"M1"})'), `${label}: mission-scoped status read`)
+    assert.match(rules, /limit\/offset paging/, `${label}: paging when a listing is unavoidable`)
+    assert.ok(rules.includes('nextOffset'), `${label}: the reply names nextOffset`)
+    assert.ok(rules.includes('tower_inspect({view:"roster",agent:"<name>",tail:N})'), `${label}: agent-scoped tail`)
+    assert.match(rules, /tower_inbox/, `${label}: inbox for messages`)
+    // The cost of ignoring it is stated, not implied.
+    assert.match(rules, /hundreds of KB/, `${label}: names the cost of an unbounded dump`)
+    assert.match(rules, /can end your turn/i, `${label}: names the consequence`)
+    // "status" alone, with no missionId, must never be presented as the way in.
+    assert.doesNotMatch(rules, /tower_inspect\(\{view:"status"\}\)/, `${label}: never teaches the bare table read`)
+  }
+
+  // The reviewer builds its rule from the same helper, so the mission id must be
+  // the reviewer's own mission — not a hard-coded worker id.
+  const reviewer = reviewerBriefing(
+    fixture({ mission: { ...fixture().mission, id: 'M9', title: 'Other' } }),
+  )
+  assert.ok(reviewer.includes('tower_inspect({view:"status",missionId:"M9"})'))
+})
+
 test('briefings truncate long review findings and long reports', () => {
   const longFindings = `start ${'x'.repeat(5000)} end`
   const longReport = `start ${'y'.repeat(5000)} end`
