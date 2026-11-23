@@ -17,10 +17,11 @@ import {
   readStateLock,
   stateCommitLockPath,
   stateLockToken,
+  withGitLock,
   withLock,
   writeStateLocked,
 } from '../adapters/store.js'
-import { clearStateCommitLock, createStorePort } from '../adapters/store-fs.js'
+import { clearStateCommitLock, createStorePort, fsp } from '../adapters/store-fs.js'
 import { loadStateFile } from '../adapters/stateFile.js'
 import { registerRecoverTool } from '../tools/recover.js'
 
@@ -653,6 +654,258 @@ test('a refused mode-store write reports the config-write phase (#228)', async (
   } finally {
     fs.writeFileSync = originalWriteFileSync
     assert.equal(fs.readFileSync(file, 'utf8'), '{"keep":true}\n', 'the previous mode store is unchanged')
+    removeTemp(root)
+  }
+})
+
+// #228 P3-c: the git-mutex create is translated too, but by its own phase name so
+// a failed merge names the record it could not create instead of looking like a
+// state write.
+test('a refused git-mutex create reports the merge-lock phase (#228)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await assert.rejects(
+      () =>
+        withGitLock(
+          paths,
+          async () => {
+            throw new Error('unreachable')
+          },
+          {
+            phase: 'merge',
+            create: () => {
+              throw Object.assign(new Error('ENOSPC: no space left on device, open'), { code: 'ENOSPC' })
+            },
+          },
+        ),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.code, 'ENOSPC')
+        assert.equal(error.details.path, paths.gitLock)
+        assert.equal(error.details.phase, 'merge-lock')
+        assert.match(error.message, /during merge-lock/)
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.gitLock), false)
+    assert.equal(fs.existsSync(paths.state), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #228 P1-1: the state commit mutex is created *inside* writeStateLocked, after
+// the mutation already decided to publish. A refused create there used to escape
+// untranslated and reach the model as `[tower:tool-internal] ENOSPC: ...`.
+test('a refused commit-mutex create reports the state-commit-lock phase (#228)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { revision: 1, missions: [] }, held.token, {
+            commitLockCreate: () => {
+              throw Object.assign(new Error('ENOSPC: no space left on device, open'), { code: 'ENOSPC' })
+            },
+          })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.code, 'ENOSPC')
+        assert.equal(error.details.path, stateCommitLockPath(paths))
+        assert.equal(error.details.phase, 'state-commit-lock')
+        assert.match(error.message, /during state-commit-lock/)
+        assert.match(error.message, /commit mutex/)
+        assert.match(error.message, /— next: .*free space/)
+        assert.doesNotMatch(error.message, /tool-internal/)
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false, 'the refused commit mutex wrote no state')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #228 P1-2: `writeFile(..., {flag:'wx'})` creates the record and then writes the
+// payload, so a full volume can leave an empty/torn record behind. Left in place
+// it would make every later writer report `state-commit-busy` forever.
+test('a failed commit-mutex create removes the partial record it left behind (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const lockPath = stateCommitLockPath(paths)
+  try {
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { revision: 1, missions: [] }, held.token, {
+            commitLockCreate: async (file) => {
+              // The name is created, then the payload write fails: exactly the
+              // torn record a full disk leaves.
+              await fsp.writeFile(file, '{"token":"partial', 'utf8')
+              throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+            },
+          })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.details.phase, 'state-commit-lock')
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(lockPath), false, 'the partial commit record is removed')
+
+    // The next writer is not wedged: a normal commit still succeeds.
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { revision: 1, missions: [] }, held.token)
+    })
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a failed commit-mutex create never removes a foreign holder record (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const lockPath = stateCommitLockPath(paths)
+  try {
+    // A real holder's record (its token is not this attempt's) must survive: the
+    // removal is a cleanup of our own failed create, not a reclaim.
+    const foreign = '{"token":"another-writer","pid":424242}\n'
+    fs.writeFileSync(lockPath, foreign)
+    await assert.rejects(
+      () =>
+        withLock(paths, async (_paths, held) => {
+          await writeStateLocked(paths, { revision: 1, missions: [] }, held.token, {
+            commitLockCreate: () => {
+              throw Object.assign(new Error('ENOSPC: no space left on device, open'), { code: 'ENOSPC' })
+            },
+          })
+        }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.details.phase, 'state-commit-lock')
+        return true
+      },
+    )
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), foreign, 'a foreign holder record is untouched')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #228 P1-3: the release runs *after* the state document may already be on disk,
+// so its failure must say the write landed and name the path the next writer will
+// trip over — never borrow the "previous document is unchanged" note.
+test('a refused commit-mutex release says the state write landed and names the stuck lock (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const originalRename = fsp.rename
+  try {
+    await withLock(paths, async (_paths, held) => {
+      await writeStateLocked(paths, { revision: 1, missions: [] }, held.token)
+    })
+    fsp.rename = async (from, to) => {
+      if (String(from).includes('state.commit.lock')) {
+        throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' })
+      }
+      return originalRename(from, to)
+    }
+    try {
+      await assert.rejects(
+        () =>
+          withLock(paths, async (_paths, held) => {
+            await writeStateLocked(paths, { revision: 2, missions: [] }, held.token)
+          }),
+        (error) => {
+          assert.equal(error.code, 'state-io-failed')
+          assert.equal(error.retryable, false)
+          assert.equal(error.details.phase, 'state-commit-lock')
+          assert.equal(error.details.path, stateCommitLockPath(paths))
+          assert.equal(error.details.released, false)
+          assert.match(error.message, /the state document was written/)
+          assert.match(error.message, /state-commit-busy/)
+          assert.doesNotMatch(error.message, /previous document is unchanged/)
+          assert.doesNotMatch(error.message, /tool-internal/)
+          return true
+        },
+      )
+    } finally {
+      fsp.rename = originalRename
+    }
+    // The state write did land: the message must not imply otherwise.
+    assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 2)
+    assert.equal(fs.existsSync(stateCommitLockPath(paths)), true, 'the stuck mutex is still there')
+  } finally {
+    fsp.rename = originalRename
+    removeTemp(root)
+  }
+})
+
+// #228 P1-4: withLock's own release is a durable write too. When the mutation
+// succeeded, a refused release must surface translated; when it failed, the
+// release failure must not replace the error that is already on its way out.
+test('a refused state-lock release after a successful mutation reports the lock-release phase (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const originalRename = fsp.rename
+  try {
+    fsp.rename = async (from, to) => {
+      if (from === paths.lock) {
+        throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' })
+      }
+      return originalRename(from, to)
+    }
+    try {
+      await assert.rejects(
+        () => withLock(paths, async () => 'ok'),
+        (error) => {
+          assert.equal(error.code, 'state-io-failed')
+          assert.equal(error.retryable, false)
+          assert.equal(error.details.code, 'ENOSPC')
+          assert.equal(error.details.path, paths.lock)
+          assert.equal(error.details.phase, 'lock-release')
+          assert.match(error.message, /during lock-release/)
+          assert.match(error.message, /state-locked until it is removed/)
+          assert.doesNotMatch(error.message, /tool-internal/)
+          return true
+        },
+      )
+    } finally {
+      fsp.rename = originalRename
+    }
+  } finally {
+    fsp.rename = originalRename
+    removeTemp(root)
+  }
+})
+
+test('a refused state-lock release never replaces the mutation error already in flight (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const originalRename = fsp.rename
+  try {
+    fsp.rename = async (from, to) => {
+      if (from === paths.lock) {
+        throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' })
+      }
+      return originalRename(from, to)
+    }
+    try {
+      await assert.rejects(
+        () =>
+          withLock(paths, async () => {
+            throw new Error('the mutation itself failed')
+          }),
+        (error) => {
+          assert.equal(error.message, 'the mutation itself failed')
+          assert.equal(error.code, undefined)
+          return true
+        },
+      )
+    } finally {
+      fsp.rename = originalRename
+    }
+  } finally {
+    fsp.rename = originalRename
     removeTemp(root)
   }
 })

@@ -148,6 +148,7 @@ Host plugin (index.js — Cordis apply/effect glue)
        adapters/vcs-git.js    the only module importing node:child_process; createVcsPort()
        adapters/git.js        bounded git commands + timeout classification
        adapters/store.js      repo-scoped lock + atomic JSON + activity.jsonl
+       adapters/commitLock.js  the state commit mutex (create/release, #228)
        adapters/persistence.js  shared atomic write / lock / heartbeat primitives
        adapters/archive.js    terminal-mission archive files
        adapters/leases.js     repo-scoped advisory lease ledger

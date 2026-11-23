@@ -4,12 +4,15 @@ import { TowerToolError } from '../domain/errors.js'
 // protocol is the single kernel in ./lock.js (#167).
 import { fsp } from './store-fs.js'
 import {
+  acquireCommitLock,
+  releaseCommitLock,
+} from './commitLock.js'
+import {
   PROCESS_STARTED_AT,
   acquireLock,
   lockRecord,
   lockTiming,
   readLock,
-  releaseLock,
 } from './lock.js'
 import {
   activityPolicy,
@@ -284,115 +287,14 @@ export function classifyLandedState(payloadRaw, landedRaw) {
 }
 
 /**
- * Wait budget for the commit mutex. The holder's critical section is one
- * temp-file write plus one rename (milliseconds), so a waiter that cannot get
- * the mutex in this window is told to retry rather than being allowed to wait
- * out the whole state-lock timeout.
+ * #228: the commit mutex moved to its own adapter (`./commitLock.js`) because
+ * creating and releasing it are durable writes of their own, and this module is
+ * already at the architecture gate's size ceiling. It is re-exported here so the
+ * store port keeps one shape: `pathsFor` callers and the read-only diagnostics
+ * still reach it through this module.
  */
-const COMMIT_LOCK_TIMEOUT_MS = 2000
-const COMMIT_LOCK_POLL_MS = 10
+export { acquireCommitLock, commitLockPath, readStateCommitLock, releaseCommitLock, stateCommitLockPath } from './commitLock.js'
 
-/** The commit-mutex path for `paths`; older paths objects may not carry it. */
-export function commitLockPath(paths) {
-  return paths.commitLock ?? path.join(paths.dir, 'state.commit.lock')
-}
-
-/**
- * The short-lived commit mutex that fences the serialise→rename→read-back
- * window of one state commit (#F24). It lives next to `state.json` and is
- * derived from `paths.dir` rather than stored on `paths`, so adding the fence
- * did not widen the `pathsFor` contract every store implementation mirrors.
- *
- * @param {{ dir: string, commitLock?: string }} paths
- * @returns {string}
- */
-export function stateCommitLockPath(paths) {
-  return commitLockPath(paths)
-}
-
-/**
- * Acquire the short-lived commit mutex that fences one state commit.
- *
- * Lock order is fixed: the state lock is taken first and the commit mutex only
- * while it is held (see `writeStateLocked`). Nothing may take the commit mutex
- * without the state lock, and nothing holding the commit mutex may wait for
- * the state lock; that ordering is what makes a deadlock impossible.
- *
- * Reclaim follows the same contract as every other lock in this kernel: a
- * record is moved aside only when its PID is provably dead. A live holder
- * (even a silent one) is never stolen, so an operator's forced recovery of the
- * *state* lock cannot hand a second writer this mutex while its holder is
- * still committing. The record needs no heartbeat: it is held for a single
- * rename, and a waiter's timeout surfaces the holder's PID/token instead.
- *
- * @param {{ state: string, lock: string, dir: string, commitLock?: string }} paths
- * @param {{ commitLockTimeoutMs?: number, commitLockPollMs?: number, now?: number | (() => number) }} [options]
- * @returns {Promise<{ lockPath: string, token: string }>}
- */
-async function acquireCommitLock(paths, options = {}) {
-  const lockPath = commitLockPath(paths)
-  const timeoutMs = Number(options.commitLockTimeoutMs ?? COMMIT_LOCK_TIMEOUT_MS)
-  const pollMs = Number(options.commitLockPollMs ?? COMMIT_LOCK_POLL_MS)
-  const token = crypto.randomUUID()
-  const held = await acquireLock(lockPath, {
-    token,
-    record: lockRecord(token, { kind: 'state-commit' }, options),
-    timeoutMs,
-    pollMs,
-    heartbeat: false,
-    now: options.now,
-  })
-  if (held) return { lockPath, token }
-  const owner = await readLock(lockPath, options)
-  const timing = owner.record ? owner.timing ?? lockTiming(owner.record, options) : null
-  const facts = owner.record
-    ? `held by pid ${owner.record.pid ?? 'unknown'} for ${formatSeconds(timing?.ageMs)} (token ${owner.record.token ?? 'missing'})`
-    : 'the holder released it before it could be inspected'
-  throw new TowerToolError(
-    'state-locked',
-    `refusing to write ${paths.state}: another writer is committing tower state (the commit mutex at ${lockPath} is ${facts}); the commit window is short, so retry`,
-    {
-      retryable: true,
-      nextAction: `retry the mutation; if it keeps failing, confirm no Tower writer is active and run tower_recover clear-stale-lock with confirm:"CLEAR_STALE_LOCK" (add force:true only after confirming the holder is gone) to move ${lockPath} to a backup`,
-      details: {
-        reason: 'state-commit-busy',
-        lockPath,
-        stateLockPath: paths.lock,
-        holderPid: owner.record?.pid ?? null,
-        holderToken: owner.record?.token ?? null,
-        heldMs: timing?.ageMs ?? null,
-        waitMs: timeoutMs,
-      },
-    },
-  )
-}
-
-/**
- * Release the commit mutex with the token CAS, so a record replaced by another
- * writer is never removed. It runs in a `finally`: an exception or a timeout
- * below the write must not leave the mutex behind.
- *
- * @param {{ lockPath: string, token: string } | null} commit
- */
-async function releaseCommitLock(commit) {
-  if (!commit) return
-  await releaseLock(commit.lockPath, commit.token)
-}
-
-/**
- * Inspect the leftover commit mutex without touching it (#F71).
- *
- * A normal waiter never needs this: `acquireCommitLock` reclaims a provably
- * dead PID on EEXIST. The record is reported here so `tower_recover` and
- * `tower_inspect` can explain why every state write fails with
- * `state-commit-busy` instead of leaving an operator to delete a file by hand.
- *
- * @param {{ dir: string, commitLock?: string }} paths
- * @param {{ now?: number | (() => number) }} [options]
- */
-export async function readStateCommitLock(paths, options = {}) {
-  return readLock(commitLockPath(paths), options)
-}
 
 /**
  * A mutation loaded a document that another writer has since replaced. The
@@ -592,7 +494,10 @@ export async function writeStateLocked(paths, state, token, options = {}) {
     throw error
   } finally {
     try {
-      await releaseCommitLock(commit)
+      // #228: `landed` makes the release failure truthful — with no write
+      // failure in flight the document may already be on disk, so the message
+      // must not claim the previous document is unchanged.
+      await releaseCommitLock(commit, { landed: failure === null })
     } catch (releaseError) {
       // A failed release must surface when the write itself succeeded (the
       // next writer would see a stuck mutex), but it must not mask the write
@@ -666,6 +571,7 @@ export async function withLock(paths, fn, options = {}) {
   /** @type {{ token: string, handle: { lost?: boolean, release: () => Promise<boolean> }, baseRaw: string | null, lastWrittenRaw: string | null, superseded: { revision: number | null, landedRevision: number | null } | null }} */
   const heldState = { token, handle: held, baseRaw: null, lastWrittenRaw: null, superseded: null }
   HELD_STATE_LOCKS.set(paths, heldState)
+  let failure = null
   try {
     // Capture the base document under the lock, before the mutation loads it:
     // the first write may replace exactly these bytes. A mutation that loads a
@@ -673,12 +579,30 @@ export async function withLock(paths, fn, options = {}) {
     // publish, which is the lost-update fence across processes (#F24).
     heldState.baseRaw = await readStateBytes(paths)
     return await fn(paths, { token })
+  } catch (error) {
+    failure = error
+    throw error
   } finally {
     HELD_STATE_LOCKS.delete(paths)
-    await held.release()
+    // #228: releasing the writer lock renames the record aside and reads it
+    // back, so it is a durable write. A raw refusal is translated when the
+    // mutation itself succeeded — it must not come out bare, and it must never
+    // replace the already-translated error that is on its way out.
+    const releaseError = await held.release().then(
+      () => null,
+      (error) => error ?? new Error('the state lock release failed'),
+    )
     await fsp
       .appendFile(path.join(paths.dir, 'lock-holds.jsonl'), `${JSON.stringify({ at: Date.now(), ms: Date.now() - startedAt, pid: process.pid })}\n`, 'utf8')
       .catch(() => {})
+    if (releaseError !== null && failure === null) {
+      throw translateStateIo(releaseError, {
+        path: paths.lock,
+        phase: 'lock-release',
+        action: 'release the Tower state lock',
+        note: 'the mutation finished, but the lock record could not be moved aside, so the next writer reports state-locked until it is removed',
+      })
+    }
   }
 }
 
@@ -744,10 +668,20 @@ export async function withGitLock(paths, fn, options = {}) {
     )
   }
   const waitedMs = Math.max(0, clock() - waitStartedAt)
+  let failure = null
   try {
     return await fn(paths)
+  } catch (error) {
+    failure = error
+    throw error
   } finally {
-    await held.release()
+    // #228: same class as the state lock — moving the record aside is a durable
+    // write. Translate a refusal when the mutation succeeded; never mask the
+    // error the mutation itself already raised.
+    const releaseError = await held.release().then(
+      () => null,
+      (error) => error ?? new Error('the git mutation lock release failed'),
+    )
     await fsp
       .appendFile(
         path.join(paths.dir, 'lock-holds.jsonl'),
@@ -755,5 +689,13 @@ export async function withGitLock(paths, fn, options = {}) {
         'utf8',
       )
       .catch(() => {})
+    if (releaseError !== null && failure === null) {
+      throw translateStateIo(releaseError, {
+        path: lock,
+        phase: `${phase}-release`,
+        action: 'release the git mutation lock',
+        note: `the ${phase} git mutation ran to completion, but its lock record could not be moved aside, so the next git mutation reports state-locked until ${lock} is removed`,
+      })
+    }
   }
 }

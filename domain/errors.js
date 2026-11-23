@@ -328,12 +328,12 @@ export const ERROR_CODES = {
   // modified by the failed write.
   'state-io-failed': {
     description:
-      'A Tower state, activity, lock or mode document could not be read or written because the host filesystem refused the operation; the previous document is left in place.',
+      'A Tower state, activity, lock, commit-mutex or mode document could not be read or written because the host filesystem refused the operation; the previous document is left in place.',
     trigger:
-      'ENOSPC/EMFILE/ENFILE/EIO while writing state.json, the activity log, a lock record, the merge record or the mode store',
+      'ENOSPC/EMFILE/ENFILE/EIO while writing state.json, the activity log, a lock record, the state commit mutex, the merge record or the mode store',
     retryable: false,
     nextAction:
-      'free space on the volume named in the message (or close the open file handles), confirm the directory is writable, then retry the same tool call',
+      'free space on the volume named in the message (or close the open file handles), confirm the directory is writable, remove any lock record named in the message, then retry the same tool call',
   },
   'tool-internal': {
     description: 'An unexpected failure; read the message and the activity log.',

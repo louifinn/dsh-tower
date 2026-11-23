@@ -498,6 +498,110 @@ test('a refused merge-commit write reports the path, phase and that the merge di
   }
 })
 
+// #228 P3-a: the mirror case. The merge landed and the state record was
+// committed; only the activity line is refused. "The previous activity document
+// is unchanged" alone would read like the merge failed, so the message has to
+// say what actually landed.
+test('a refused activity append after a landed merge says the merge landed (#228)', async () => {
+  const { root, tower } = await mergeableMission('dsh-tower-faults-merge-activity-')
+  const { fsp } = await import('../adapters/store-fs.js')
+  const realAppendFile = fsp.appendFile
+  const statePath = tower.paths.state
+  try {
+    // Fail only the post-merge activity line: the state on disk already records
+    // the mission as merged when the append runs.
+    fsp.appendFile = async function refuseActivity(target, ...rest) {
+      const mergedOnDisk = (() => {
+        try {
+          return (JSON.parse(fs.readFileSync(statePath, 'utf8')).missions ?? []).some((entry) => entry.status === 'merged')
+        } catch {
+          return false
+        }
+      })()
+      if (mergedOnDisk && String(target).includes('activity.jsonl')) {
+        throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+      }
+      return realAppendFile.call(this, target, ...rest)
+    }
+
+    await assert.rejects(
+      () => tower.merge({ missionId: 'M1', activity: {} }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.code, 'ENOSPC')
+        assert.equal(error.details.path, tower.paths.activity)
+        assert.equal(error.details.phase, 'activity-append')
+        assert.equal(error.message.split('[tower:state-io-failed]').length - 1, 1, 'exactly one prefix')
+        assert.equal(error.message.split('— next:').length - 1, 1, 'exactly one next-action suffix')
+        assert.match(error.message, /landed and the mission record is committed/)
+        assert.match(error.message, /only this merge's activity line could not be appended/)
+        assert.doesNotMatch(error.message, /did not land in the mission state/)
+        assert.doesNotMatch(error.message, /tool-internal/)
+        return true
+      },
+    )
+
+    // The merge really did land, in Git and in the mission state.
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(state.missions.find((entry) => entry.id === 'M1')?.status, 'merged')
+    assert.equal(state.mergeIntent, undefined, 'the intent is consumed by a landed merge')
+    assert.equal(git(tower.root, ['rev-list', '--parents', '-n', '1', 'HEAD']).split(' ').length, 3)
+  } finally {
+    fsp.appendFile = realAppendFile
+    removeTemp(root)
+  }
+})
+
+// #228 P3-a: a post-merge hook turns the commit into a shape mismatch (HEAD is
+// a hook commit whose only parent is the merge). Git already created commits, so
+// the refused record of that problem must say the merge commit exists.
+test('a refused merge-shape record says the merge commit exists in Git (#228)', async () => {
+  const { root, repo, tower } = await mergeableMission('dsh-tower-faults-merge-shape-')
+  const { fsp } = await import('../adapters/store-fs.js')
+  const realOpen = fsp.open
+  const statePath = tower.paths.state
+  try {
+    // A hook commit on top of the merge makes HEAD no longer a two-parent merge.
+    const hooksDir = path.join(repo, '.git', 'hooks')
+    fs.mkdirSync(hooksDir, { recursive: true })
+    fs.writeFileSync(path.join(hooksDir, 'post-merge'), '#!/bin/sh\ngit commit --allow-empty -q -m hook-commit\n', {
+      mode: 0o755,
+    })
+
+    fsp.open = async function refuseShapeWrite(target, ...rest) {
+      const pending = (() => {
+        try {
+          return JSON.parse(fs.readFileSync(statePath, 'utf8')).mergeIntent ?? null
+        } catch {
+          return null
+        }
+      })()
+      if (pending && String(target).includes('.state.json.tmp-')) {
+        throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+      }
+      return realOpen.call(this, target, ...rest)
+    }
+
+    await assert.rejects(
+      () => tower.merge({ missionId: 'M1', activity: {} }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.details.phase, 'state-write')
+        assert.equal(error.message.split('[tower:state-io-failed]').length - 1, 1, 'exactly one prefix')
+        assert.equal(error.message.split('— next:').length - 1, 1, 'exactly one next-action suffix')
+        assert.match(error.message, /exists in Git, but Tower could not record the merge-shape problem/)
+        assert.match(error.message, /did not land in the mission state/)
+        assert.doesNotMatch(error.message, /tool-internal/)
+        return true
+      },
+    )
+  } finally {
+    fsp.open = realOpen
+    removeTemp(root)
+  }
+})
+
 test('the doctor disk row fails below the free-space floor and names the volume (#228)', async () => {
   const { diskSpaceCheck } = await import('../host/doctor-acceptance.js')
   const floorBytes = 64 * 1024 * 1024
@@ -517,8 +621,11 @@ test('the doctor disk row fails below the free-space floor and names the volume 
   assert.equal(unreadable.status, 'warn')
   assert.match(unreadable.detail, /unreadable \(statfs failed\)/)
 
-  // The live row is part of the report and is deterministic when the volume is
-  // healthy (the detail never quotes a moving free-byte count).
+  // The live row is part of the report and is deterministic in shape — but not
+  // in verdict: this runs against the host's real volume, and a CI machine below
+  // the 64 MB floor legitimately fails (a full disk is exactly what #228 is
+  // about). Assert the row exists with a real verdict and a detail naming the
+  // volume; the injected cases above pin the fail/pass/warn wording.
   const { root, repo } = seedRepo('dsh-tower-faults-disk-')
   const { tools } = makeCtx()
   try {
@@ -527,8 +634,11 @@ test('the doctor disk row fails below the free-space floor and names the volume 
     const doctor = await doctorTool.execute({ view: 'doctor', repoRoot: repo }, exec)
     const rows = doctor.checks.filter((entry) => entry.id === 'disk-space')
     assert.equal(rows.length, 1, `expected one disk-space row, saw ${JSON.stringify(doctor.checks.map((e) => e.id))}`)
-    assert.equal(rows[0].status, 'pass')
-    assert.match(rows[0].detail, /free-space floor/)
+    assert.ok(
+      ['pass', 'warn', 'fail'].includes(rows[0].status),
+      `unexpected disk-space status ${rows[0].status}: ${rows[0].detail}`,
+    )
+    assert.match(rows[0].detail, /volume /)
     validateJsonSchema(doctorTool.output.schema, doctor)
   } finally {
     removeTemp(root)

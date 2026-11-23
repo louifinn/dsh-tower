@@ -59,6 +59,66 @@ async function readCommitParents(tower, sha) {
 }
 
 /**
+ * #228: re-render a catalogued `state-io-failed` with one extra true sentence.
+ *
+ * A seam already rendered the message once (`[tower:…] … — next: …`) and the
+ * rethrow renders it again, so the existing prefix/suffix are stripped first:
+ * the caller must see exactly one `[tower:…]` and one `— next:` segment, with
+ * the extra sentence attached to the original cause.
+ *
+ * @param {any} error a `state-io-failed` error
+ * @param {string} sentence what the caller can and cannot conclude
+ */
+function rethrowStateIo(error, sentence) {
+  const body = String(error.message)
+    .replace(/^\[tower:[^\]]+\]\s*/, '')
+    .replace(/ — next: [\s\S]*$/, '')
+  return new TowerToolError(error.code, `${body} — ${sentence}`, {
+    cause: error.cause ?? error,
+    retryable: false,
+    details: error.details,
+  })
+}
+
+/**
+ * Write the state record of a merge that already ran in Git, and say so when the
+ * write is refused. The git-side outcome is a fact by now: the merge commit
+ * either exists or it does not, and the generic adapter note ("the previous
+ * document is unchanged") describes the document, not the merge.
+ *
+ * @param {any} tower
+ * @param {any} state
+ * @param {any} held
+ * @param {string} sentence what happened in Git and what is left to do
+ */
+async function writeStateAfterGit(tower, state, held, sentence) {
+  try {
+    return await tower.writeState(state, held)
+  } catch (error) {
+    if (error?.code !== 'state-io-failed') throw error
+    throw rethrowStateIo(error, sentence)
+  }
+}
+
+/**
+ * Append the activity line of a merge that already landed, and say so when the
+ * append is refused: the state record is committed by then, so an error that
+ * only mentions the activity document would read like the merge did not happen.
+ *
+ * @param {any} tower
+ * @param {any} entry
+ * @param {string} sentence what landed and what is only missing
+ */
+async function appendActivityAfterGit(tower, entry, sentence) {
+  try {
+    return await tower.appendActivity(entry)
+  } catch (error) {
+    if (error?.code !== 'state-io-failed') throw error
+    throw rethrowStateIo(error, sentence)
+  }
+}
+
+/**
  * #228: the merge commit is already in Git when this runs, so a refused state
  * write must never look like a landed merge. The state-write seam raises one
  * catalogued `state-io-failed` (retryable false, `details.path`/`details.phase`),
@@ -70,22 +130,12 @@ async function readCommitParents(tower, sha) {
  * @param {string} newTip
  */
 async function writeMergeRecord(tower, state, held, newTip) {
-  try {
-    await tower.writeState(state, held)
-  } catch (error) {
-    if (error?.code !== 'state-io-failed') throw error
-    // The rethrown error is rendered again, so unwrap the already-rendered
-    // prefix/suffix first: the caller must see exactly one [tower:…] and one
-    // — next: segment, with this sentence attached to the original cause.
-    const body = String(error.message)
-      .replace(/^\[tower:[^\]]+\]\s*/, '')
-      .replace(/ — next: [\s\S]*$/, '')
-    throw new TowerToolError(
-      error.code,
-      `${body} — the merge commit ${newTip.slice(0, 12)} exists in Git but Tower could not record it, so this merge did not land in the mission state and must be re-run`,
-      { cause: error.cause ?? error, retryable: false, details: error.details },
-    )
-  }
+  return writeStateAfterGit(
+    tower,
+    state,
+    held,
+    `the merge commit ${newTip.slice(0, 12)} exists in Git but Tower could not record it, so this merge did not land in the mission state and must be re-run`,
+  )
 }
 
 /**
@@ -225,12 +275,18 @@ async function applyLandedMergeReconcile(tower, stateRevision, missionId, observ
     state.updatedAt = now
     validateState(state, tower.paths.state)
     await tower.writeState(state, held)
-    await tower.appendActivity({
-      at: now,
-      type: 'merge',
-      missionId: mission.id,
-      text: `reconciled already-landed ${observed.mergedCommit.slice(0, 7)} on ${state.base}`,
-    })
+    // #228: the merge this reconciles is already in Git and the record is
+    // committed above; a refused append must not read like a failed merge.
+    await appendActivityAfterGit(
+      tower,
+      {
+        at: now,
+        type: 'merge',
+        missionId: mission.id,
+        text: `reconciled already-landed ${observed.mergedCommit.slice(0, 7)} on ${state.base}`,
+      },
+      `the merge commit ${observed.mergedCommit.slice(0, 12)} was already in Git and the mission record is committed; only the reconcile activity line could not be appended`,
+    )
     tower.emitEvents(applied.events, { revision: state.revision, at: now })
     return { result: landedMergeResult(observed) }
   })
@@ -573,12 +629,19 @@ async function commitMerge(tower, plan, recorded, outcome) {
       state.updatedAt = now
       validateState(state, tower.paths.state)
       await writeMergeRecord(tower, state, held, outcome.newTip)
-      await tower.appendActivity({
-        at: now,
-        type: 'merge',
-        missionId: mission.id,
-        text: `${recorded.intent.branchTip.slice(0, 7)} -> ${outcome.newTip.slice(0, 7)} on ${state.base}`,
-      })
+      // #228: the state record is committed by now. A refused append must say
+      // the merge landed and only its activity line is missing — "the previous
+      // activity document is unchanged" alone reads like the merge failed.
+      await appendActivityAfterGit(
+        tower,
+        {
+          at: now,
+          type: 'merge',
+          missionId: mission.id,
+          text: `${recorded.intent.branchTip.slice(0, 7)} -> ${outcome.newTip.slice(0, 7)} on ${state.base}`,
+        },
+        `the merge commit ${outcome.newTip.slice(0, 12)} landed and the mission record is committed; only this merge's activity line could not be appended, so tower_activity will not show it`,
+      )
       tower.emitEvents(applied.events, { revision: state.revision, at: now })
       return {
         ok: true,
@@ -599,7 +662,15 @@ async function commitMerge(tower, plan, recorded, outcome) {
         state.mergeIntent.problem = { code: 'merge-shape', newTip: outcome.newTip, parents: outcome.parents, at: Date.now() }
         state.revision += 1
         state.updatedAt = Date.now()
-        await tower.writeState(state, held)
+        // #228: Git already produced a commit here; only Tower's record of the
+        // shape problem is at stake, so the message must say the merge commit
+        // exists and this outcome did not land in the mission state.
+        await writeStateAfterGit(
+          tower,
+          state,
+          held,
+          `the merge commit ${outcome.newTip.slice(0, 12)} exists in Git, but Tower could not record the merge-shape problem, so this outcome did not land in the mission state — inspect ${outcome.newTip.slice(0, 12)} by hand before retrying`,
+        )
         await tower.appendActivity({
           at: state.updatedAt,
           type: 'merge',
