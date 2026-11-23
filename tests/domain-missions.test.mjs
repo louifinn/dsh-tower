@@ -479,6 +479,37 @@ test('completion policy normalizes checks and validates the reporting worker', (
     () => assertCompletionRequest({ mission: target, roster: [{ ...worker, state: 'failed' }], input: { agentId: 'a1', report: 'done' } }),
     /a stopped worker cannot report completion/,
   )
+  // #232: refusing without a route left the only way forward in tower memory.
+  // The refusal must name the bookkeeping-worker path AND warn that the status
+  // is never hand-set.
+  {
+    let refusal = null
+    try {
+      assertCompletionRequest({ mission: target, roster: [{ ...worker, state: 'failed' }], input: { agentId: 'a1', report: 'done' } })
+    } catch (error) {
+      refusal = error
+    }
+    assert.ok(refusal, 'a stopped worker must be refused')
+    assert.equal(refusal.code, 'invalid-transition', 'the stable code is unchanged')
+    assert.match(refusal.message, /agent worker-1 is failed; a stopped worker cannot report completion/)
+    assert.match(refusal.nextAction ?? '', /bookkeeping worker/)
+    assert.match(refusal.nextAction ?? '', /tower_complete/)
+    assert.match(refusal.nextAction ?? '', /never set the mission to "completed" by hand/)
+    assert.match(refusal.message, /— next: .*bookkeeping worker/, 'the next action renders in the message')
+    // The record a dead predecessor left behind is quoted when it exists.
+    let withResidue = null
+    try {
+      assertCompletionRequest({
+        mission: target,
+        roster: [{ ...worker, state: 'stale', residue: { filesChanged: 3, branch: 'tower/m1-x' } }],
+        input: { agentId: 'a1', report: 'done' },
+      })
+    } catch (error) {
+      withResidue = error
+    }
+    assert.ok(withResidue)
+    assert.match(withResidue.nextAction ?? '', /left 3 file\(s\) changed on tower\/m1-x/)
+  }
   assert.throws(
     () => assertCompletionRequest({ mission: target, roster: [worker], input: { agentId: 'a1', report: ' ' } }),
     /requires a non-empty report/,

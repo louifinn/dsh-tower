@@ -64,15 +64,16 @@ function isInside(parent, child) {
  * shape the real service returns, and every input is recorded so a case can
  * assert provider/preset/request.cwd.
  */
-function fakeSubagents() {
+function fakeSubagents(ids = null) {
   const activations = []
+  const queue = Array.isArray(ids) ? [...ids] : null
   return {
     activations,
     list: () => ['spawn'],
     async startActivation(input) {
       activations.push(input)
       return {
-        childId: 'child-1',
+        childId: queue ? (queue.shift() ?? `child-${activations.length}`) : 'child-1',
         result: Promise.resolve({
           stopReason: 'completed',
           output: [{ type: 'text', text: 'done' }],
@@ -609,6 +610,140 @@ test('F57: a stalled reservation left by a failed dispatch does not wedge the mi
 
 // #210/#211: the roster view can be narrowed to one agent and to the last N
 // rows instead of always returning the whole roster (once 182 KB).
+// #231/#232: a successor spawn must carry what the dead predecessor left
+// behind, in the response and in the briefing text — and say nothing at all
+// when the predecessor left a clean tree.
+test('#231: a successor spawn carries the dead predecessor residue and the briefing names it', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-residue-')
+  const harness = makeHarness({ subagents: fakeSubagents(['child-1', 'child-2']) })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Residue case', scope: ['src/**'], tasks: ['land it'] }])
+    const first = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    assert.equal(first.name, 'worker-m1')
+
+    // The predecessor dies mid-edit: one committed file, one dirty file.
+    fs.mkdirSync(path.join(first.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(first.worktree.path, ['add', '-A'])
+    git(first.worktree.path, ['commit', '-m', 'partial'])
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'b.txt'), 'b\n')
+
+    // The fake activation resolves immediately, so the row would already be
+    // closed. Put it back into the exact F73 shape — a live worker whose child
+    // stopped answering — age it past spawn.staleMs, and sweep.
+    await settle()
+    const aged = await tower.load()
+    const live = aged.roster.find((entry) => entry.name === 'worker-m1')
+    live.state = 'active'
+    live.outcome = undefined
+    live.outcomeAt = undefined
+    live.spawnedAt = Date.now() - 10 * 60_000
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+    const swept = await tower.sweepRoster({
+      staleMs: 30_000,
+      activity: { 'agent-unrelated': 'running' },
+      authoritative: true,
+    })
+    assert.deepEqual(swept.marked, ['worker-m1'])
+
+    const successor = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' })
+    assert.notEqual(successor.name, 'worker-m1')
+
+    // The response carries the predecessor's record.
+    assert.ok(successor.rosterEntry?.predecessorResidue, 'the spawn response must carry the predecessor residue')
+    assert.equal(successor.rosterEntry.predecessorResidue.name, 'worker-m1')
+    assert.equal(successor.rosterEntry.predecessorResidue.filesChanged, 1)
+    assert.equal(successor.rosterEntry.predecessorResidue.branch, first.worktree.branch)
+
+    // The briefing says so, with the real count.
+    const briefing = harness.subagents.activations.at(-1).request.prompt.map((block) => block.text).join('\n')
+    assert.match(briefing, /A previous worker on this mission died before completing/)
+    assert.match(briefing, /worker-m1 left 1 file\(s\) changed/)
+    assert.ok(briefing.includes(first.worktree.branch), 'the briefing names the branch')
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#231: a successor spawn says nothing when the predecessor left a clean tree', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-residue-clean-')
+  const harness = makeHarness({ subagents: fakeSubagents(['child-1', 'child-2']) })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Clean case', scope: ['src/**'] }])
+    const first = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    await settle()
+    const aged = await tower.load()
+    const live = aged.roster.find((entry) => entry.name === 'worker-m1')
+    live.state = 'active'
+    live.outcome = undefined
+    live.outcomeAt = undefined
+    live.spawnedAt = Date.now() - 10 * 60_000
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+    await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+
+    const successor = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' })
+    assert.equal(successor.rosterEntry?.predecessorResidue, undefined, 'a clean predecessor is not worth a record')
+    const briefing = harness.subagents.activations.at(-1).request.prompt.map((block) => block.text).join('\n')
+    assert.doesNotMatch(briefing, /A previous worker on this mission died before completing/)
+    assert.doesNotMatch(briefing, /file\(s\) changed/)
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #231 task 3: the residue is diagnostic detail for the agent-scoped read. It
+// must never widen the default roster table or the status page, or a long
+// mission makes every listing grow.
+test('#231: residue is visible per-agent and absent from the default roster page', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-residue-scope-')
+  const harness = makeHarness({ subagents: fakeSubagents(['child-1', 'child-2']) })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Scoped residue', scope: ['src/**'] }])
+    const first = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    fs.mkdirSync(path.join(first.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'a.txt'), 'a\n')
+    await settle()
+    const aged = await tower.load()
+    const live = aged.roster.find((entry) => entry.name === 'worker-m1')
+    live.state = 'active'
+    live.outcome = undefined
+    live.outcomeAt = undefined
+    live.spawnedAt = Date.now() - 10 * 60_000
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+    await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+
+    // Per-agent: the record is there.
+    const one = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo, agent: 'worker-m1' })
+    assert.ok(one.agent.residue, 'the agent-scoped read reports the residue')
+    assert.equal(one.agent.residue.filesChanged, 1)
+
+    // Default roster page: no row carries the field, so the page cannot grow.
+    const all = await callTool(harness.tools, 'tower_inspect', { view: 'roster', repoRoot: repo })
+    for (const row of all.roster) {
+      assert.equal(row.residue, undefined, `default roster row ${row.name} must not carry the residue`)
+      assert.equal(row.predecessorResidue, undefined, `default roster row ${row.name} must not carry the carry-over field`)
+    }
+
+    // Status page: neither the dashboard nor the agent status view grows.
+    const status = await callTool(harness.tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(JSON.stringify(status).includes('filesChanged'), false, 'status must not carry residue counts')
+
+    // `compact` keeps the identity only, as before.
+    const compact = await callTool(harness.tools, 'tower_inspect', {
+      view: 'roster',
+      repoRoot: repo,
+      agent: 'worker-m1',
+      compact: true,
+    })
+    assert.equal(compact.agent.residue, undefined, 'compact keeps identity only')
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('roster view: agent selects one row, tail keeps the newest rows', async () => {
   const { root, repo } = seedRepo('dsh-tower-spawn-roster-projection-')
   const harness = makeHarness()

@@ -9,6 +9,9 @@ import {
   markMissingEntries,
   reviveSelfReportedEntry,
   sweepRosterState,
+  sweepCandidate,
+  residueRecord,
+  countPorcelainPaths,
 } from '../domain/collab/roster.js'
 import { unreadMessages } from '../domain/collab/messages.js'
 
@@ -325,20 +328,69 @@ export async function recordRosterObservations(tower, { present = [], absent = [
     })
   }
 
+  /**
+   * Probe the worktree of one dying row for the residue it leaves behind (#231).
+   *
+   * Runs outside the state lock: it shells out to git, and the lock must never
+   * be held across a subprocess. Every probe tolerates failure — a worktree that
+   * was torn down (or a git that refused) degrades to a zero-file record instead
+   * of aborting the sweep, because recording the death matters more than the
+   * counts.
+   * @param {any} tower
+   * @param {any} row
+   * @param {any} mission
+   * @param {number} now
+   * @returns {Promise<any>}
+   */
+  async function probeResidue(tower, row, mission, now) {
+    const worktree = mission?.worktree ?? null
+    const cwd = row.cwd ?? worktree?.path ?? null
+    const branch = row.branch ?? worktree?.branch ?? null
+    if (!cwd) return residueRecord({ at: now, branch, cause: row.failureReason ?? row.outcome ?? null })
+    const status = await tower.tryGit(cwd, ['status', '--porcelain'])
+    const tip = await tower.tryGit(cwd, ['rev-parse', 'HEAD'])
+    return residueRecord({
+      at: now,
+      status,
+      filesChanged: status === null ? 0 : countPorcelainPaths(status),
+      branch,
+      tip: typeof tip === 'string' ? tip.trim() : null,
+      cause: row.failureReason ?? row.outcome ?? null,
+    })
+  }
+
   /** Mark live roster entries whose catalog activity disappeared after staleMs.
    * `authoritative` must be true only when the parent catalog was readable;
-   * unknown state is never treated as stopped. */
+   * unknown state is never treated as stopped.
+   *
+   * #231: a row the sweep marks stale also records the residue it leaves behind
+   * — the git facts are probed here (outside the commit-critical section, before
+   * the shared lock) and carried in as plain values, and the same record is
+   * copied onto the mission as `predecessorResidue` so a successor's briefing
+   * can name the count without reading git itself. */
   export async function sweepRoster(tower, input = {}) {
     const staleMs = Number(input.staleMs) || 0
     if (staleMs <= 0 || input.authoritative !== true) return { marked: [], idled: [] }
     const activity = input.activity ?? {}
+    // Phase 1, outside the lock: find the rows this sweep would mark and probe
+    // each one's worktree. The predicate is the shared one (sweepCandidate), so
+    // the pre-scan and the sweep can never disagree about the rule.
+    const observed = await tower.load()
+    const now = Date.now()
+    const candidates = (observed.roster ?? []).filter((row) => sweepCandidate(row, { activity, staleMs, now }))
+    /** @type {Record<string, any>} */
+    const residue = {}
+    for (const row of candidates) {
+      const mission = (observed.missions ?? []).find((entry) => entry.id === row.missionId)
+      residue[row.name] = await probeResidue(tower, row, mission, now)
+    }
     return tower.withStateLock(async (_paths, held) => {
       const state = await tower.load()
-      const now = Date.now()
+      const sweptAt = Date.now()
       const { marked, idled } = sweepRosterState(
         state.roster ?? [],
-        { activity, staleMs, authoritative: input.authoritative },
-        now,
+        { activity, staleMs, authoritative: input.authoritative, residue },
+        sweptAt,
       )
       if (marked.length > 0 || idled.length > 0) {
         state.revision += 1
@@ -347,14 +399,36 @@ export async function recordRosterObservations(tower, { present = [], absent = [
           state,
           (state.roster ?? []).filter((row) => names.has(row.name)),
         )
-        state.updatedAt = now
+        // #231: the death of a mission's worker is mission-scoped news: a
+        // successor spawned later must see the residue in its briefing without
+        // running git. Only a predecessor that actually left work behind is
+        // news — a clean tree produces no sentence and no response field, so
+        // "the predecessor finished its edits and died" does not fill the next
+        // briefing with a paragraph about nothing.
+        for (const row of state.roster ?? []) {
+          if (!marked.includes(row.name)) continue
+          const mission = (state.missions ?? []).find((entry) => entry.id === row.missionId)
+          if (!mission || !row.residue) continue
+          if (!(row.residue.filesChanged > 0)) continue
+          mission.predecessorResidue = { name: row.name, ...row.residue }
+        }
+        state.updatedAt = sweptAt
         validateState(state, tower.paths.state)
         await tower.writeState(state, held)
         await tower.appendActivity({
-          at: now,
+          at: sweptAt,
           type: 'watchdog',
           text: `stale ${marked.join(', ') || '-'}; idle ${idled.join(', ') || '-'}`,
         })
+        for (const row of state.roster ?? []) {
+          if (!marked.includes(row.name) || !row.residue) continue
+          await tower.appendActivity({
+            at: sweptAt,
+            type: 'watchdog',
+            missionId: row.missionId ?? undefined,
+            text: `residue ${row.name}: ${row.residue.filesChanged} file(s) changed on ${row.residue.branch ?? '-'} at ${String(row.residue.tip ?? '-').slice(0, 12)}`,
+          })
+        }
       }
       return { marked, idled }
     })

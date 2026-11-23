@@ -253,6 +253,11 @@ export async function recordSpawn(tower, input) {
       now,
     })
     mission.updatedAt = now
+    // #231/#232: a successor spawn must carry what the dead predecessor left
+    // behind. The sweep recorded it on the mission (so the briefing renders it)
+    // and this row copies it back onto the minted roster entry, which is what
+    // the spawn response returns.
+    if (mission.predecessorResidue) entry.predecessorResidue = mission.predecessorResidue
     state.revision += 1
     // The new row and every row this spawn retired changed at this revision.
     for (const row of state.roster) {

@@ -53,12 +53,19 @@ export async function runRosterView(ctx, args, exec, deps) {
     // #160: the one shared spawn.staleMs rule (domain/collab/roster.js);
     // the /tasks panel renders the same verdict.
     const stale = rosterEntryStale(entry, { observed, parentKnown: known, staleMs, now })
-    return {
+    const row = {
       ...entry,
       activity: observed ?? (known ? ROSTER_ACTIVITY.missing : ROSTER_ACTIVITY.unknown),
       observed: observed !== undefined,
       stale,
     }
+    // #231: the residue a dead worker leaves behind is per-agent diagnostic
+    // detail. The table (and the dashboard built from it) keeps exactly the
+    // columns it had, so a long mission cannot grow the default page; the
+    // single-agent read below adds the record back.
+    delete row.residue
+    delete row.predecessorResidue
+    return row
   })
 
   if (agentRequested) {
@@ -73,18 +80,24 @@ export async function runRosterView(ctx, args, exec, deps) {
       ? Number(args.tail)
       : AGENT_ACTIVITY_TAIL_DEFAULT
     const log = await tower.deps.store.readActivityTail(tower.paths.activity, ROSTER_ACTIVITY_TAIL)
+    const summary = args.compact === true
+      ? compactAgentSummary(target)
+      : agentRowSummary(target, {
+          activity: target.activity,
+          observed: target.observed,
+          stale: target.stale,
+        })
     return {
       revision: view.revision,
       // #207: `compact` keeps the identity a caller needs to name the agent
       // (name/role/missionId/state) without the observation, stale or outcome
       // fields; the bounded activity tail stays separate.
-      agent: args.compact === true
-        ? compactAgentSummary(target)
-        : agentRowSummary(target, {
-            activity: target.activity,
-            observed: target.observed,
-            stale: target.stale,
-          }),
+      // #231: the residue a dead worker left behind is diagnostic detail, so it
+      // rides only on this per-agent read — never on the roster array above, so
+      // the default page and the dashboard do not grow.
+      agent: selected[0]?.residue && args.compact !== true
+        ? { ...summary, residue: selected[0].residue }
+        : summary,
       activity: selectAgentActivity(log, target, tail),
       parentStatus,
     }

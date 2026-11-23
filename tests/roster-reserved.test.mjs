@@ -25,6 +25,7 @@ import { defaultDeps } from '../adapters/default.js'
 import { precheckWorkerOwnership } from '../app/spawn-prechecks.js'
 import { STALLED_RESERVATION_GRACE_MS } from '../app/roster.js'
 import { runAdoptView } from '../tools/views/adopt.js'
+import { runRosterView } from '../tools/views/roster.js'
 import { validateState } from '../domain/state.js'
 import { stateShapeError } from '../domain/state/schema.js'
 
@@ -502,6 +503,60 @@ test('adopt marks an authoritative absence missing when retire_missing is false'
     assert.deepEqual(second.missing, ['ghost-1'])
     const state = await assertValidState(tower)
     assert.equal(state.roster[0].state, 'missing')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #231: the agent-scoped roster read is the only place the residue of a dead
+// worker shows up, and it is what replaces a hand-run `git status`.
+test('#231 the agent-scoped read reports the dead worker residue, the table does not', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    const branch = (await tower.load()).missions[0].worktree.branch
+    fs.writeFileSync(path.join(worktreePath, 'a.txt'), 'a\n')
+    git(worktreePath, ['add', 'a.txt'])
+    git(worktreePath, ['commit', '-m', 'partial'])
+    fs.writeFileSync(path.join(worktreePath, 'c.txt'), 'c\n')
+    const tip = git(worktreePath, ['rev-parse', 'HEAD'])
+
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-dead',
+      parentSessionId: 'tower-agent',
+      cwd: worktreePath,
+      branch,
+    })
+    const aged = await tower.load()
+    aged.roster.find((entry) => entry.agentId === 'agent-dead').spawnedAt = Date.now() - 10 * 60_000
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+    await tower.sweepRoster({
+      staleMs: 30_000,
+      activity: { 'agent-unrelated': 'running' },
+      authoritative: true,
+    })
+
+    const ctx = {
+      get: (name) => (name === 'subagents' ? { listDescendants: async () => [] } : undefined),
+    }
+    const deps = { openTower: async () => tower }
+    const one = await runRosterView(ctx, { repoRoot: repo, agent: 'worker-m1' }, { agent: { id: 'tower-agent' } }, deps)
+    assert.ok(one.agent.residue, 'the per-agent read carries the residue')
+    assert.equal(one.agent.residue.filesChanged, 1, 'one uncommitted file')
+    assert.equal(one.agent.residue.branch, branch)
+    assert.equal(one.agent.residue.tip, tip)
+    assert.equal(one.agent.residue.dirty, true)
+    assert.equal(one.agent.state, 'stale')
+    assert.match(activityText(tower), /residue worker-m1: 1 file\(s\) changed/)
+
+    const table = await runRosterView(ctx, { repoRoot: repo }, { agent: { id: 'tower-agent' } }, deps)
+    for (const row of table.roster) {
+      assert.equal(row.residue, undefined, 'the default roster table never grows a residue column')
+      assert.equal(row.predecessorResidue, undefined)
+    }
   } finally {
     removeTemp(root)
   }

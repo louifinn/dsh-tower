@@ -141,7 +141,7 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_spawn` | `missionId`（别名 `id`）、`op?`（`spawn` 默认 / `takeover`）、`role`（`worker`/`reviewer`）、`name?`、`instructions?`、`worktreeRoot?`、`wait?`、`includeDirtyBase?` | 准备或复用 worktree 并启动子代理。worker 使用 `tower-worker`；reviewer 要求 mission 为 `completed`，并使用只读的 `tower-reviewer`；`review.mode:off` 时 reviewer 角色会以 `[tower:review-disabled]` 被拒绝。`op:"takeover"` 替换已不再运行的 worker 条目（ownerGeneration 递增）；旧的 `takeover:true` 字段会以替代路径报错。`wait:true` 等待结果，上限由 `spawn.maxWaitMs`（默认 90000）决定；旧的 `waitMs` 字段会指向该配置路径报错。每个 mission 只能有一个活跃 worker；`spawn.maxLiveWorkers` 限制整个仓库。报告在 `worktree` 里给出放置方式：分支工作树为 `{path, branch, baseCommit}`，读取共享检出或游离 sandbox 的 survey 为 `null`。spawn 在准备前执行同样的基线检查，检出不匹配时不会启动任何 agent。`spawn.nodeModules:"link"` 时，spawn 会把 `<worktree>/node_modules` 创建为指向基线检出已安装 `node_modules` 的 junction，并在 `mission.worktree.nodeModulesLink` 与 roster 行上记录 `{target, path, createdAt}`；目标必须已经存在（否则以 `invalid-argument` 与补救建议拒绝），报告中的 `nodeModulesLink` 与之相同。 |
 | `tower_send` | `to`、`subject`、`body`、`scope?`、`interrupt?`、`wake?`、`consentRef?` | 向 roster 名称、`tower` 或 `all` 发送持久消息。运行中的 roster agent 会被 steer 进当前回合；已停止的 agent 会保留消息，等下次运行时读取。`interrupt:true`（仅 tower）先中断运行中的回合并投递。`wake:true` 为已停止的 agent 启动新回合；若该 agent 无法恢复，则抛出 `agent-not-resumable`。无法观测的活动状态（目录报错或返回空列表）绝不会被当成已停止：此时 `wake:true` 返回 `woke:false` 并说明未声称唤醒；显式 `interrupt:true` 仍会尝试并如实回报，而不是被静默跳过。`consentRef` 记录用于审计。受 `send.maxPerMinute` 限速。 |
 | `tower_inbox` | `limit?`、`include_read?` | 读取并确认发给调用者的消息；未读消息会阻止 `tower_complete`。 |
-| `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，可进入 preflight 与可选审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息；artifact mission 还要求全部声明的交付物都出现在已提交的末端。`report` 受 `gates.maxReportBytes`（默认 32768 UTF-8 字节）硬上限约束：超限会以 `invalid-argument` 拒绝并给出 `nextAction`（把全文写进 mission worktree 的文件），绝不截断；存储时会记录 `reportBytes`。`checks` 记录 `{name, runId?, command?, exitCode?, evidence?}` 证据：`runId` 指向本 mission `testRuns` 中的回执（由 `tower_test` 产生），未知或属于其他 mission 的 id 会在任何状态写入之前以 `invalid-argument` 拒绝；`command`/`exitCode` 声称没有任何已记录 run 佐证时，preflight 会给出提示性 `checks-unverified` 警告，而不是 blocker。`gates.requireChecks` 可以强制要求 checks。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。 |
+| `tower_complete` | `missionId`（别名 `id`）、`report`、`checks?` | worker 报告完成（mission 变为 `completed`，可进入 preflight 与可选审查）。要求当前 owner、无未完成任务/blocker、≥1 个提交、无未读消息；artifact mission 还要求全部声明的交付物都出现在已提交的末端。`report` 受 `gates.maxReportBytes`（默认 32768 UTF-8 字节）硬上限约束：超限会以 `invalid-argument` 拒绝并给出 `nextAction`（把全文写进 mission worktree 的文件），绝不截断；存储时会记录 `reportBytes`。`checks` 记录 `{name, runId?, command?, exitCode?, evidence?}` 证据：`runId` 指向本 mission `testRuns` 中的回执（由 `tower_test` 产生），未知或属于其他 mission 的 id 会在任何状态写入之前以 `invalid-argument` 拒绝；`command`/`exitCode` 声称没有任何已记录 run 佐证时，preflight 会给出提示性 `checks-unverified` 警告，而不是 blocker。`gates.requireChecks` 可以强制要求 checks。配置了测试发现时还会自动运行并添加 `tests` 检查；失败会抛出 `[tower:tests-failed]`。若该 mission 的 worker 已经停止——该行状态为 `retired`、`failed`、`interrupted`、`missing` 或 `stale`——则以 `[tower:invalid-transition]` 拒绝，消息为 `agent <name> is <state>; a stopped worker cannot report completion`，绝不会被静默接受。这条拒绝带有 `nextAction`（渲染为 `— next: …`），指明受支持的路径：在同一个 mission 上 spawn 一个短命的记账 worker，重新跑门禁并调用 `tower_complete`；绝不手工把状态设为 `completed`，因为手工设置的完成不会记录 report、checks 与证据（#232）。当死掉的行带有 `residue` 时，`nextAction` 会引用它（`the stopped worker left 3 file(s) changed on <branch>`）。 |
 | `tower_interrupt` | `to?`（roster 名称）、`agentId?`、`reason?` | 通过 `subagents.interrupt` 中断一个运行中的 roster agent，并记录 `state:"interrupted"`。幂等（未运行 → `interrupted:false`）。 |
 | `tower_finding` | `op?`（`report` / `list` 默认 / `update`）、`id?`、`status?`、`note?`、过滤（`type?`、`severity?`、`missionId?`、`open?`、`limit?`）、`title?`、`summary?`、`details?`、`suggested_fix?`、`location?` | 一个 finding 生命周期（#163 Phase 4）。`report` 需要 `type`（bug/improve/vuln/idea）、`title`、`summary`、`details`、`suggested_fix`，新 finding 初始为 `open`；`list` 按 `id` 或过滤条件读取/列出；`update` 需要 `id` 加 `status`/`note`，状态为 `open → triaged → fixed`/`wontfix`，允许重新打开。只有控制塔或 worker 能修改；reviewer 只能列出/读取。 |
 | `tower_review` | `missionId`（别名 `id`）、`status`（`clean`/`p1-Nitems`/`p2-Nitems`）、`merge`（`merge`/`fix-then-merge`/`hold`）、`findings`、`decision`、`checks?`、`breakGlassReason?` | 绑定当前 tip 的 reviewer 结论。reviewer 必须是获派的 reviewer（或由控制塔使用 break-glass）。`review.mode:off` 时不注册；仓库层为 `off` 时提交会以 `[tower:review-disabled]` 被拒绝。非 clean 结论使 mission 回到 active 后，其他 route 仍可为同一 reviewed tip 提交结论：追加到同一轮（`appended:true`），不再改变状态；tip 已移动时会被明确拒绝。同一轮内以记录顺序（`seq` 最大）最新的结论为准，merge gate、已落地合并检测、status 与 briefing 使用同一规则：同一轮中较晚的 clean 结论会取代较早的非 clean 结论。 |
@@ -177,6 +177,34 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 `tail` 一次只截断一个目标：带 `agent` 时截断 `status` 与 `roster` 里该 agent 的活动摘要；
 `roster` 不带 `agent` 时保留最新 N 行。`status` 不带 `agent` 时渲染的是面板，没有可截断的
 tail，因此该组合会以指出 `agent` 的 `invalid-argument` 拒绝，而不是被静默忽略。
+
+### 死掉的 worker 留下什么
+
+当 watchdog 把一行标记为 `stale`（子代理目录超过 `spawn.staleMs` 仍无活动回答）时，这次扫描同时记录该
+worker 留下的残留，这样就不必再用 `git status` 加逐 hunk 读 diff 去重建死亡现场（#231）。只有一条记录，
+且只含计数与 sha：
+
+```json
+{"at":1760000000000,"filesChanged":3,"branch":"tower/m7-…","tip":"4f2a…","dirty":true,"cause":"interrupted"}
+```
+
+`filesChanged` 是 `git status --porcelain` 的条目数，`tip` 是 worktree 的 `HEAD`，`dirty` 等于
+`filesChanged > 0`，`cause`（没有则缺省）是该行原本就带的有界原因。每个字符串字段上限 120 字符；记录
+绝不包含文件内容、diff 或逐文件清单，worktree 不存在时退化为 `filesChanged: 0`，而不是让整次扫描失败。
+
+它只出现在两处，且都不是默认页面：
+
+- **仅限单 agent 详情。** `tower_inspect({view:"roster",agent:"worker-m1"})` 以 `agent.residue` 返回；
+  `compact:true` 只保留身份字段、不含残留。默认 `roster` 表格、`/tasks` 面板与 `status` 看板都绝不携带
+  它，因此长 mission 不会把它们撑大。
+- **后继 spawn。** 扫描把记录写到 mission 上作为 `predecessorResidue`，`tower_spawn` 再把它写到新的
+  roster 行（`report.rosterEntry.predecessorResidue`），worker briefing 会渲染出
+  `A previous worker on this mission died before completing:` 段落，并带上真实计数、分支与 tip。干净的
+  前驱不留记录，也不产生段落。
+
+每次死亡会在通常的 `stale <names>; idle <names>` 行之后追加一条 `watchdog` 活动：
+`residue worker-m1: 3 file(s) changed on tower/m7-… at 4f2a…`。恢复流程见运行手册的
+“A worker died mid-mission”。
 
 ## 等待单个目标
 
