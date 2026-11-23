@@ -65,11 +65,20 @@ tower_verify({missionId:"M7", checks:[
 每个检查依次在 mission worktree 中运行，并以各自的 `runId` 记录进 `mission.testRuns`。结果行是
 `{check, kind, command, status, exitCode, durationMs, summary, truncated, runId}`；`status` 为
 `passed`、`failed`、`timeout`、`error` 或 `unavailable`。`timeoutMs` 默认 120000，必须在
-5000–600000 之间；超时会先杀掉整个进程树再记录 `status: "timeout"`：在 Windows 上，只要被启动的
-orchestrator 的 pid 仍可打开，就先对它执行 `taskkill /T`（最多等待 2 秒），只有在它无法运行时才回退到
-直接 kill，因为 `node --test` 会为每个测试文件启动一个子进程，先杀父进程会把它们留成孤儿。worktree
-缺少 `node_modules` 时 `tsc` 记录 `unavailable` 并给出补救：安装依赖，或用 M166 的
-`spawn.nodeModules: "link"` 启动。该工具是只读的：不改变 mission 状态，除了 run 收据之外不写任何东西。
+5000–600000 之间；超时会先杀掉整个进程树再记录 `status: "timeout"`。两个平台的保证不同，但整次尝试
+都以 2 秒为上限：
+
+- **Windows**：只要被启动的 orchestrator 的 pid 仍可打开，就先对它执行 `taskkill /T`；只有在
+  taskkill 无法运行、以非零退出或超出上限时，才回退到直接 kill。因为 `node --test` 会为每个测试
+  文件启动一个子进程，先杀父进程会让 taskkill 以 128 退出而不枚举任何东西，把它们留成孤儿
+  （F104/F105）。
+- **POSIX（Linux、macOS）**：在发出任何信号**之前**先读取进程表（`ps -A -o pid=,ppid=`），从表中收集
+  orchestrator 的传递闭包子孙，然后依次杀进程组（这也覆盖 orchestrator 自身）、杀收集到的每个子孙。
+  只杀进程组不够：以 `detached: true` 启动的子孙会调用 `setsid(2)`，进入新的会话和进程组，进程组信号
+  会报告成功而它仍在运行（F107）。`ps` 无法运行、以非零退出、输出无法解析或超出上限时，退化为进程组
+  kill 加对 orchestrator 的直接 kill。worktree 缺少 `node_modules` 时 `tsc` 记录 `unavailable` 并给出补救：
+  安装依赖，或用 M166 的 `spawn.nodeModules: "link"` 启动。该工具是只读的：不改变 mission 状态，除了 run
+  收据之外不写任何东西。
 
 证据是可引用的编号，不是自由文本。`tower_complete` 的 checks 支持 `{name, runId}`，
 `normalizeChecks` 会拒绝不在该 mission `testRuns` 中的 `runId`；reviewer 可以在 `tower_review`

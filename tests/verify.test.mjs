@@ -442,10 +442,21 @@ test('killProcessTree asks taskkill for the tree before any direct kill', async 
 })
 
 test('killProcessTree keeps the POSIX group kill and its direct fallback', async () => {
+  // F107 gives POSIX a `ps` enumeration before it signals, so the injected
+  // spawn seam now answers the table read. The group-kill contract is
+  // unchanged: the group signal is the first attempt and the direct kill is
+  // the fallback when the group cannot be signalled.
+  const psSpawn = () => ({
+    stdout: { on: (_event, handler) => setImmediate(() => handler(Buffer.from('500 1\n'))) },
+    on(event, handler) {
+      if (event === 'close') setImmediate(() => handler(0))
+      return this
+    },
+  })
   const groupKilled = []
   await killProcessTree(
     { pid: 500 },
-    { platform: 'linux', spawn: () => assert.fail('POSIX never spawns taskkill'), kill: (pid, signal) => groupKilled.push({ pid, signal }) },
+    { platform: 'linux', spawn: psSpawn, kill: (pid, signal) => groupKilled.push({ pid, signal }) },
   )
   assert.deepEqual(groupKilled, [{ pid: -500, signal: 'SIGKILL' }], 'the detached child leads its own process group')
 
@@ -454,7 +465,7 @@ test('killProcessTree keeps the POSIX group kill and its direct fallback', async
     { pid: 501 },
     {
       platform: 'darwin',
-      spawn: () => assert.fail('POSIX never spawns taskkill'),
+      spawn: psSpawn,
       kill: (pid, signal) => {
         if (pid < 0) throw new Error('no such process group')
         direct.push({ pid, signal })

@@ -67,7 +67,12 @@ CI-only step. The doc records the exact `gh api` commands, the applied setting a
 
 The `test (24.9, windows)` leg measures the platform branches on a real Windows filesystem (see
 `tests/platform.test.mjs`), and its name is pinned through `matrix.label` so the context string stays
-byte-identical.
+byte-identical. The same leg split cuts the other way: a platform branch needs the leg that actually
+takes it, so a green Windows run is not evidence for a POSIX code path (the timeout tree kill in
+`adapters/process-tree.js` is the worked example — its win32 ordering was fixed and proven on Windows
+while the Linux legs still stranded a `setsid` descendant, F107). When you change a branch guarded by
+`process.platform`, say in the PR body which leg proves it, or prove it on your own host in the test
+itself.
 
 There are no mandatory approvals, no CODEOWNERS gate, and **merging your own PR is allowed**: there is
 one maintainer, and a mandatory self-approval would be theatre. What replaces the second reviewer is a

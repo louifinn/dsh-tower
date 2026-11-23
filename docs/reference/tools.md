@@ -67,9 +67,20 @@ Every check runs sequentially in the mission worktree and is recorded in `missio
 own `runId`. The result row is `{check, kind, command, status, exitCode, durationMs, summary,
 truncated, runId}`; `status` is `passed`, `failed`, `timeout`, `error` or `unavailable`. `timeoutMs`
 defaults to 120000, must be 5000–600000, and a timeout kills the whole process tree before it records
-`status: "timeout"`: on Windows it runs `taskkill /T` against the spawned orchestrator while its pid
-is still openable (a bounded 2 s attempt) and only falls back to a direct kill if that cannot run,
-because `node --test` starts one child per test file and killing the parent first would strand them.
+`status: "timeout"`, with a different guarantee per platform and a bounded 2 s attempt either way:
+
+- **Windows**: `taskkill /T` against the spawned orchestrator while its pid is still openable, and only
+  a direct kill if taskkill cannot run, exits non-zero, or overruns the bound. `node --test` starts one
+  child per test file, and killing the parent first would make taskkill exit 128 without enumerating
+  anything, stranding them (F104/F105).
+- **POSIX (Linux, macOS)**: the process table (`ps -A -o pid=,ppid=`) is read *before* anything is
+  signalled, the transitive descendants of the orchestrator are collected from it, then the process
+  group is killed (which reaches the orchestrator itself), then every collected descendant. The group
+  kill alone is not enough: a descendant spawned with `detached: true` calls `setsid(2)` and lands in
+  a new session and process group, so the group signal reports success while it keeps running (F107).
+  A `ps` that cannot run, exits non-zero, prints an unparseable table, or overruns the bound degrades
+  to the group kill plus a direct kill of the orchestrator.
+
 A missing worktree `node_modules` makes `tsc` record `unavailable` with the
 remedy: install dependencies, or spawn with `spawn.nodeModules: "link"` (M166). The tool is
 read-only: it changes no mission status and writes nothing except the run receipts.
