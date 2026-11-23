@@ -298,5 +298,11 @@ export function applyCompletion({ mission, report, now, result }) {
   mission.status = 'completed'
   mission.completionReport = report
   mission.updatedAt = now
+  // #231 R198: `predecessorResidue` is a warning for the next worker about a
+  // death nobody has explained yet. An accepted completion is that worker's own
+  // resolution, so the warning must not outlive it and reappear in the briefing
+  // of a later fix worker. (The type surface omits the optional field; the
+  // state schema permits extra mission properties.)
+  delete /** @type {any} */ (mission).predecessorResidue
   return { state: mission, events: [completedEvent(mission)] }
 }

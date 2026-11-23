@@ -38,6 +38,19 @@ export function clearStale(entry) {
 }
 
 /**
+ * #231 R198: a stale mark can be wrong (a live child that merely went silent),
+ * and the residue snapshot describes the death that was attributed to that wrong
+ * mark. Reviving or settling the row proves the child alive, so the snapshot
+ * must go with the stale mark — otherwise the agent-scoped read keeps reporting
+ * a death that never happened.
+ * @param {RosterEntry} entry
+ * @returns {void}
+ */
+function clearResidue(entry) {
+  delete entry.residue
+}
+
+/**
  * Count repeated absence observations and list rows ready to adopt.
  *
  * A candidate needs both repeated observations and, when `windowMs` is set, a
@@ -120,6 +133,7 @@ export function reviveSelfReportedEntry(roster, { missionId, agentId, now }) {
   // starts observing again from scratch.
   delete entry.absentObservations
   delete entry.absentSince
+  clearResidue(entry)
   entry.revivedAt = now
   entry.revivedReason = 'self-reported completion (a live worker cannot be judged dead)'
   return { revived: true, name: entry.name, remark }
@@ -152,6 +166,7 @@ export function settleSelfReportedCompletion(roster, { missionId, agentId, now }
   clearStale(entry)
   delete entry.absentObservations
   delete entry.absentSince
+  clearResidue(entry)
   return { marked: true, name: entry.name, remark }
 }
 

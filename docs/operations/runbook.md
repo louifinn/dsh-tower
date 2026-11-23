@@ -52,7 +52,8 @@ the diff. Do exactly three things:
    `residue`: how many files changed, on which branch, at which tip, and whether the tree was dirty. That
    record is counts and shas only, never file contents; the same numbers are in `activity.jsonl`
    (`residue worker-m1: 3 file(s) changed on tower/m1-… at 4f2a…`), and the mission carries it as
-   `predecessorResidue` so the next worker's briefing opens with it.
+   `predecessorResidue` so the next worker's briefing opens with it. Only the most recent worker death
+   is carried: a later clean death erases the record, and an accepted completion clears it.
 2. **Spawn a short-lived bookkeeping worker** with `tower_spawn({missionId:"M1",role:"worker"})` — pass
    `op:"takeover"` once the dead child is no longer running. It inherits the residue sentence, re-runs the
    gates against the tip, and calls `tower_complete` itself. Its report is the handoff you would have

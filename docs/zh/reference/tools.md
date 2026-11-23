@@ -197,10 +197,16 @@ worker 留下的残留，这样就不必再用 `git status` 加逐 hunk 读 diff
 - **仅限单 agent 详情。** `tower_inspect({view:"roster",agent:"worker-m1"})` 以 `agent.residue` 返回；
   `compact:true` 只保留身份字段、不含残留。默认 `roster` 表格、`/tasks` 面板与 `status` 看板都绝不携带
   它，因此长 mission 不会把它们撑大。
-- **后继 spawn。** 扫描把记录写到 mission 上作为 `predecessorResidue`，`tower_spawn` 再把它写到新的
+- **后继 spawn。** worker 的死亡会被写到 mission 上作为 `predecessorResidue`，`tower_spawn` 再把它写到新的
   roster 行（`report.rosterEntry.predecessorResidue`），worker briefing 会渲染出
   `A previous worker on this mission died before completing:` 段落，并带上真实计数、分支与 tip。干净的
   前驱不留记录，也不产生段落。
+
+只有 worker 的死亡才算 mission 消息：死掉的 reviewer 保留自己的行级残留，但绝不会出现在 worker briefing 的
+“previous worker” 段落里。这条记录代表最近一次 worker 死亡，而不是历史档案——带残留的死亡会替换上一条记录，
+干净的死亡会删掉它，因此段落始终描述紧邻的前驱。F73 复活会删除该行的残留，并在 mission 记录指向该行时一并
+删除 mission 上的副本：被证明还活着的 worker 不是死亡。成功接受的 `tower_complete` 也会清除这条记录，因为
+后继已经解决了警告所指的问题；之后为 review 修复轮 spawn 的 worker 不会再听到旧的死亡消息。
 
 每次死亡会在通常的 `stale <names>; idle <names>` 行之后追加一条 `watchdog` 活动：
 `residue worker-m1: 3 file(s) changed on tower/m7-… at 4f2a…`。恢复流程见运行手册的

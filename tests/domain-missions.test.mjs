@@ -16,6 +16,7 @@ import {
   assertCompletionRequest,
   assertCompletionInbox,
   completionReport,
+  applyCompletion,
 } from '../domain/missions/completion.js'
 import {
   assertReviewableMission,
@@ -531,6 +532,21 @@ test('completion policy normalizes checks and validates the reporting worker', (
     at: 7,
     checks: [{ name: 'c' }],
   })
+})
+
+// #231 R198: a recorded completion is the successor's own resolution of the
+// death its briefing warned about, so the carry-over must not survive into a
+// later fix worker's briefing. The completion transaction ends here (the app
+// layer persists the returned state), so this is the last point that can clear it.
+test('completion clears the predecessor residue carry-over', () => {
+  const target = mission({
+    status: 'active',
+    worktree: { path: '/w', branch: 'b', baseCommit: 'c' },
+    predecessorResidue: { name: 'worker-m1', filesChanged: 2 },
+  })
+  const applied = applyCompletion({ mission: target, report: 'done', now: 42 })
+  assert.equal(applied.state.status, 'completed')
+  assert.equal('predecessorResidue' in target, false, 'the carry-over does not outlive the completion')
 })
 
 test('review policy resolves actors, verdicts, rounds, and outcome', () => {

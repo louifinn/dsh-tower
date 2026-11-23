@@ -233,12 +233,22 @@ It surfaces in exactly two places, and neither is a default page:
   returns it as `agent.residue`; `compact:true` keeps the identity fields and no
   residue. The default `roster` table, the `/tasks` panel, and the `status`
   dashboard never carry it, so a long mission cannot grow them.
-- **The successor's spawn.** The sweep copies the record onto the mission as
+- **The successor's spawn.** A worker death is copied onto the mission as
   `predecessorResidue`, `tower_spawn` copies that onto the new roster entry
   (`report.rosterEntry.predecessorResidue`), and the worker briefing renders a
   `A previous worker on this mission died before completing:` paragraph with the
   real count, branch and tip. A clean predecessor leaves no record and no
   paragraph.
+
+Only a worker death is mission news: a dead reviewer keeps its own per-row
+residue but never becomes a "previous worker" paragraph in a worker briefing.
+The record is the most recent worker death, not a history — a dirty death
+replaces the previous record and a clean death erases it, so the paragraph
+always describes the immediate predecessor. An F73 revival deletes the row's
+residue and, when the mission record names that row, the mission copy: a worker
+proven alive is not a death. An accepted `tower_complete` clears the carry-over
+too, because the successor has resolved what the warning described, so a fix
+worker spawned for a later review round hears about no old death.
 
 Each death appends one `watchdog` activity line after the usual
 `stale <names>; idle <names>` line: `residue worker-m1: 3 file(s) changed on

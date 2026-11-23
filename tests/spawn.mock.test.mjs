@@ -197,6 +197,22 @@ function settle() {
 }
 
 /**
+ * Restore a spawn row to the F73 shape the sweep detects: the fake activation
+ * resolves immediately, so the row is already closed; this reopens it and
+ * backdates it past spawn.staleMs. The row's own git facts decide the residue.
+ */
+async function ageLiveRow(tower, name) {
+  const state = await tower.load()
+  const live = state.roster.find((entry) => entry.name === name)
+  assert.ok(live, `roster row ${name} must exist before it can age`)
+  live.state = 'active'
+  live.outcome = undefined
+  live.outcomeAt = undefined
+  live.spawnedAt = Date.now() - 10 * 60_000
+  fs.writeFileSync(tower.paths.state, JSON.stringify(state, null, 2))
+}
+
+/**
  * Backdate a reservation past the reap grace window, the way the shell of a
  * dispatch that never returned ages. Tests do not wait a real minute.
  */
@@ -687,6 +703,52 @@ test('#231: a successor spawn says nothing when the predecessor left a clean tre
     const briefing = harness.subagents.activations.at(-1).request.prompt.map((block) => block.text).join('\n')
     assert.doesNotMatch(briefing, /A previous worker on this mission died before completing/)
     assert.doesNotMatch(briefing, /file\(s\) changed/)
+    await settle()
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R198: the mission record is the most recent worker death, not a museum. A
+// dirty death followed by a clean one must not keep describing the first
+// worker: the clean successor already resolved what the record warned about.
+test('#231: a clean successor death erases the earlier residue record', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-residue-chain-')
+  const harness = makeHarness({ subagents: fakeSubagents(['child-1', 'child-2', 'child-3']) })
+  try {
+    const { tower } = await initAndPlan(repo, [{ title: 'Two deaths', scope: ['src/**'] }])
+    const first = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    // First death is dirty: one committed file, one uncommitted file.
+    fs.mkdirSync(path.join(first.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(first.worktree.path, ['add', '-A'])
+    git(first.worktree.path, ['commit', '-m', 'partial'])
+    fs.writeFileSync(path.join(first.worktree.path, 'src', 'b.txt'), 'b\n')
+    await settle()
+    await ageLiveRow(tower, 'worker-m1')
+    await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+    let state = await tower.load()
+    assert.equal(state.missions[0].predecessorResidue.name, 'worker-m1', 'the dirty death is recorded')
+
+    // The successor inherits the sentence, commits everything, then dies clean.
+    const second = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' })
+    assert.equal(second.rosterEntry?.predecessorResidue?.name, 'worker-m1')
+    git(second.worktree.path, ['add', '-A'])
+    git(second.worktree.path, ['commit', '-m', 'finish the work'])
+    await settle()
+    await ageLiveRow(tower, second.name)
+    const swept = await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+    assert.deepEqual(swept.marked, [second.name])
+    state = await tower.load()
+    assert.equal(state.roster.find((entry) => entry.name === second.name).residue.filesChanged, 0)
+    assert.equal(state.missions[0].predecessorResidue, undefined, 'a clean death erases the earlier record')
+
+    // The third spawn hears nothing about the first worker's death.
+    const third = await spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker', op: 'takeover' })
+    assert.equal(third.rosterEntry?.predecessorResidue, undefined, 'the new successor gets no stale death story')
+    const briefing = harness.subagents.activations.at(-1).request.prompt.map((block) => block.text).join('\n')
+    assert.doesNotMatch(briefing, /A previous worker on this mission died before completing/)
+    assert.doesNotMatch(briefing, /worker-m1 left 1 file\(s\) changed/)
     await settle()
   } finally {
     removeTemp(root)

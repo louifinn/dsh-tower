@@ -1,5 +1,6 @@
 // Roster observation and retirement use cases.
 import { validateState } from '../domain/state.js'
+import { isWorkerRole } from '../domain/roles.js'
 import { isStalledReservation } from '../domain/collab/spawn.js'
 import { removeReviewCheckout } from './reviewCheckout.js'
 import {
@@ -78,6 +79,11 @@ export async function recordRosterObservations(tower, { present = [], absent = [
       const now = Date.now()
       const revived = reviveSelfReportedEntry(state.roster ?? [], { missionId, agentId, now })
       if (!revived.revived) return { revived: false }
+      // #231 R198: the sweep may have copied this row's death onto the mission
+      // before the child proved itself alive. The mission copy must go with the
+      // row copy, or a later fix worker is told about a death that never happened.
+      const mission = (state.missions ?? []).find((entry) => entry.id === missionId)
+      if (mission?.predecessorResidue?.name === revived.name) delete mission.predecessorResidue
       state.revision += 1
       stampRevision(
         state,
@@ -365,9 +371,12 @@ export async function recordRosterObservations(tower, { present = [], absent = [
    *
    * #231: a row the sweep marks stale also records the residue it leaves behind
    * — the git facts are probed here (outside the commit-critical section, before
-   * the shared lock) and carried in as plain values, and the same record is
+   * the shared lock) and carried in as plain values, and a worker's death is
    * copied onto the mission as `predecessorResidue` so a successor's briefing
-   * can name the count without reading git itself. */
+   * can name the count without reading git itself. The mission record follows
+   * the most recent worker death: a dirty death replaces it and a clean one
+   * erases it, so the briefing never describes a death the immediate
+   * predecessor did not leave behind (R198). */
   export async function sweepRoster(tower, input = {}) {
     const staleMs = Number(input.staleMs) || 0
     if (staleMs <= 0 || input.authoritative !== true) return { marked: [], idled: [] }
@@ -401,16 +410,21 @@ export async function recordRosterObservations(tower, { present = [], absent = [
         )
         // #231: the death of a mission's worker is mission-scoped news: a
         // successor spawned later must see the residue in its briefing without
-        // running git. Only a predecessor that actually left work behind is
-        // news — a clean tree produces no sentence and no response field, so
-        // "the predecessor finished its edits and died" does not fill the next
-        // briefing with a paragraph about nothing.
+        // running git. Only a worker qualifies — a dead reviewer keeps its own
+        // per-row record but must never be described as "a previous worker" in
+        // a successor's briefing. The most recent worker death wins: a dirty
+        // death replaces the record and a clean death erases it, because a
+        // successor that left nothing behind has resolved what the previous
+        // sentence warned about (R198).
         for (const row of state.roster ?? []) {
-          if (!marked.includes(row.name)) continue
+          if (!marked.includes(row.name) || !isWorkerRole(row.role)) continue
           const mission = (state.missions ?? []).find((entry) => entry.id === row.missionId)
-          if (!mission || !row.residue) continue
-          if (!(row.residue.filesChanged > 0)) continue
-          mission.predecessorResidue = { name: row.name, ...row.residue }
+          if (!mission) continue
+          if (row.residue && row.residue.filesChanged > 0) {
+            mission.predecessorResidue = { name: row.name, ...row.residue }
+          } else {
+            delete mission.predecessorResidue
+          }
         }
         state.updatedAt = sweptAt
         validateState(state, tower.paths.state)

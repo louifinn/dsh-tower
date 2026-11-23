@@ -23,9 +23,10 @@ import { removeTemp } from './helpers/cleanup.mjs'
 import { Tower } from '../host/tower.js'
 import { defaultDeps } from '../adapters/default.js'
 import { precheckWorkerOwnership } from '../app/spawn-prechecks.js'
-import { STALLED_RESERVATION_GRACE_MS } from '../app/roster.js'
+import { STALLED_RESERVATION_GRACE_MS, reviveStaleSelfReporter } from '../app/roster.js'
 import { runAdoptView } from '../tools/views/adopt.js'
 import { runRosterView } from '../tools/views/roster.js'
+import { buildSpawnBriefing } from '../app/spawn-support.js'
 import { validateState } from '../domain/state.js'
 import { stateShapeError } from '../domain/state/schema.js'
 
@@ -569,6 +570,93 @@ async function provisionM1(tower) {
   assert.ok(worktree?.path, 'provision must record the mission worktree')
   return worktree.path
 }
+
+// R198: an F73 revival proves the row is alive. The residue snapshot — on the
+// row and on the mission — described a death that did not happen, so neither
+// may survive the revival into the agent-scoped read or a fix worker's briefing.
+test('#231 a revived worker loses its residue and the mission carry-over', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    const branch = (await tower.load()).missions[0].worktree.branch
+    fs.writeFileSync(path.join(worktreePath, 'c.txt'), 'c\n')
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-live',
+      parentSessionId: 'tower-agent',
+      cwd: worktreePath,
+      branch,
+    })
+    const aged = await tower.load()
+    aged.roster.find((entry) => entry.agentId === 'agent-live').spawnedAt = Date.now() - 10 * 60_000
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+    await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+    let state = await tower.load()
+    assert.equal(state.missions[0].predecessorResidue.name, 'worker-m1', 'the sweep records the death on the mission')
+    assert.ok(state.roster.find((entry) => entry.agentId === 'agent-live').residue)
+
+    const revived = await reviveStaleSelfReporter(tower, { missionId: 'M1', agentId: 'agent-live' })
+    assert.equal(revived.revived, true)
+
+    const ctx = {
+      get: (name) => (name === 'subagents' ? { listDescendants: async () => [] } : undefined),
+    }
+    const deps = { openTower: async () => tower }
+    const one = await runRosterView(ctx, { repoRoot: repo, agent: 'worker-m1' }, { agent: { id: 'tower-agent' } }, deps)
+    assert.equal(one.agent.state, 'active')
+    assert.equal(one.agent.residue, undefined, 'a proven-live worker carries no death record')
+    state = await tower.load()
+    assert.equal(state.missions[0].predecessorResidue, undefined, 'the mission copy goes with the row copy')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R198: the carry-over is worker news only. A dead reviewer keeps its own
+// per-agent residue, but the next worker's briefing must not call it a
+// "previous worker" and inherit a death story from a review checkout.
+test('#231 a dead reviewer never reaches a worker briefing as a predecessor', async () => {
+  const { root, repo, tower } = await seeded()
+  try {
+    const worktreePath = await provisionM1(tower)
+    const branch = (await tower.load()).missions[0].worktree.branch
+    fs.writeFileSync(path.join(worktreePath, 'review-leftover.txt'), 'x\n')
+    await seedRow(tower, {
+      name: 'reviewer-m1',
+      role: 'reviewer',
+      agentId: 'agent-reviewer',
+      sessionId: 'agent-reviewer',
+      parentSessionId: 'tower-agent',
+      missionId: 'M1',
+      cwd: worktreePath,
+      branch,
+      state: 'active',
+      spawnedAt: Date.now() - 10 * 60_000,
+    })
+    await tower.sweepRoster({ staleMs: 30_000, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+
+    const state = await tower.load()
+    const deadReviewer = state.roster.find((entry) => entry.agentId === 'agent-reviewer')
+    assert.equal(deadReviewer.state, 'stale')
+    assert.equal(deadReviewer.residue.filesChanged, 1, 'the reviewer row still records its own residue')
+    assert.equal(state.missions[0].predecessorResidue, undefined, 'a reviewer death is not worker news')
+
+    const context = await tower.missionContext('M1')
+    const briefing = buildSpawnBriefing({
+      role: 'worker',
+      towerRoot: repo,
+      context,
+      worktree: state.missions[0].worktree,
+      instructions: undefined,
+    })
+    assert.doesNotMatch(briefing, /A previous worker on this mission died before completing/)
+    assert.doesNotMatch(briefing, /reviewer-m1 left 1 file\(s\) changed/)
+  } finally {
+    removeTemp(root)
+  }
+})
 
 // #204: adopt reports the leftover work each mission's checkout still carries,
 // so a tower that restarted can see a dirty or unmerged branch without probing
