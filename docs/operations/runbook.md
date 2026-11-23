@@ -41,6 +41,34 @@ left untouched; `parentStatus` carries the per-parent status (`empty: …` / `un
 positively absent. If adopt keeps reporting `empty:` for a session that still has live workers, retry once
 the catalog settles; do not force the rows to `retired` by hand.
 
+## A worker died mid-mission
+
+A worker that exits without calling `tower_complete` leaves its mission `active` with a roster row the
+watchdog marks `stale`. The sweep also records what it left behind — `{at, filesChanged, branch, tip,
+dirty, cause?}` — so you never have to reconstruct the death with `git status` and a hunk-by-hunk read of
+the diff. Do exactly three things:
+
+1. **Read the residue first.** `tower_inspect({view:"roster",agent:"worker-m1"})` returns the dead row's
+   `residue`: how many files changed, on which branch, at which tip, and whether the tree was dirty. That
+   record is counts and shas only, never file contents; the same numbers are in `activity.jsonl`
+   (`residue worker-m1: 3 file(s) changed on tower/m1-… at 4f2a…`), and the mission carries it as
+   `predecessorResidue` so the next worker's briefing opens with it. Only the most recent worker death
+   is carried: a later clean death erases the record, and an accepted completion clears it.
+2. **Spawn a short-lived bookkeeping worker** with `tower_spawn({missionId:"M1",role:"worker"})` — pass
+   `op:"takeover"` once the dead child is no longer running. It inherits the residue sentence, re-runs the
+   gates against the tip, and calls `tower_complete` itself. Its report is the handoff you would have
+   written by hand.
+3. **Let the worker complete the mission.** Never set `status:"completed"` yourself.
+
+Setting the status by hand is refused on purpose, for two reasons. The refusal itself
+(`a stopped worker cannot report completion`) carries a `nextAction` naming the bookkeeping-worker route,
+because the status is not a label — it is the record. A hand-set completion writes no `completionReport`,
+no `checks`, and no `by` attribution, so the mission looks finished while the evidence that justifies
+completion (which commit, which gates, who vouches for it) is missing. And a stale row that reports its own
+completion is a lie the roster cannot detect: the watchdog marks rows `stale` because the catalog stopped
+answering, and `tower_complete` is the one call that proves a worker is alive by producing work. A tower
+that accepts a hand-set status loses the only signal that distinguishes "finished" from "abandoned".
+
 ## Workspace lock
 
 With `mode.workspaceLock:true`, `<git-common-dir>/dsh-tower/tower.lock` names the owning session. A second

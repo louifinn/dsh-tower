@@ -15,6 +15,34 @@ const NO_ASK_RULE =
   '- You cannot ask the user: there is no approval prompt, so an approval-gated call fails closed; put an open question in your final report or the tower inbox, and never stall silently.'
 
 /**
+ * #231: a worker that dies mid-mission used to leave no trace, so the next
+ * worker started blind and the tower had to run `git status` by hand. The
+ * watchdog sweep records a bounded residue record ({at, filesChanged, branch,
+ * tip, dirty, cause}) on the roster row and on the mission; this renders the
+ * mission copy for the successor's briefing. A clean tree renders nothing:
+ * "the predecessor left nothing behind" is not worth a paragraph.
+ * @param {any} mission
+ * @returns {string[]}
+ */
+function predecessorResidueLines(mission) {
+  const residue = mission?.predecessorResidue
+  if (!residue || typeof residue !== 'object') return []
+  const files = Number(residue.filesChanged) || 0
+  if (files <= 0) return []
+  const lines = []
+  lines.push('')
+  lines.push('A previous worker on this mission died before completing:')
+  const where = residue.branch ? ` on ${residue.branch}` : ''
+  const tip = typeof residue.tip === 'string' && residue.tip.length > 0 ? ` at ${residue.tip.slice(0, 12)}` : ''
+  lines.push(`- ${residue.name ?? 'that worker'} left ${files} file(s) changed${where}${tip}; the worktree was ${residue.dirty ? 'dirty' : 'clean'}.`)
+  if (residue.cause) lines.push(`- Recorded cause: ${clip(residue.cause, 200)}`)
+  lines.push(
+    '- Inspect that work before you write anything: keep what is right, redo what is wrong, and commit on this branch. Residue counts are a snapshot, not a diff.',
+  )
+  return lines
+}
+
+/**
  * Dependency lines shared by the worker and reviewer briefings. A survey
  * dependency carries its recorded result (#148 D6) alongside its status, with
  * bounded formatting so a large evidence set cannot crowd out the mission.
@@ -127,6 +155,7 @@ export function workerBriefing({
     lines.push('Findings related to this mission:')
     for (const finding of findings) lines.push(`- ${finding.id} [${finding.status}] ${finding.severity ?? 'severity?'} ${finding.title}`)
   }
+  lines.push(...predecessorResidueLines(mission))
   lines.push('')
   lines.push('Rules:')
   if (shape.fields.worktree) {

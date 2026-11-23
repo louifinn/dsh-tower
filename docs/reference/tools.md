@@ -154,7 +154,7 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_spawn` | `missionId` (alias `id`), `op?` (`spawn` default / `takeover`), `role` (`worker`/`reviewer`), `name?`, `instructions?`, `worktreeRoot?`, `wait?`, `includeDirtyBase?` | Provision/reuse the worktree and start a subagent. Worker uses `tower-worker`; reviewer requires a `completed` mission and uses the read-only `tower-reviewer`; with `review.mode:off` the reviewer role is refused with `[tower:review-disabled]`. `op:"takeover"` replaces a live worker entry that is no longer running (increments ownerGeneration); the old `takeover:true` field is rejected with the replacement path. `wait:true` waits for the result, bounded by `spawn.maxWaitMs` (default 90000); the old `waitMs` field is rejected with that config path. Only one live worker per mission; `spawn.maxLiveWorkers` caps the repository. The report names the placement in `worktree`: `{path, branch, baseCommit}` for a branch worktree and `null` for a survey that reads the shared checkout or a detached sandbox. Spawn runs the same base check before provisioning, so a mismatched checkout starts no agent. With `spawn.nodeModules:"link"` the spawn creates `<worktree>/node_modules` as a junction to the baseline checkout's installed `node_modules` and records `{target, path, createdAt}` as `mission.worktree.nodeModulesLink` and on the roster row; the target must already exist (otherwise the spawn is refused with `invalid-argument` and a remedy) and the report carries the same `nodeModulesLink`. |
 | `tower_send` | `to`, `subject`, `body`, `scope?`, `interrupt?`, `wake?`, `consentRef?` | Durable message to a roster name, `tower`, or `all`. A running roster agent is steered into its current turn; a stopped one keeps the message for its next turn. `interrupt:true` (tower only) interrupts the running turn first, then delivers. `wake:true` starts a turn for a stopped agent and throws `agent-not-resumable` when that agent cannot be resumed. Activity that cannot be observed (the catalog errors or returns no rows) is never treated as stopped: `wake:true` then reports `woke:false` and says that no wake is claimed, and an explicit `interrupt:true` is still attempted and reported instead of silently skipped. `consentRef` is recorded for audit. Rate-limited by `send.maxPerMinute`. |
 | `tower_inbox` | `limit?`, `include_read?` | Read/ack messages addressed to the caller; unread messages block `tower_complete`. |
-| `tower_complete` | `missionId` (alias `id`), `report`, `checks?` | Worker reports completion (mission becomes `completed`, ready for preflight and optional review). Requires current owner, no open tasks/blockers, ≥1 commit, no unread inbox; an artifact mission additionally needs every declared deliverable present in the committed tip. `report` is capped at `gates.maxReportBytes` (default 32768 UTF-8 bytes): a larger report is rejected with `invalid-argument` and a `nextAction` to file the full text in the mission worktree, never truncated; the stored report records `reportBytes`. `checks` records `{name, runId?, command?, exitCode?, evidence?}` evidence: `runId` names a receipt in the mission's `testRuns` (from `tower_test`), and an unknown or foreign id is rejected with `invalid-argument` before any state write; a command/exit-code claim that no recorded run corroborates is reported by preflight as the advisory `checks-unverified` warning, never a blocker. `gates.requireChecks` can demand checks. When configured, test discovery runs automatically and adds a `tests` check; failure throws `[tower:tests-failed]`. |
+| `tower_complete` | `missionId` (alias `id`), `report`, `checks?` | Worker reports completion (mission becomes `completed`, ready for preflight and optional review). Requires current owner, no open tasks/blockers, ≥1 commit, no unread inbox; an artifact mission additionally needs every declared deliverable present in the committed tip. `report` is capped at `gates.maxReportBytes` (default 32768 UTF-8 bytes): a larger report is rejected with `invalid-argument` and a `nextAction` to file the full text in the mission worktree, never truncated; the stored report records `reportBytes`. `checks` records `{name, runId?, command?, exitCode?, evidence?}` evidence: `runId` names a receipt in the mission's `testRuns` (from `tower_test`), and an unknown or foreign id is rejected with `invalid-argument` before any state write; a command/exit-code claim that no recorded run corroborates is reported by preflight as the advisory `checks-unverified` warning, never a blocker. `gates.requireChecks` can demand checks. When configured, test discovery runs automatically and adds a `tests` check; failure throws `[tower:tests-failed]`. A mission whose worker already stopped — the row is `retired`, `failed`, `interrupted`, `missing` or `stale` — is refused with `[tower:invalid-transition]` and the message `agent <name> is <state>; a stopped worker cannot report completion`, never silently accepted. The refusal carries a `nextAction` (rendered as `— next: …`) naming the supported route: spawn a short-lived bookkeeping worker on the same mission that re-runs the gates and calls `tower_complete`, and never set the status to `completed` by hand, because a hand-set completion records no report, no checks and no evidence (#232). When the dead row carries a `residue`, the `nextAction` quotes it (`the stopped worker left 3 file(s) changed on <branch>`). |
 | `tower_interrupt` | `to?` (roster name), `agentId?`, `reason?` | Interrupt one running roster agent via `subagents.interrupt`, record `state:"interrupted"`. Idempotent (not running → `interrupted:false`). |
 | `tower_finding` | `op?` (`report` / `list` default / `update`), `id?`, `status?`, `note?`, filters (`type?`, `severity?`, `missionId?`, `open?`, `limit?`), `title?`, `summary?`, `details?`, `suggested_fix?`, `location?` | One finding lifecycle (#163 Phase 4). `report` needs `type` (bug/improve/vuln/idea), `title`, `summary`, `details`, `suggested_fix`; finds start as `open`. `list` reads/list by `id` or filters. `update` needs `id` plus `status`/`note`; statuses `open → triaged → fixed`/`wontfix`, reopen allowed. Only the tower or a worker may mutate; a reviewer can list/read. |
 | `tower_review` | `missionId` (alias `id`), `status` (`clean`/`p1-Nitems`/`p2-Nitems`), `merge` (`merge`/`fix-then-merge`/`hold`), `findings`, `decision`, `checks?`, `breakGlassReason?` | Reviewer verdict bound to the current tip. Reviewer must be the assigned reviewer (or tower break-glass). Not registered when `review.mode:off`; a repository-level `off` refuses the submission with `[tower:review-disabled]`. A later route may record a verdict for the same reviewed tip while the mission is active: it appends to that round (`appended:true`) without changing the status; a verdict for a moved tip is rejected with an explanation. Inside one round the newest recorded verdict (highest `seq`) is the one the merge gate, landed-merge detection, status and briefing evaluate: a later clean verdict supersedes an earlier non-clean verdict of the same round. |
@@ -209,6 +209,51 @@ summaries on the `status` and `roster` views; on `roster` without `agent` it kee
 the newest N rows. `status` without `agent` renders the dashboard, which has no
 bounded tail, so that combination is refused with `invalid-argument` naming
 `agent` instead of being silently ignored.
+
+### What a dead worker leaves behind
+
+When the watchdog marks a row `stale` (the catalog stopped answering past
+`spawn.staleMs`), the sweep also records the residue that worker left, so nobody
+has to reconstruct the death with `git status` and a hunk-by-hunk read of the
+diff (#231). One record, counts and shas only:
+
+```json
+{"at":1760000000000,"filesChanged":3,"branch":"tower/m7-…","tip":"4f2a…","dirty":true,"cause":"interrupted"}
+```
+
+`filesChanged` is the `git status --porcelain` entry count, `tip` is the worktree
+`HEAD`, `dirty` is `filesChanged > 0`, and `cause` (absent when there is none) is
+the bounded reason the row already carried. Every string field is capped at 120
+characters; the record never holds file contents, a diff, or a per-file list, and
+a missing worktree degrades to `filesChanged: 0` instead of failing the sweep.
+
+It surfaces in exactly two places, and neither is a default page:
+
+- **Per-agent detail only.** `tower_inspect({view:"roster",agent:"worker-m1"})`
+  returns it as `agent.residue`; `compact:true` keeps the identity fields and no
+  residue. The default `roster` table, the `/tasks` panel, and the `status`
+  dashboard never carry it, so a long mission cannot grow them.
+- **The successor's spawn.** A worker death is copied onto the mission as
+  `predecessorResidue`, `tower_spawn` copies that onto the new roster entry
+  (`report.rosterEntry.predecessorResidue`), and the worker briefing renders a
+  `A previous worker on this mission died before completing:` paragraph with the
+  real count, branch and tip. A clean predecessor leaves no record and no
+  paragraph.
+
+Only a worker death is mission news: a dead reviewer keeps its own per-row
+residue but never becomes a "previous worker" paragraph in a worker briefing.
+The record is the most recent worker death, not a history — a dirty death
+replaces the previous record and a clean death erases it, so the paragraph
+always describes the immediate predecessor. An F73 revival deletes the row's
+residue and, when the mission record names that row, the mission copy: a worker
+proven alive is not a death. An accepted `tower_complete` clears the carry-over
+too, because the successor has resolved what the warning described, so a fix
+worker spawned for a later review round hears about no old death.
+
+Each death appends one `watchdog` activity line after the usual
+`stale <names>; idle <names>` line: `residue worker-m1: 3 file(s) changed on
+tower/m7-… at 4f2a…`. The recovery procedure is the runbook's
+"A worker died mid-mission".
 
 ## Waiting on one target
 

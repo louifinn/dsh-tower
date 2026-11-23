@@ -96,6 +96,52 @@ test('worker briefing: prior reviews, findings, completion report and rules are 
   assert.match(text, /Extra tower instructions:\nkeep the diff tiny/)
 })
 
+// #231: the successor must be told, in words, that a predecessor died and left
+// work behind — with the real count, so it can decide what to inspect. The
+// sentence is absent when the predecessor left a clean tree.
+test('worker briefing: a dead predecessor residue is injected with the real count', () => {
+  const text = workerBriefing(
+    fixture({
+      mission: {
+        ...fixture().mission,
+        predecessorResidue: {
+          name: 'worker-m0',
+          at: 1_700_000_000_000,
+          filesChanged: 5,
+          branch: 'tower/m1-case',
+          tip: 'b'.repeat(40),
+          dirty: true,
+          cause: 'interrupted',
+        },
+      },
+    }),
+  )
+  assert.match(text, /A previous worker on this mission died before completing:/)
+  assert.match(text, /worker-m0 left 5 file\(s\) changed on tower\/m1-case at bbbbbbbbbbbb/)
+  assert.match(text, /Recorded cause: interrupted/)
+  assert.match(text, /counts are a snapshot, not a diff/)
+  // It sits above the rules, never inside them.
+  assert.ok(text.indexOf('A previous worker on this mission') < text.indexOf('Rules:'))
+
+  const clean = workerBriefing(
+    fixture({
+      mission: {
+        ...fixture().mission,
+        predecessorResidue: {
+          name: 'worker-m0',
+          at: 1_700_000_000_000,
+          filesChanged: 0,
+          branch: 'tower/m1-case',
+          tip: 'b'.repeat(40),
+          dirty: false,
+        },
+      },
+    }),
+  )
+  assert.doesNotMatch(clean, /A previous worker on this mission died before completing/)
+  assert.doesNotMatch(clean, /file\(s\) changed/)
+})
+
 test('detached survey briefing: the sandbox is the workdir, never the main checkout', () => {
   // R56 P2-1: a detached survey has no worktree, so before the fix the generic
   // rule used repoRoot as the workdir while calling it a disposable sandbox.

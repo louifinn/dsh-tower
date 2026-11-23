@@ -64,12 +64,23 @@ export function completionReportBytes(completionReport) {
 }
 
 /**
+ * #232: the supported way forward when a worker's own row is already stopped.
+ * The refusal used to name no route at all, so the only options a reader could
+ * see were a hand-edited status or a stranded mission. Both halves matter: the
+ * bookkeeping worker re-runs the gates and writes the evidence, and a hand-set
+ * `completed` is refused because the record it would fake does not exist.
+ */
+export const STOPPED_WORKER_NEXT_ACTION =
+  'spawn a short-lived bookkeeping worker (tower_spawn role:"worker" on the same mission) that re-runs the gates and calls tower_complete; never set the mission to "completed" by hand — a hand-set completed status is refused because it records no report, no checks, and no evidence'
+
+/**
  * @param {string} message
  * @param {string} [code]
+ * @param {{ nextAction?: string | null, retryable?: boolean }} [options]
  * @returns {never}
  */
-function fail(message, code = 'invalid-argument') {
-  throw new TowerToolError(code, message)
+function fail(message, code = 'invalid-argument', options = {}) {
+  throw new TowerToolError(code, message, options)
 }
 
 /**
@@ -173,7 +184,23 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
   if (!isWorkerRole(worker.role)) fail(`agent ${worker.name} is a ${worker.role}, not a worker`)
   const stopped = ['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(worker.state)
   if (stopped && !(worker.state === 'stale' && allowStaleSelfReport === true)) {
-    fail(`agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`)
+    // #231: the residue a dead worker left behind, when the sweep recorded one.
+    const residue = /** @type {{ filesChanged?: number, branch?: string | null } | undefined} */ (
+      /** @type {any} */ (worker).residue
+    )
+    fail(
+      `agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`,
+      'invalid-transition',
+      {
+        // #232: a refusal without a route leaves a hand-edited status as the only
+        // visible option. Name the supported recovery and forbid the fake one.
+        // #231: when the row recorded what the dead worker left behind, quote it
+        // so the caller does not have to run `git status` by hand.
+        nextAction: residue
+          ? `${STOPPED_WORKER_NEXT_ACTION} (the stopped worker left ${residue.filesChanged ?? 0} file(s) changed on ${residue.branch ?? 'its branch'})`
+          : STOPPED_WORKER_NEXT_ACTION,
+      },
+    )
   }
   if (mission.owner && mission.owner !== worker.name) {
     fail(`agent ${worker.name} is not the current owner of mission ${mission.id} (owner: ${mission.owner})`)
@@ -271,5 +298,11 @@ export function applyCompletion({ mission, report, now, result }) {
   mission.status = 'completed'
   mission.completionReport = report
   mission.updatedAt = now
+  // #231 R198: `predecessorResidue` is a warning for the next worker about a
+  // death nobody has explained yet. An accepted completion is that worker's own
+  // resolution, so the warning must not outlive it and reappear in the briefing
+  // of a later fix worker. (The type surface omits the optional field; the
+  // state schema permits extra mission properties.)
+  delete /** @type {any} */ (mission).predecessorResidue
   return { state: mission, events: [completedEvent(mission)] }
 }

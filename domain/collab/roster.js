@@ -38,6 +38,19 @@ export function clearStale(entry) {
 }
 
 /**
+ * #231 R198: a stale mark can be wrong (a live child that merely went silent),
+ * and the residue snapshot describes the death that was attributed to that wrong
+ * mark. Reviving or settling the row proves the child alive, so the snapshot
+ * must go with the stale mark — otherwise the agent-scoped read keeps reporting
+ * a death that never happened.
+ * @param {RosterEntry} entry
+ * @returns {void}
+ */
+function clearResidue(entry) {
+  delete entry.residue
+}
+
+/**
  * Count repeated absence observations and list rows ready to adopt.
  *
  * A candidate needs both repeated observations and, when `windowMs` is set, a
@@ -120,6 +133,7 @@ export function reviveSelfReportedEntry(roster, { missionId, agentId, now }) {
   // starts observing again from scratch.
   delete entry.absentObservations
   delete entry.absentSince
+  clearResidue(entry)
   entry.revivedAt = now
   entry.revivedReason = 'self-reported completion (a live worker cannot be judged dead)'
   return { revived: true, name: entry.name, remark }
@@ -152,6 +166,7 @@ export function settleSelfReportedCompletion(roster, { missionId, agentId, now }
   clearStale(entry)
   delete entry.absentObservations
   delete entry.absentSince
+  clearResidue(entry)
   return { marked: true, name: entry.name, remark }
 }
 
@@ -222,12 +237,90 @@ export function markMissingEntries(roster, agentIds, now) {
   return { missing }
 }
 
+/** The most one residue field may carry: the record is counts and shas, never a
+ * diff and never file contents, so an agent-scoped read stays bounded (#231). */
+export const RESIDUE_FIELD_MAX = 120
+
+/**
+ * Bound one residue field to a short scalar.
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function residueField(value) {
+  if (typeof value !== 'string') return null
+  const text = value.trim().replace(/\s+/g, ' ')
+  if (text.length === 0) return null
+  return text.length > RESIDUE_FIELD_MAX ? `${text.slice(0, RESIDUE_FIELD_MAX - 1)}…` : text
+}
+
+/**
+ * Count the entries of a `git status --porcelain` listing: one per changed path
+ * (a rename is one entry, matching the adopt residue precedent #204).
+ * @param {unknown} status
+ * @returns {number}
+ */
+export function countPorcelainPaths(status) {
+  return typeof status === 'string' ? status.split('\n').filter((line) => line.trim().length > 0).length : 0
+}
+
+/**
+ * Project the residue a worker leaves behind when it stops without completing
+ * (#231): `{ at, filesChanged, branch, tip, dirty, cause? }`.
+ *
+ * The record is deliberately counts-and-shas only — a stopped worker must not
+ * turn the roster row into an evidence dump, and a caller that needs the diff
+ * reads it in the worktree. Every field is bounded, and a missing worktree
+ * (git probe returned null) degrades to zero files rather than throwing, so the
+ * caller can record the death even when the checkout is gone.
+ * @param {{ at?: number, status?: string | null, filesChanged?: number, branch?: string | null, tip?: string | null, dirty?: boolean, cause?: string | null }} [input]
+ * @returns {{ at: number, filesChanged: number, branch: string | null, tip: string | null, dirty: boolean, cause?: string }}
+ */
+export function residueRecord(input = {}) {
+  const counted = Number.isFinite(Number(input.filesChanged))
+    ? Math.max(0, Math.trunc(Number(input.filesChanged)))
+    : countPorcelainPaths(input.status)
+  /** @type {{ at: number, filesChanged: number, branch: string | null, tip: string | null, dirty: boolean, cause?: string }} */
+  const record = {
+    at: Number.isFinite(Number(input.at)) ? Number(input.at) : 0,
+    filesChanged: counted,
+    branch: residueField(input.branch),
+    tip: residueField(input.tip),
+    dirty: input.dirty === undefined ? counted > 0 : input.dirty === true,
+  }
+  const cause = residueField(input.cause)
+  if (cause) record.cause = cause
+  return record
+}
+
+/**
+ * True when this row is what the sweep would mark stale right now. The app layer
+ * asks this before taking the state lock so the residue probe (which shells out
+ * to git) never runs while the lock is held; `sweepRosterState` applies the same
+ * predicate, so a pre-scan and the sweep can never disagree about the rule.
+ * @param {RosterEntry} entry
+ * @param {{ activity?: Record<string, string>, staleMs?: unknown, now?: number }} [input]
+ * @returns {boolean}
+ */
+export function sweepCandidate(entry, input = {}) {
+  const staleMs = Number(input.staleMs) || 0
+  if (staleMs <= 0) return false
+  if (ROSTER_INACTIVE.has(entry.state)) return false
+  if ((input.activity ?? {})[/** @type {string} */ (entry.agentId)] !== undefined) return false
+  return rosterEntryStale(entry, { parentKnown: true, staleMs, now: Number(input.now ?? 0) })
+}
+
 /**
  * Watchdog sweep: catalog-inactive rows become inactive; rows absent from an
  * authoritative catalog and older than `staleMs` become stale. Unknown catalog
  * state is never treated as stopped.
+ *
+ * A row that turns stale also records the residue it leaves behind (#231): the
+ * caller probes the mission worktree outside the lock and passes the records in
+ * `input.residue` by row name, so the pure layer stays free of git. A row with
+ * no supplied record still records the death itself (a zero-file residue), so a
+ * stopped worker never leaves half a record.
  * @param {RosterEntry[]} roster
- * @param {{ activity?: Record<string, string>, staleMs?: unknown, authoritative?: unknown }} input
+ * @param {{ activity?: Record<string, string>, staleMs?: unknown, authoritative?: unknown, residue?: Record<string, { at?: number, status?: string | null, filesChanged?: number, branch?: string | null, tip?: string | null, dirty?: boolean, cause?: string | null }> }} input
  * @param {number} now
  * @returns {{ marked: string[], idled: string[] }}
  */
@@ -235,6 +328,7 @@ export function sweepRosterState(roster, input = {}, now) {
   const staleMs = Number(input.staleMs) || 0
   if (staleMs <= 0 || input.authoritative !== true) return { marked: [], idled: [] }
   const activity = input.activity ?? {}
+  const residue = input.residue ?? {}
   /** @type {string[]} */
   const marked = []
   /** @type {string[]} */
@@ -255,6 +349,9 @@ export function sweepRosterState(roster, input = {}, now) {
       entry.state = 'stale'
       entry.stale = true
       entry.staleAt = now
+      // The supplied record carries the probed git facts; the sweep's own clock
+      // wins for `at`, so two sweeps of the same row agree on when it died.
+      entry.residue = residueRecord({ ...(residue[entry.name] ?? {}), at: now })
       marked.push(entry.name)
     }
   }

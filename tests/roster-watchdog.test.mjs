@@ -302,6 +302,116 @@ test('F73: a present observation resets the absence evidence', async () => {
   }
 })
 
+// --- #231: a dead worker leaves a residue record ---------------------------
+
+test('#231: a sweep that stales a worker records the residue it left behind', async () => {
+  const { root, repo } = seedRepo('dsh-tower-watchdog-residue-')
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-agent' })
+    await tower.plan({ missions: [{ title: '#231 residue', scope: ['src/**'] }] })
+    // A branch with real work on it, plus an uncommitted file: the exact shape
+    // of a worker that died mid-edit.
+    const worktree = path.join(root, 'wt')
+    git(repo, ['worktree', 'add', '-b', 'tower/m1-residue', worktree])
+    fs.mkdirSync(path.join(worktree, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(worktree, 'src', 'a.txt'), 'a\n')
+    fs.writeFileSync(path.join(worktree, 'src', 'b.txt'), 'b\n')
+    git(worktree, ['add', '-A'])
+    git(worktree, ['commit', '-m', 'work'])
+    fs.writeFileSync(path.join(worktree, 'src', 'c.txt'), 'c\n')
+    const tip = git(worktree, ['rev-parse', 'HEAD'])
+
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-live',
+      parentSessionId: 'tower-agent',
+      cwd: worktree,
+      branch: 'tower/m1-residue',
+    })
+    const aged = await tower.load()
+    aged.roster.find((entry) => entry.agentId === 'agent-live').spawnedAt = Date.now() - 10 * MINUTE
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+
+    const swept = await tower.sweepRoster({
+      staleMs: STALE_MS,
+      activity: { 'agent-unrelated': 'running' },
+      authoritative: true,
+    })
+    assert.deepEqual(swept.marked, ['worker-m1'])
+
+    const dead = await row(tower)
+    assert.equal(dead.state, 'stale')
+    assert.ok(dead.residue, 'a stale row must record the residue it left behind')
+    assert.equal(dead.residue.filesChanged, 1, 'one uncommitted file')
+    assert.equal(dead.residue.branch, 'tower/m1-residue')
+    assert.equal(dead.residue.tip, tip, 'the tip the worker reached')
+    assert.equal(dead.residue.dirty, true)
+    assert.ok(Number.isFinite(dead.residue.at), 'the record is timestamped')
+    assert.match(activityText(tower), /residue worker-m1: 1 file\(s\) changed/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#231: a dead worker whose worktree is gone still records zero files', async () => {
+  const { root, tower } = await seeded()
+  try {
+    // `seeded` spawns with cwd: null, so the probe has no checkout to read. The
+    // death must still be recorded rather than left half-written.
+    const swept = await tower.sweepRoster({
+      staleMs: STALE_MS,
+      activity: { 'agent-unrelated': 'running' },
+      authoritative: true,
+    })
+    assert.deepEqual(swept.marked, ['worker-m1'])
+    const dead = await row(tower)
+    assert.equal(dead.state, 'stale')
+    assert.deepEqual(dead.residue.filesChanged, 0)
+    assert.equal(dead.residue.dirty, false)
+    assert.ok(Number.isFinite(dead.residue.at))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#231: a clean predecessor leaves no residue, a dirty one leaves a bounded record', async () => {
+  const { root, repo } = seedRepo('dsh-tower-watchdog-residue-clean-')
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({ towerAgentId: 'tower-agent' })
+    await tower.plan({ missions: [{ title: '#231 clean', scope: ['src/**'] }] })
+    const worktree = path.join(root, 'wt')
+    git(repo, ['worktree', 'add', '-b', 'tower/m1-clean', worktree])
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-live',
+      parentSessionId: 'tower-agent',
+      cwd: worktree,
+      branch: 'tower/m1-clean',
+    })
+    const aged = await tower.load()
+    aged.roster.find((entry) => entry.agentId === 'agent-live').spawnedAt = Date.now() - 10 * MINUTE
+    fs.writeFileSync(tower.paths.state, JSON.stringify(aged, null, 2))
+
+    await tower.sweepRoster({ staleMs: STALE_MS, activity: { 'agent-unrelated': 'running' }, authoritative: true })
+    const dead = await row(tower)
+    assert.equal(dead.residue.filesChanged, 0)
+    assert.equal(dead.residue.dirty, false)
+    // Counts and shas only: the record never carries file contents or a diff.
+    assert.deepEqual(Object.keys(dead.residue).sort(), ['at', 'branch', 'dirty', 'filesChanged', 'tip'])
+    for (const value of Object.values(dead.residue)) {
+      if (typeof value === 'string') assert.ok(value.length <= 120, `residue field must stay bounded: ${value}`)
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('F73: staleMs: 0 disables the watchdog without writing state or activity', async () => {
   const { root, tower } = await seeded()
   try {
