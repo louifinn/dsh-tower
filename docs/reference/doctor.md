@@ -8,21 +8,21 @@ It returns:
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 58 · sections: 16 · tools: 21 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 59 · sections: 16 · tools: 23 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
-    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.3: 0.2.2-rc.3 verified on 2026-11-17. Source: 0.2.2-rc.3 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
+    { "id": "host-version", "status": "pass", "detail": "0.2.2-rc.5: 0.2.2-rc.5 verified on 2026-11-22. Source: 0.2.2-rc.5 from the package.json at D:/app/dsh/node_modules/@deepseek-ai/dsh named by DSH_INSTALL_DIR." },
     { "id": "ralph-stance", "status": "pass", "detail": "no live Ralph loop in this repository" },
     { "id": "foreign-capabilities", "status": "pass", "detail": "no non-Tower capability is available; 4 known types checked" },
     { "id": "case-mode", "status": "pass", "detail": "caseInsensitive: true; scope matching uses case-insensitive comparison" }
   ],
   "surface": {
-    "configKeys": 58,
+    "configKeys": 59,
     "sections": 16,
-    "tools": 21,
+    "tools": 23,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 58 · sections: 16 · tools: 21"
+    "line": "config keys: 59 · sections: 16 · tools: 23"
   },
   "stateLock": {
     "held": true,
@@ -151,13 +151,13 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (21 in 2.9.0, 16 default), even though the shipped profile mounts 16 because the
+build surface (23 today; 21 in 2.9.0, 17 default), even though the shipped profile mounts 17 because the
 five subsystem rows ship off; the `components` check names the mounted subset and every
 disabled row.
 
 `subsystems` lists the five default-off rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) as `{id, enabled, tool, enable}`; each
-row's tool stays in the 21 all-on surface. The `components` check detail names each
+row's tool stays in the 23 all-on surface. The `components` check detail names each
 row as off, not deleted, with its enable step. A `deprecated-tool-names` check scans
 `mode.denyTools` for names that #163 merged or removed (`tower_control`, `tower_adopt`,
 `tower_findings`, `tower_import_legacy`, `tower_legacy_map`, `tower_status`,
@@ -324,9 +324,33 @@ dirty ones (kept) and registrations whose directory is gone (prunable), and it n
 anything itself; only the explicit `orphans` option does, and only for clean paths inside the
 worktree root. The main checkout, every path state references (mission worktree, sandbox, review
 checkout) and every path outside the root are hard exclusions, so a checkout can be listed without
-being removable. A checkout git records **outside** the worktree root is reported in the same check
-and is never removed by Tower: that is the documented limit, and the operator either reclaims it
-out of band or accepts it.
+being removable.
+
+The same check also counts empty leftover directories (#214): a review checkout whose contents were
+removed can leave an ordinary empty directory directly under the worktree root, and because git no
+longer registers it, no worktree row shows it. Such a shell is a `warn` that names the count and up
+to five directory names and points at `tower_teardown` with `orphans: true`; that sweep removes only
+empty, unrecorded directories strictly inside the root. A non-empty directory is reported as a keep
+and never deleted, and doctor still removes nothing itself. The review checkout cleanup removes its
+own shell as soon as the checkout is gone, so this warning is for shells left by an interrupted or
+out-of-band cleanup.
+
+Directory enumeration is an optional store capability (#214). When the configured store does not
+expose it, the check cannot tell whether a directory is an empty shell, so it reports a `warn` naming
+that limitation instead of a `pass`: the sweep cannot clean those shells and an unsupported store is
+never mistaken for a clean worktree root.
+
+A checkout git records **outside** the worktree root belongs to another tool, not to Tower (#214).
+It is named in the same check but on a `pass` row: it is not managed by Tower, is not counted with
+the unrecorded worktrees or empty shells, and is never removed by Tower. The operator reclaims or
+accepts it outside Tower.
+
+A worktree may carry a recorded `node_modules` junction (`spawn.nodeModules:"link"`, #218). The
+`worktree-links` check reports three states as a `warn`: the recorded target is missing (`dangling`),
+the recorded path is gone or is no longer a link (`missing`/`replaced`), and an unrecorded link sits
+at `<worktree>/node_modules`. Doctor never follows, creates or removes a link. Teardown unlinks only
+the recorded link and keeps a checkout that holds an unrecorded one, so this warning explains why a
+checkout stayed behind; the pass reading is `no dangling or unrecorded worktree links`.
 
 A checkout at the path a mission is expected to provision is reported as in flight, never as an
 unrecorded defect: while a mission with no recorded worktree can still start a provision (planned,
@@ -335,8 +359,9 @@ no remedy. A mission closed as `completed`, `merged` or `abandoned` cannot provi
 not reserve its path; neither does a shape that declares no worktree (a survey), so a clean checkout
 left at `<worktree root>/<mission id>` is an ordinary removable orphan. The reservation also fails
 closed: if a mission's kind cannot be read, its expected path is kept with the reason stated in the
-decision instead of being removed. The bare `pass` text is used only when nothing is reserved;
-otherwise the detail names the in-flight count while a reserved checkout exists.
+decision instead of being removed. The bare `pass` text is used only when nothing is reserved,
+nothing is left over and no checkout is foreign; otherwise the detail names the in-flight count, the
+leftover count or the foreign checkout while the condition exists.
 
 Tower mode does not deny the worktree tool's `create_worktree` (#187). The stance is allow and make
 visible: an unrecorded checkout is a fact this check reports, not an operation Tower tries to

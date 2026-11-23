@@ -54,11 +54,21 @@ test('reviewer preset: read-only surface with diff and review', () => {
   for (const denied of ['write', 'edit', 'pwsh', 'tower_mission', 'tower_complete']) {
     assert.equal(state.allow.includes(denied), false, `reviewer must not allow ${denied}`)
   }
-  for (const allowed of ['read', 'glob', 'grep', 'tower_inspect', 'tower_inspect', 'tower_review', 'skill']) {
+  // #202: the reviewer's only execution surface is the fixed read-only
+  // whitelist behind tower_verify — no shell, and the worker never gets it.
+  for (const allowed of ['read', 'glob', 'grep', 'tower_inspect', 'tower_verify', 'tower_review', 'skill']) {
     assert.ok(state.allow.includes(allowed), `reviewer should allow ${allowed}`)
   }
   assert.match(state.section.text, /read-only/i)
+  assert.match(state.section.text, /tower_verify/)
   assert.doesNotMatch(state.section.text, /Commit your work/)
+})
+
+test('worker preset: the reviewer verification tool stays out of its allow-list (#202)', () => {
+  const { ctx, state } = mockCtx()
+  worker.apply(ctx)
+  assert.equal(state.allow.includes('tower_verify'), false, 'a worker keeps its own shell and tower_test, not the reviewer whitelist')
+  assert.equal(state.allow.includes('tower_review'), false, 'workers still cannot review their own work')
 })
 
 test('survey preset: read-only surface that can still acknowledge the inbox (#148)', () => {

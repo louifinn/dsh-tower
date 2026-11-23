@@ -389,3 +389,267 @@ test('regression: mode store waits with a bounded timeout for a live lock', () =
     removeTemp(dir)
   }
 })
+
+// #217: tower_plan could only create. A dry run must answer "what would this
+// plan do" without creating missions, bumping the revision, or writing
+// activity; keys let one plan refer to its own siblings before ids exist.
+function makePlanRepo() {
+  const { root, repo } = makeRepo()
+  fs.mkdirSync(path.join(repo, 'src'))
+  fs.writeFileSync(path.join(repo, 'src', 'a.js'), 'export const a = 1\n')
+  fs.mkdirSync(path.join(repo, 'lib'))
+  fs.writeFileSync(path.join(repo, 'lib', 'b.js'), 'export const b = 2\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'more tracked files'])
+  return { root, repo }
+}
+
+test('regression: tower_plan dry_run previews per-mission ids and keys without writing state', async () => {
+  const { root, repo } = makePlanRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+    const preview = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      dry_run: true,
+      missions: [
+        { title: 'Foundation', key: 'foundation', scope: ['src/**'], tasks: ['write it'] },
+        { title: 'Follower', key: 'follower', scope: ['src/a.js'], deps: ['foundation'] },
+      ],
+    })
+    assert.equal(preview.dry_run, true)
+    assert.equal(preview.ok, true)
+    assert.equal(preview.revision, before.revision)
+    assert.deepEqual(preview.missions.map((mission) => mission.wouldBeId), ['M1', 'M2'])
+    assert.deepEqual(preview.missions.map((mission) => mission.key), ['foundation', 'follower'])
+    assert.deepEqual(preview.missions[1].deps, ['M1'])
+    assert.deepEqual(preview.missions[1].overlaps, ['M1'])
+    const after = await (await Tower.open(repo)).load()
+    assert.equal(after.revision, before.revision, 'a dry run must not bump the revision')
+    assert.equal(after.missions.length, 0, 'a dry run must not create missions')
+    const rejected = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Only explicit', scope: ['lib/**'] }],
+    })
+    assert.equal(rejected.missions[0].id, 'M1', 'the preview ids must not be reserved')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: tower_plan resolves plan-local keys to the ids it assigns', async () => {
+  const { root, repo } = makePlanRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Foundation', key: 'foundation', scope: ['src/**'] },
+        { title: 'Follower', key: 'follower', scope: ['lib/**'], deps: ['foundation'] },
+      ],
+    })
+    assert.deepEqual(planned.missions.map((mission) => mission.id), ['M1', 'M2'])
+    assert.deepEqual(planned.missions[1].deps, ['M1'])
+    assert.equal(planned.missions[0].key, undefined, 'the plan-local key is not persisted')
+    assert.equal(planned.missions[1].key, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: tower_plan reports every invalid entry instead of stopping at the first', async () => {
+  const { root, repo } = makePlanRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_plan', {
+          repoRoot: repo,
+          missions: [
+            { title: '', scope: ['src/missing.js'] },
+            { title: 'Second', scope: ['src/**'], deps: ['M9'] },
+            { title: 'Third', scope: ['lib/**'], deps: ['missing-key'] },
+          ],
+        }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.ok(Array.isArray(error.details?.problems), 'the complete problem set travels in details.problems')
+        assert.ok(error.details.problems.length >= 4, `expected at least four problems, saw ${error.details.problems.length}: ${JSON.stringify(error.details.problems)}`)
+        return true
+      },
+    )
+    const after = await (await Tower.open(repo)).load()
+    assert.equal(after.revision, before.revision, 'a rejected plan must not bump the revision')
+    assert.equal(after.missions.length, 0, 'a rejected plan must not create a prefix of the batch')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: tower_plan dry_run reports all problems and never throws', async () => {
+  const { root, repo } = makePlanRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const preview = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      dry_run: true,
+      missions: [
+        { title: '', scope: ['src/missing.js'] },
+        { title: 'Bad key', key: 'M7', scope: ['src/**'] },
+        { title: 'Duplicate key', key: 'base', scope: ['src/**'] },
+        { title: 'Duplicate key again', key: 'base', scope: ['lib/**'] },
+      ],
+    })
+    assert.equal(preview.dry_run, true)
+    assert.equal(preview.ok, false)
+    assert.ok(preview.problems.length >= 4, `expected the full problem list, saw ${preview.problems.length}`)
+    const kinds = new Set(preview.problems.map((problem) => problem.kind))
+    assert.ok(kinds.has('key'), `the key problems must be reported: ${JSON.stringify(preview.problems)}`)
+    assert.ok(kinds.has('scope'), 'the scope problem must be reported')
+    assert.ok(kinds.has('mission'), 'the invalid title must be reported')
+    assert.equal((await (await Tower.open(repo)).load()).missions.length, 0)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #218: `spawn.nodeModules: "link"` gives a worktree the baseline checkout's
+// installed dependencies as a recorded junction. Teardown relies on that record
+// to unlink only the link, so the link must be visible in both mission.worktree
+// and the roster row, and the default must stay "none".
+function seedNodeModules(repo) {
+  const target = path.join(repo, 'node_modules')
+  fs.mkdirSync(target, { recursive: true })
+  fs.writeFileSync(path.join(target, 'sentinel.txt'), 'keep\n')
+  return target
+}
+
+test('regression: spawn.nodeModules link creates and records a worktree junction', async () => {
+  const { root, repo } = makeRepo()
+  const target = seedNodeModules(repo)
+  writeRepoConfig(repo, { spawn: { nodeModules: 'link' } })
+  const { ctx, tools, activations } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'Linked worktree', scope: ['README.md'] }] })
+    const report = await call(tools, 'tower_spawn', {
+      repoRoot: repo,
+      missionId: 'M1',
+      role: 'worker',
+      worktreeRoot: path.join(root, 'worktrees'),
+    })
+
+    assert.equal(activations.length, 1)
+    assert.equal(report.nodeModulesLink.target, target)
+    const linkPath = path.join(report.worktree.path, 'node_modules')
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, 'the worktree node_modules is a junction')
+    assert.equal(fs.readFileSync(path.join(linkPath, 'sentinel.txt'), 'utf8'), 'keep\n', 'the linked dependencies are readable')
+
+    const tower = await Tower.open(repo)
+    const state = await tower.load()
+    assert.equal(state.missions[0].worktree.nodeModulesLink.target, target)
+    assert.equal(state.missions[0].worktree.nodeModulesLink.path, linkPath)
+    const row = state.roster.find((entry) => entry.name === 'worker-m1')
+    assert.equal(row.nodeModulesLink.target, target, 'the roster row records the same link for teardown')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: spawn.nodeModules defaults to none and creates no link', async () => {
+  const { root, repo } = makeRepo()
+  seedNodeModules(repo)
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'Plain worktree', scope: ['README.md'] }] })
+    const report = await call(tools, 'tower_spawn', {
+      repoRoot: repo,
+      missionId: 'M1',
+      role: 'worker',
+      worktreeRoot: path.join(root, 'worktrees'),
+    })
+
+    assert.equal(report.nodeModulesLink, null)
+    assert.equal(fs.existsSync(path.join(report.worktree.path, 'node_modules')), false)
+    const state = await (await Tower.open(repo)).load()
+    assert.equal(state.missions[0].worktree.nodeModulesLink, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: spawn.nodeModules link refuses a baseline with no installed dependencies', async () => {
+  const { root, repo } = makeRepo()
+  writeRepoConfig(repo, { spawn: { nodeModules: 'link' } })
+  const { ctx, tools, activations } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'No dependencies', scope: ['README.md'] }] })
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_spawn', {
+          repoRoot: repo,
+          missionId: 'M1',
+          role: 'worker',
+          worktreeRoot: path.join(root, 'worktrees'),
+        }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.match(error.message, /no installed dependencies at/)
+        assert.match(error.message, /install dependencies in/)
+        assert.match(error.message, /spawn\.nodeModules to "none"/)
+        return true
+      },
+    )
+    assert.equal(activations.length, 0, 'a refused link must not start the child')
+    const state = await (await Tower.open(repo)).load()
+    assert.equal((state.roster ?? []).length, 0, 'a refused link must not record a reservation')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('regression: tower_plan key dependencies detect cycles before creating missions', async () => {
+  const { root, repo } = makePlanRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_plan', {
+          repoRoot: repo,
+          missions: [
+            { title: 'One', key: 'one', scope: ['src/**'], deps: ['two'] },
+            { title: 'Two', key: 'two', scope: ['lib/**'], deps: ['one'] },
+          ],
+        }),
+      (error) => {
+        assert.equal(error.code, 'invalid-argument')
+        assert.ok(error.details.problems.some((problem) => problem.kind === 'cycle'))
+        assert.match(error.details.problems.find((problem) => problem.kind === 'cycle').message, /cycle/)
+        return true
+      },
+    )
+    assert.equal((await (await Tower.open(repo)).load()).missions.length, 0)
+  } finally {
+    removeTemp(root)
+  }
+})

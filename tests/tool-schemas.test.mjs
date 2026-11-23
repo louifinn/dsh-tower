@@ -12,6 +12,7 @@ import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
 import { registerTowerTools } from '../host/tool-registry.js'
+import { ToolInputs } from '../domain/contracts/tool-inputs/index.js'
 import { SCHEMAS } from '../domain/contracts/outputs.js'
 import { Tower } from '../host/tower.js'
 import { teardownWorktreeRoot } from '../app/teardown.js'
@@ -119,6 +120,15 @@ test('every tool output satisfies its declared schema across a full mission', as
     const missionId = planned.missions[0].id
     await call('tower_inspect', { repoRoot: repo, view: 'status' })
 
+    // #201: a bounded wait returns one conclusion. The planned mission cannot
+    // reach `completed` inside the timeout, and an absent mission is unknown —
+    // never a timeout.
+    const waited = await call('tower_wait', { repoRoot: repo, missionId, timeoutMs: 1000 })
+    assert.equal(waited.status, 'timeout')
+    assert.equal(waited.target.missionId, missionId)
+    const missing = await call('tower_wait', { repoRoot: repo, missionId: 'M999', timeoutMs: 1000 })
+    assert.equal(missing.status, 'unknown')
+
     const spawned = await call('tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
     assert.equal(spawned.preset, 'custom-worker', 'repo config spawn.workerPreset wins over the profile')
     const workerExec = { agent: { id: spawned.agentId } }
@@ -128,6 +138,9 @@ test('every tool output satisfies its declared schema across a full mission', as
     git(worktree, ['add', '-A'])
     git(worktree, ['commit', '-m', 'schema walk'])
 
+    const appended = await call('tower_mission', { repoRoot: repo, missionId, taskAdd: ['schema-added'] })
+    assert.deepEqual(appended.mission.tasks.at(-1), { text: 'schema-added', status: 'open' })
+    await call('tower_mission', { repoRoot: repo, missionId, taskDone: 'schema-added' })
     await call('tower_mission', { repoRoot: repo, missionId, taskDone: 'write it' })
     await call('tower_mission', { repoRoot: repo, id: ` ${missionId} `, taskDone: 'commit it' })
     await call('tower_inspect', { repoRoot: repo, view: 'status' })
@@ -135,6 +148,59 @@ test('every tool output satisfies its declared schema across a full mission', as
 
     const completed = await call('tower_complete', { repoRoot: repo, missionId, report: 'done' }, workerExec)
     assert.equal(completed.mission.status, 'completed')
+
+    // #207: `agent` narrows both views to one row plus its bounded activity and
+    // never returns the whole table.
+    const lone = await call('tower_inspect', { repoRoot: repo, view: 'roster', agent: 'worker-m1', tail: 3 })
+    assert.equal(lone.agent.name, 'worker-m1')
+    assert.equal(lone.roster, undefined, 'an agent view is not the roster table')
+    assert.ok(Array.isArray(lone.activity))
+    assert.ok(lone.activity.length <= 3)
+    const single = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1' })
+    assert.equal(single.agent.name, 'worker-m1')
+    assert.equal(single.missions, undefined, 'an agent status view is not a mission page')
+    assert.equal(single.total, undefined)
+    assert.ok(Array.isArray(single.activity))
+    assert.ok(single.activity.length <= 5, 'the default activity tail is bounded')
+    // #207 P2: `compact` keeps only the agent identity, plus the bound
+    // mission's id/status/kind for the status view — no activity/observed/stale
+    // or outcome keys on the projected agent object.
+    const rosterCompact = await call('tower_inspect', { repoRoot: repo, view: 'roster', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(rosterCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.equal(rosterCompact.agent.name, 'worker-m1')
+    assert.ok(Array.isArray(rosterCompact.activity), 'the compact view still carries the separate bounded activity tail')
+    const statusCompact = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', compact: true })
+    assert.deepEqual(Object.keys(statusCompact.agent).sort(), ['missionId', 'name', 'role', 'state'])
+    assert.deepEqual(Object.keys(statusCompact.mission).sort(), ['id', 'kind', 'status'])
+    assert.ok('observed' in single.agent && 'stale' in single.agent, 'non-compact keeps the observation fields')
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'roster', agent: 'worker-ghost' }, towerExec),
+      (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
+    )
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', agent: 'worker-m1', missionId }, towerExec),
+      (error) => error.code === 'invalid-argument',
+    )
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 51 }, towerExec),
+      (error) => error.code === 'invalid-argument',
+    )
+    // R186: `tail` bounds one agent's activity or the newest roster rows; the
+    // status dashboard has no tail to cut, so the combination is refused
+    // instead of silently ignored.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', tail: 3 }, towerExec),
+      (error) => error.code === 'invalid-argument' && /tail only with agent/.test(error.message),
+    )
+    // With `agent`, tail still bounds that one row's status activity.
+    const statusTail = await call('tower_inspect', { repoRoot: repo, view: 'status', agent: 'worker-m1', tail: 2 })
+    assert.ok(statusTail.activity.length <= 2, 'status + agent + tail bounds the activity')
+    // R186: an unknown agent on `status` alone is refused, never answered with
+    // the dashboard.
+    await assert.rejects(
+      () => tools.get('tower_inspect').execute({ repoRoot: repo, view: 'status', agent: 'worker-ghost' }, towerExec),
+      (error) => error.code === 'invalid-argument' && /unknown roster agent/.test(error.message),
+    )
 
     await call('tower_send', { repoRoot: repo, to: 'worker-m1', subject: 'note', body: 'read me' })
     await call('tower_inbox', { repoRoot: repo }, workerExec)
@@ -157,6 +223,14 @@ test('every tool output satisfies its declared schema across a full mission', as
     assert.equal(reviewer.preset, 'tower-reviewer')
     assert.equal(activations.length, 2)
     const reviewerExec = { agent: { id: reviewer.agentId } }
+    // #202: the reviewer produces run evidence through the same read-only
+    // whitelist the shipped tool advertises; this walk validates the output
+    // shape (the worktree has no node_modules here, so tsc is unavailable and
+    // the summary carries the documented spawn.nodeModules remedy).
+    const verified = await call('tower_verify', { repoRoot: repo, missionId, checks: [{ kind: 'tsc' }] }, reviewerExec)
+    assert.equal(verified.ok, false)
+    assert.equal(verified.checks[0].status, 'unavailable')
+    assert.match(verified.checks[0].runId, /^run-\d+$/)
     await call(
       'tower_review',
       {
@@ -352,4 +426,54 @@ test('tower_teardown admits the opt-in orphan sweep through its registered contr
   } finally {
     removeTemp(root)
   }
+})
+
+// #206: `runId` belongs to the CompleteInput contract itself, not to a
+// module-load patch in tools/complete.js. The registered parameters must be the
+// same object the contract exports, and a second registration must not append
+// anything to the shared schema.
+test('tower_complete.runId is part of the input contract, not a module-load patch', () => {
+  const checkItem = ToolInputs.tower_complete.properties.checks.items
+  assert.equal(checkItem.properties.runId.type, 'string')
+  assert.deepEqual(checkItem.required, ['name'], 'runId stays optional')
+  const first = makeCtx()
+  registerTowerTools(first.ctx)
+  const registered = first.tools.get('tower_complete')
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(registered.parameters)),
+    JSON.parse(JSON.stringify(ToolInputs.tower_complete)),
+    'the registered parameters are the contract object, not a mutated copy',
+  )
+  const snapshot = JSON.stringify(registered.parameters)
+  const second = makeCtx()
+  registerTowerTools(second.ctx)
+  assert.equal(JSON.stringify(second.tools.get('tower_complete').parameters), snapshot)
+  assert.deepEqual(Object.keys(registered.parameters.properties.checks.items.properties).sort(), [
+    'command',
+    'evidence',
+    'exitCode',
+    'name',
+    'runId',
+  ])
+})
+
+// #216: the bulk form is declared on the same closed object: item fields are
+// exactly the single-form fields plus the required `id`, `ids` is a string
+// array, and `atomic` is a boolean. Nothing widens `additionalProperties`.
+test('tower_mission bulk form is a closed schema, not an unknown-field escape hatch', () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const parameters = tools.get('tower_mission').parameters
+  assert.equal(parameters.additionalProperties, false)
+  assert.equal(parameters.properties.missions.type, 'array')
+  assert.deepEqual(parameters.properties.missions.items.required, ['id'])
+  assert.equal(parameters.properties.missions.items.additionalProperties, false)
+  assert.equal(parameters.properties.ids.type, 'array')
+  assert.equal(parameters.properties.ids.items.type, 'string')
+  assert.equal(parameters.properties.atomic.type, 'boolean')
+  const singleFields = Object.keys(parameters.properties).filter((key) => !['missions', 'ids', 'atomic'].includes(key))
+  // Human acceptance remains a single-mission action: the bulk item schema
+  // carries every other per-mission field and nothing more.
+  const expected = singleFields.filter((key) => !['accept', 'accept_note'].includes(key))
+  assert.deepEqual(Object.keys(parameters.properties.missions.items.properties).sort(), expected.sort())
 })

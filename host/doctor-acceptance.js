@@ -32,6 +32,11 @@ const DOCTOR_ACTION_COPY = Object.freeze({
     'keep the capability available and land changes through one path at a time, or turn its plugin row off for a run that must land changes through Tower; doctor only reports the stance and never denies or removes a capability',
 })
 
+// #214: a store without directory enumeration cannot answer whether a shell is
+// empty, so the limitation is a warning, never a clean pass.
+const SHELL_SCAN_UNSUPPORTED =
+  'the store implementation does not expose directory enumeration, so empty leftover directories cannot be scanned and tower_teardown cannot clean empty review-checkout shells with this store'
+
 /**
  * One `artifact-acceptance` doctor check over the loaded state.
  * @param {{ missions?: any[] }} state
@@ -59,14 +64,10 @@ export function artifactAcceptanceCheck(state) {
 }
 
 /**
- * #187: report the checkouts git knows that no mission, sandbox or review row
- * records. `create_worktree` stays allowed (Tower does not deny the capability)
- * and this check is what makes its checkouts visible; a lost state file or a
- * crashed provision shows up the same way. Doctor is read-only — only the
- * explicit orphan sweep in `tower_teardown` removes anything, and only a clean
- * checkout strictly inside the worktree root. A checkout outside that root is
- * reported but can never be removed by the sweep, so the limitation is stated in
- * the row instead of hidden.
+ * #187/#214: report the checkouts and empty shells under the worktree root that
+ * no mission, sandbox or review row records. Doctor is read-only — only the
+ * explicit orphan sweep in `tower_teardown` removes anything — and a checkout git
+ * records outside the root is named, never counted as a Tower orphan.
  * @param {any} tower
  * @param {any} state
  */
@@ -83,27 +84,33 @@ export async function orphanWorktreeCheck(tower, state) {
     }
   }
   // A reserved path belongs to a mission that may be recording its checkout
-  // right now. It is read-only noise rather than an unrecorded checkout, but it
-  // must still be named (#187): a bare "no unrecorded worktrees" would hide a
-  // checkout the sweep is deliberately keeping.
+  // right now; it is read-only noise, but naming it keeps a bare pass honest.
   const inflight = inventory.inflight.length
-  const inflightNote = inflight > 0 ? `${inflight} checkout(s) in flight (kept)` : ''
-  const externalNote =
+  const inflightNote = inflight > 0 ? `; ${inflight} checkout(s) in flight (kept)` : ''
+  // #214: a checkout git registers outside the root belongs to another tool; it is
+  // named on a pass and never counted with the orphans or shells Tower can remove.
+  const foreignNote =
     inventory.external.length > 0
-      ? `; ${inventory.external.length} checkout(s) outside the worktree root are unrecorded too and are never removed by Tower`
+      ? `; ${inventory.external.length} checkout(s) outside the worktree root are not managed by Tower, are not counted as its orphans and are never removed by Tower`
       : ''
-  if (inventory.orphans.length === 0 && inventory.external.length === 0) {
-    return {
-      id: 'worktrees-orphans',
-      status: 'pass',
-      detail: inflight > 0 ? `no unrecorded worktrees; ${inflightNote}` : 'no unrecorded worktrees',
-    }
+  // #214: no directory enumeration is a limitation, never a clean pass.
+  const capabilityNote = inventory.leftoverScanAvailable === false && !inventory.leftoverError ? SHELL_SCAN_UNSUPPORTED : ''
+  const leftoverRows = inventory.leftovers.filter((entry) => entry.action === 'remove')
+  const leftoverNames = leftoverRows.slice(0, 5).map((entry) => entry.name)
+  const leftoverText =
+    leftoverRows.length > 0
+      ? `${leftoverRows.length} empty leftover ${leftoverRows.length === 1 ? 'directory' : 'directories'} under the worktree root (${leftoverNames.join(', ')}${leftoverRows.length > 5 ? ', ...' : ''})`
+      : ''
+  if (inventory.orphans.length === 0 && leftoverRows.length === 0) {
+    if (inventory.leftoverError) return check('worktrees-orphans', 'warn', `could not scan the worktree root for empty leftover directories: ${inventory.leftoverError}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
+    if (capabilityNote) return check('worktrees-orphans', 'warn', `${capabilityNote}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
+    return check('worktrees-orphans', 'pass', `no unrecorded worktrees${foreignNote}${inflightNote}`)
   }
   if (inventory.orphans.length === 0) {
     return {
       id: 'worktrees-orphans',
       status: 'warn',
-      detail: `no unrecorded worktree inside the worktree root${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}`,
+      detail: `${leftoverText}; run tower_teardown with its orphan option to remove empty unrecorded directories${foreignNote}${inflightNote}`,
       action: DOCTOR_ACTION_COPY.orphanWorktrees,
     }
   }
@@ -117,7 +124,7 @@ export async function orphanWorktreeCheck(tower, state) {
   return {
     id: 'worktrees-orphans',
     status: 'warn',
-    detail: `${inventory.orphans.length} unrecorded worktree(s) under the worktree root (${parts.join(', ')})${externalNote}${inflight > 0 ? `; ${inflightNote}` : ''}; run the worktree teardown step with its orphan option`,
+    detail: `${inventory.orphans.length} unrecorded worktree(s) under the worktree root (${parts.join(', ')})${leftoverText ? `; ${leftoverText}` : ''}${inflightNote}${capabilityNote ? `; ${capabilityNote}` : ''}; run the worktree teardown step with its orphan option`,
     action: DOCTOR_ACTION_COPY.orphanWorktrees,
   }
 }

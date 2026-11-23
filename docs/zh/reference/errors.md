@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 43 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 44 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -21,6 +21,7 @@
 | `finding-not-found` | 不存在该 id 的 finding。 | `tower_finding({op:"list", id:"F99"})` |
 | `invalid-transition` | 请求的状态转换不被允许。 | 尝试 blocked→merged；finding 状态图之外的流转；reviewer 修改 finding；在还有未完成任务、blocker、无提交或未读消息时完成 mission。 |
 | `stale-base` | 操作准备期间仓库状态已变化，需要重试。 | two-phase mutation 重校验 |
+| `base-mismatch` | 检出分支与记录的 `state.base` 不一致，规划或 spawn 会把仓库拆散。 | 在 `tower_plan` / `tower_spawn` 时 HEAD 位于其他分支（或 detached），而不是 `state.base` |
 | `worktree-dirty` | mission worktree 有未提交改动，不能完成。 | `tower_complete` 前遗留 staged/modified/untracked 文件 |
 | `state-locked` | 另一个 Tower 写入者持有 state 锁。 | 锁超时后的并发写 |
 | `state-corrupt` | Tower state 文件不可读或无效。 | 手工编辑过的 `state.json`；非法 JSON；没有可用的 `schemaVersion` |

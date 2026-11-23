@@ -33,6 +33,9 @@ export const TOWER_ONLY_TOOLS = Object.freeze([
   'tower_import',
   'tower_reload',
   'tower_resource',
+  // #201: one bounded wait over the whole roster is an operator action, not a
+  // worker/reviewer contract; the worker presets never mount it.
+  'tower_wait',
 ])
 
 /**
@@ -54,6 +57,11 @@ export const REPOSITORY_OPTIONAL_TOOLS = Object.freeze(['tower_reload'])
 export const ROLE_TOOLS = Object.freeze({
   tower_complete: Object.freeze(['worker', 'survey']),
   tower_review: Object.freeze(['reviewer']),
+  // #202: run evidence, not a verdict. A reviewer must be able to produce the
+  // run it cites; a worker already has tower_test and a shell in its own
+  // preset, so the tool stays off every other profile (and off the tower
+  // ladder measured by surface:check).
+  tower_verify: Object.freeze(['reviewer']),
 })
 
 /** Actionable denial text for a role-owned tool called from the wrong profile. */
@@ -62,6 +70,8 @@ export const ROLE_DENIAL_HINTS = Object.freeze({
     'tower_complete is not a worker action available from this session; it belongs to assigned worker and survey role sessions. Spawn a worker with tower_spawn({ role: "worker" }) and let it complete the mission, or use role: "survey" for a survey mission.',
   tower_review:
     'tower_review is not a worker action available from this session; it belongs to assigned reviewer role sessions. Spawn a reviewer with tower_spawn({ role: "reviewer" }) after the mission is completed.',
+  tower_verify:
+    'tower_verify is not available from this session; it belongs to assigned reviewer role sessions, which use it to produce the run evidence they cite. Record your own run with tower_test, or let the reviewer verify the mission after tower_complete.',
 })
 
 /**

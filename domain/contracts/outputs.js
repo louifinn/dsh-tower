@@ -14,7 +14,15 @@ const S = {
   any: {},
 }
 
-const blockerSchema = S.obj({ code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool }, ['code', 'detail'])
+const resolutionStepSchema = S.obj(
+  { step: S.int, action: S.str, missionId: S.str, missionIds: S.arr(S.str) },
+  ['step', 'action'],
+)
+const dependencyCycleSchema = S.obj({ code: S.str, missionIds: S.arr(S.str), detail: S.str }, ['code', 'missionIds', 'detail'])
+const blockerSchema = S.obj(
+  { code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool, resolution: S.arr(resolutionStepSchema) },
+  ['code', 'detail'],
+)
 const worktreeSchema = S.obj({ path: S.str, branch: S.str, baseCommit: S.str })
 // A placement is a union, not an object: a build owns a branch worktree
 // (`{path, branch, baseCommit}`), while a survey reads the shared checkout or a
@@ -89,7 +97,17 @@ const SCHEMAS = {
     { revision: S.int, missions: S.arr(missionSummarySchema), warnings: S.arr(planWarningSchema) },
     ['revision', 'missions'],
   ),
-  mission: S.obj({ revision: S.int, mission: S.obj() }, ['revision', 'mission']),
+  mission: S.obj(
+    {
+      revision: S.int,
+      mission: S.obj(),
+      atomic: S.bool,
+      missions: S.arr(S.obj()),
+      results: S.arr(S.obj()),
+      sandboxCleanup: S.obj(),
+    },
+    ['revision'],
+  ),
   status: S.obj(
     {
       ok: S.bool,
@@ -97,6 +115,9 @@ const SCHEMAS = {
       commonDir: S.str,
       statePath: S.str,
       base: S.str,
+      head: S.any,
+      headDetached: S.bool,
+      baseWarning: S.any,
       revision: S.int,
       counts: S.obj(),
       stateError: S.str,
@@ -169,7 +190,13 @@ const SCHEMAS = {
     ['missionId', 'branch', 'baseTip', 'branchTip', 'mergeBase', 'files', 'commits', 'truncated', 'patch'],
   ),
   adopt: S.obj(
-    { retired: S.arr(S.str), skippedUnknownParents: S.arr(S.str), roster: S.arr(S.obj()), parentStatus: S.obj() },
+    {
+      retired: S.arr(S.str),
+      skippedUnknownParents: S.arr(S.str),
+      roster: S.arr(S.obj()),
+      parentStatus: S.obj(),
+      missions: S.arr(S.obj()),
+    },
     ['retired', 'skippedUnknownParents', 'roster', 'parentStatus'],
   ),
   send: S.obj({ message: S.obj(), deliveries: S.arr(S.obj()) }, ['message', 'deliveries']),
@@ -219,11 +246,14 @@ const SCHEMAS = {
     {
       ok: S.bool,
       blockers: S.arr(blockerSchema),
+      order: S.arr(resolutionStepSchema),
+      cycle: { oneOf: [dependencyCycleSchema, { type: 'null' }] },
       missionId: S.str,
       branchTip: S.any,
       baseTip: S.any,
       changedFiles: S.any,
       review: S.any,
+      warnings: S.arr(S.obj()),
     },
     ['ok', 'blockers', 'missionId'],
   ),
@@ -330,6 +360,33 @@ const SCHEMAS = {
     },
     ['ok', 'configured'],
   ),
+  // #202: every whitelisted check reports its own recorded run. `status` is one
+  // of passed/failed/timeout/error/unavailable; `runId` is the testRuns entry a
+  // tower_complete/tower_review check may cite.
+  verify: S.obj(
+    {
+      ok: S.bool,
+      missionId: S.str,
+      treeTip: S.any,
+      checks: S.arr(
+        S.obj(
+          {
+            check: S.str,
+            kind: S.str,
+            command: S.str,
+            status: { type: 'string', enum: ['passed', 'failed', 'timeout', 'error', 'unavailable'] },
+            exitCode: { oneOf: [S.int, { type: 'null' }] },
+            durationMs: S.int,
+            summary: S.str,
+            truncated: S.bool,
+            runId: S.str,
+          },
+          ['check', 'kind', 'command', 'status', 'durationMs', 'summary', 'truncated', 'runId'],
+        ),
+      ),
+    },
+    ['ok', 'missionId', 'checks'],
+  ),
   batch: S.obj(
     { ok: S.bool, action: S.str, batch: S.obj(), batches: S.arr(S.obj()), blockers: S.arr(blockerSchema), summary: S.obj() },
     ['ok', 'action'],
@@ -343,11 +400,28 @@ const SCHEMAS = {
   // #163 Phase 3: one schema for five views; `view` identifies which shape the
   // value carries and the view-specific fields stay additive.
   inspect: S.obj({ view: S.str }, ['view']),
+  // #201: a bounded wait always concludes. `target` names what was watched;
+  // `detail` describes a reached condition, `last` the final observation of a
+  // timeout (a bounded summary, never a full table), and `reason` an unknown.
+  wait: S.obj(
+    {
+      status: { type: 'string', enum: ['reached', 'timeout', 'unknown'] },
+      waitedMs: S.int,
+      target: S.obj({ missionId: S.str, agent: S.str }),
+      detail: S.obj(),
+      last: S.obj(),
+      reason: S.str,
+    },
+    ['status', 'waitedMs', 'target'],
+  ),
 }
 
 // #163 Phase 4: dispatchers carry one of several documented shapes, so no
 // field is required by every path; the union keeps each shape visible.
-SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties }, [])
+// `adopt.missions` is adopt-only: DSH's output validator type-checks every
+// declared property even when it is absent, so the shared init/adopt view
+// leaves that array open while SCHEMAS.adopt keeps its documented shape.
+SCHEMAS.initAdopt = S.obj({ ...SCHEMAS.init.properties, ...SCHEMAS.adopt.properties, missions: S.any }, [])
 SCHEMAS.findingOps = S.obj({ ...SCHEMAS.finding.properties, ...SCHEMAS.findings.properties }, [])
 SCHEMAS.importOps = S.obj({ ...SCHEMAS.importLegacy.properties, ...SCHEMAS.legacyMap.properties }, [])
 

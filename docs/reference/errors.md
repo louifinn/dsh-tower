@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 43 tool error codes.
+release defines 44 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -29,6 +29,7 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `finding-not-found` | No finding with that id exists. | no | list findings with tower_finding | `tower_finding({op:"list", id:"F99"})` |
 | `invalid-transition` | The requested state transition is not allowed. | no | — | a blocked→merged attempt; a finding transition not in the graph; a reviewer mutating findings; completing a mission with open tasks, blockers, no commits, or unread inbox messages. |
 | `stale-base` | The repository state changed while the operation was being prepared; retry. | yes | retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status | two-phase mutation revalidation |
+| `base-mismatch` | The checked-out branch differs from the recorded state.base, so planning and spawning would split the repository. | no | check out the recorded base branch; if this checkout is the intended base, run tower_init({base:"<branch>", reanchor:true}) when no mission is in flight | `tower_plan` or `tower_spawn` while HEAD is on another branch (or detached) instead of `state.base` |
 | `state-locked` | Another Tower writer holds the state lock. | yes | wait for the other Tower writer to finish, then retry | concurrent mutation after the lock timeout |
 | `state-corrupt` | The Tower state file is unreadable or invalid. | no | restore state.json from a backup, or re-initialize after filing the corruption | hand-edited `state.json`; invalid JSON; no usable `schemaVersion` |
 | `state-version-unsupported` | The Tower state file uses a schema version this build cannot read or downgrade. | no | upgrade dsh-tower to a release that supports this state schemaVersion | opening a repository written by a newer plugin; an unknown older version; this build refuses to downgrade |

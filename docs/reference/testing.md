@@ -63,6 +63,26 @@ discovery fails.
   for the current mission branch tip (`tests-missing`). Review is independent of this gate: with
   `review.mode:optional` (the default) or `off`, the tests gate still checks the branch tip.
 
+## Completion evidence and run ids (#206)
+
+A completion check is a claim, not a receipt. The legacy shape `{name, command?, exitCode?,
+evidence?}` is still accepted, so a hand-written check keeps working; `checks` is what
+`gates.requireChecks` reads and what review and preflight display.
+
+`tower_test` records each run as a receipt with a durable `id` (`run-1`, `run-2`, ...) that is unique
+within the mission and lives as long as the receipt does (the most recent 50 are kept).
+`tower_complete` accepts `checks: [{name, runId}]` where `runId` names a receipt in that mission's
+`testRuns`: an unknown id, or one that belongs to a different mission, is rejected with
+`invalid-argument` before any state is written. The stored check is exactly `{name, runId}`; adding
+`command`, `exitCode` or `evidence` alongside is allowed and stored too.
+
+Preflight reports a check whose `command` or `exitCode` is not corroborated by any command recorded
+in the mission's receipts as an advisory warning with code `checks-unverified`. It never enters
+`blockers[]`, never flips `ok`, and names the remedy in its message: record the run with `tower_test`,
+cite it with `checks: [{name, runId}]`, or drop the claim. `gates.requireChecks` is unchanged and
+still defaults to off; `tower_inspect` with `view:"status"` and a `missionId` shows the mission's
+`testRuns`, each with its `id`.
+
 ## Trust boundary
 
 Discovery commands are repository-controlled code. `tests.allowPackageDiscovery:false` disables the

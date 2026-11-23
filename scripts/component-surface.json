@@ -454,6 +454,11 @@
       "name": "dev.reloadRequiredIds",
       "class": "optional-config",
       "note": "Loader ids passed to reconcileProfile as required by the tower-hmr component."
+    },
+    {
+      "name": "spawn.nodeModules",
+      "class": "optional-config",
+      "note": "Dependency visibility for a spawned worktree: none leaves it without node_modules, link creates a recorded junction to the baseline checkout installed dependencies."
     }
   ],
   "forbidden": [

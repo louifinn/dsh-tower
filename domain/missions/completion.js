@@ -4,6 +4,7 @@
 // Git, and persists the transition; the rules below are repository-free.
 // @ts-check
 import { TowerToolError } from '../errors.js'
+import { EVIDENCE_SOURCE, evidenceEntries } from '../evidence.js'
 import { completedEvent } from '../events.js'
 import { shapeFor } from '../shapes/index.js'
 import { isWorkerRole } from '../vocabulary.js'
@@ -80,11 +81,35 @@ function isPlainObject(value) {
 }
 
 /**
+ * Receipt ids in one mission's recorded test runs, read through
+ * domain/evidence.js (the single evidence reader) rather than off the mission
+ * shape directly.
+ * @param {any} mission
+ * @returns {Set<string>}
+ */
+function recordedRunIds(mission) {
+  /** @type {Set<string>} */
+  const ids = new Set()
+  if (!mission || typeof mission !== 'object') return ids
+  for (const record of evidenceEntries(shapeFor(mission.kind).evidence, mission)) {
+    if (record.source !== EVIDENCE_SOURCE.DISCOVERY) continue
+    const id = record.entry && record.entry.id
+    if (typeof id === 'string' && id.trim()) ids.add(id.trim())
+  }
+  return ids
+}
+
+/**
  * Normalize `tower_complete` check evidence.
+ *
+ * A check may cite a receipt in the mission's `testRuns` with `runId`. The id
+ * is resolved against the mission handed in as `scope.mission`, so an unknown
+ * or foreign receipt is rejected before the completion transaction writes.
  * @param {any} checks
+ * @param {{ mission?: any, missions?: any[] }} [scope]
  * @returns {any[]}
  */
-export function normalizeChecks(checks) {
+export function normalizeChecks(checks, scope) {
   if (checks === undefined) return []
   if (!Array.isArray(checks)) fail('checks must be an array')
   if (checks.length > 20) fail('checks may contain at most 20 entries')
@@ -94,6 +119,29 @@ export function normalizeChecks(checks) {
     if (!name) fail(`checks[${index}].name must be a non-empty string`)
     /** @type {Record<string, any>} */
     const entry = { name }
+    if (check.runId !== undefined) {
+      if (typeof check.runId !== 'string' || !check.runId.trim()) {
+        fail(`checks[${index}].runId must be a non-empty string`)
+      }
+      const runId = check.runId.trim()
+      if (!scope || !scope.mission) {
+        fail(`checks[${index}].runId cites a recorded test run but no mission is in scope to resolve it`)
+      }
+      /** @type {Set<string>} */
+      const runs = recordedRunIds(scope.mission)
+      if (!runs.has(runId)) {
+        /** @type {any[]} */
+        const missions = Array.isArray(scope.missions) ? scope.missions : []
+        const owner = missions.find((entryMission) => entryMission
+          && entryMission.id !== scope.mission.id
+          && recordedRunIds(entryMission).has(runId))
+        if (owner) {
+          fail(`checks[${index}].runId "${runId}" belongs to mission ${owner.id}, not ${scope.mission.id}`)
+        }
+        fail(`checks[${index}].runId "${runId}" is not a recorded test run of mission ${scope.mission.id}; call tower_test or tower_verify to record one`)
+      }
+      entry.runId = runId
+    }
     if (typeof check.command === 'string' && check.command.trim()) entry.command = check.command.trim()
     if (check.exitCode !== undefined && check.exitCode !== null) {
       if (!Number.isInteger(check.exitCode)) fail(`checks[${index}].exitCode must be an integer`)

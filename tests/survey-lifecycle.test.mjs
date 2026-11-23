@@ -91,25 +91,30 @@ test('survey planning records the commit it reads, owns no scope and no worktree
   }
 })
 
-test('planning a survey refuses when the shared checkout is not at the recorded base', async () => {
+test('planning a survey refuses when the checkout is not the recorded base', async () => {
   const { root, repo, tower } = await setup('dsh-tower-survey-head-')
   try {
+    const base = (await tower.load()).base
     git(repo, ['checkout', '-b', 'other'])
     fs.writeFileSync(path.join(repo, 'other.txt'), 'other\n')
     git(repo, ['add', '-A'])
     git(repo, ['commit', '-m', 'other'])
-    const moved = git(repo, ['rev-parse', 'HEAD'])
     await assert.rejects(
       () => planSurvey(tower),
       (error) =>
-        error.code === 'invalid-argument' &&
-        /the shared checkout is not at /.test(error.message) &&
-        error.message.includes(`HEAD is ${moved.slice(0, 12)}`) &&
-        /check out .* in the shared checkout and plan the survey again/.test(error.nextAction ?? ''),
+        error.code === 'base-mismatch' &&
+        error.message.includes(`state.base is "${base}"`) &&
+        error.message.includes('the checked-out branch is "other"'),
     )
     const state = await tower.load()
     assert.deepEqual(state.missions, [], 'a refused plan writes no mission')
-    // A build plan reads no commit, so it is unaffected by the moved checkout.
+    // The check is branch-level, so a build plan is refused too until the
+    // checkout returns to the recorded base (#215).
+    await assert.rejects(
+      () => tower.plan({ missions: [{ title: 'Build anyway', scope: ['src/**'] }] }),
+      (error) => error.code === 'base-mismatch',
+    )
+    git(repo, ['checkout', base])
     const built = await tower.plan({ missions: [{ title: 'Build anyway', scope: ['src/**'] }] })
     assert.equal(built.missions[0].kind, 'build')
   } finally {

@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 58,
+      "value": 59,
       "decisions": [
         {
           "from": 64,
@@ -74,6 +74,13 @@
           "date": "2026-11-12",
           "adr": "docs/adr/0010-tower-ralph-mutual-exclusion.md",
           "note": "#162 adds one mode policy key, ralphPolicy (stop/refuse, default stop), mirroring planModePolicy for the Ralph stance: entering Tower mode with a live Ralph loop either stops and records it or refuses the entry. Tool denial stays #161's owner-derived default (no name is added to mode.denyTools); #162 adds only the command-owner surface and the loop sensor, so no tool, section or component moves."
+        },
+        {
+          "from": 58,
+          "to": 59,
+          "date": "2026-11-22",
+          "adr": "docs/adr/0004-surface-budget.md",
+          "note": "#217/#218: spawn.nodeModules (none|link, default none) adds one tuning key: it chooses whether tower_spawn materialises <worktree>/node_modules as a junction to the baseline checkout installed node_modules or leaves the worktree without one. It is not a component row and no tool or section moves; the key only decides dependency visibility for a spawned worktree."
         }
       ]
     },
@@ -113,7 +120,7 @@
     },
     "tools": {
       "seed": 27,
-      "value": 21,
+      "value": 23,
       "decisions": [
         {
           "from": 27,
@@ -136,6 +143,20 @@
           "to": 21,
           "date": "2026-11-12",
           "note": "#163 Phase 4: init+adopt, finding+findings, mode+control and import_legacy+legacy_map each become one tool with an op/active field, so 25 - 4 = 21 tools."
+        },
+        {
+          "from": 21,
+          "to": 22,
+          "date": "2026-11-21",
+          "adr": "docs/adr/0012-bounded-wait-tool.md",
+          "note": "#201: tower_wait adds the one bounded blocking reach (reached/timeout/unknown, 1000-600000 ms, tower-only). It is a 22nd tool rather than a tower_inspect mode because a read-only view must not block, and every role preset must stay non-blocking."
+        },
+        {
+          "from": 22,
+          "to": 23,
+          "date": "2026-11-22",
+          "adr": "docs/adr/0009-role-phase-exposure.md",
+          "note": "#202: tower_verify adds the reviewer's verifiable read surface (a fixed whitelist: node --test on tests/*.test.mjs files, tsc --noEmit, one shard batch) and records each run in mission.testRuns. It is a 23rd tool rather than a tower_test mode because the evidence contract differs: tower_test is the worker's own package-discovery confirmation, while tower_verify is an independent reviewer run whose runId a review check cites. The tool is role-owned, so the tower profile stays at 15."
         }
       ]
     },
@@ -199,7 +220,7 @@
     "tower": {
       "tools": {
         "seed": 23,
-        "value": 14,
+        "value": 15,
         "decisions": [
           {
             "from": 23,
@@ -218,12 +239,18 @@
             "to": 14,
             "date": "2026-11-12",
             "note": "#163 Phase 5: the tower profile no longer advertises tower_complete or tower_review; completing a mission and auditing a branch belong to the worker/survey and reviewer role presets. They stay in the default registered set (16) and the all-on build surface (21)."
+          },
+          {
+            "from": 14,
+            "to": 15,
+            "date": "2026-11-21",
+            "note": "#201: tower_wait joins the tower profile as the 15th mounted tool. It is tower-only by authorization and exposure, so the worker, reviewer and survey presets do not mount it and their tool counts stay 6/5/5."
           }
         ]
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 13276,
+        "value": 18871,
         "decisions": [
           {
             "from": 17008,
@@ -296,6 +323,36 @@
             "to": 13276,
             "date": "2026-11-21",
             "note": "#M147: tower_plan's allowMissingScope description now states that the same opt-in works for a later planned edit or widening, and tower_mission's description plus MissionInput's scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully. The tower profile mounts both tools, so its advertised input schema grows by 237 bytes; the tool count stays 14."
+          },
+          {
+            "from": 13276,
+            "to": 14166,
+            "date": "2026-11-21",
+            "note": "#210/#211: tower_inspect's InspectInput now advertises the read-projections (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat). Seven optional fields with their descriptions grow the one advertised schema by 890 bytes in every profile that mounts tower_inspect; the tool count stays 14."
+          },
+          {
+            "from": 14166,
+            "to": 15263,
+            "date": "2026-11-21",
+            "note": "#201: tower_wait adds its own advertised input schema (WaitInput, 886 bytes) to the tower profile, while #207 had already grown tower_inspect's InspectInput by 211 bytes (the agent/tail descriptions) in every profile that mounts it. The two together grow the tower profile by 1,097 bytes, 14,166 -> 15,263, and the tool count moves 14 -> 15. Worker, reviewer and survey presets do not mount tower_wait and do not move."
+          },
+          {
+            "from": 15263,
+            "to": 15379,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now says the status/roster agent views keep only the agent identity {name,role,missionId,state} (status also the compact mission id/status/kind), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The tower profile becomes 15,379 bytes (was 15,263); the tool count stays 15."
+          },
+          {
+            "from": 15379,
+            "to": 18266,
+            "date": "2026-11-22",
+            "note": "#216: MissionInput advertises the bulk form — missions[] (same 13 per-mission fields, closed item object), the ids lifecycle shorthand and the atomic boolean — plus a bulk-aware description. tower_mission is mounted by the tower profile, so its one advertised schema grows by 2,887 bytes and the profile becomes 18,266 (was 15,379); the tool count stays 15. The #215 base check adds no input fields."
+          },
+          {
+            "from": 18266,
+            "to": 18871,
+            "date": "2026-11-22",
+            "note": "#217: PlanInput advertises the optional top-level dry_run flag and the optional per-mission key, and its descriptions state the dry-run report and key/dep rules, so the one advertised schema grows by 605 bytes wherever tower_plan is mounted: profiles.tower.inputBytes becomes 18,871 (was 18,266). Worker, reviewer and survey presets do not mount tower_plan and do not move; the tool count stays 15."
           }
         ]
       }
@@ -327,7 +384,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 7414,
+        "value": 11661,
         "decisions": [
           {
             "from": 8159,
@@ -376,6 +433,36 @@
             "to": 7414,
             "date": "2026-11-21",
             "note": "#M147: the worker preset mounts tower_mission, whose description and MissionInput scope/allowMissingScope/deferred descriptions are rewritten to describe planned-edit ordering and build-or-artifact deferral truthfully, so its advertised input schema grows by 180 bytes. The tool count stays 6."
+          },
+          {
+            "from": 7414,
+            "to": 8304,
+            "date": "2026-11-21",
+            "note": "#210/#211: the worker preset mounts tower_inspect, whose InspectInput gains the seven optional projection fields (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so the one advertised schema grows by 890 bytes. The tool count stays 6."
+          },
+          {
+            "from": 8304,
+            "to": 8515,
+            "date": "2026-11-21",
+            "note": "#201/#207: tower_inspect's InspectInput grows by 211 bytes because the agent and tail descriptions now state the one-agent activity contract (status/roster only, bounded tail). tower_wait is tower-only and not mounted by the worker preset, so the tool count stays 6."
+          },
+          {
+            "from": 8515,
+            "to": 8631,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The worker preset becomes 8,631 bytes (was 8,515); the tool count stays 6."
+          },
+          {
+            "from": 8631,
+            "to": 8774,
+            "date": "2026-11-22",
+            "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so the worker preset's mounted CompleteInput grows by 143 bytes. The tool count stays 6; tower and reviewer do not mount tower_complete and do not move."
+          },
+          {
+            "from": 8774,
+            "to": 11661,
+            "date": "2026-11-22",
+            "note": "#216: the worker preset mounts tower_mission, whose MissionInput advertises the bulk form (missions/ids/atomic), so its one advertised schema grows by 2,887 bytes and the preset becomes 11,661 (was 8,774). The tool count stays 6; #215 adds no input fields."
           }
         ]
       }
@@ -383,7 +470,7 @@
     "reviewer": {
       "tools": {
         "seed": 7,
-        "value": 5,
+        "value": 6,
         "decisions": [
           {
             "from": 7,
@@ -402,12 +489,18 @@
             "to": 5,
             "date": "2026-11-12",
             "note": "#163 Phase 4: tower_findings folds into tower_finding."
+          },
+          {
+            "from": 5,
+            "to": 6,
+            "date": "2026-11-22",
+            "note": "#202: the reviewer allow-list gains tower_verify, the read-only verification whitelist it cites as review evidence. The worker profile keeps tower_test and gains nothing, and the tower profile is unchanged because tower_verify is role-owned."
           }
         ]
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 4508,
+        "value": 7260,
         "decisions": [
           {
             "from": 5871,
@@ -438,13 +531,37 @@
             "to": 4508,
             "date": "2026-11-20",
             "note": "#203/M141: tower_send advertises the new `wake` boolean, so the reviewer preset's mounted SendInput grows by 137 bytes. The tool count stays 5."
+          },
+          {
+            "from": 4508,
+            "to": 5398,
+            "date": "2026-11-21",
+            "note": "#210/#211: the reviewer preset mounts tower_inspect, whose InspectInput gains the seven optional projection fields (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so the one advertised schema grows by 890 bytes. The tool count stays 5."
+          },
+          {
+            "from": 5398,
+            "to": 5609,
+            "date": "2026-11-21",
+            "note": "#201/#207: tower_inspect's InspectInput grows by 211 bytes because the agent and tail descriptions now state the one-agent activity contract (status/roster only, bounded tail). tower_wait is tower-only and not mounted by the reviewer preset, so the tool count stays 5."
+          },
+          {
+            "from": 5609,
+            "to": 5725,
+            "date": "2026-11-21",
+            "note": "#M162 R185: tower_inspect's compact description now gives the agent-view key set, so the one advertised InspectInput grows by 116 bytes in every profile that mounts it. The reviewer preset becomes 5,725 bytes (was 5,609); the tool count stays 5."
+          },
+          {
+            "from": 5725,
+            "to": 7260,
+            "date": "2026-11-22",
+            "note": "#202: the reviewer preset mounts tower_verify, whose VerifyInput advertises the three whitelisted check kinds and the bounded timeout, adding 1,535 bytes. The reviewer preset becomes 7,260 bytes (was 5,725); the tool count moves 5 -> 6 in the tools decision above."
           }
         ]
       }
     }
   },
   "profileBytes": {
-    "date": "2026-11-21",
+    "date": "2026-11-22",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -455,24 +572,24 @@
         "bytes": 2185
       },
       "host:active": {
-        "tools": 14,
-        "bytes": 17775
+        "tools": 15,
+        "bytes": 23699
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 9392
+        "bytes": 13617
       },
       "preset:reviewer": {
-        "tools": 5,
-        "bytes": 6125
+        "tools": 6,
+        "bytes": 9202
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 8207
+        "bytes": 12432
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 8207
+        "bytes": 12432
       }
     },
     "decisions": [
@@ -525,6 +642,41 @@
         "date": "2026-11-21",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#M147: the mission-field copy is measured after the truthful rewrites. tower_plan's allowMissingScope description now states the same opt-in works for a later planned edit or widening; tower_mission's description and MissionInput's scope/allowMissingScope/deferred descriptions describe planned-edit ordering and build-or-artifact deferral instead of the stale build-only text. host:active becomes 14/17,775 B (was 17,540), preset:worker 6/9,392 (was 9,214), preset:survey and preset:survey-sandbox 5/8,207 each (was 8,029). Mode-off, idle and reviewer are unchanged; no tool count moves — this is copy truth plus the already-advertised fields, not a new capability."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#210/#211: tower_inspect now advertises the read projections (doctor checks/compact, status fields/sinceRevision, roster agent/tail, diff stat), so every profile that mounts it grows by the same 890 bytes: host:active 14/18,665 B (was 17,775), preset:worker 6/10,282 (was 9,392), preset:reviewer 5/7,015 (was 6,125), preset:survey and preset:survey-sandbox 5/9,097 each (was 8,207). Mode-off and idle do not mount tower_inspect and are unchanged; no tool count moves — the fields are optional and off by default."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0012-bounded-wait-tool.md",
+        "note": "#201/#207: tower_wait is the build surface's 22nd tool and the tower profile's 15th (host:active 15/20,113 B, was 14/18,665). tower_inspect's agent/tail descriptions also grow by 211 bytes in every profile that mounts it, so preset:worker becomes 6/10,493 (was 6/10,282), preset:reviewer 5/7,226 (was 5/7,015), preset:survey and preset:survey-sandbox 5/9,308 each (was 5/9,097). Mode-off and idle do not mount either tool and are unchanged."
+      },
+      {
+        "date": "2026-11-21",
+        "adr": "docs/adr/0012-bounded-wait-tool.md",
+        "note": "#M162 R185: tower_inspect's compact description now states the compact key sets (status/roster with agent keep only {name,role,missionId,state}; status also keeps the compact mission {id,status,kind}), so the one advertised InspectInput grows by 116 bytes in every profile that mounts it: host:active 15/20,229 B (was 20,113), preset:worker 6/10,609 (was 10,493), preset:reviewer 5/7,342 (was 7,226), preset:survey and preset:survey-sandbox 5/9,424 each (was 9,308). Mode-off and idle do not mount tower_inspect and are unchanged; no tool count moves — the compact projection itself was already accepted, this makes its key set explicit."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#206/M163: tower_complete's checks item advertises the optional runId evidence field (the id of a recorded testRuns receipt returned by tower_test), so every preset that mounts tower_complete grows by 143 bytes: preset:worker 6/10,752 (was 6/10,609), preset:survey and preset:survey-sandbox 5/9,567 each (was 5/9,424). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves — the field is optional, so hand-written checks keep working."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#215/#216: tower_mission now advertises the bulk form (missions[], ids, atomic) and a description that names it, so every profile that mounts tower_mission grows by 2,865 advertised bytes: host:active 23,094 B (was 20,229), preset:worker 13,617 (was 10,752), preset:survey and preset:survey-sandbox 12,432 each (was 9,567). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#217: the PlanInput dry_run/key growth adds 605 advertised bytes to host:active (15 tools / 23,699 B, was 23,094). Mode-off, idle and the worker/reviewer/survey presets do not mount tower_plan and are unchanged; no tool count moves."
+      },
+      {
+        "date": "2026-11-22",
+        "adr": "docs/adr/0009-role-phase-exposure.md",
+        "note": "#202: the reviewer preset mounts tower_verify, so preset:reviewer becomes 6 tools / 9,202 B (was 5 tools / 7,342 B): 1,535 advertised input bytes plus the tool name and description. Mode-off, idle, host:active, preset:worker and the survey presets do not mount tower_verify and are unchanged; the build surface grows 22 -> 23 tools, recorded in surfaces.tools."
       }
     ]
   }

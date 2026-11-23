@@ -20,6 +20,7 @@ import { TowerToolError } from '../domain/errors.js'
 // - an invalid discovery configuration (or invalid call arguments) throws a
 //   plain `Error`, which the tool layer wraps as `tower:invalid-argument`.
 import { spawn } from './vcs-git.js'
+import { killProcessTree } from './process-tree.js'
 import { createWriteStream } from './store-fs.js'
 import crypto from 'node:crypto'
 import { fsp } from './store-fs.js'
@@ -307,37 +308,6 @@ export function shellSpec(platform = process.platform) {
   return { file: 'bash', args: (command) => ['-lc', command], fallback: null }
 }
 
-function killTree(child) {
-  if (!child || !child.pid) return
-  if (process.platform === 'win32') {
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // already gone
-    }
-    try {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      })
-      killer.on('error', () => {})
-      killer.unref()
-    } catch {
-      // best effort: the direct kill above already ended the shell
-    }
-    return
-  }
-  try {
-    process.kill(-child.pid, 'SIGKILL')
-  } catch {
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // already gone
-    }
-  }
-}
-
 function closeStreams(streams) {
   return Promise.all(
     streams.map(
@@ -391,7 +361,11 @@ function spawnToFiles({ command, cwd, timeoutMs, maxBytes, stdoutPath, stderrPat
     const stop = (reason) => {
       if (reason === 'timeout') timedOut = true
       else overflow = true
-      killTree(child)
+      // F105: the shared helper runs taskkill /T while the pid is still openable
+      // and only then falls back to a direct kill, so the discovery shell's
+      // descendants die with it. Not awaited: the promise settles on the child's
+      // own "close", exactly like the verify adapter.
+      void killProcessTree(child)
     }
     // Each stream is capped independently at maxBytes (the configured
     // "captured stdout/stderr bytes per command" budget).

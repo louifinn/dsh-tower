@@ -43,6 +43,7 @@ export type ErrorCode =
   | 'finding-not-found'
   | 'invalid-transition'
   | 'stale-base'
+  | 'base-mismatch'
   | 'state-locked'
   | 'state-corrupt'
   | 'state-version-unsupported'

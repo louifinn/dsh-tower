@@ -142,10 +142,10 @@ test('the live surface equals the committed baseline and is fully classified', (
 
   // #163: no advertised description may exceed the 300-character budget.
   assert.deepEqual(validateDescriptionBudget(current.descriptions), [])
-  assert.equal(current.descriptions.length, 21)
+  assert.equal(current.descriptions.length, 23)
   // #118: the count covers the full registered surface, including the two tools
   // index.js registers directly, and agrees with the count docs:check derives.
-  assert.equal(current.tools, 21)
+  assert.equal(current.tools, 23)
   assert.ok(current.liveNames.tools.includes('tower_mode'))
   assert.ok(current.liveNames.tools.includes('tower_mode'))
   assert.deepEqual(current.liveNames.tools, documentedToolNames())
@@ -153,19 +153,21 @@ test('the live surface equals the committed baseline and is fully classified', (
   // #163: per-profile counts and advertised input-schema bytes are baselined.
   // The tower profile is the default mounted surface (mode/control included,
   // optional capability rows excluded); worker/reviewer come from their presets'
-  // allow-lists.
+  // allow-lists. #202 adds tower_verify to the reviewer allow-list.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 14, inputBytes: 13276 },
-    worker: { tools: 6, inputBytes: 7414 },
-    reviewer: { tools: 5, inputBytes: 4508 },
+    tower: { tools: 15, inputBytes: 18871 },
+    worker: { tools: 6, inputBytes: 11661 },
+    reviewer: { tools: 6, inputBytes: 7260 },
   })
   // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
   // read-only views into tower_inspect. Each change is a dated decision, so the
-  // committed value is the chain's tail, not the seed.
-  assert.equal(baseline.profiles.tower.tools.value, 14)
+  // committed value is the chain's tail, not the seed. #201 added tower_wait,
+  // the 22nd tool and the 15th mounted in the tower profile; #202 adds
+  // tower_verify to the reviewer profile only.
+  assert.equal(baseline.profiles.tower.tools.value, 15)
   assert.equal(baseline.profiles.worker.tools.value, 6)
-  assert.equal(baseline.profiles.reviewer.tools.value, 5)
-  for (const [profile, bytes] of [['tower', 13276], ['worker', 7414], ['reviewer', 4508]]) {
+  assert.equal(baseline.profiles.reviewer.tools.value, 6)
+  for (const [profile, bytes] of [['tower', 18871], ['worker', 11661], ['reviewer', 7260]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)
@@ -241,9 +243,10 @@ test('the tower_inspect doctor view prints the surface counts plus the baseline 
     assert.equal(report.surface.tools, current.tools)
     assert.equal(report.surface.baselineDate, readBaseline(root).date)
     // #118: the doctor line, the generated reference and docs:check agree.
-    // #162: the Ralph-stance policy adds the 58th config key.
-    assert.equal(report.surface.line, surfaceLine({ configKeys: 58, sections: 16, tools: 21 }))
-    assert.equal(current.tools, 21)
+    // #162: the Ralph-stance policy adds the 58th config key; #218 adds
+    // spawn.nodeModules as the 59th.
+    assert.equal(report.surface.line, surfaceLine({ configKeys: 59, sections: 16, tools: 23 }))
+    assert.equal(current.tools, 23)
     assert.equal(current.tools, documentedToolNames().length)
     const generatedTools = fs.readFileSync(path.join(root, 'docs', 'reference', 'tools.generated.md'), 'utf8')
     assert.ok(generatedTools.includes(`> Surface: ${surfaceLine(current)} · baseline ${readBaseline(root).date}.`))

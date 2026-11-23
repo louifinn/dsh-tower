@@ -97,6 +97,12 @@ export const ERROR_CODES = {
     retryable: true,
     nextAction: 'retry the tool; if it keeps failing, run tower_inspect with view: preflight and view: status',
   },
+  'base-mismatch': {
+    description: 'The checked-out branch differs from the recorded state.base, so planning and spawning would split the repository.',
+    trigger: '`tower_plan` or `tower_spawn` while HEAD is on another branch (or detached) instead of `state.base`',
+    retryable: false,
+    nextAction: 'check out the recorded base branch; if this checkout is the intended base, run tower_init({base:"<branch>", reanchor:true}) when no mission is in flight',
+  },
   'state-locked': {
     description: 'Another Tower writer holds the state lock.',
     trigger: 'concurrent mutation after the lock timeout',

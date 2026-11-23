@@ -39,6 +39,8 @@ export function registerSpawnTool(ctx, deps) {
       const tower = await deps.openTower(args.repoRoot)
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'spawn tower agents')
+      // #215: refuse a checkout that is not state.base before provisioning.
+      await tower.assertBaseCheckout('tower_spawn')
       const role = args.role ?? DEFAULT_ROLE
       // Repository config (if any) already overrides the profile config here.
       const config = tower.config
@@ -88,7 +90,7 @@ export function registerSpawnTool(ctx, deps) {
           }
         }
         let activation = null, agentId = null, entry = null
-        await tower.reserveRoster({
+        const reservation = await tower.reserveRoster({
           missionId: mission.id,
           name,
           role,
@@ -162,6 +164,7 @@ export function registerSpawnTool(ctx, deps) {
           maxDepth: config.spawn.maxDepth ?? 1,
           ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
           worktree: worktree ? { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit } : null,
+          nodeModulesLink: reservation?.nodeModulesLink ?? null,
           sandbox,
           review: review ? { commit: review.commit, checkout: review.path } : null,
           provisioning,

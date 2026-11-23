@@ -65,6 +65,15 @@ merge、worktree 与 spawn 策略。它使用与 profile 配置相同的 JSON �
 patch 中为 `true`。它还把 `send.interruptDefault` 固定为 `false`，因此普通的 `tower_send` 不会中断正在运行的
 agent；需要中断时请显式传 `interrupt:true`。生成页中的其他值都是解析器在合并仓库配置前返回的值。
 
+`spawn.nodeModules` 控制工作树中的依赖可见性（#218）。默认值为 `none`：工作树没有
+`node_modules`，因此依赖安装或依赖检查命令无法在其中运行。设为 `link` 时，`tower_spawn` 会在 roster
+预约提交之前，把 `<worktree>/node_modules` 创建为指向基线检出已安装 `node_modules` 的 junction，
+并把 `{target, path, createdAt}` 记录到 `mission.worktree.nodeModulesLink` 与 roster 行上。目标必须
+已经存在：目标缺失会以 `invalid-argument` 拒绝 spawn 并给出补救建议；若该路径已被占用但未登记，
+也会拒绝而不是覆盖。teardown 只删除登记过的链接（绝不删除其目标或任何目录）；若链接悬挂、缺失、
+被替换或未登记，`tower_inspect({view:"doctor"})` 的 `worktree-links` 检查会报告。由于链接直接指向
+基线安装，工作树无需二次安装即可看到相同版本的依赖；需要自行安装依赖的 worker 应保持 `none`。
+
 ## 示例
 
 ```yaml

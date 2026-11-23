@@ -139,6 +139,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `leases.ttlMs` | `optional-config` | Tuning inside the optional tower-leases component. |
 | `dev.reloadDelayMs` | `optional-config` | Delay so a tool result is delivered before a scheduled reload inside the optional tower-hmr component. |
 | `dev.reloadRequiredIds` | `optional-config` | Loader ids passed to reconcileProfile as required by the tower-hmr component. |
+| `spawn.nodeModules` | `optional-config` | Dependency visibility for a spawned worktree: none leaves it without node_modules, link creates a recorded junction to the baseline checkout installed dependencies. |
 
 ## Behaviour knobs
 

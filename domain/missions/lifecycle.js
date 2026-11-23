@@ -157,6 +157,157 @@ export function recordAcceptance({ mission, shape, accept, now }) {
   return acceptanceRecord({ mission, tip: decision.tip, note: decision.note, now })
 }
 
+// #212: `completed` is a terminal task-list state even for a build (which may
+// still return to active for reuse); a task list is never reopened by appending.
+const TASK_LIST_TERMINAL_STATUSES = new Set(['completed', 'merged', 'abandoned'])
+
+/**
+ * Validate `task_add` before any field of the patch mutates the mission. The
+ * appended texts are returned trimmed; appending happens later, after the
+ * task_done/task_drop edits, so a caller that already knows an existing task can
+ * still handle it in the same patch. Non-terminal missions (planned, active,
+ * blocked, paused) may append: a blocked or paused mission still has work to do
+ * when it resumes, while a completed, merged or abandoned one does not.
+ * @param {unknown} value
+ * @param {Mission} mission
+ * @param {string} statusBefore
+ * @param {string | undefined} statusAfter
+ * @returns {string[]}
+ */
+function normalizeTaskAdd(value, mission, statusBefore, statusAfter) {
+  if (!Array.isArray(value)) fail('task_add must be an array of 1–20 task strings')
+  if (value.length === 0) fail('task_add must contain at least one task')
+  if (value.length > 20) fail('task_add may contain at most 20 tasks')
+  const target = statusAfter ?? statusBefore
+  if (TASK_LIST_TERMINAL_STATUSES.has(statusBefore) || TASK_LIST_TERMINAL_STATUSES.has(target)) {
+    fail(
+      `mission ${mission.id} is ${TASK_LIST_TERMINAL_STATUSES.has(statusBefore) ? statusBefore : target}; a terminal mission cannot append tasks`,
+      'invalid-transition',
+    )
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string') fail(`task_add[${index}] must be a non-empty string`)
+    const text = entry.trim()
+    if (text.length === 0) fail(`task_add[${index}] must be a non-empty string`)
+    if (text.length > 200) fail(`task_add[${index}] must be at most 200 characters`)
+    return text
+  })
+}
+
+/**
+ * The per-mission fields the single form accepts. A bulk item carries the same
+ * fields plus `id`; human acceptance is intentionally excluded (it is one
+ * approval round and stays on the single-mission form).
+ */
+const MISSION_UPDATE_FIELDS = [
+  'status',
+  'note',
+  'blocker',
+  'clear_blockers',
+  'task_done',
+  'task_drop',
+  'task_drop_reason',
+  'task_add',
+  'scope',
+  'allowMissingScope',
+  'deferred',
+  'pause_cause',
+  'authorization',
+  'accept',
+  'accept_note',
+]
+
+/** Fields that make sense for the `ids` shorthand, which is lifecycle-only. */
+const IDS_SHORTHAND_FIELDS = ['status', 'note', 'blocker', 'clear_blockers', 'deferred', 'pause_cause', 'authorization']
+
+/**
+ * @param {unknown} value
+ * @param {string} where
+ * @returns {string}
+ */
+function normalizeBulkId(value, where) {
+  if (typeof value !== 'string' || value.trim().length === 0) fail(`tower_mission ${where} requires id`)
+  return value.trim()
+}
+
+/**
+ * Normalize the optional bulk form of `tower_mission` (#216). Returns null for
+ * the unchanged single-id form; otherwise `{ atomic, items }`, where each item
+ * is `{ id, fields }`. Every item stays inside the single-form field set, so a
+ * batch never becomes an unknown-field escape hatch.
+ * @param {any} input
+ * @returns {{ atomic: boolean, items: Array<{ id: string, fields: Record<string, any>, unverified?: { plannedEdit: boolean, scope: string[] } | null }> } | null}
+ */
+export function normalizeMissionBatch(input = {}) {
+  const value = input ?? {}
+  const hasMissions = value.missions !== undefined
+  const hasIds = value.ids !== undefined
+  const forms = [value.id !== undefined, hasMissions, hasIds].filter(Boolean).length
+  if (forms > 1) fail('tower_mission accepts id, missions, or ids — not more than one')
+  if (value.atomic !== undefined && typeof value.atomic !== 'boolean') fail('tower_mission atomic must be a boolean')
+  const atomic = value.atomic === undefined ? true : value.atomic
+
+  if (!hasMissions && !hasIds) {
+    if (value.atomic !== undefined) fail('tower_mission atomic only applies to the bulk form; pass missions or ids')
+    return null
+  }
+
+  if (hasIds) {
+    if (!Array.isArray(value.ids) || value.ids.length === 0) fail('tower_mission ids must be an array with at least one item')
+    const fields = {}
+    for (const key of MISSION_UPDATE_FIELDS) {
+      if (value[key] === undefined) continue
+      if (key === 'accept' || key === 'accept_note') {
+        fail('tower_mission accept is only available on the single-mission form')
+      }
+      if (!IDS_SHORTHAND_FIELDS.includes(key)) {
+        fail(`tower_mission ids only applies lifecycle fields; use missions for ${key}`)
+      }
+      fields[key] = value[key]
+    }
+    if (Object.keys(fields).length === 0) fail('tower_mission requires at least one change')
+    const items = value.ids.map((id, index) => ({ id: normalizeBulkId(id, `ids[${index}]`), fields: { ...fields } }))
+    assertUniqueBatchIds(items)
+    return { atomic, items }
+  }
+
+  if (!Array.isArray(value.missions) || value.missions.length === 0) {
+    fail('tower_mission missions must be an array with at least one item')
+  }
+  const items = value.missions.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      fail(`tower_mission missions[${index}] must be an object`)
+    }
+    for (const key of Object.keys(item)) {
+      if (key === 'id') continue
+      if (key === 'accept' || key === 'accept_note') {
+        fail('tower_mission accept is only available on the single-mission form')
+      }
+      if (!MISSION_UPDATE_FIELDS.includes(key)) fail(`tower_mission missions[${index}]: unknown field "${key}"`)
+    }
+    const id = normalizeBulkId(item.id, `missions[${index}]`)
+    const fields = {}
+    for (const key of MISSION_UPDATE_FIELDS) {
+      if (item[key] !== undefined) fields[key] = item[key]
+    }
+    if (Object.keys(fields).length === 0) fail(`tower_mission missions[${index}] (${id}) requires at least one change`)
+    return { id, fields }
+  })
+  assertUniqueBatchIds(items)
+  return { atomic, items }
+}
+
+/**
+ * @param {Array<{ id: string }>} items
+ */
+function assertUniqueBatchIds(items) {
+  const seen = new Set()
+  for (const item of items) {
+    if (seen.has(item.id)) fail(`tower_mission bulk form lists duplicate mission id "${item.id}"`)
+    seen.add(item.id)
+  }
+}
+
 /**
  * Apply one validated `tower_mission` patch to the mission draft and return
  * the human-readable change list used by the activity log plus the domain
@@ -180,6 +331,7 @@ export function applyMissionUpdate({ mission, state, input, config }) {
   // A planned mission that starts in the same patch as its scope edit still
   // edits a fence; capture the status before any transition can move it.
   const statusBefore = mission.status
+  const taskAdd = input.task_add === undefined ? [] : normalizeTaskAdd(input.task_add, mission, statusBefore, input.status)
 
   const shape = shapeFor(mission.kind)
   // #205: a planned or active mission that owns paths (build or artifact) can
@@ -315,6 +467,14 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     const notes = /** @type {string[]} */ (mission.notes)
     notes.push(`task dropped: ${task.text} — ${task.note}`)
     changes.push(`task_drop="${task.text}"`)
+  }
+
+  if (taskAdd.length > 0) {
+    const tasks = /** @type {any[]} */ (mission.tasks)
+    for (const text of taskAdd) {
+      tasks.push({ text, status: 'open' })
+      changes.push(`task_add="${text}"`)
+    }
   }
 
   if (input.blocker !== undefined) {

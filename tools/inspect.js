@@ -12,9 +12,12 @@ import { runStatusView } from './views/status.js'
 
 // #163: the description budget is 300 characters. The long form lives in
 // docs/reference/tools.md; this string only has to make the choice possible.
+// #207: status and roster also take `agent`/`tail` for one agent's bounded
+// activity, so the advertised line names that mode without the whole table.
 export const INSPECT_DESCRIPTION =
-  'Read-only Tower views: status (dashboard or one mission), roster (live agent activity), diff (mission branch patch), preflight (merge gate blockers and warnings), doctor (environment health). missionId selects a mission for diff/preflight. Never writes state or git.'
+  'Read-only Tower views: status (dashboard, one mission, or one agent plus activity), roster (live agent activity, or one agent history with agent/tail), diff (mission branch patch), preflight (merge gate blockers/warnings), doctor (health). Never writes state or git.'
 
+const AGENT_VIEWS = /** @type {Set<string>} */ (new Set([INSPECT_VIEW.status, INSPECT_VIEW.roster]))
 const MISSION_VIEWS = /** @type {Set<string>} */ (new Set([INSPECT_VIEW.diff, INSPECT_VIEW.preflight]))
 
 /**
@@ -47,6 +50,7 @@ export function registerInspectTool(ctx, deps) {
       includeGate: ['include_gate'],
       includeArchived: ['include_archived'],
       maxBytes: ['max_bytes'],
+      sinceRevision: ['since_revision'],
     },
     output: output(SCHEMAS.inspect),
     validateArgs(args) {
@@ -55,6 +59,31 @@ export function registerInspectTool(ctx, deps) {
       }
       if (MISSION_VIEWS.has(args.view) && !(typeof args.missionId === 'string' && args.missionId.trim())) {
         throw new TowerToolError('invalid-argument', `tower_inspect view "${args.view}" requires missionId (alias: id)`)
+      }
+      // #207: `agent`/`tail` select one agent's bounded activity. They are
+      // deliberately limited to status and roster so no other view silently
+      // ignores them; a mission target and an agent target are exclusive.
+      if (args.agent !== undefined && !AGENT_VIEWS.has(args.view)) {
+        throw new TowerToolError('invalid-argument', `tower_inspect agent is available with view "status" or "roster"`)
+      }
+      if (args.agent !== undefined && args.missionId !== undefined) {
+        throw new TowerToolError('invalid-argument', 'tower_inspect takes missionId or agent, not both')
+      }
+      // `tail` bounds one agent's activity (status/roster with `agent`) or the
+      // newest roster rows (roster without `agent`). `status` without `agent`
+      // renders the dashboard, which has no tail to bound, so reject the
+      // combination instead of silently dropping the argument.
+      if (args.tail !== undefined && args.view === INSPECT_VIEW.status && args.agent === undefined) {
+        throw new TowerToolError(
+          'invalid-argument',
+          'tower_inspect view "status" takes tail only with agent; pass agent, use the roster view, or omit tail',
+        )
+      }
+      if (args.tail !== undefined && !AGENT_VIEWS.has(args.view)) {
+        throw new TowerToolError('invalid-argument', `tower_inspect tail is available with view "status" or "roster"`)
+      }
+      if (args.tail !== undefined && (!Number.isInteger(args.tail) || args.tail < 1 || args.tail > 50)) {
+        throw new TowerToolError('invalid-argument', 'tower_inspect tail must be an integer between 1 and 50')
       }
     },
     async execute(args, exec, actor) {

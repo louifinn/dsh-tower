@@ -107,7 +107,8 @@ test('types coverage: every root entry point and host module is in the shipped r
   // activity-log record). #159: host/acceptance.js (the human acceptance
   // channel), host/capability-artifact.js and host/doctor-acceptance.js (the
   // artifact-acceptance doctor check kept out of the doctor's size ceiling).
-  assert.equal(hostModules.length, 38)
+  // #218: host/doctor-links.js (the worktree node_modules link audit).
+  assert.equal(hostModules.length, 39)
   for (const file of hostModules) assert.ok(runtime.includes(file), `${file} must be a shipped runtime file`)
 })
 
@@ -262,7 +263,7 @@ test('strict ratchet: both configs typecheck and the real gate passes', () => {
   assert.equal(strict.status, 0, strict.stdout || strict.stderr)
   const result = runStrict([])
   assert.equal(result.status, 0, result.stderr || result.stdout)
-  assert.match(result.stdout, /11 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
+  assert.match(result.stdout, /13 files pinned, noImplicitAny over domain\/contracts\/\*\*/)
 })
 
 test('strict ratchet: the pinned list matches the explicit include list', () => {

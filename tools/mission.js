@@ -13,9 +13,9 @@ export function registerMissionTool(ctx, deps) {
   define(ctx, {
     name: 'tower_mission',
     description:
-      'Update one mission: status, note, blocker, clear blockers, task done/drop, scope edit or widen (tower only; allowMissingScope accepts paths the mission will create), defer (tower only; build or artifact while planned or active), or accept a human-approved tip. merged only by tower_merge.',
+      'Update one mission (id) or many (missions:[{id,...}], or ids shorthand for lifecycle-only fields). Status, note, blocker, tasks, scope edit/widen, defer (tower only), or human-approved accept (single form only). Bulk atomic defaults true; merged only by tower_merge.',
     parameters: MissionInput,
-    aliases: {"id":["missionId"],"task_done":["taskDone"],"task_drop":["taskDrop"],"task_drop_reason":["taskDropReason"],"clear_blockers":["clearBlockers"]},
+    aliases: {"id":["missionId"],"task_done":["taskDone"],"task_drop":["taskDrop"],"task_drop_reason":["taskDropReason"],"task_add":["taskAdd"],"clear_blockers":["clearBlockers"]},
     board: true,
     output: output(SCHEMAS.mission),
     async execute(args, exec) {
@@ -28,6 +28,9 @@ export function registerMissionTool(ctx, deps) {
       // option continues; a profile without the channel is refused rather than
       // auto-accepted.
       let accept = undefined
+      if (args.accept === true && (args.missions !== undefined || args.ids !== undefined)) {
+        throw new TowerToolError('invalid-argument', 'tower_mission accept is only available on the single-mission form')
+      }
       if (args.accept === true) {
         // aliases normalize missionId to id before execute, so only id is read.
         const missionId = typeof args.id === 'string' ? args.id.trim() : ''
@@ -70,11 +73,15 @@ export function registerMissionTool(ctx, deps) {
         task_done: args.task_done,
         task_drop: args.task_drop,
         task_drop_reason: args.task_drop_reason,
+        task_add: args.task_add,
         scope: args.scope,
         allowMissingScope: args.allowMissingScope,
         deferred: args.deferred,
         pause_cause: args.pause_cause,
         authorization: args.authorization,
+        missions: args.missions,
+        ids: args.ids,
+        atomic: args.atomic,
         ...(accept !== undefined ? { accept } : {}),
       })
     },

@@ -227,5 +227,19 @@ export function createStorePort() {
     // reports EEXIST and leaves both records intact. The caller keeps the
     // quarantined bytes on EEXIST instead of overwriting the newer lock.
     copyFileExclusive: (from, to) => fsp.copyFile(from, to, fs.constants.COPYFILE_EXCL),
+    // Optional StorePort directory capabilities (#214). `readdir` returns bare
+    // names; `fs.Stats`/dirent details stay in the app layer's decision logic.
+    // `rmdir` is the non-recursive primitive on purpose: a non-empty directory
+    // fails with ENOTEMPTY/EEXIST, which the sweep reads as "keep", so a shell
+    // that gained a file after the inspection is never deleted.
+    readdir: (dir) => fsp.readdir(dir),
+    rmdir: (dir) => fsp.rmdir(dir),
+    // Optional StorePort link capabilities (#218/F100). `lstat` must not follow
+    // the entry: teardown decides from `isSymbolicLink()` that a `node_modules`
+    // junction is a link the tool may unlink, not a directory to recurse into.
+    // `symlink` takes the optional type so spawn can request a Windows junction,
+    // which works across volumes and needs no symlink privilege.
+    lstat: (target) => fsp.lstat(target),
+    symlink: (target, linkPath, type) => fsp.symlink(target, linkPath, type),
   })
 }

@@ -96,6 +96,7 @@ export async function status(tower, input = {}) {
   // includes them only on demand. Archived summaries never carry report bodies.
   const includeArchived = input.includeArchived === true || wanted !== null
   const missions = await tower.enrichedMissions(state, input.missionIds)
+  const { head, headDetached } = await tower.currentHeadView()
   if (includeArchived && index.ok) {
     for (const entry of index.missions) {
       if (activeIds.has(entry.id)) continue
@@ -113,6 +114,8 @@ export async function status(tower, input = {}) {
     archivedMissions: index.ok ? index.missions.length : null,
     archive: archiveView(index),
     gitLock,
+    head,
+    headDetached,
   })
 }
 

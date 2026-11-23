@@ -29,7 +29,8 @@ import {
   resolveHostVersion,
 } from '../host/compatibility.js'
 import { writeJsonAtomic, stateCommitLockPath } from '../adapters/store.js'
-import { FOREIGN_CAPABILITIES, foreignCapabilityStatus } from '../host/doctor-acceptance.js'
+import { FOREIGN_CAPABILITIES, foreignCapabilityStatus, orphanWorktreeCheck } from '../host/doctor-acceptance.js'
+import { createDefaultDeps } from '../adapters/default.js'
 import { validateState } from '../domain/state.js'
 import { workspaceLockPath } from '../adapters/workspaceLock.js'
 import { validateJsonSchema } from './schema-validator.mjs'
@@ -288,6 +289,46 @@ test('doctor and status agree: the owner mode is off and takeover is available',
     const owner = doctor.checks.find((entry) => entry.id === 'tower-owner')
     assert.equal(owner.status, 'warn')
     assert.match(owner.detail, /appears inactive/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor projections: checks-only and compact shrink the report without losing a non-pass check', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const full = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const checksOnly = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, checks: true })
+    const compact = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, compact: true })
+    const both = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo, checks: true, compact: true })
+
+    // Default report is unchanged: the full diagnostic sections stay.
+    assert.equal(full.subsystems.length, 5)
+    assert.ok(full.environmentContract)
+    assert.ok(full.checks.length > 0)
+
+    // checks:true keeps every check row and drops the other sections.
+    assert.deepEqual(Object.keys(checksOnly).sort(), ['checks', 'ok', 'view'])
+    assert.deepEqual(checksOnly.checks, full.checks)
+    assert.equal(checksOnly.ok, full.ok)
+
+    // compact:true keeps only the verdict-bearing rows, and is much smaller.
+    assert.deepEqual(Object.keys(compact).sort(), ['checks', 'ok', 'view'])
+    assert.equal(compact.ok, full.ok)
+    const nonPassIds = full.checks.filter((row) => row.status !== 'pass').map((row) => row.id)
+    const compactNonPassIds = compact.checks.filter((row) => row.status !== 'pass').map((row) => row.id)
+    assert.deepEqual(compactNonPassIds, nonPassIds, 'every non-pass check survives compaction')
+    for (const row of compact.checks) {
+      if (row.status === 'pass') assert.deepEqual(Object.keys(row).sort(), ['id', 'status'])
+      else assert.equal(typeof row.detail, 'string')
+    }
+    const fullBytes = Buffer.byteLength(JSON.stringify(full))
+    const compactBytes = Buffer.byteLength(JSON.stringify(compact))
+    assert.ok(compactBytes * 2 < fullBytes, `compact ${compactBytes} B is much smaller than ${fullBytes} B`)
+    // compact wins when both projections are requested.
+    assert.deepEqual(both, compact)
   } finally {
     removeTemp(root)
   }
@@ -658,6 +699,49 @@ test('doctor: an active mission with a dirty worktree still warns (F61)', async 
     assert.equal(worktrees.status, 'warn')
     assert.match(worktrees.detail, /uncommitted changes/)
     assert.equal(doctor.ok, true, JSON.stringify(doctor.checks.filter((entry) => entry.status === 'fail')))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: an unrecorded and a dangling worktree node_modules link are reported (#218/F100)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await tower.plan({ missions: [{ title: 'Link audit', scope: ['src/**'], tasks: ['write'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const target = path.join(repo, 'node_modules')
+    fs.mkdirSync(target)
+    fs.writeFileSync(path.join(target, 'sentinel.txt'), 'keep\n')
+    const linkPath = path.join(provisioned.worktree.path, 'node_modules')
+    fs.symlinkSync(target, linkPath, 'junction')
+
+    const first = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const unrecorded = first.checks.find((entry) => entry.id === 'worktree-links')
+    assert.equal(unrecorded.status, 'warn')
+    assert.match(unrecorded.detail, /unrecorded/)
+    assert.match(unrecorded.detail, /node_modules/)
+    assert.equal(first.ok, true, 'a kept link is a warning, never a failing environment')
+
+    // Record the same link, then remove its target: the link dangles and teardown
+    // would keep the checkout, so doctor must name it.
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === 'M1')
+    mission.worktree.nodeModulesLink = { target, path: linkPath, createdAt: Date.now() }
+    state.revision += 1
+    state.updatedAt = Date.now()
+    validateState(state, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, state)
+    fs.rmSync(target, { recursive: true, force: true })
+
+    const second = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const dangling = second.checks.find((entry) => entry.id === 'worktree-links')
+    assert.equal(dangling.status, 'warn')
+    assert.match(dangling.detail, /dangling/)
+    assert.match(dangling.detail, /node_modules/)
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, 'doctor never removes the link')
   } finally {
     removeTemp(root)
   }
@@ -1239,7 +1323,7 @@ test('doctor: an unrecorded checkout inside the root is visible and orphan teard
   }
 })
 
-test('doctor: a checkout outside the worktree root is reported as a documented limit and never removed (#187)', async () => {
+test('doctor: a foreign checkout outside the root is named but never counted as a Tower orphan (#214)', async () => {
   const { root, repo } = seedRepo()
   const { tools } = makeCtx()
   try {
@@ -1250,11 +1334,17 @@ test('doctor: a checkout outside the worktree root is reported as a documented l
     const external = path.join(outsideRoot, 'external-checkout')
     git(repo, ['worktree', 'add', '-b', 'external-checkout', external, 'HEAD'])
 
+    // #214: a checkout another tool registered outside the root is not Tower's
+    // orphan. It is named so the operator can see it, but the row is a pass and
+    // the count never enters the Tower defect total.
     const report = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const check = report.checks.find((entry) => entry.id === 'worktrees-orphans')
-    assert.equal(check.status, 'warn')
+    assert.equal(check.status, 'pass')
+    assert.match(check.detail, /no unrecorded worktrees/)
     assert.match(check.detail, /outside the worktree root/)
+    assert.match(check.detail, /not managed by Tower/)
     assert.match(check.detail, /never removed by Tower/)
+    assert.equal(check.action, undefined, 'a foreign checkout has no Tower remedy')
     assert.equal(report.ok, true)
 
     const swept = await tower.teardown({ orphans: true })
@@ -1265,8 +1355,74 @@ test('doctor: a checkout outside the worktree root is reported as a documented l
 
     const recheck = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const recheckCheck = recheck.checks.find((entry) => entry.id === 'worktrees-orphans')
-    assert.equal(recheckCheck.status, 'warn', 'the documented limit stays visible until the operator accepts it')
+    assert.equal(recheckCheck.status, 'pass', 'a foreign checkout stays visible without staying an alarm')
     assert.match(recheckCheck.detail, /outside the worktree root/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: empty leftover review-checkout shells are visible and orphan teardown removes them (#214)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shells = ['M52-review-reviewer-m52-r2', 'M54-review-reviewer-m54']
+    for (const name of shells) fs.mkdirSync(path.join(checkoutRoot, name))
+    const kept = path.join(checkoutRoot, 'operator-notes')
+    fs.mkdirSync(kept)
+    fs.writeFileSync(path.join(kept, 'notes.txt'), 'not Tower\'s to delete\n')
+
+    const before = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const check = before.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(check.status, 'warn')
+    assert.match(check.detail, /2 empty leftover directories under the worktree root/)
+    assert.match(check.detail, /M52-review-reviewer-m52-r2/)
+    assert.match(check.detail, /tower_teardown/)
+    assert.match(check.action, /worktree teardown step/)
+    assert.doesNotMatch(check.action, /tower_teardown/, 'the remedy copy never names a tool id')
+    assert.equal(before.ok, true, 'an empty shell is advisory, not a failure')
+    assert.equal(fs.existsSync(path.join(checkoutRoot, shells[0])), true, 'doctor never removes a shell')
+
+    const swept = await tower.teardown({ orphans: true })
+    const removed = swept.orphanWorktrees.leftoversRemoved.map((entry) => path.basename(entry)).sort()
+    assert.deepEqual(removed, shells)
+    assert.equal(fs.existsSync(path.join(checkoutRoot, shells[0])), false)
+    assert.equal(fs.existsSync(kept), true, 'a non-empty unknown directory is preserved')
+    const keptRow = swept.orphanWorktrees.leftovers.find((entry) => path.resolve(entry.path) === path.resolve(kept))
+    assert.equal(keptRow.action, 'keep')
+
+    const after = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(afterCheck.status, 'pass')
+    assert.equal(afterCheck.detail, 'no unrecorded worktrees')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('doctor: a store without directory enumeration warns instead of passing the shell check (#214)', async () => {
+  const { root, repo } = seedRepo()
+  try {
+    const base = createDefaultDeps()
+    const { readdir: _readdir, rmdir: _rmdir, ...store } = base.store
+    const tower = await Tower.open(repo, { ...base, store })
+    await tower.init({})
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shell = path.join(checkoutRoot, 'M61-review-reviewer-m61-r2')
+    fs.mkdirSync(shell)
+
+    const check = await orphanWorktreeCheck(tower, await tower.load())
+    assert.equal(check.status, 'warn', 'a store that cannot enumerate directories is never a clean pass')
+    assert.match(check.detail, /does not expose directory enumeration/)
+    assert.match(check.detail, /tower_teardown cannot clean empty review-checkout shells/)
+    assert.match(check.action, /worktree teardown step/)
+    assert.doesNotMatch(check.detail, /no unrecorded worktrees/)
+    assert.equal(fs.existsSync(shell), true, 'doctor stays read-only')
   } finally {
     removeTemp(root)
   }

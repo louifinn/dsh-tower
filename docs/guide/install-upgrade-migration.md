@@ -30,6 +30,69 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
 
 ## Migration notes
 
+- **2.9.7 → 2.9.8 — patch release, no migration required**: the state schema stays v5, the config
+  surface grows by exactly one tuning key (`spawn.nodeModules`), 58 → 59 keys in the same 16
+  sections, the host floor stays `0.2.2-rc.5`, and there is no migration step. Existing mission
+  records and roster rows stay valid: the new fields (`worktree.nodeModulesLink`, `failureReason`,
+  `previousOutcome`, `lastObservedAt`) are simply absent until they are written, and a config that
+  never mentions `spawn.nodeModules` keeps the `none` default. Nothing an operator configured needs
+  to move:
+  - **`tower_plan` and `tower_spawn` refuse a checkout that is not the recorded base.** Both tools
+    compare the live HEAD with `state.base` before writing any state or starting any agent and throw
+    `[tower:base-mismatch]` when they differ (another branch, or a detached HEAD). The error names
+    both sides and the two remedies: check out the recorded base, or — when this checkout really is
+    the intended base and no mission is in flight — run
+    `tower_init({base:"<branch>", reanchor:true})`. `tower_inspect`'s `status` view shows base and
+    head with a warning. A refused call writes no state, so a workflow that used to plan on the
+    wrong branch and only fail at merge time now fails immediately.
+  - **`tower_send` still does not interrupt by default.** Nothing changed here since 2.9.7: a plain
+    send steers a running recipient, `interrupt: true` is tower-only, and `wake: true` starts a turn
+    for a stopped agent. Re-stated because 2.9.8 adds tools next to it.
+  - **`tower_test` and `tower_verify` timeouts now kill the whole process tree.** A timed-out run
+    reports `status: "timeout"` and no descendant survives the kill: the ordering is
+    `taskkill /pid <pid> /T /F` **before** any direct kill on Windows (negating the child first makes
+    taskkill exit 128 without enumerating descendants); on POSIX the process table is read
+    (`ps -A -o pid=,ppid=`) **before** any signal so the transitive descendants are known, then the
+    process group is killed and each collected descendant is signalled. The group kill alone is not
+    enough: a descendant spawned with `detached: true` calls `setsid(2)` and lands in a new session
+    *and* group, so it would outlive the kill.
+    Both adapters share `adapters/process-tree.js`, so a timeout can no longer leave `node --test`'s
+    per-file children holding the capture pipes.
+  - **`spawn.nodeModules` defaults to `none`.** A spawned worktree has no `node_modules` unless the
+    mission is started with `spawn.nodeModules: "link"`, which creates `<worktree>/node_modules` as a
+    junction to the baseline checkout and records `{target, path, createdAt}` so teardown only ever
+    unlinks the link it created. A missing link target refuses the spawn instead of silently
+    producing an empty directory. Existing missions are unaffected; nothing is linked retroactively.
+  - **Large `tower_mission` calls can be batched atomically.** `missions[]` (per-item fields) or the
+    lifecycle shorthand `ids[]` apply in one state lock with one revision; `atomic` defaults to
+    `true`, so an invalid item rolls the whole batch back. `atomic: false` applies in order and
+    reports per item. A single call that used to be a loop of calls is now one revision — useful if
+    you poll `state.json` revision numbers or filter `tower_inspect` by `sinceRevision`.
+  - **`tower_wait` is new, and `tower_verify` is new and reviewer-only.** `tower_wait` is the one
+    bounded blocking reach (`missionId` or `agent`, `until`, `timeoutMs` 1000–600000): it never holds
+    the state lock and never writes state, so a script that polled in a loop can now make one call.
+    `tower_verify` runs a fixed read-only whitelist (chosen `tests/*.test.mjs` files, `tsc --noEmit`,
+    or one shard batch) in the mission worktree and records each result as a citable `runId`. The
+    reviewer preset mounts it; tower and worker sessions do not. A reviewer session that needs the
+    worktree's dependencies must be spawned with `spawn.nodeModules: "link"`.
+  - **`tower_plan` gained `dry_run` and `key`, `tower_mission` gained `task_add`.** `dry_run: true`
+    reports the whole validation result (`wouldBeId`, resolved deps, overlaps, every problem) without
+    writing state; a plan-local `key` lets one call's `deps` name missions it is creating. `task_add`
+    appends up to 20 tasks without reordering existing indexes.
+  - **`tower_complete` checks can cite a `runId`, `tower_init({op:"adopt"})` reports residue.**
+    The runId must exist in the mission's `testRuns`; a `command`/`exitCode` claim that no recorded
+    run corroborates is preflight's advisory `checks-unverified` warning, never a blocker. `adopt`
+    additionally classifies every non-terminal mission worktree as `dirty`, `clean`, `unmerged`,
+    `missing`, `external` or `unknown` with a `suggestedAction`, and never repairs anything.
+  - **`release-notes` rejects bad arguments, and empty review-checkout shells are swept.** The
+    release-notes script refuses a repeated `--since`, an unknown flag, an invalid version, a
+    `since >= version` pair or an empty window with exit code 2. Teardown and doctor now clean up
+    checkout directories whose contents were removed (which `git worktree list` no longer reports)
+    without recursing, and distinguish a genuinely empty root from one holding a foreign worktree.
+  - **No migration step.** The state schema stays v5 and the config sits at 59 keys in 16 sections.
+    The host floor is unchanged at `0.2.2-rc.5`. Update the plugin and **restart DSH**; refresh or
+    restart the DSH UI to load the client bundle.
+
 - **2.9.6 → 2.9.7 — patch release, no migration required**: the state schema stays v5, the config
   surface is unchanged (58 keys in 16 sections), the host floor stays `0.2.2-rc.5`, and there is no
   migration step. Existing mission records remain valid: the new `deferred` flag is simply absent

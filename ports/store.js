@@ -23,6 +23,10 @@ import { assertPort, definePort } from './contract.js'
  * @property {(from: string, to: string) => Promise<void>} rename
  * @property {(from: string, to: string) => Promise<void>} renameWithRetry
  * @property {(from: string, to: string) => Promise<void>} [copyFileExclusive]
+ * @property {(dir: string) => Promise<string[]>} [readdir]  // direct child names; no order guarantee
+ * @property {(dir: string) => Promise<void>} [rmdir]  // empty directories only; a non-empty directory throws ENOTEMPTY
+ * @property {(file: string) => Promise<{ mtimeMs: number, size?: number, isDirectory(): boolean, isSymbolicLink(): boolean }>} [lstat]  // does not follow a link or junction
+ * @property {(target: string, linkPath: string, type?: 'file' | 'dir' | 'junction') => Promise<void>} [symlink]  // creates a link; 'junction' is the Windows directory link that needs no privilege
  * @property {(file: string) => Promise<{ mtimeMs: number, size?: number, isDirectory(): boolean }>} stat
  * @property {(file: string) => Promise<void>} unlink
  * @property {(paths: object, options?: object) => Promise<{ record: any, raw: string | null }>} readGitLock
@@ -47,6 +51,28 @@ import { assertPort, definePort } from './contract.js'
 // adapters/store-fs.js always provides it; its EEXIST outcome is the CAS that
 // prevents a third Git writer's freshly created lock from being replaced.
 //
+// `readdir` and `rmdir` are optional for the same reason: an in-memory double
+// has no directories to enumerate. They exist for the empty review-checkout
+// sweep (#214), which lists the direct children of the worktree root and deletes
+// a shell only when it is empty. Callers must feature-detect both and report
+// that the store does not expose the capability — never fall back to `node:fs`,
+// which the architecture gate keeps inside adapters/**. `rmdir` answers
+// ENOTEMPTY (or EEXIST on Windows) for a directory that is not empty; the sweep
+// treats that as a "keep" signal, not as an error, so a directory that gained a
+// file between the inspection and the removal is never deleted.
+//
+// `lstat` and `symlink` are optional for the same reason and exist for #218/F100:
+// the spawn option `spawn.nodeModules: "link"` creates a Windows junction from a
+// worktree's `node_modules` to the baseline checkout's installed modules, and
+// teardown must be able to prove — with `lstat`, which does not follow the link
+// — that the entry it removes is the link the tool created, never a directory
+// with content. `lstat` must report `isSymbolicLink()` (true for both POSIX
+// symlinks and Windows junctions) and `isDirectory()`; `symlink` receives the
+// optional type so a Windows caller can request `'junction'` without holding the
+// symlink privilege. Both are feature-detected: a store that cannot inspect
+// links keeps any residual entry instead of guessing, and never falls back to
+// `node:fs`.
+//
 // `stat`'s result shape is part of the contract (#F70). The planning probe in
 // app/tower.js expands a bare scope entry only when a directory exists at that
 // path, so the result must expose `isDirectory()`. That was previously duck
@@ -65,6 +91,10 @@ export const STORE_OPTIONAL_METHODS = Object.freeze([
   'readStateCommitLock',
   'clearStateCommitLock',
   'copyFileExclusive',
+  'readdir',
+  'rmdir',
+  'lstat',
+  'symlink',
 ])
 export const STORE_PORT = definePort('StorePort', [
   'pathsFor',

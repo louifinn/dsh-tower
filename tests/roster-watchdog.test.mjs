@@ -207,6 +207,7 @@ test('F73: an empty descendant list is not authoritative evidence and writes not
     const live = state.roster.find((entry) => entry.agentId === 'agent-live')
     assert.equal(live.state, 'active', 'a live row must not be staled by an empty catalog')
     assert.equal(live.stale, undefined)
+    assert.equal(live.lastObservedAt, undefined, 'an unknown catalog must not stamp an observation time')
     assert.equal(live.absentObservations, 2, 'an unknown catalog must not count another miss')
     assert.equal(state.revision, revision, 'an unknown catalog must not write state')
     assert.doesNotMatch(activityText(tower), /stale agent-live|stale worker-m1/)
@@ -215,6 +216,28 @@ test('F73: an empty descendant list is not authoritative evidence and writes not
     // same row, so the non-authoritative signal is what prevents the incident.
     const direct = await tower.sweepRoster({ staleMs: STALE_MS, activity: {}, authoritative: true })
     assert.deepEqual(direct.marked, ['worker-m1'])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('F73: a throwing catalog stamps no observation time; an authoritative answer does', async () => {
+  const { root, tower } = await seeded()
+  try {
+    const broken = fakeCtx(() => {
+      throw new Error('catalog down')
+    })
+    const tick = await watchdogTick(broken, tower, STALE_MS)
+    assert.equal(tick.skipped, 'catalog-unknown')
+    const unobserved = await row(tower)
+    assert.equal(unobserved.state, 'active')
+    assert.equal(unobserved.lastObservedAt, undefined, 'a catalog that throws is not an observation')
+
+    const present = fakeCtx([{ id: 'agent-live', activity: 'running' }])
+    await watchdogTick(present, tower, STALE_MS)
+    const live = await row(tower)
+    assert.equal(live.state, 'active')
+    assert.ok(Number.isFinite(live.lastObservedAt), 'an authoritative present row stamps lastObservedAt')
   } finally {
     removeTemp(root)
   }

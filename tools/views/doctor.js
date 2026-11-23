@@ -2,6 +2,7 @@
 import { SCHEMAS, output } from '../../domain/contracts/outputs.js'
 import { DoctorInput } from '../../domain/contracts/tool-inputs/index.js'
 import { DOCTOR_STATUS } from '../../domain/vocabulary.js'
+import { doctorProjection } from '../../domain/read/views.js'
 
 /**
  * The config the degraded doctor runs against. The profile layer is used only
@@ -64,12 +65,16 @@ export async function runDoctorView(ctx, args, exec, deps) {
         tower = createTower(repo, diagnosticConfig(runtimeConfig, resolveTowerConfig))
       }
       const report = await runDoctor(/** @type {any} */ ({ tower, ctx, agent: exec.agent, surface: deps.surface?.() }))
-      if (!configError) return report
-      return {
-        ...report,
-        ok: false,
-        configError,
-        checks: configFailureChecks(report.checks, configError),
-      }
+      const merged = configError
+        ? {
+            ...report,
+            ok: false,
+            configError,
+            checks: configFailureChecks(report.checks, configError),
+          }
+        : report
+      // #211: projections are opt-in; the default report is byte-for-byte the
+      // full diagnostic.
+      return doctorProjection(merged, { checks: args.checks === true, compact: args.compact === true })
   }
 }

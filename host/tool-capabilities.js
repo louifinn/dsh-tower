@@ -12,6 +12,7 @@ import {
 } from '../domain/vocabulary.js'
 import {
   requireKnownActor,
+  requireMissionParticipant,
   requireTowerActor,
 } from './authorization.js'
 import { resolveRepo } from '../adapters/git.js'
@@ -28,7 +29,10 @@ import { acquireLease, releaseLease, inspectLeases } from '../adapters/leases.js
 import { importLegacySnapshot, validateLegacyMap } from '../adapters/legacy.js'
 import { registerInspectTool } from '../tools/inspect.js'
 import { registerRecoverTool } from '../tools/recover.js'
+import { registerWaitTool } from '../tools/wait.js'
 import { registerTestTool } from '../tools/test.js'
+import { registerVerifyTool } from '../tools/verify.js'
+import { runVerification } from '../adapters/verify.js'
 import { registerBatchTool } from '../tools/batch.js'
 import { registerResourceTool } from '../tools/resource.js'
 import { registerImportTool } from '../tools/import.js'
@@ -307,6 +311,17 @@ export function registerCoreTowerTools(ctx, options = {}) {
   // repairs can be left behind by any crashed mutation, so an off state would be
   // worse than uninstalling the plugin.
   registerRecoverTool(ctx, { openTower, define, actorFor, requireTowerActor, readStateLock, lockTiming })
+  // #201: the one blocking read. It is appended after every existing tool so
+  // the shipped registration order of the other 21 tools is unchanged.
+  registerWaitTool(ctx, { openTower, define, requireTowerActor })
+  // #202: reviewer-only whitelisted execution with recorded evidence. Appended
+  // after tower_wait for the same reason, and role-owned (see ROLE_TOOLS) so it
+  // never joins the tower/host ladder. The spawn primitive lives in the adapter:
+  // tools and host may not import `node:child_process`, and moving it into the
+  // tool would put the very shell surface this tool exists to avoid behind the
+  // reviewer's preset. `requireMissionParticipant` is the F104 binding: the role
+  // gate says "a reviewer", this says "this mission's reviewer".
+  registerVerifyTool(ctx, { openTower, define, actorFor, requireKnownActor, requireMissionParticipant, runVerification })
 }
 
 /** Evidence batches — the `tower-batch` component. */

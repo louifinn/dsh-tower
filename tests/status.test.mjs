@@ -13,6 +13,7 @@ import { registerTowerTools } from '../host/tool-registry.js'
 import { __testResetComponentRegistry, registerComponent } from '../host/capability-registry.js'
 import { Tower } from '../host/tower.js'
 import { boardMarkdown } from '../domain/report.js'
+import { parseNumstat } from '../domain/read/views.js'
 import { validateJsonSchema } from './schema-validator.mjs'
 
 const exec = { agent: { id: 'tower-status' } }
@@ -254,6 +255,145 @@ test('missionId detail returns tasks, notes, reviews, findings, completion repor
   }
 })
 
+test('projections: fields, sinceRevision and worktree dirty diagnostics are opt-in', async () => {
+  const { root, repo } = seedRepo('dsh-tower-status-projections-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Projection one', scope: ['src/**'] },
+        { title: 'Projection two', scope: ['lib/**'] },
+      ],
+    })
+    const tower = await Tower.open(repo)
+    // An old roster row: it was written before the revision the caller asks
+    // about, so `sinceRevision` must keep it out.
+    await tower.reserveRoster({
+      missionId: 'M2',
+      name: 'worker-m2',
+      role: 'worker',
+      parentSessionId: 'tower-agent',
+    })
+    const baseline = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'tower-agent',
+      cwd: provisioned.worktree.path,
+      branch: provisioned.worktree.branch,
+    })
+
+    // fields projects every mission entry to the requested keys.
+    const projected = await call(tools, 'tower_inspect', {
+      view: 'status',
+      repoRoot: repo,
+      fields: ['id', 'status'],
+    })
+    assert.equal(projected.missions.length, 2)
+    for (const mission of projected.missions) {
+      assert.deepEqual(Object.keys(mission).sort(), ['id', 'status'])
+    }
+
+    // sinceRevision keeps only rows written after that revision: M1 and its
+    // worker, not the older M2 reservation or M2 itself.
+    const changed = await call(tools, 'tower_inspect', {
+      view: 'status',
+      repoRoot: repo,
+      sinceRevision: baseline.revision,
+    })
+    assert.deepEqual(changed.missions.map((mission) => mission.id), ['M1'])
+    assert.equal(changed.roster, 1)
+
+    // A clean worktree is explicitly false/0; a half-modified one is true/1.
+    const clean = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const cleanMission = clean.missions.find((mission) => mission.id === 'M1')
+    assert.equal(cleanMission.worktreeDirty, false)
+    assert.equal(cleanMission.uncommittedPathCount, 0)
+    fs.mkdirSync(path.join(provisioned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(provisioned.worktree.path, 'src', 'half.txt'), 'uncommitted\n')
+    const dirty = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    const dirtyMission = dirty.missions.find((mission) => mission.id === 'M1')
+    assert.equal(dirtyMission.worktreeDirty, true)
+    assert.equal(dirtyMission.uncommittedPathCount, 1)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('sinceRevision boundary: mission writes bump the revision without stamping rows', async () => {
+  const { root, repo } = seedRepo('dsh-tower-status-boundary-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Boundary one', scope: ['src/**'] },
+        { title: 'Boundary two', scope: ['lib/**'] },
+      ],
+    })
+    const baseline = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    // A note is a real mission write: it bumps `state.revision`, but no row
+    // stamp is written. This is the documented boundary `sinceRevision`
+    // advertises, not a bug: the mission row must be omitted for a positive
+    // value (`missions` is a row list) and returned when the filter is 0.
+    // `roster` is a filtered row *count*, not a row list, so it stays 0.
+    await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', note: 'stamped nowhere' })
+
+    const since = await call(tools, 'tower_inspect', {
+      view: 'status',
+      repoRoot: repo,
+      sinceRevision: baseline.revision,
+    })
+    assert.deepEqual(since.missions, [], 'an unstamped mission write is omitted for a positive sinceRevision')
+    assert.equal(since.roster, 0)
+
+    const all = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, sinceRevision: 0 })
+    assert.deepEqual(all.missions.map((mission) => mission.id), ['M1', 'M2'])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('diff stat: per-file line counts instead of patch bytes', async () => {
+  const { root, repo } = seedRepo('dsh-tower-status-diffstat-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'Stat case', scope: ['src/**'] }] })
+    const tower = await Tower.open(repo)
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', status: 'active' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a.txt'), 'one\ntwo\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 work'])
+
+    const full = await call(tools, 'tower_inspect', { view: 'diff', repoRoot: repo, missionId: 'M1' })
+    assert.equal(typeof full.patch, 'string')
+    assert.ok(full.patch.length > 0)
+
+    const stat = await call(tools, 'tower_inspect', {
+      view: 'diff',
+      repoRoot: repo,
+      missionId: 'M1',
+      stat: true,
+    })
+    assert.deepEqual(stat.stat, [{ path: 'src/a.txt', added: 2, deleted: 0 }])
+    assert.equal(stat.patch, undefined, 'stat mode never returns patch bytes')
+    assert.equal(stat.truncated, undefined)
+    assert.doesNotMatch(JSON.stringify(stat), /@@/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('markdown board: the newest same-round verdict is latest, storage order is untouched', () => {
   const state = {
     repoRoot: '/repo',
@@ -308,5 +448,16 @@ test('markdown board: the newest same-round verdict is latest, storage order is 
     state.reviews.map((entry) => entry.id),
     ['R1', 'R2'],
     'projecting the board must not reorder the ledger',
+  )
+})
+
+test('parseNumstat: binary counts become null and tabbed paths stay intact', () => {
+  assert.deepEqual(
+    parseNumstat('3\t1\tsrc/a.txt\n-\t-\tassets/logo.png\n1\t2\tdir/with\ttab.txt\n'),
+    [
+      { path: 'src/a.txt', added: 3, deleted: 1 },
+      { path: 'assets/logo.png', added: null, deleted: null },
+      { path: 'dir/with\ttab.txt', added: 1, deleted: 2 },
+    ],
   )
 })

@@ -17,6 +17,7 @@ import { configSurface } from '../domain/config/schema.js'
 import { reviewPolicyView, reviewRequired } from '../domain/integration/review.js'
 import { parseBaseline, surfaceLine, SURFACE_BASELINE_FILE } from '../domain/surface.js'
 import { assessHostVersion, diagnoseHostVersion, readCompatibility, resolveHostVersion } from './compatibility.js'
+import { worktreeLinkIssue, worktreeLinksCheck } from './doctor-links.js'
 import { profileConfig } from './config.js'
 import { readOwnership } from './ownership.js'
 import { componentReport, componentSummary } from './capability-registry.js'
@@ -52,6 +53,8 @@ async function exists(target) {
     return false
   }
 }
+
+// #218/F100: the worktree link audit lives in ./doctor-links.js (size budget).
 
 async function gitVersion() {
   try {
@@ -533,6 +536,7 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       live.map((entry) => entry.missionId).filter((missionId) => typeof missionId === 'string'),
     )
     let missingWorktrees = 0, terminalMissingWorktrees = 0, dirtyWorktrees = 0, removedWorktrees = 0, awaitingTeardown = 0
+    const linkIssues = []
     for (const mission of state.missions ?? []) {
       if (!mission.worktree) continue
       if (mission.worktreeRemovedAt) { removedWorktrees += 1; continue }
@@ -546,6 +550,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
         // operator should reclaim, so it is counted in both places.
         if ((await git(mission.worktree.path, ['status', '--porcelain'])).trim()) dirtyWorktrees += 1
         if (isTerminalMission(mission) && !liveMissionIds.has(mission.id)) awaitingTeardown += 1
+        const linkIssue = await worktreeLinkIssue(mission.id, mission.worktree)
+        if (linkIssue) linkIssues.push(linkIssue)
       } catch { missingWorktrees += 1 }
     }
     const removedNote = removedWorktrees > 0 ? ` (${removedWorktrees} removed by teardown)` : ''
@@ -560,6 +566,11 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     const problem = problems.length > 0 ? problems.join('; ') : null
     const action = missingWorktrees > 0 ? 'inspect the mission status, restore the worktree/branch, then re-run the environment health check' : terminalMissingWorktrees > 0 ? 'run the mission teardown step; a terminal mission whose checkout is already gone is repaired by recording the removal, and nothing is lost' : awaitingTeardown > 0 ? 'run the worktree teardown step for the finished mission; nothing is removed automatically' : undefined
     checks.push(check('worktrees', missingWorktrees > 0 ? 'fail' : problem ? 'warn' : 'pass', `${problem ?? 'all registered worktrees are valid'}${removedNote}`, action))
+
+    // #218/F100: report a recorded node_modules link whose target vanished, one
+    // that is gone or replaced, and one Tower never recorded. Teardown refuses to
+    // follow any of them, so this is the operator's signal to clean it up.
+    checks.push(worktreeLinksCheck(linkIssues))
 
     // #187: the mission loop only sees recorded worktrees. A checkout created
     // outside Tower (an allowed `create_worktree` call), or one whose record was

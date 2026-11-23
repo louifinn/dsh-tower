@@ -4,12 +4,19 @@ import { INSPECT_VIEWS, STATUS_FORMATS } from '../../vocabulary.js'
 import { Type, enumOf } from './shared.js'
 
 export const InspectInput = Type.Object({
-  view: enumOf(INSPECT_VIEWS, { description: 'Which read-only view to return.' }),
-  missionId: Type.Optional(Type.String({ description: 'Mission id for the diff/preflight views and the status detail form.' })),
-  maxBytes: Type.Optional(Type.Integer({ minimum: 1, description: 'Cap for the diff view patch.' })),
-  offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Page offset for the status mission list.' })),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Page size for the status mission list (max 100).' })),
-  includeGate: Type.Optional(Type.Boolean({ description: 'Status: add preflight gate digests for the page.' })),
-  includeArchived: Type.Optional(Type.Boolean({ description: 'Status: append archived mission summaries.' })),
-  format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'Status: "markdown" returns the human-readable board.' })),
+  view: enumOf(INSPECT_VIEWS, { description: 'View to return.' }),
+  missionId: Type.Optional(Type.String({ description: 'Mission id for diff/preflight and status detail.' })),
+  maxBytes: Type.Optional(Type.Integer({ minimum: 1, description: 'Cap for the diff patch.' })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Page offset for the status list.' })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Page size for the status list (max 100).' })),
+  includeGate: Type.Optional(Type.Boolean({ description: 'Status: add preflight gate digests.' })),
+  includeArchived: Type.Optional(Type.Boolean({ description: 'Status: append archived summaries.' })),
+  format: Type.Optional(enumOf(STATUS_FORMATS, { description: 'Status: "markdown" returns the board.' })),
+  checks: Type.Optional(Type.Boolean({ description: 'Doctor: only the check rows, without the diagnostics.' })),
+  compact: Type.Optional(Type.Boolean({ description: 'Doctor: only {ok, checks}; pass rows keep {id,status}, others add detail. Status/roster with agent: only the agent identity {name,role,missionId,state} (status also mission id/status/kind).' })),
+  fields: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'Status: keep exactly these keys.' })),
+  sinceRevision: Type.Optional(Type.Integer({ minimum: 0, description: "Status: mission rows and the roster count only, filtered by spawn/interrupt/roster stamps after this revision (0 = all); roster rows come from the roster view's agent/tail, which ignores this. Plan/mission/complete/merge/review/worktree writes and tower_test receipts are unstamped and omitted (testRuns appear only in missionId detail)." })),
+  agent: Type.Optional(Type.String({ minLength: 1, description: 'Status/roster: one roster agent, by name or agent id; with agent these views return only that agent plus bounded activity.' })),
+  tail: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, description: 'Status/roster: with agent, the newest N activity summaries (default 5, max 50); roster without agent keeps the newest N rows.' })),
+  stat: Type.Optional(Type.Boolean({ description: 'Diff: per-file counts, no patch.' })),
 }, { additionalProperties: false })

@@ -12,7 +12,7 @@
 //        survey-sandbox) own theirs through `ctx.tools.restrict({ allow })` in
 //        their policy modules; the host session has no preset, so its L0 is
 //        "the mounted surface" and L1 is the only subtraction. #163 landed the
-//        consolidated 21-tool surface and the role predicates; this table
+//        consolidated 22-tool surface and the role predicates; this table
 //        follows that build.
 //   L1 — this module. A pure function of (phase, registered names). Exposure
 //        only subtracts: a phase row may hide a registered tool, never invent
@@ -79,12 +79,20 @@ export const EXPOSURE_TABLE = Object.freeze({
   // active: read-only views and health (status/roster/diff/preflight/doctor
   // are views of one `tower_inspect`, #163 Phase 3)
   tower_inspect: { off: false, idle: false, active: true },
+  // active: one bounded wait (#201) is a read of state and the roster; it is
+  // tower-only and never part of a role preset.
+  tower_wait: { off: false, idle: false, active: true },
   tower_inbox: { off: false, idle: false, active: true },
   // active: collaboration
   tower_send: { off: false, idle: false, active: true },
   tower_finding: { off: false, idle: false, active: true },
   tower_complete: { off: false, idle: false, active: true },
   tower_review: { off: false, idle: false, active: true },
+  // active: reviewer-only whitelisted execution with recorded evidence (#202).
+  // The reviewer preset owns it; the host ladder never advertises it (it is a
+  // ROLE_TOOLS entry), and an ordinary tower session reading a mission uses
+  // tower_inspect instead.
+  tower_verify: { off: false, idle: false, active: true },
   // active: integration and recovery (stable across the rung: `recover` is
   // the escape hatch, never worth a cache bounce — #164 §5)
   tower_merge: { off: false, idle: false, active: true },
@@ -238,6 +246,9 @@ export const PRESET_ALLOWS = Object.freeze({
     'glob',
     'grep',
     'tower_inspect',
+    // #202: the reviewer runs the fixed read-only whitelist and records the
+    // evidence; without it a review can only restate the worker's prose.
+    'tower_verify',
     'tower_send',
     'tower_inbox',
     'tower_finding',

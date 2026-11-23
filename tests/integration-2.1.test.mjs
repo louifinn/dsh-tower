@@ -759,3 +759,146 @@ test('2.1 delivery: inbox records an acknowledgement timestamp', async () => {
     removeTemp(root)
   }
 })
+
+/**
+ * A worker whose mission is ready to complete: one committed source file and
+ * one runnable discovery command, so `tower_test` can record a receipt.
+ */
+async function completeReadyWorker(tools, repo, missionId) {
+  const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+  const pkg = {
+    name: 'fixture',
+    version: '1.0.0',
+    tower: {
+      testDiscovery: {
+        version: 1,
+        commands: [{ id: 'smoke', command: "node -e \"console.log('ok 1 - pass'); console.log('1..1')\"", format: 'node-tap' }],
+      },
+    },
+  }
+  fs.writeFileSync(path.join(spawned.worktree.path, 'package.json'), JSON.stringify(pkg))
+  fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+  git(spawned.worktree.path, ['add', '-A'])
+  git(spawned.worktree.path, ['commit', '-m', 'work'])
+  const workerExec = { agent: { id: spawned.agentId } }
+  const detail = await (await Tower.open(repo)).missionDetail(missionId)
+  for (const task of detail.mission.tasks.filter((entry) => entry.status === 'open')) {
+    await call(tools, 'tower_mission', { repoRoot: repo, missionId, taskDone: task.text }, workerExec)
+  }
+  return { spawned, workerExec }
+}
+
+test('#206 complete: a check may cite a recorded test run id', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const { workerExec } = await completeReadyWorker(tools, repo, missionId)
+    const tested = await call(tools, 'tower_test', { repoRoot: repo, missionId })
+    assert.equal(tested.configured, true)
+    assert.equal(tested.ok, true)
+    const runId = tested.receipt.id
+    assert.match(String(runId), /^run-\d+$/)
+    const completed = await call(
+      tools,
+      'tower_complete',
+      { repoRoot: repo, missionId, report: 'done', checks: [{ name: 'unit', runId }] },
+      workerExec,
+    )
+    assert.deepEqual(completed.mission.completionReport.checks, [{ name: 'unit', runId }])
+    const detail = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, missionId })
+    assert.ok(Array.isArray(detail.detail.mission.testRuns))
+    assert.ok(detail.detail.mission.testRuns.some((run) => run.id === runId))
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#206 complete: an unknown runId is rejected before any state write', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const { workerExec } = await completeReadyWorker(tools, repo, missionId)
+    const tested = await call(tools, 'tower_test', { repoRoot: repo, missionId })
+    assert.equal(tested.ok, true)
+    const before = await (await Tower.open(repo)).load()
+    await assert.rejects(
+      () =>
+        call(
+          tools,
+          'tower_complete',
+          { repoRoot: repo, missionId, report: 'done', checks: [{ name: 'unit', runId: 'run-404' }] },
+          workerExec,
+        ),
+      (error) => /run-404/.test(error.message) && /recorded test run/.test(error.message),
+    )
+    const after = await (await Tower.open(repo)).load()
+    assert.equal(after.revision, before.revision, 'a rejected runId must not bump the state revision')
+    const beforeMission = before.missions.find((mission) => mission.id === missionId)
+    const afterMission = after.missions.find((mission) => mission.id === missionId)
+    assert.equal(afterMission.testRuns.length, beforeMission.testRuns.length)
+    assert.notEqual(afterMission.status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#206 complete: legacy hand-filled checks still complete unchanged', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo)
+    const missionId = planned.missions[0].id
+    const { workerExec } = await completeReadyWorker(tools, repo, missionId)
+    const completed = await call(
+      tools,
+      'tower_complete',
+      { repoRoot: repo, missionId, report: 'done', checks: [{ name: 'manual', command: 'npm test', exitCode: 0, evidence: 'hand' }] },
+      workerExec,
+    )
+    assert.deepEqual(completed.mission.completionReport.checks, [
+      { name: 'manual', command: 'npm test', exitCode: 0, evidence: 'hand' },
+    ])
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#206 preflight: an unverified command claim is a warning, not a blocker', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  try {
+    const planned = await initPlan(tools, repo, [{ title: 'M one', scope: ['src/**', 'package.json'] }])
+    const missionId = planned.missions[0].id
+    const { workerExec } = await completeReadyWorker(tools, repo, missionId)
+    await call(
+      tools,
+      'tower_complete',
+      { repoRoot: repo, missionId, report: 'done', checks: [{ name: 'manual', command: 'npm test', exitCode: 0 }] },
+      workerExec,
+    )
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
+    assert.equal(
+      preflight.blockers.some((blocker) => blocker.code === 'checks-unverified'),
+      false,
+      'the unverified claim is advisory: it must not enter the blocker list',
+    )
+    const warning = preflight.warnings.find((entry) => entry.code === 'checks-unverified')
+    assert.ok(warning, JSON.stringify(preflight.warnings))
+    assert.equal(warning.missionId, missionId)
+    assert.match(warning.message, /npm test/)
+    assert.match(warning.message, /runId/)
+    assert.match(warning.message, /tower_test/)
+    assert.equal(preflight.ok, true, 'the warning must not block preflight')
+  } finally {
+    removeTemp(root)
+  }
+})

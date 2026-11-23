@@ -14,6 +14,8 @@
     "domain/contracts/tool-inputs/integration.js",
     "domain/contracts/tool-inputs/missions.js",
     "domain/contracts/tool-inputs/ops.js",
-    "domain/contracts/tool-inputs/shared.js"
+    "domain/contracts/tool-inputs/shared.js",
+    "domain/contracts/tool-inputs/verify.js",
+    "domain/contracts/tool-inputs/wait.js"
   ]
 }

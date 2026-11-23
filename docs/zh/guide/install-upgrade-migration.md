@@ -32,6 +32,59 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
 
 ## 迁移说明
 
+- **2.9.7 → 2.9.8 —— 修补版，无需迁移**：state schema 仍为 v5，配置表面恰好增加一个调优键
+  （`spawn.nodeModules`），由 58 个键变为同样 16 个 section 下的 59 个键，宿主下限仍是
+  `0.2.2-rc.5`，不需要任何迁移步骤。既有 mission 记录与 roster 行保持有效：新字段
+  （`worktree.nodeModulesLink`、`failureReason`、`previousOutcome`、`lastObservedAt`）在写入前只是
+  不存在；配置里从不提 `spawn.nodeModules` 时仍然沿用 `none` 默认值。操作者配置的内容都不需要改：
+  - **`tower_plan` 与 `tower_spawn` 在检出不是记录的基线时拒绝执行。** 两者在写入任何 state、
+    启动任何 agent 之前比较当前 HEAD 与 `state.base`，不一致（在别的分支上，或处于 detached
+    HEAD）时抛出 `[tower:base-mismatch]`。错误会同时点名两侧，并给出两条补救路径：检出记录的基线，
+    或者——当这个检出确实是预期基线且没有 mission 在途时——执行
+    `tower_init({base:"<branch>", reanchor:true})`。`tower_inspect` 的 `status` 视图会显示 base 与
+    head 并带警告。被拒绝的调用不写入任何 state，因此过去「先在错误分支上规划、等到合并时才失败」
+    的流程现在会立刻失败。
+  - **`tower_send` 仍然默认不打断。** 这里自 2.9.7 起就没有变化：普通发送只把消息送达运行中的
+    接收者，`interrupt: true` 仍为 tower-only，`wake: true` 让已停止的 agent 启动新回合。重申一次，
+    是因为 2.9.8 在它旁边新增了工具。
+  - **`tower_test` 与 `tower_verify` 超时后现在会杀掉整棵进程树。** 超时的运行报告
+    `status: "timeout"`，且没有任何后代进程活过这次击杀：Windows 上顺序是
+    `taskkill /pid <pid> /T /F` **先于**任何直接 kill（先给子进程发信号会让 taskkill 以 128 退出，
+    根本枚举不到后代）；POSIX 上则**先**读进程表（`ps -A -o pid=,ppid=`）拿到全部后代，再杀进程组、
+    再逐个给收集到的后代发信号；只杀进程组不够，以 `detached: true` 派生的后代会调用 `setsid(2)`
+    进入新的会话**和**新的进程组，从而活过这次击杀。两个 adapter 共用 `adapters/process-tree.js`，因此
+    超时后不会再有 `node --test` 的逐文件子进程占着管道。
+  - **`spawn.nodeModules` 默认为 `none`。** 除非以 `spawn.nodeModules: "link"` 启动 mission，
+    派生出的 worktree 没有 `node_modules`；`link` 会把 `<worktree>/node_modules` 建成指向基线检出
+    的 junction，并记录 `{target, path, createdAt}`，使 teardown 只断开自己建的链接。链接目标
+    不存在时 spawn 会被拒绝，而不是悄悄留下一个空目录。既有 mission 不受影响，不会追溯补链。
+  - **大批量 `tower_mission` 可以原子地批处理。** `missions[]`（逐项字段）或生命周期简写
+    `ids[]` 在同一把 state 锁内生效、只推进一次 revision；`atomic` 默认为 `true`，任何一项非法
+    就整批回滚。`atomic: false` 按顺序逐项应用并逐项报告。过去要循环调用的一批操作现在只产生
+    一次 revision——如果你轮询 `state.json` 的 revision 或以 `sinceRevision` 过滤
+    `tower_inspect`，这一点会直接可见。
+  - **新增 `tower_wait`，新增只属于 reviewer 的 `tower_verify`。** `tower_wait` 是唯一的受限阻塞
+    触及（`missionId` 或 `agent`、`until`、`timeoutMs` 1000–600000）：它绝不持有 state 锁、绝不
+    写 state，所以过去要轮询的脚本现在可以一次调用。`tower_verify` 在 mission worktree 内运行固定
+    的只读白名单（选定的 `tests/*.test.mjs` 文件、`tsc --noEmit`，或一个 shard 批次），并把每次
+    结果记成可引用的 `runId`。reviewer 预设挂载它，tower 与 worker 会话不挂载。需要 worktree
+    依赖的 reviewer 会话必须以 `spawn.nodeModules: "link"` 派生。
+  - **`tower_plan` 新增 `dry_run` 与 `key`，`tower_mission` 新增 `task_add`。** `dry_run: true`
+    报告完整的校验结果（`wouldBeId`、解析后的依赖、重叠、全部问题）而不写入 state；plan 局部的
+    `key` 让同一次调用的 `deps` 点名它正在创建的 mission。`task_add` 追加至多 20 个任务，且不会
+    重排既有索引。
+  - **`tower_complete` 的检查可以引用 `runId`，`tower_init({op:"adopt"})` 会报告残留。**
+    runId 必须存在于该 mission 的 `testRuns` 中；没有任何已记录运行能佐证的 `command`/`exitCode`
+    主张只会触发 preflight 的提示性 `checks-unverified` 警告，绝不阻断。`adopt` 还会把每个非终结
+    mission 的 worktree 归类为 `dirty`、`clean`、`unmerged`、`missing`、`external` 或 `unknown`
+    并给出 `suggestedAction`，且绝不代为修复。
+  - **`release-notes` 拒绝错误参数，空的 review 检出外壳会被清扫。** release-notes 脚本对重复的
+    `--since`、未知旗标、非法版本、`since >= version` 或空窗口都以退出码 2 拒绝。teardown 与
+    doctor 现在会清扫内容已被删掉（因而 `git worktree list` 不再报告）的检出目录而不递归，且能
+    区分真正空的根目录与放着外来 worktree 的根目录。
+  - **没有迁移步骤。** state schema 仍为 v5，配置为 16 个 section、59 个键，宿主下限保持
+    `0.2.2-rc.5` 不变。更新插件并**重启 DSH**；刷新或重启 DSH 界面以加载客户端 bundle。
+
 - **2.9.6 → 2.9.7 —— 修补版，无需迁移**：state schema 仍为 v5，配置表面未变（仍为 16 个 section、
   58 个键），宿主下限仍是 `0.2.2-rc.5`，不需要任何迁移步骤。既有 mission 记录保持有效：新的
   `deferred` 标志在设置前只是不存在。操作者配置的内容都不需要改：

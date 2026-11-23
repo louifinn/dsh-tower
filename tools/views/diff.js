@@ -12,6 +12,7 @@
 // See docs/reference/tools.generated.md for the public shape.
 import { TowerToolError } from '../../domain/errors.js'
 import { isUnknownRole } from '../../domain/vocabulary.js'
+import { parseNumstat } from '../../domain/read/views.js'
 
 /**
  * @param {any} args
@@ -28,5 +29,12 @@ export async function runDiffView(args, exec, actor, deps) {
   }
   const tower = await deps.openTower(args.repoRoot)
   // A reviewer's diff is bound to its recorded review commit (#149 W3).
-  return tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes, actor })
+  const view = await tower.diff({ missionId: args.missionId, maxBytes: args.maxBytes, actor })
+  if (args.stat !== true) return view
+  // #211: `stat:true` reports per-file line counts and never patch bytes. The
+  // numstat range is the same merge-base..branch-tip range the view resolved,
+  // so authorization and the reviewer binding above still gate the read.
+  const numstat = await tower.git(tower.root, ['diff', '--numstat', `${view.mergeBase}..${view.branchTip}`])
+  const { patch: _patch, truncated: _truncated, ...rest } = view
+  return { ...rest, stat: parseNumstat(numstat) }
 }

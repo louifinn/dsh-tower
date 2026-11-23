@@ -18,10 +18,11 @@ export const PlanInput = Type.Object({
   missions: Type.Array(
     Type.Object({
       title: Type.String({ description: 'Printable Unicode mission title, NFC-normalized, at most 120 characters; used as the mission label.' }),
+      key: Type.Optional(Type.String({ description: 'Plan-local handle (trimmed, at most 64 characters; not M<number>-shaped) that this plan\'s other missions may name in deps. Resolved to the assigned mission id at creation; never persisted.' })),
       scope: Type.Optional(Type.Array(Type.String(), { description: 'Relative file globs this mission may touch; empty only for survey. Each entry must match a tracked file (or name an existing directory); pass allowMissingScope to accept a path this mission will create.' })),
       allowMissingScope: Type.Optional(Type.Boolean({ description: 'Accept scope entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry. The same opt-in works for a later planned edit or widen.' })),
       tasks: Type.Optional(Type.Array(Type.String(), { description: 'Verifiable task items the worker ticks off.' })),
-      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey.' })),
+      deps: Type.Optional(Type.Array(Type.String(), { description: 'Mission ids that must be satisfied before this one: merged for a build, completed for a survey. A dep may also name an existing mission id, a key defined by this plan, or a would-be id this plan assigns.' })),
       kind: Type.Optional(enumOf(MISSION_KINDS, { description: 'build = writes code behind a review gate; survey = read-only investigation that reserves no scope; artifact = writes deliverables (declared via artifacts) that a human accepts at the committed tip instead of a review.' })),
       artifacts: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Artifact only: the concrete deliverable paths (no globs) the mission must land. Each path must be inside the mission scope and committed at the branch tip before tower_complete admits completion; the merge gate additionally needs a human acceptance of the whole tip.' })),
       context: Type.Optional(Type.String({ description: "The user's own key sentences, verbatim (max 4096 chars)." })),
@@ -31,24 +32,43 @@ export const PlanInput = Type.Object({
     }, { additionalProperties: false }),
     { description: 'Missions to create, in intended order.' },
   ),
+  dry_run: Type.Optional(Type.Boolean({ description: 'Preview the plan without creating missions, writing state, or bumping the revision: returns per-mission wouldBeId, resolved deps, overlaps, and every problem found. A real failed plan reports the same complete problem set.' })),
 }, { additionalProperties: false })
 
-export const MissionInput = Type.Object({
-  id: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: missionId).' })),
+// The per-mission fields shared by the single form and a bulk item. A bulk item
+// additionally requires `id`. Human acceptance (`accept`/`accept_note`) stays a
+// single-mission action: it goes through the DSH approval channel once.
+const missionFields = {
   status: Type.Optional(enumOf(MISSION_STATUSES, { description: 'New lifecycle status.' })),
   note: Type.Optional(Type.String({ description: 'Append a decision-log note.' })),
   blocker: Type.Optional(Type.String({ description: 'Report a blocker (also sets status to blocked).' })),
   clear_blockers: Type.Optional(Type.Boolean({ description: 'Clear all recorded blockers.' })),
   task_done: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as done.' })),
   task_drop: Type.Optional(Type.String({ description: 'Mark the first open task containing this text as dropped.' })),
-  task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is legitimately descoped.' })),
-  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit ordering; an active or completed mission widens it and starts it; bumps scopeGeneration.' })),
-  allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries that match no tracked file yet, for paths this mission will create; recorded as a scope.unverified activity entry and never stored on the mission. Works for a plan, a planned edit, or a widening.' })),
+  task_drop_reason: Type.Optional(Type.String({ description: 'Required with task_drop: why the task is dropped.' })),
+  task_add: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { minItems: 1, maxItems: 20, description: 'Append 1–20 non-empty task strings (max 200 characters) at the task-list tail as open tasks; refused on completed, merged, or abandoned missions.' })),
+  scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit order; an active or completed one widens and starts; bumps scopeGeneration.' })),
+  allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries matching no tracked file yet, for paths this mission will create; recorded as one scope.unverified activity entry, not stored on the mission.' })),
   deferred: Type.Optional(Type.Boolean({ description: 'Tower only: step a planned or active mission that owns paths (build or artifact) out of the overlap check; pass false to rejoin. It never blocks another mission from widening.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
-  accept: Type.Optional(Type.Boolean({ description: 'Artifact only: record the human acceptance of the mission\u2019s whole committed tip. The tool asks the human through the DSH approval channel and stamps the record with the current branch tip; a profile without the channel is refused (an acceptance is never auto-recorded) and no argument can make the acceptance agent-made.' })),
+}
+
+const acceptanceFields = {
+  accept: Type.Optional(Type.Boolean({ description: "Artifact only: record the human acceptance of the mission's committed tip through the DSH approval channel; never auto-recorded." })),
   accept_note: Type.Optional(Type.String({ description: 'Optional note stored on the acceptance record (max 4000 chars).' })),
+}
+
+export const MissionInput = Type.Object({
+  id: Type.Optional(Type.String({ description: 'Mission id, e.g. M1 (canonical; alias: missionId). Pass exactly one of id, missions, or ids.' })),
+  ...missionFields,
+  ...acceptanceFields,
+  missions: Type.Optional(Type.Array(
+    Type.Object({ id: Type.String({ description: 'Mission id, e.g. M1.' }), ...missionFields }, { additionalProperties: false }),
+    { minItems: 1, description: 'Bulk form: update several missions in one call, each item carrying an id plus the same per-mission fields as the single form. Mutually exclusive with id and ids.' },
+  )),
+  ids: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'Bulk shorthand for a pure lifecycle update: apply the lifecycle fields on this call (status, note, blocker, clear_blockers, deferred, pause_cause, authorization) to every listed mission. Mutually exclusive with id and missions; use missions for scope or task edits.' })),
+  atomic: Type.Optional(Type.Boolean({ description: 'Bulk only: true (default) applies the batch all-or-nothing; false applies items in order and reports each result, continuing after a failure.' })),
 }, { additionalProperties: false })
 
 export const StatusInput = Type.Object({
@@ -78,6 +98,7 @@ export const CompleteInput = Type.Object({
         command: Type.Optional(Type.String({ description: 'Command or method used.' })),
         exitCode: Type.Optional(Type.Integer({ description: 'Observed exit code.' })),
         evidence: Type.Optional(Type.String({ description: 'Short evidence line/log reference.' })),
+        runId: Type.Optional(Type.String({ description: 'Id of a recorded test run (an entry in testRuns, e.g. run-3) returned by tower_test or tower_verify.' })),
       }, { additionalProperties: false }),
       { description: 'Optional evidence ledger entries: {name, command?, exitCode?, evidence?}.' },
     ),
