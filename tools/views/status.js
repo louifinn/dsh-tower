@@ -23,6 +23,23 @@ import { reviewPolicyView } from '../../domain/integration/review.js'
 const STATUS_ACTIVITY_TAIL = 200
 /** #207: default number of activity summaries returned for one agent. */
 const STATUS_AGENT_ACTIVITY_DEFAULT = 5
+/** #233: default page size for the status list (the documented 20). */
+const STATUS_PAGE_LIMIT_DEFAULT = 20
+/** #233: the documented upper bound on one status page. */
+const STATUS_PAGE_LIMIT_MAX = 100
+
+/**
+ * #233: the one place the status page size is decided. The effective value is
+ * echoed back on every paged response so a caller can predict the next call
+ * (`offset + limit`, or the response's `nextOffset`) from the response alone.
+ * @param {unknown} requested
+ * @returns {number}
+ */
+function statusPageLimit(requested) {
+  return typeof requested === 'number' && Number.isInteger(requested)
+    ? Math.max(1, Math.min(STATUS_PAGE_LIMIT_MAX, requested))
+    : STATUS_PAGE_LIMIT_DEFAULT
+}
 
 /**
  * Read the on-disk state version without loading, migrating, or locking it — the
@@ -94,7 +111,10 @@ async function degradedStatus(tower, args, { error, components, boardPath, mode,
     components,
   }
   if (args.missionId) return { ...common, missionId: args.missionId, detail: null }
-  return { ...common, total: 0, offset: 0, nextOffset: null }
+  // #233: the paging frame stays describable even when there is no page to show:
+  // `limit` is the effective (clamped) page size, so a caller can predict the
+  // next call from the response alone.
+  return { ...common, total: 0, offset: 0, limit: statusPageLimit(args.limit), nextOffset: null }
 }
 
 /**
@@ -328,7 +348,7 @@ export async function runStatusView(ctx, args, exec, deps) {
       const ids = args.includeArchived === true ? [...activeIds, ...archivedIds] : activeIds
       const total = ids.length
       const offset = typeof args.offset === 'number' && Number.isInteger(args.offset) && args.offset > 0 ? args.offset : 0
-      const limit = typeof args.limit === 'number' && Number.isInteger(args.limit) ? Math.max(1, Math.min(100, args.limit)) : 20
+      const limit = statusPageLimit(args.limit)
       const pageIds = ids.slice(offset, offset + limit)
       const status = await tower.status({ missionIds: pageIds, includeArchived: args.includeArchived === true })
       let page = status.missions
@@ -356,6 +376,7 @@ export async function runStatusView(ctx, args, exec, deps) {
         missions: projectFields(await withWorktreeDiagnostics(tower, page), args.fields),
         total,
         offset,
+        limit,
         nextOffset: offset + page.length < total ? offset + page.length : null,
         boardPath,
         mode,

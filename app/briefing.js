@@ -15,6 +15,20 @@ const NO_ASK_RULE =
   '- You cannot ask the user: there is no approval prompt, so an approval-gated call fails closed; put an open question in your final report or the tower inbox, and never stall silently.'
 
 /**
+ * #233: a child that was told to read a mission with `tower_inspect view:
+ * "status"` got the whole state table — 104 missions and 422 roster rows, a few
+ * hundred KB — and could lose its turn before reporting. The narrow reads
+ * existed all along; the briefing never taught them. This is one rule, always in
+ * the Rules block of both briefings, naming the concrete bounded calls and the
+ * cost of ignoring them.
+ * @param {string} missionId
+ * @returns {string}
+ */
+function boundedReadRule(missionId) {
+  return `- Read narrowly, never the whole table: tower_inspect({view:"status",missionId:"${missionId}"}) for this mission, limit/offset paging when a listing is unavoidable (the reply's total and nextOffset say what is left), tower_inspect({view:"roster",agent:"<name>",tail:N}) for one agent's recent activity, and tower_inbox for your messages. An unbounded status, roster or doctor dump costs hundreds of KB of context and can end your turn before you report.`
+}
+
+/**
  * #231: a worker that dies mid-mission used to leave no trace, so the next
  * worker started blind and the tower had to run `git status` by hand. The
  * watchdog sweep records a bounded residue record ({at, filesChanged, branch,
@@ -172,6 +186,7 @@ export function workerBriefing({
       '- Make no commits: this mission reads one fixed commit. Do not write, edit, merge, push, rebase, or spawn other agents.',
     )
   }
+  lines.push(boundedReadRule(mission.id))
   lines.push(NO_ASK_RULE)
   lines.push(
     `- Update progress: tower_mission({repoRoot:"${repoRoot}",id:"${mission.id}",task_done:"..."}) or blocker:"...".`,
@@ -275,6 +290,7 @@ export function reviewerBriefing({
   lines.push('')
   lines.push('Rules:')
   lines.push('- Read-only: do not modify files, commit, or merge.')
+  lines.push(boundedReadRule(mission.id))
   lines.push(NO_ASK_RULE)
   if (review) {
     lines.push(`- Pass workdir="${review.path}" on every command: the checkout is a detached read of commit ${String(review.commit).slice(0, 12)}, not the mutable mission worktree.`)
