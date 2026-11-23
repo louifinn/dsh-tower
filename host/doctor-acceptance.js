@@ -108,10 +108,10 @@ export async function orphanWorktreeCheck(tower, state) {
   const leftoverNames = leftoverRows.slice(0, 5).map((entry) => entry.name)
   const leftoverText =
     leftoverRows.length > 0
-      ? `${leftoverRows.length} empty leftover ${leftoverRows.length === 1 ? 'directory' : 'directories'} under the worktree root (${leftoverNames.join(', ')}${leftoverRows.length > 5 ? ', ...' : ''})`
+      ? `${leftoverRows.length} leftover ${leftoverRows.length === 1 ? 'directory' : 'directories'} under the worktree root (${leftoverNames.join(', ')}${leftoverRows.length > 5 ? ', ...' : ''})`
       : ''
   if (inventory.orphans.length === 0 && leftoverRows.length === 0) {
-    if (inventory.leftoverError) return check('worktrees-orphans', 'warn', `could not scan the worktree root for empty leftover directories: ${inventory.leftoverError}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
+    if (inventory.leftoverError) return check('worktrees-orphans', 'warn', `could not scan the worktree root for leftover directories: ${inventory.leftoverError}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
     if (capabilityNote) return check('worktrees-orphans', 'warn', `${capabilityNote}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
     return check('worktrees-orphans', 'pass', `no unrecorded worktrees${foreignNote}${inflightNote}`)
   }
@@ -119,7 +119,7 @@ export async function orphanWorktreeCheck(tower, state) {
     return {
       id: 'worktrees-orphans',
       status: 'warn',
-      detail: `${leftoverText}; run tower_teardown with its orphan option to remove empty unrecorded directories${foreignNote}${inflightNote}`,
+      detail: `${leftoverText}; run tower_teardown with its orphan option to remove empty or link-only unrecorded directories${foreignNote}${inflightNote}`,
       action: DOCTOR_ACTION_COPY.orphanWorktrees,
     }
   }

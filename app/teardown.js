@@ -109,20 +109,17 @@ export function teardownWorktreeRoot(tower) {
 
 /**
  * Inventory every git-registered checkout and classify it for the orphan sweep.
- * Read-only: no decision removes anything. Each `{ name, path, action, reason }`
- * row is `remove` (clean, unrecorded, strictly inside the root), `prune`
- * (registration whose directory is gone), or `keep` (the main checkout, a path
- * state records, a checkout whose provision is in flight, a path outside the
- * root, or uncommitted changes). `inflight` repeats the keep rows a mission may
- * be about to record so a report can name them instead of hiding them.
- * `leftovers` adds the #214 empty ordinary directories directly under the root
- * that no state row and no registration claims; `leftoverError` is set only when
- * the scan itself failed. `leftoverScanAvailable` is false, with
- * `leftoverScanReason`, when the store exposes no directory enumeration: the
- * empty `leftovers` then means "not checked", not "none left".
+ * Read-only: each row is `remove` (clean, unrecorded, strictly inside the root),
+ * `prune` (registration whose directory is gone), or `keep` (main checkout, a
+ * path state records, a provision in flight, outside the root, uncommitted
+ * changes); `inflight` repeats the keeps a mission may be about to record.
+ * `leftovers` adds the #214 ordinary directories under the root that nothing
+ * claims; `leftoverScanAvailable: false` (with `leftoverScanReason`) means the
+ * store exposes no enumeration, so an empty list means "not checked". #234:
+ * `leftoversReleased` counts stamped worktree paths the scan was allowed to see.
  * @param {any} tower
  * @param {any} [state] already loaded state, so doctor does not load it twice
- * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[], leftovers: any[], leftoverError: string | null, leftoverScanAvailable: boolean, leftoverScanReason: string | null }>}
+ * @returns {Promise<{ root: string, decisions: any[], orphans: any[], external: any[], inflight: any[], leftovers: any[], leftoverError: string | null, leftoverScanAvailable: boolean, leftoverScanReason: string | null, leftoversReleased: number }>}
  */
 export async function inventoryOrphanWorktrees(tower, state = null) {
   const loaded = state ?? (await tower.load())
@@ -178,9 +175,9 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
   const unrecorded = decisions.filter(
     (entry) => entry.action === 'remove' || entry.action === 'prune' || entry.reason === 'uncommitted changes',
   )
-  // `seen` is every key `git worktree list` reported, so a registered checkout
-  // is never mistaken for an empty shell.
-  const leftovers = await inventoryEmptyLeftovers(tower.deps.store, root, loaded, seen)
+  // `seen` holds every `git worktree list` key, so a registered checkout is never
+  // mistaken for an empty shell.
+  const leftovers = await inventoryEmptyLeftovers(tower.deps.store, root, loaded, seen, tower)
   return {
     root,
     decisions,
@@ -191,6 +188,7 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
     leftoverError: leftovers.error,
     leftoverScanAvailable: leftovers.available,
     leftoverScanReason: leftovers.reason,
+    leftoversReleased: leftovers.released,
   }
 }
 
@@ -536,8 +534,7 @@ export async function teardown(tower, input) {
   const sandboxes = await teardownSandboxes(tower, input)
   const prepared = await prepareTeardown(tower, input)
   const unmatched = unmatchedExclusions(prepared.state, input.exclude)
-  // #185: the orphan sweep is explicit and never part of a normal teardown. The
-  // inventory is read-only; only the real run below removes or prunes anything.
+  // #185: the orphan sweep is explicit; this inventory only reads.
   const orphans = input.orphans === true ? await inventoryOrphanWorktrees(tower, prepared.state) : null
   const warnings = [...reviews.notes]
   if (orphans && !orphans.leftoverScanAvailable) {
@@ -546,10 +543,7 @@ export async function teardown(tower, input) {
     )
   }
   if (prepared.dryRun) {
-    // #183: the preview is computed from the same policy inputs as the real
-    // sweep, on the state projected after the planned removals and sandbox
-    // cleanups. Nothing here writes: a real run of the same inputs archives
-    // exactly these missions.
+    // #183: same policy inputs and projected state as the real run, but no writes.
     const plannedRemovals = prepared.decisions
       .filter((decision) => decision.action === 'remove')
       .map((decision) => decision.missionId)
@@ -581,6 +575,7 @@ export async function teardown(tower, input) {
               pruned: [],
               leftovers: orphans.leftovers,
               leftoversRemoved: [],
+              leftoversReleased: orphans.leftoversReleased,
               ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
               ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
             },
@@ -788,7 +783,11 @@ export async function teardown(tower, input) {
             removed: orphanSweep.removed,
             pruned: orphanSweep.pruned,
             ...(leftoverSweep
-              ? { leftovers: leftoverSweep.decisions, leftoversRemoved: leftoverSweep.removed }
+              ? {
+                  leftovers: leftoverSweep.decisions,
+                  leftoversRemoved: leftoverSweep.removed,
+                  leftoversReleased: orphans.leftoversReleased,
+                }
               : {}),
             ...(orphans.leftoverError ? { leftoverError: orphans.leftoverError } : {}),
             ...(orphans.leftoverScanAvailable === false ? { leftoversUnavailable: orphans.leftoverScanReason } : {}),
