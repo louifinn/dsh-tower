@@ -15,6 +15,7 @@ import {
   activityPolicy,
   activitySegmentIndices,
   activitySegmentPath,
+  translateStateIo,
   writeJsonAtomic,
 } from './persistence.js'
 import path from 'node:path'
@@ -26,6 +27,8 @@ export {
   writeJsonAtomicSync,
   renameWithRetry,
   appendJsonl,
+  translateStateIo,
+  volumeOf,
 } from './persistence.js'
 
 export function pathsFor(commonDir) {
@@ -238,7 +241,10 @@ async function readStateBytes(paths) {
     return await fsp.readFile(paths.state, 'utf8')
   } catch (error) {
     if (error?.code === 'ENOENT') return null
-    throw error
+    // #228: a read that fails on a full/overloaded host is the same host
+    // refusal the writers report, so it carries the same code, path and phase
+    // instead of escaping as a bare errno.
+    throw translateStateIo(error, { path: paths.state, phase: 'state-read', action: 'read' })
   }
 }
 
@@ -548,6 +554,7 @@ export async function writeStateLocked(paths, state, token, options = {}) {
   let failure = null
   try {
     await writeJsonAtomic(paths.state, state, {
+      phase: 'state-write',
       verify: async () => {
         // Re-check ownership and the exact base document at the last possible
         // moment: after serialisation, before the rename. A `toJSON` side effect,
@@ -629,7 +636,13 @@ export async function withLock(paths, fn, options = {}) {
   const pollMs = options.pollMs ?? 25
   const token = crypto.randomUUID()
   const record = lockRecord(token, { startedAt: PROCESS_STARTED_AT }, options)
-  const held = await acquireLock(paths.lock, { ...options, token, record, timeoutMs, pollMs })
+  // #228: the lock record is a durable write too. The kernel stays raw on
+  // purpose (its contract rethrows a create failure unchanged), so the
+  // translation lives here, above it: a full disk while creating the writer
+  // lock is one catalogued `state-io-failed`, not a bare errno.
+  const held = await acquireLock(paths.lock, { ...options, token, record, timeoutMs, pollMs }).catch((error) => {
+    throw translateStateIo(error, { path: paths.lock, phase: 'lock-create', action: 'create the Tower state lock' })
+  })
   if (!held) {
     const owner = await readStateLock(paths, options)
     const facts = stateLockFacts(owner, options)
@@ -699,6 +712,10 @@ export async function withGitLock(paths, fn, options = {}) {
     record: lockRecord(token, { kind: 'git', phase }, options),
     timeoutMs,
     pollMs,
+  }).catch((error) => {
+    // #228: same translation as the state lock, named by phase so a failed
+    // merge reports which record could not be created.
+    throw translateStateIo(error, { path: lock, phase: `${phase}-lock`, action: 'create the git mutation lock' })
   })
   if (!held) {
     const owner = await readLock(lock, options)

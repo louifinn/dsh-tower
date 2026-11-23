@@ -214,7 +214,7 @@ reviewer 行，策略为 `required` 时会以带解释的 `preset-missing` 锁�
 - **worktree 归属。** 脏工作树、运行中的 worker、已关闭 mission 的分支都会阻止合并或 teardown。
 - **goal 隔离。** 进入 Tower 模式会暂停活跃 goal 并记录；退出不会自动恢复，需要你自行恢复。
 
-表面计数（实时，由 `npm run docs:check` 校验）：23 个工具、44 个工具错误码、26 个进程内事件、59 个配置键、36 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 18 个。
+表面计数（实时，由 `npm run docs:check` 校验）：23 个工具、45 个工具错误码、26 个进程内事件、59 个配置键、36 个稳定 blocker/failure code、13 个可见组件。默认 profile 注册其中 18 个。
 
 五个子系统行默认关闭；`tower_inspect` 的 `doctor` 视图逐条显示「已关闭 + 开启方式」，同一张表在 [docs/reference/tools.md](docs/reference/tools.md) 的 “Default-off subsystems” 一节：
 

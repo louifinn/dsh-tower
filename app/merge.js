@@ -17,6 +17,7 @@
 // from. A writer that slipped in between observation and write makes the
 // prepare stale, so the whole prepare is retried, never partially applied.
 import path from 'node:path'
+import { TowerToolError } from '../domain/errors.js'
 import { validateState } from '../domain/state.js'
 import { assertActionSupported } from '../domain/shapes/index.js'
 import { markBlocked } from '../domain/missions/lifecycle.js'
@@ -55,6 +56,36 @@ const PREPARE_ATTEMPTS = 3
 async function readCommitParents(tower, sha) {
   const line = await tower.tryGit(tower.root, ['rev-list', '--parents', '-n', '1', sha])
   return line ? line.trim().split(/\s+/).slice(1) : []
+}
+
+/**
+ * #228: the merge commit is already in Git when this runs, so a refused state
+ * write must never look like a landed merge. The state-write seam raises one
+ * catalogued `state-io-failed` (retryable false, `details.path`/`details.phase`),
+ * and the message has to say what the caller can and cannot conclude: the
+ * commit exists, Tower did not record it, nothing was half-written.
+ * @param {any} tower
+ * @param {any} state
+ * @param {any} held
+ * @param {string} newTip
+ */
+async function writeMergeRecord(tower, state, held, newTip) {
+  try {
+    await tower.writeState(state, held)
+  } catch (error) {
+    if (error?.code !== 'state-io-failed') throw error
+    // The rethrown error is rendered again, so unwrap the already-rendered
+    // prefix/suffix first: the caller must see exactly one [tower:…] and one
+    // — next: segment, with this sentence attached to the original cause.
+    const body = String(error.message)
+      .replace(/^\[tower:[^\]]+\]\s*/, '')
+      .replace(/ — next: [\s\S]*$/, '')
+    throw new TowerToolError(
+      error.code,
+      `${body} — the merge commit ${newTip.slice(0, 12)} exists in Git but Tower could not record it, so this merge did not land in the mission state and must be re-run`,
+      { cause: error.cause ?? error, retryable: false, details: error.details },
+    )
+  }
 }
 
 /**
@@ -541,7 +572,7 @@ async function commitMerge(tower, plan, recorded, outcome) {
       state.revision += 1
       state.updatedAt = now
       validateState(state, tower.paths.state)
-      await tower.writeState(state, held)
+      await writeMergeRecord(tower, state, held, outcome.newTip)
       await tower.appendActivity({
         at: now,
         type: 'merge',

@@ -508,3 +508,151 @@ test('tower_recover moves an unreadable state lock aside only with force (F71)',
     removeTemp(root)
   }
 })
+
+// #228: a refused durable write used to escape as a bare Node error and reach the
+// model as `[tower:tool-internal] ENOSPC: no space left on device, write` with no
+// path, no phase and no remedy. The state write is the seam tower_merge fails in,
+// so the errno is translated there — and the document already on disk keeps its
+// exact bytes, because the temp file is unlinked before the error leaves.
+for (const code of ['ENOSPC', 'EMFILE', 'ENFILE', 'EIO']) {
+  test(`a refused state write reports a catalogued ${code} and leaves state.json byte-identical (#228)`, async () => {
+    const { root, paths } = tempPaths()
+    const { fsp } = await import('../adapters/store-fs.js')
+    const originalOpen = fsp.open
+    try {
+      await withLock(paths, async (_paths, held) => {
+        await writeStateLocked(paths, { ok: true, revision: 1, missions: [] }, held.token)
+      })
+      const before = fs.readFileSync(paths.state)
+      const beforeNames = fs.readdirSync(paths.dir).sort()
+
+      fsp.open = async () => {
+        throw Object.assign(new Error(`${code}: no space left on device, write`), { code })
+      }
+      try {
+        await assert.rejects(
+          () =>
+            withLock(paths, async (_paths, held) => {
+              await writeStateLocked(paths, { ok: true, revision: 2, missions: [] }, held.token)
+            }),
+          (error) => {
+            assert.equal(error.code, 'state-io-failed')
+            assert.equal(error.retryable, false)
+            assert.equal(error.details.code, code)
+            assert.equal(error.details.path, paths.state)
+            assert.equal(error.details.phase, 'state-write')
+            assert.match(error.message, /\[tower:state-io-failed\]/)
+            assert.match(error.message, /during state-write/)
+            assert.match(error.message, /— next: .*free space/)
+            assert.match(error.message, /the previous document is unchanged/)
+            return true
+          },
+        )
+      } finally {
+        fsp.open = originalOpen
+      }
+
+      assert.deepEqual(fs.readFileSync(paths.state), before, 'state.json keeps its exact bytes')
+      assert.equal(JSON.parse(fs.readFileSync(paths.state, 'utf8')).revision, 1)
+      assert.deepEqual(
+        fs.readdirSync(paths.dir).filter((name) => name.includes('.tmp-')),
+        [],
+        'no temp document is left behind',
+      )
+      assert.ok(beforeNames.length > 0)
+    } finally {
+      fsp.open = originalOpen
+      removeTemp(root)
+    }
+  })
+}
+
+test('a refused activity append names the activity log and the append phase (#228)', async () => {
+  const { root, paths } = tempPaths()
+  const { fsp } = await import('../adapters/store-fs.js')
+  const { appendJsonl } = await import('../adapters/persistence.js')
+  const originalAppendFile = fsp.appendFile
+  try {
+    fs.writeFileSync(paths.activity, '{"at":1}\n')
+    const before = fs.readFileSync(paths.activity)
+    fsp.appendFile = async () => {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+    }
+    try {
+      await assert.rejects(
+        () => appendJsonl(paths.activity, { at: 2, type: 'mission.planned' }, { phase: 'activity-append' }),
+        (error) => {
+          assert.equal(error.code, 'state-io-failed')
+          assert.equal(error.retryable, false)
+          assert.equal(error.details.code, 'ENOSPC')
+          assert.equal(error.details.path, paths.activity)
+          assert.equal(error.details.phase, 'activity-append')
+          assert.match(error.message, /append to .*activity\.jsonl/)
+          assert.match(error.message, /volume /)
+          return true
+        },
+      )
+    } finally {
+      fsp.appendFile = originalAppendFile
+    }
+    assert.deepEqual(fs.readFileSync(paths.activity), before, 'the activity log keeps its exact bytes')
+  } finally {
+    fsp.appendFile = originalAppendFile
+    removeTemp(root)
+  }
+})
+
+test('a refused lock create reports the lock path instead of a bare errno (#228)', async () => {
+  const { root, paths } = tempPaths()
+  try {
+    // The kernel keeps its contract (it rethrows the create failure unchanged, see
+    // lock-kernel.test.mjs); the translation lives in withLock, above it.
+    await assert.rejects(
+      () =>
+        withLock(paths, async () => {
+          throw new Error('unreachable')
+        }, { create: () => {
+          throw Object.assign(new Error('ENOSPC: no space left on device, open'), { code: 'ENOSPC' })
+        } }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.code, 'ENOSPC')
+        assert.equal(error.details.path, paths.lock)
+        assert.equal(error.details.phase, 'lock-create')
+        return true
+      },
+    )
+    assert.equal(fs.existsSync(paths.state), false)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('a refused mode-store write reports the config-write phase (#228)', async () => {
+  const { root } = tempPaths()
+  const { writeJsonAtomicSync } = await import('../adapters/persistence.js')
+  const file = path.join(root, 'modes.json')
+  const originalWriteFileSync = fs.writeFileSync
+  try {
+    fs.writeFileSync(file, '{"keep":true}\n')
+    fs.writeFileSync = () => {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+    }
+    assert.throws(
+      () => writeJsonAtomicSync(file, { mode: 'on' }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false)
+        assert.equal(error.details.path, file)
+        assert.equal(error.details.phase, 'config-write')
+        assert.match(error.message, /during config-write/)
+        return true
+      },
+    )
+  } finally {
+    fs.writeFileSync = originalWriteFileSync
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"keep":true}\n', 'the previous mode store is unchanged')
+    removeTemp(root)
+  }
+})

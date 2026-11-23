@@ -382,3 +382,155 @@ test('a missing worktree blocks preflight with branch-missing instead of throwin
     removeTemp(root)
   }
 })
+
+/**
+ * #228: the merge-commit record is the one durable write that happens *after*
+ * git has already created the merge commit. A refused write there must name the
+ * path and phase, stay non-retryable, and say plainly that the merge did not
+ * land — never escape as `[tower:tool-internal] ENOSPC: ...`.
+ */
+async function mergeableMission(prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, ['init'])
+  git(repo, ['config', 'core.autocrlf', 'false'])
+  git(repo, ['config', 'user.email', 'tower@test'])
+  git(repo, ['config', 'user.name', 'Tower Test'])
+  fs.writeFileSync(path.join(repo, 'README.md'), 'seed\n')
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'seed'])
+
+  const tower = await Tower.open(repo)
+  // Claim ownership so the tool-level merge below resolves the caller as the
+  // tower; a worker actor is refused before any write.
+  await tower.init({ towerAgentId: 'tower-faults' })
+  await tower.plan({ missions: [{ title: 'Disk full merge', scope: ['src/**'], tasks: ['write file'] }] })
+  const provisioned = await tower.provision({ missionId: 'M1' })
+  const wt = provisioned.worktree.path
+  fs.mkdirSync(path.join(wt, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(wt, 'src', 'a.txt'), 'a\n')
+  git(wt, ['add', '-A'])
+  git(wt, ['commit', '-m', 'M1 a'])
+  await tower.mission({ id: 'M1', status: 'active' })
+  await tower.mission({ id: 'M1', task_done: 'write file' })
+  await tower.recordSpawn({
+    missionId: 'M1',
+    name: 'worker-disk-full',
+    role: 'worker',
+    agentId: 'agent-disk-full',
+    parentSessionId: 'session-disk-full',
+    cwd: wt,
+    branch: provisioned.worktree.branch,
+  })
+  await tower.complete({ missionId: 'M1', agentId: 'agent-disk-full', report: 'done' })
+  await tower.submitReview({
+    missionId: 'M1',
+    agentId: 'reviewer-not-in-roster',
+    status: 'clean',
+    merge: 'merge',
+    findings: 'none',
+    decision: 'single in-scope file',
+    actor: { name: 'tower', role: 'tower' },
+    breakGlassReason: 'disk-full fault test has no independent reviewer',
+  })
+  return { root, repo, tower }
+}
+
+test('a refused merge-commit write reports the path, phase and that the merge did not land (#228)', async () => {
+  const { root, repo, tower } = await mergeableMission('dsh-tower-faults-merge-disk-')
+  const { fsp } = await import('../adapters/store-fs.js')
+  const realOpen = fsp.open
+  try {
+    const statePath = tower.paths.state
+    // Snapshot the instant the refusal happens: the intent write before it is a
+    // separate, successful mutation; the *commit* write is the one refused.
+    let atRefusal = null
+    // Fail only the commit-phase record: the intent write runs while no
+    // mergeIntent is on disk yet, the commit write runs with one pending.
+    fsp.open = async function refuseStateWrite(target, ...rest) {
+      const pending = (() => {
+        try {
+          return JSON.parse(fs.readFileSync(statePath, 'utf8')).mergeIntent ?? null
+        } catch {
+          return null
+        }
+      })()
+      if (pending && String(target).includes('.state.json.tmp-')) {
+        atRefusal = fs.readFileSync(statePath)
+        throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+      }
+      return realOpen.call(this, target, ...rest)
+    }
+
+    // Drive the merge use case directly: the tool layer only propagates this
+    // error, and the fake ctx has no subagent catalog for the gate.
+    await assert.rejects(
+      () => tower.merge({ missionId: 'M1', activity: {} }),
+      (error) => {
+        assert.equal(error.code, 'state-io-failed')
+        assert.equal(error.retryable, false, 'a full disk is not fixed by retrying the same call')
+        assert.equal(error.details.phase, 'state-write')
+        assert.equal(error.details.path, statePath)
+        assert.equal(error.details.code, 'ENOSPC')
+        assert.match(error.message, /^\[tower:state-io-failed\] /)
+        assert.equal(error.message.split('[tower:state-io-failed]').length - 1, 1, 'exactly one prefix')
+        assert.equal(error.message.split('— next:').length - 1, 1, 'exactly one next-action suffix')
+        assert.match(error.message, /during state-write/)
+        assert.match(error.message, /the previous document is unchanged/)
+        assert.match(error.message, /did not land in the mission state and must be re-run/)
+        assert.doesNotMatch(error.message, /tool-internal/)
+        return true
+      },
+    )
+
+    // The document on disk is byte-identical to the moment of the refusal: the
+    // failed write added no partial state, and only the git commit exists.
+    assert.ok(atRefusal, 'the commit-phase write must be the one refused')
+    assert.deepEqual(fs.readFileSync(statePath), atRefusal)
+    const after = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(after.mergeIntent?.missionId, 'M1', 'the intent is retained so a re-run can finish')
+    // Git did land the merge commit; only the record of it was refused.
+    assert.equal(git(repo, ['rev-list', '--parents', '-n', '1', 'HEAD']).split(' ').length, 3)
+  } finally {
+    fsp.open = realOpen
+    removeTemp(root)
+  }
+})
+
+test('the doctor disk row fails below the free-space floor and names the volume (#228)', async () => {
+  const { diskSpaceCheck } = await import('../host/doctor-acceptance.js')
+  const floorBytes = 64 * 1024 * 1024
+
+  const failing = diskSpaceCheck({ volume: 'D:\\', floorBytes, freeBytes: 1024 * 1024 })
+  assert.equal(failing.id, 'disk-space')
+  assert.equal(failing.status, 'fail')
+  assert.match(failing.detail, /volume D:\\ has 1 MB free, below the 64 MB/)
+  assert.match(failing.action, /free space on the named volume/)
+  assert.doesNotMatch(failing.action, /\btower_[a-z_]+/)
+
+  const passing = diskSpaceCheck({ volume: 'D:\\', floorBytes, freeBytes: floorBytes * 4 })
+  assert.equal(passing.status, 'pass')
+  assert.match(passing.detail, /above the 64 MB free-space floor/)
+
+  const unreadable = diskSpaceCheck({ volume: 'D:\\', floorBytes, freeBytes: null, error: 'statfs failed' })
+  assert.equal(unreadable.status, 'warn')
+  assert.match(unreadable.detail, /unreadable \(statfs failed\)/)
+
+  // The live row is part of the report and is deterministic when the volume is
+  // healthy (the detail never quotes a moving free-byte count).
+  const { root, repo } = seedRepo('dsh-tower-faults-disk-')
+  const { tools } = makeCtx()
+  try {
+    await tools.get('tower_init').execute({ repoRoot: repo }, exec)
+    const doctorTool = tools.get('tower_inspect')
+    const doctor = await doctorTool.execute({ view: 'doctor', repoRoot: repo }, exec)
+    const rows = doctor.checks.filter((entry) => entry.id === 'disk-space')
+    assert.equal(rows.length, 1, `expected one disk-space row, saw ${JSON.stringify(doctor.checks.map((e) => e.id))}`)
+    assert.equal(rows[0].status, 'pass')
+    assert.match(rows[0].detail, /free-space floor/)
+    validateJsonSchema(doctorTool.output.schema, doctor)
+  } finally {
+    removeTemp(root)
+  }
+})

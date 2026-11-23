@@ -51,4 +51,5 @@ single recovery step appended to the message as ` — next: …` (with ` (retrya
 | `lease-token` | The lease release token does not match the current holder. | no | use the token returned when the lease was acquired |
 | `batch-invalid` | The batch request or its close evidence is invalid. | no | fix the batch request or the receipt hashes, then retry |
 | `legacy-invalid` | The legacy snapshot or mapping is invalid. | no | check the legacy snapshot path, schema and mapping, then retry |
+| `state-io-failed` | A Tower state, activity, lock or mode document could not be read or written because the host filesystem refused the operation; the previous document is left in place. | no | free space on the volume named in the message (or close the open file handles), confirm the directory is writable, then retry the same tool call |
 | `tool-internal` | An unexpected failure; read the message and the activity log. | no | — |
