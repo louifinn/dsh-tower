@@ -8,12 +8,43 @@
 // the port yet.
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import path from 'node:path'
 import { TowerToolError } from '../domain/errors.js'
 import * as store from './store.js'
 import { lockTiming, readLock } from './lock.js'
 
 const { createWriteStream } = fs
 export { fs, fsp, createWriteStream }
+
+/**
+ * #228: the floor doctor reports a failing disk row below. Writing one state
+ * document plus one activity line is kilobytes; 64 MiB is the point where a
+ * write, a git merge or a test run is about to fail for lack of room, so the
+ * operator hears it from doctor instead of from a half-finished mutation.
+ */
+export const DEFAULT_FREE_SPACE_FLOOR = 64 * 1024 * 1024
+
+/**
+ * Free space on the volume a Tower path lives on (#228). `statfs` is the only
+ * portable reading (POSIX `bavail * bsize`; Windows reports the same fields),
+ * so a platform without it answers with an error instead of a false pass.
+ * `read`/`floorBytes` are injectable for tests; production uses the defaults.
+ * @param {string} dir
+ * @param {{ read?: (dir: string) => Promise<any>, floorBytes?: number }} [options]
+ * @returns {Promise<{ volume: string, floorBytes: number, freeBytes: number | null, error?: string }>}
+ */
+export async function freeSpace(dir, options = {}) {
+  const floorBytes = options.floorBytes ?? DEFAULT_FREE_SPACE_FLOOR
+  const volume = path.parse(path.resolve(dir)).root || dir
+  const read = options.read ?? (typeof fsp.statfs === 'function' ? (target) => fsp.statfs(target) : null)
+  if (!read) return { volume, floorBytes, freeBytes: null, error: 'this Node runtime has no statfs' }
+  try {
+    const stats = await read(dir)
+    return { volume, floorBytes, freeBytes: Number(stats.bavail) * Number(stats.bsize) }
+  } catch (error) {
+    return { volume, floorBytes, freeBytes: null, error: String(error?.message ?? error) }
+  }
+}
 
 /**
  * Move a leftover commit mutex aside into an auditable backup (#F71).

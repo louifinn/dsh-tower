@@ -69,13 +69,63 @@ function parseJson(file, text) {
   }
 }
 
+/**
+ * #228: a host filesystem that refuses a durable write must never reach the
+ * model as an untranslated `tool-internal`. A full disk on `tower_merge` used
+ * to report `ENOSPC: no space left on device, write` with no path, no phase and
+ * no remedy. These four errnos are the ones that mean "the host refused the
+ * operation", so every write seam maps them onto one catalogued error whose
+ * `details` is `{ code, path, phase }`. Any other error (a `verify` failure, a
+ * catalogued TowerToolError, EPERM/EACCES from the lock kernel) passes through
+ * untouched, which keeps the raw lock kernel contract intact.
+ */
+const STATE_IO_ERRNOS = new Set(['ENOSPC', 'EMFILE', 'ENFILE', 'EIO'])
+
+/**
+ * The volume a path lives on, for the message a full disk must name.
+ * @param {string | null} file
+ */
+export function volumeOf(file) {
+  if (typeof file !== 'string' || file.length === 0) return null
+  return path.parse(path.resolve(file)).root || null
+}
+
+/**
+ * Map a host I/O refusal onto the one catalogued `state-io-failed` error.
+ * Everything else is returned unchanged so callers can keep rethrowing it.
+ * @param {any} error
+ * @param {{ path?: string | null, phase?: string, action?: string, note?: string }} [context]
+ * @returns {any}
+ */
+export function translateStateIo(error, context = {}) {
+  if (error instanceof TowerToolError || !STATE_IO_ERRNOS.has(error?.code)) return error
+  const file = context.path ?? null
+  const phase = context.phase ?? 'state-write'
+  const volume = volumeOf(file)
+  const where = file ? `${file}${volume ? ` (volume ${volume})` : ''}` : 'the Tower state directory'
+  const note = context.note ? `; ${context.note}` : ''
+  return new TowerToolError(
+    'state-io-failed',
+    `cannot ${context.action ?? 'write'} ${where} during ${phase}: ${String(error?.message ?? error)}${note}`,
+    { cause: error, details: { code: error?.code ?? null, path: file, phase } },
+  )
+}
+
 export async function readJson(file) {
-  return parseJson(file, await fsp.readFile(file, 'utf8'))
+  try {
+    return parseJson(file, await fsp.readFile(file, 'utf8'))
+  } catch (error) {
+    throw translateStateIo(error, { path: file, phase: 'state-read', action: 'read' })
+  }
 }
 
 /** Synchronous counterpart for the mode store's short critical section. */
 export function readJsonSync(file) {
-  return parseJson(file, fs.readFileSync(file, 'utf8'))
+  try {
+    return parseJson(file, fs.readFileSync(file, 'utf8'))
+  } catch (error) {
+    throw translateStateIo(error, { path: file, phase: 'state-read', action: 'read' })
+  }
 }
 
 /**
@@ -98,12 +148,33 @@ export async function writeJsonAtomic(file, value, options = {}) {
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${crypto.randomUUID()}`)
   const payload = JSON.stringify(value, null, 2)
-  const handle = await fsp.open(tmp, 'w')
+  const phase = options.phase ?? 'state-write'
+  let handle
+  try {
+    handle = await fsp.open(tmp, 'w')
+  } catch (error) {
+    // #228: no temp file exists yet, so the destination is untouched by
+    // definition; report the path and phase instead of a bare errno, and make
+    // the same promise every other refusal on this path makes.
+    throw translateStateIo(error, { path: file, phase, action: 'write', note: 'the previous document is unchanged' })
+  }
   try {
     await handle.writeFile(payload, 'utf8')
     await handle.sync()
-  } finally {
+  } catch (error) {
+    await handle.close().catch(() => {})
+    // A partially written temp file is never renamed into place; drop it so a
+    // retry starts clean and the destination keeps its previous bytes.
+    await fsp.unlink(tmp).catch(() => {})
+    throw translateStateIo(error, { path: file, phase, action: 'write', note: 'the previous document is unchanged' })
+  }
+  try {
     await handle.close()
+  } catch (error) {
+    // A close (and the flush it can trigger) can be the call that reports a full
+    // volume; drop the temp file and keep the destination untouched.
+    await fsp.unlink(tmp).catch(() => {})
+    throw translateStateIo(error, { path: file, phase, action: 'write', note: 'the previous document is unchanged' })
   }
   try {
     if (options.verify) await options.verify()
@@ -112,27 +183,42 @@ export async function writeJsonAtomic(file, value, options = {}) {
     await fsp.unlink(tmp).catch(() => {})
     throw error
   }
-  await renameWithRetry(tmp, file)
+  try {
+    await renameWithRetry(tmp, file)
+  } catch (error) {
+    throw translateStateIo(error, { path: file, phase, action: 'rename', note: 'the previous document is unchanged' })
+  }
   if (options.onAfterRename) await options.onAfterRename({ file, tmp })
 }
-
 /** Synchronous counterpart used by the mode store's short critical section. */
-export function writeJsonAtomicSync(file, value) {
+export function writeJsonAtomicSync(file, value, options = {}) {
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${crypto.randomUUID()}`)
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8')
+  const phase = options.phase ?? 'config-write'
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8')
+  } catch (error) {
+    try {
+      fs.unlinkSync(tmp)
+    } catch {
+      // best effort: the temp file may not exist
+    }
+    throw translateStateIo(error, { path: file, phase, action: 'write', note: 'the previous document is unchanged' })
+  }
   for (let attempt = 0; ; attempt += 1) {
     try {
       fs.renameSync(tmp, file)
       return
     } catch (error) {
+      // A transient sharing violation is retried; every other failure (a full
+      // volume included) is translated once the retry budget is spent.
       if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || attempt >= RENAME_ATTEMPTS) {
         try {
           fs.unlinkSync(tmp)
         } catch {
           // best effort
         }
-        throw error
+        throw translateStateIo(error, { path: file, phase, action: 'rename', note: 'the previous document is unchanged' })
       }
       sleepSync(10 + attempt * 15)
     }
@@ -293,13 +379,24 @@ function serializedAppend(file, task) {
  * later append retries rotation.
  * @param {string} file
  * @param {unknown} value
- * @param {{ maxBytes?: number, retention?: number }} [options]
+ * @param {{ maxBytes?: number, retention?: number, phase?: string }} [options]
  */
 export async function appendJsonl(file, value, options = {}) {
   const line = `${JSON.stringify(value)}\n`
   const policy = activityPolicy(options)
+  const phase = options.phase ?? 'activity-append'
+  const append = async () => {
+    try {
+      await fsp.appendFile(file, line, 'utf8')
+    } catch (error) {
+      // #228: the audit line is a durable record too. A full disk here used to
+      // escape as a bare errno while the state write it accompanies had already
+      // landed, so the caller could not tell which record survived.
+      throw translateStateIo(error, { path: file, phase, action: 'append to' })
+    }
+  }
   if (!policy.enabled) {
-    await fsp.appendFile(file, line, 'utf8')
+    await append()
     return
   }
   await serializedAppend(file, async () => {
@@ -308,7 +405,7 @@ export async function appendJsonl(file, value, options = {}) {
     try {
       liveBytes = (await fsp.stat(file)).size
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+      if (error?.code !== 'ENOENT') throw translateStateIo(error, { path: file, phase, action: 'inspect' })
     }
     if (shouldRotateActivity(liveBytes, lineBytes, policy.maxBytes)) {
       try {
@@ -318,6 +415,6 @@ export async function appendJsonl(file, value, options = {}) {
         // rotation; an unbounded log is preferable to losing an audit record.
       }
     }
-    await fsp.appendFile(file, line, 'utf8')
+    await append()
   })
 }

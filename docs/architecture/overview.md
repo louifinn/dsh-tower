@@ -10,7 +10,7 @@ that mounts the Host plugin and the mandatory worker preset), then
 off removes exactly that capability; the host, the diagnostics and the recovery
 escape keep working.
 
-Surface counts (live, checked by `npm run docs:check`): 23 tools, 44 tool error codes, 26 process-local events, 59 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile mounts 18. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 18 mounted tools minus the #163/#202 role-owned `tower_complete`/`tower_review`/`tower_verify`) — while spawned role presets keep their explicit allow-lists. The 23-tool figure is the all-on build surface, not a session baseline.
+Surface counts (live, checked by `npm run docs:check`): 23 tools, 45 tool error codes, 26 process-local events, 59 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile mounts 18. A host session does not advertise all mounted tools at once: since #164 the role × phase gate (ADR 0009) projects them onto the session phase — mode off exposes only `tower_mode`, mode on without state adds `tower_init`, and state existence exposes the default host-admitted set (the 18 mounted tools minus the #163/#202 role-owned `tower_complete`/`tower_review`/`tower_verify`) — while spawned role presets keep their explicit allow-lists. The 23-tool figure is the all-on build surface, not a session baseline.
 
 [Principle 11](../../PRINCIPLES.md) and
 [ADR 0005](../adr/0005-component-surface.md) say a component may exist only for
@@ -148,6 +148,7 @@ Host plugin (index.js — Cordis apply/effect glue)
        adapters/vcs-git.js    the only module importing node:child_process; createVcsPort()
        adapters/git.js        bounded git commands + timeout classification
        adapters/store.js      repo-scoped lock + atomic JSON + activity.jsonl
+       adapters/commitLock.js  the state commit mutex (create/release, #228)
        adapters/persistence.js  shared atomic write / lock / heartbeat primitives
        adapters/archive.js    terminal-mission archive files
        adapters/leases.js     repo-scoped advisory lease ledger

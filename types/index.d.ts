@@ -79,6 +79,7 @@ export type ErrorCode =
   | 'lease-token'
   | 'batch-invalid'
   | 'legacy-invalid'
+  | 'state-io-failed'
   | 'tool-internal'
 // generated:vocabulary:end
 

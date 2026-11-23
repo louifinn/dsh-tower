@@ -319,6 +319,22 @@ export const ERROR_CODES = {
     retryable: false,
     nextAction: 'check the legacy snapshot path, schema and mapping, then retry',
   },
+  // #228: the durable-write seam. A raw Node errno (ENOSPC, EMFILE, ENFILE,
+  // EIO) used to reach the model as a bare `tool-internal`, so a full disk on
+  // `tower_merge` reported "ENOSPC: no space left on device, write" with no
+  // path, no phase and no remedy. Every write seam now translates those four
+  // codes into this one catalogued error whose `details` is
+  // `{ code, path, phase }`; the document that was already on disk is never
+  // modified by the failed write.
+  'state-io-failed': {
+    description:
+      'A Tower state, activity, lock, commit-mutex or mode document could not be read or written because the host filesystem refused the operation; the previous document is left in place.',
+    trigger:
+      'ENOSPC/EMFILE/ENFILE/EIO while writing state.json, the activity log, a lock record, the state commit mutex, the merge record or the mode store',
+    retryable: false,
+    nextAction:
+      'free space on the volume named in the message (or close the open file handles), confirm the directory is writable, remove any lock record named in the message, then retry the same tool call',
+  },
   'tool-internal': {
     description: 'An unexpected failure; read the message and the activity log.',
     trigger: 'a bug; read the message and the activity log',

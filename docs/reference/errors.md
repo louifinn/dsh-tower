@@ -2,7 +2,7 @@
 
 Tool failures are thrown errors, not `{ok:false}` results (gate outcomes are the exception: see
 [blockers.md](blockers.md)). Every thrown error carries a stable code as a message prefix. This
-release defines 44 tool error codes.
+release defines 45 tool error codes.
 
 Every `TowerToolError` carries `retryable` (boolean), `nextAction` (string or `null`) and `details`
 (structured context or `null`) for programmatic callers. The model-visible surface is the message:
@@ -65,6 +65,7 @@ plain `Error` without a structured code is reported as `tool-internal`.
 | `lease-token` | The lease release token does not match the current holder. | no | use the token returned when the lease was acquired | releasing with another session's token |
 | `batch-invalid` | The batch request or its close evidence is invalid. | no | fix the batch request or the receipt hashes, then retry | unknown member, duplicate id, unsafe receipt path, missing receipt hash |
 | `legacy-invalid` | The legacy snapshot or mapping is invalid. | no | check the legacy snapshot path, schema and mapping, then retry | unknown schema, source inside the Tower state dir, mapping rewrite |
+| `state-io-failed` | A Tower state, activity, lock, commit-mutex or mode document could not be read or written because the host filesystem refused the operation; the previous document is left in place. | no | free space on the volume named in the message (or close the open file handles), confirm the directory is writable, remove any lock record named in the message, then retry the same tool call | ENOSPC/EMFILE/ENFILE/EIO while writing state.json, the activity log, a lock record, the state commit mutex, the merge record or the mode store |
 | `tool-internal` | An unexpected failure; read the message and the activity log. | no | — | a bug; read the message and the activity log |
 <!-- generated:error-table:end -->
 
@@ -73,6 +74,29 @@ A git-mutex timeout is a `state-locked` error that names the holder. Its `detail
 `held by pid 1234 (merge) for 92 s; waited 60 s`. `holderPhase` is the operation that holds the lock
 (`merge`, `rebase`, `init`, `teardown`, `provision`); `tower_inspect` with `view: "status"` and `tower_inspect` with `view: "doctor"` expose the same
 holder as `gitLock: { held, pid, phase, heldMs }` while it is held.
+
+A `state-io-failed` error carries `details: { code, path, phase }`: the raw errno, the exact file
+whose write was refused, and the durable-write seam that failed. `phase` is one of
+
+| Phase | The write that was refused |
+|---|---|
+| `state-write` | replacing `state.json` itself |
+| `state-read` | reading `state.json` (an unreadable document is the mirror case) |
+| `state-backup` | writing the pre-migration `state.json.v<N>.bak` |
+| `activity-append` | appending a line to the activity log |
+| `lock-create` | creating the state writer lock (`state.lock`) |
+| `lock-release` | moving the state writer lock aside after a successful mutation |
+| `state-commit-lock` | creating the short-lived state commit mutex (`state.commit.lock`), or moving it aside afterwards |
+| `<phase>-lock` | creating the git mutation lock for the named operation (`merge-lock`, `rebase-lock`, `init-lock`, `teardown-lock`, `provision-lock`) |
+| `<phase>-release` | moving the git mutation lock aside after that operation finished |
+| `config-write` | writing the mode store |
+
+When the failure happens *after* git already created a merge commit, the message says so: the
+commit exists in Git, Tower could not record it, and the merge therefore did not land in the mission
+state. When only the activity line fails after the state record landed, the message says the merge
+landed and only its activity line is missing. A failure to release the commit mutex after a
+successful state write adds `details.released: false` and warns that the next writer reports
+`state-commit-busy` until the named lock path is removed.
 
 ## Why thrown?
 

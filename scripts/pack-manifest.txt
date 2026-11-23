@@ -9,6 +9,7 @@ README.md
 SECURITY.md
 adapters/archive.js
 adapters/caseSensitivity.js
+adapters/commitLock.js
 adapters/default.js
 adapters/git.js
 adapters/leases.js
