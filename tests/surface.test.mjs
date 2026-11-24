@@ -155,19 +155,20 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists. #202 adds tower_verify to the reviewer allow-list.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 15, inputBytes: 18871 },
-    worker: { tools: 6, inputBytes: 11661 },
+    tower: { tools: 15, inputBytes: 20363 },
+    worker: { tools: 6, inputBytes: 13153 },
     reviewer: { tools: 6, inputBytes: 7260 },
   })
   // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
   // read-only views into tower_inspect. Each change is a dated decision, so the
   // committed value is the chain's tail, not the seed. #201 added tower_wait,
   // the 22nd tool and the 15th mounted in the tower profile; #202 adds
-  // tower_verify to the reviewer profile only.
+  // tower_verify to the reviewer profile only. #219 adds the single-form widen
+  // object to MissionInput, which is the only cause of the last step.
   assert.equal(baseline.profiles.tower.tools.value, 15)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 6)
-  for (const [profile, bytes] of [['tower', 18871], ['worker', 11661], ['reviewer', 7260]]) {
+  for (const [profile, bytes] of [['tower', 20363], ['worker', 13153], ['reviewer', 7260]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)

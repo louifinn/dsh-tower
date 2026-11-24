@@ -250,7 +250,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 18871,
+        "value": 20363,
         "decisions": [
           {
             "from": 17008,
@@ -353,6 +353,13 @@
             "to": 18871,
             "date": "2026-11-22",
             "note": "#217: PlanInput advertises the optional top-level dry_run flag and the optional per-mission key, and its descriptions state the dry-run report and key/dep rules, so the one advertised schema grows by 605 bytes wherever tower_plan is mounted: profiles.tower.inputBytes becomes 18,871 (was 18,266). Worker, reviewer and survey presets do not mount tower_plan and do not move; the tool count stays 15."
+          },
+          {
+            "from": 18871,
+            "to": 20363,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth. It advertises mode/restoreDeferrals/keepStatus plus the no-scope rule, so MissionInput grows by 1,492 bytes (the nested `widen` object plus the repeated item copy) and profiles.tower.inputBytes becomes 20,363 (was 18,871). Nothing else in the tower profile moved, and the tool count stays 15. The growth buys the one call that replaces the manual bulk-defer choreography: without it every widen had to defer each planned neighbour by hand, widen, then restore them one by one, and a completed receiver was pushed back to active before its reviewer could spawn."
           }
         ]
       }
@@ -384,7 +391,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 11661,
+        "value": 13153,
         "decisions": [
           {
             "from": 8159,
@@ -463,6 +470,13 @@
             "to": 11661,
             "date": "2026-11-22",
             "note": "#216: the worker preset mounts tower_mission, whose MissionInput advertises the bulk form (missions/ids/atomic), so its one advertised schema grows by 2,887 bytes and the preset becomes 11,661 (was 8,774). The tool count stays 6; #215 adds no input fields."
+          },
+          {
+            "from": 11661,
+            "to": 13153,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth, and it is the same 1,492 bytes the tower profile pays because the worker preset mounts the same MissionInput: profiles.worker.inputBytes becomes 13,153 (was 11,661). The tool count stays 6 and no other worker schema moves. The growth buys the one call that replaces the manual bulk-defer choreography — a worker widening its own mission no longer needs 2N+2 defer/restore round trips."
           }
         ]
       }
@@ -561,7 +575,7 @@
     }
   },
   "profileBytes": {
-    "date": "2026-11-22",
+    "date": "2026-11-25",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -573,11 +587,11 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 23699
+        "bytes": 25191
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 13617
+        "bytes": 15109
       },
       "preset:reviewer": {
         "tools": 6,
@@ -585,11 +599,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 12432
+        "bytes": 13924
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 12432
+        "bytes": 13924
       }
     },
     "decisions": [
@@ -677,6 +691,11 @@
         "date": "2026-11-22",
         "adr": "docs/adr/0009-role-phase-exposure.md",
         "note": "#202: the reviewer preset mounts tower_verify, so preset:reviewer becomes 6 tools / 9,202 B (was 5 tools / 7,342 B): 1,535 advertised input bytes plus the tool name and description. Mode-off, idle, host:active, preset:worker and the survey presets do not mount tower_verify and are unchanged; the build surface grows 22 -> 23 tools, recorded in surfaces.tools."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth. Every profile that mounts tower_mission pays the same 1,492 advertised bytes: host:active becomes 15 tools / 25,191 B (was 23,699), preset:worker 6 / 15,109 B (was 13,617), preset:survey and preset:survey-sandbox 5 / 13,924 B each (was 12,432). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged. The growth buys the one call that replaces the manual bulk-defer choreography (2N+2 tower_mission defer/restore round trips, plus the intermediate status patch before spawning the reviewer), which is what #219 exists to remove."
       }
     ]
   }
