@@ -583,6 +583,55 @@ test('#223: a brand-new unmatched byte claim fails closed', (t) => {
   )
 })
 
+// The lexer once read only the `N B` spelling, so "input bytes" and "bytes" were
+// a hole a page could walk through: this is that hole closed, on a page the scan
+// had never before seen. Both message shapes are pinned — an unlabelled claim
+// must list the live values, a labelled one must name the subject and its value.
+test('#223: a brand-new "input bytes" claim fails closed too', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe all-on build advertises 24,999 input bytes in this draft.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: unrecognised surface figure 24,999 input bytes: /.test(problem)
+      && problem.includes('expected one of 846, 2185, 7260, 9202, 11661, 12432, 13617, 18871, 23699, 32794')),
+    problems.join('\n'),
+  )
+  fs.writeFileSync(page, '# Surface notes\n\nThe tower profile advertises 24,999 input bytes in this draft.\n')
+  const labelled = surfaceFigureProblems(copy)
+  assert.ok(
+    labelled.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: 24,999 input bytes does not match profiles\.tower \(expected 18871\)/.test(problem)),
+    labelled.join('\n'),
+  )
+})
+
+// A verb-first tool count ("mounts 18") carries no `tools` noun at all; before
+// this it was invisible to the scan even though it is the clearest way a page
+// states the default profile's size.
+test('#223: an invented "mounts N" tool count fails closed', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe default profile mounts 24 in this draft.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem === 'docs/reference/surface-notes.md:3: unrecognised surface figure mounts 24: not a live surface value (expected one of 1, 2, 5, 6, 15, 18, 23); fix it, or add "<!-- tower-surface-history YYYY-MM-DD: reason -->" above it if it records history'),
+    problems.join('\n'),
+  )
+})
+
+// The other half of the same rule: the live spelling must stay readable, so a
+// page that states the current value passes without a marker.
+test('#223: the live verb-first and "input bytes" spellings pass without a marker', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(
+    page,
+    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 32,794 bytes.\nThe tower profile advertises 15 tools / 18,871 input bytes.\n',
+  )
+  fs.writeFileSync(path.join(copy, 'docs', 'zh', 'reference', 'surface-notes.md'), '# 表面笔记\n\n默认 profile 挂载 18 个工具。\n')
+  assert.deepEqual(surfaceFigureProblems(copy), [])
+})
+
 test('#223: a missing zh mirror is a failure, not a skip', (t) => {
   const copy = copyRepo(t)
   fs.rmSync(path.join(copy, 'docs', 'zh', 'reference', 'tools.md'))

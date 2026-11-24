@@ -152,7 +152,7 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (23 today; 21 in 2.9.0, 17 default), even though the shipped profile mounts 17 because the
+build surface (23 today; 21 in 2.9.0, 18 default), even though the shipped profile mounts 18 because the
 five subsystem rows ship off; the `components` check names the mounted subset and every
 disabled row.
 

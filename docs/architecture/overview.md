@@ -108,7 +108,7 @@ Host plugin (index.js — Cordis apply/effect glue)
  ├─ host/tool-capabilities.js -> registration aggregators
  │                    (+ 22 define()-registered tools)
  │                    (+ tower_mode registered by the Host entry, 23 total
- │                       once every optional capability row is on; 17 default)
+ │                       once every optional capability row is on; 18 default)
  │                    (tower_inspect/tower_recover are host tools, never switches)
  ├─ host/tool-observers.js -> roster/activity/evidence observers shared by tools
  ├─ host/capability-*.js -> optional capability entry points (batch/import/leases/tests/hmr)

@@ -649,17 +649,34 @@ export function retiredToolNameProblems(root = packageRoot) {  const problems = 
   return problems
 }
 
-// #223: prose surface figures. A hand-written "N tools" or "N,NNN B" figure must
-// restate the live surface, not last release's. Expected values come from
-// `scripts/surface-baseline.json` plus the two numbers only a live load knows: the
-// default profile's mounted tool count and the all-rows-on build bytes (#202's
+// #223: prose surface figures. A hand-written tool total or input-schema byte
+// count must restate the live surface, not last release's. Expected values come
+// from `scripts/surface-baseline.json` plus the two numbers only a live load knows:
+// the default profile's mounted tool count and the all-rows-on build bytes (#202's
 // 32,792 B had no source of truth at all and was two bytes stale).
+//
+// The lexers read the spellings the pages actually use (R206): byte counts as
+// "32,794 B", "13,287 input bytes" or "6,348 bytes"; tool totals as "23 tools",
+// "18 mounted tools", "23 个工具", "23-tool", and the verb-first "the default
+// profile mounts 18" / "registers 18" / "advertises 15". A number that merely
+// looks like a count — "45 tool error codes", "21 alias fields", "28/28" — is not
+// a figure and is left alone.
 const SURFACE_HISTORY_MARKER = /^<!--\s*tower-surface-history\s+(\d{4}-\d{2}-\d{2})\s*:\s*(.+?)\s*-->$/
 const SURFACE_SAMPLE_MARKER = /^<!--\s*tower-surface-sample\s*:\s*(.+?)\s*-->$/
 const SURFACE_MARKER_PREFIX = /^<!--\s*tower-surface-(?:history|sample)\b/
-const SURFACE_BYTES_FIGURE = /(?<![\w.,/])(\d[\d,]*)\s*B\b/g
+// A byte figure is read in the three forms the pages write it: "32,794 B",
+// "13,287 input bytes" and "6,348 bytes". The lookbehind keeps "UTF-8 bytes"
+// (the "8" follows a hyphen) out, and the numbers never start mid-token.
+const SURFACE_BYTES_FIGURE = /(?<![\w.,/-])(\d[\d,]*)\s*(?:input\s+bytes|bytes|B\b)/g
+// A tool total is read as "23 tools", "23 个工具", "23-tool" (and "18 mounted
+// tools"); the lookaheads keep "45 tool error codes", "21 alias fields",
+// "45 个工具错误码" and "21 个工具形别名" out, and the lookbehind keeps "28/28" out.
 const SURFACE_TOOLS_FIGURE =
-  /(?<![\d/.,])(\d{1,3})\s*(?:个工具(?!错误|形|别名)|tools?\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?)))/g
+  /(?<![\d/.,])(\d{1,3})(?:\s+mounted)?\s*(?:个工具(?!错误|形|别名)|-tool\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?))|tools?\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?)))/g
+// The verb-first spelling: "the default profile mounts 18", "registers 23",
+// "advertises 15". R206 showed this form escaped a number-first lexer entirely,
+// and every page that writes it means the same tool count.
+const SURFACE_MOUNTED_FIGURE = /(?<![\w/.-])(?:mounts?|registers?|advertis(?:e|es|ed|ing))\s+(\d{1,3})(?!\d|\.\d|,\d{3})/g
 const SURFACE_PROFILE_ID = /`(host:(?:mode-off|idle|active)|preset:(?:worker|reviewer|survey|survey-sandbox))`/g
 const SURFACE_PROFILE_WORD = /(?:`(tower|worker|reviewer)`|\b(?:the\s+)?(tower|worker|reviewer)\s+profile\b)/g
 
@@ -709,6 +726,9 @@ function surfaceFiguresIn(line) {
     figures.push({ kind: 'bytes', value: Number(match[1].replaceAll(',', '')), raw: match[0].trim(), index: match.index })
   }
   for (const match of line.matchAll(SURFACE_TOOLS_FIGURE)) {
+    figures.push({ kind: 'tools', value: Number(match[1]), raw: match[0].trim(), index: match.index })
+  }
+  for (const match of line.matchAll(SURFACE_MOUNTED_FIGURE)) {
     figures.push({ kind: 'tools', value: Number(match[1]), raw: match[0].trim(), index: match.index })
   }
   return figures.sort((left, right) => left.index - right.index)
@@ -793,6 +813,15 @@ export function surfaceFigureProblems(root = packageRoot) {
     if (Number.isFinite(entry?.tools)) toolsCurrent.add(entry.tools)
   }
   if (Number.isFinite(baseline.surfaces?.tools?.value)) toolsCurrent.add(baseline.surfaces.tools.value)
+  // The baseline's own `seed` values are the ladder's oldest rungs: a page may
+  // quote them, but they are history, not a current figure.
+  for (const surface of Object.values(baseline.surfaces ?? {})) {
+    if (Number.isFinite(surface?.seed)) recordedTools.add(surface.seed)
+  }
+  for (const profile of Object.values(baseline.profiles ?? {})) {
+    if (Number.isFinite(profile?.tools?.seed)) recordedTools.add(profile.tools.seed)
+    if (Number.isFinite(profile?.inputBytes?.seed)) recordedBytes.add(profile.inputBytes.seed)
+  }
   const recordDecisions = (decisions, target) => {
     for (const decision of decisions ?? []) {
       for (const value of [decision?.from, decision?.to]) if (Number.isFinite(value)) target.add(value)
@@ -804,8 +833,18 @@ export function surfaceFigureProblems(root = packageRoot) {
     recordDecisions(profile?.inputBytes?.decisions, recordedBytes)
   }
   recordDecisions(baseline.profileBytes?.decisions, recordedBytes)
+  // The baseline's own prose is a record too: a page may quote a historical tool
+  // count or byte size the decisions' notes spell out ("mounts 17", "22,061 B").
+  for (const match of baselineText.matchAll(SURFACE_TOOLS_FIGURE)) recordedTools.add(Number(match[1]))
+  for (const match of baselineText.matchAll(SURFACE_MOUNTED_FIGURE)) recordedTools.add(Number(match[1]))
   for (const match of baselineText.matchAll(/\d[\d,]*\s*B\b/g)) {
     recordedBytes.add(Number(match[0].replace(/\s*B$/, '').replaceAll(',', '')))
+  }
+  // A byte delta ("adds 211 bytes", "grows by 605 bytes") is a size a page may
+  // restate; only a value the baseline's own prose mentions is acceptable, so the
+  // ladder above is not widened by numbers nobody measured.
+  for (const match of baselineText.matchAll(/\d[\d,]*\s*(?:input\s+)?bytes\b/g)) {
+    recordedBytes.add(Number(match[0].replace(/(?:\s+input)?\s+bytes$/, '').replaceAll(',', '')))
   }
 
   const targetFor = (label) => {

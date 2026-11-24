@@ -75,6 +75,8 @@ lists live in `domain/exposure.js` (`PRESET_ALLOWS`) and are re-exported by
 `host/tool-profiles.js` for the role predicates, so `worker.js` /
 `reviewer.js`, the authorization kernel and this gate all read one table.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 1+2 removed the repeated repoRoot field and the 21 server-side-only alias fields -->
+
 #163 Phase 1+2 shrank the advertised schemas without changing the tool count:
 removing the repeated `repoRoot` field and the 21 alias fields took the tower
 profile from 17,008 to 13,287 input bytes, the worker from 8,159 to 6,465, and
@@ -123,8 +125,9 @@ tool list and the all-on list are documented in
 
 #201 adds `tower_wait`, the one bounded blocking reach (#201, recorded in
 [ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22,
-the shipped profile mounts 17, and the tower profile advertises 15 tools /
-15,379 B. The tool is tower-only, so the worker (6 tools) and reviewer
+the shipped profile mounted count moves 16 → 17 (the five default-off rows do
+not move), and the tower profile advertises 15 tools / 15,379 B. The tool is
+tower-only, so the worker (6 tools) and reviewer
 (5 tools) tool counts do not move; their input schemas grew by the 211 bytes
 #207 added to `tower_inspect`'s `agent`/`tail` descriptions. R185 then made the
 `compact` key set explicit in the same schema, adding 116 bytes to every profile
@@ -435,11 +438,34 @@ Enforced by: `scripts/surface-baseline.mjs` and `domain/surface.js`; tests in
 `tests/surface.test.mjs`; gate: `npm run surface:check`.
 
 The prose in this page is checked too: `npm run docs:check` (through
-`scripts/check-docs.mjs`) rescans every shipped markdown page for surface-shaped
-figures — tool totals and input-schema byte counts — against
+`scripts/check-docs.mjs`) rescans every current-facing markdown page — the
+`docs/**` tree except `docs/adr/`, the markdown `package.json` ships (the
+READMEs, CONTRIBUTING, COMPATIBILITY, GLOSSARY, PRINCIPLES, SECURITY, the
+`skills/*.md` briefings, `ui-bundle/README.md`) and `tests/README.md` — for the
+tool totals and input-schema byte counts those pages write, and fails on a figure
+it cannot account for against
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) plus the
-live default-profile and all-rows-on counts, and fails on a figure it cannot
-account for. A historical measurement stays readable only behind a dated
+live default-profile and all-rows-on counts.
+
+The scanned spelling is exact, because a prose gate is only honest about the forms
+it actually reads. A byte count is read as the number, an optional thousands
+separator, then `B`, `input bytes` or `bytes` (`32,794 B`, `18,871 input bytes`,
+`7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
+or `N-tool`, and as the verb-first `mounts N`, `registers N` and `advertises N`
+with their other inflections (`advertised`, `mounted`); those verbs are read as a
+tool count wherever they appear, because in these pages they never mean anything
+else — a page that means something else by them fails and is reworded, which is
+the safe direction. Numbers that only look like a figure are not figures and stay
+unscanned: `45 tool error codes`, `45 个工具错误码`, `21 个工具形别名`, `28/28`,
+and a bare Chinese `N 个` with no 工具 after it (`21 个之中`).
+
+Two forms are deliberately outside the gate. `docs/adr/**` records what a
+decision measured at the time and is never re-measured, so the ADRs' own
+tool-count and byte figures — including their verb-first spelling — are not
+scanned. And a figure wrapped across a line break is invisible, because the lexer
+reads one line at a time: write a claim's figure on one line. A historical
+measurement stays readable only behind a dated
 `<!-- tower-surface-history YYYY-MM-DD: reason -->` marker whose figures are
 recorded in the baseline; a fenced sample of tool output needs
-`<!-- tower-surface-sample: reason -->`. No prose figure escapes the gate.
+`<!-- tower-surface-sample: reason -->`. Every figure those forms express is
+accounted for; nothing outside these forms is claimed.
