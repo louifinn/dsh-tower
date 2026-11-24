@@ -352,16 +352,39 @@ test('reviewer spawn: rejected before completion, tower-reviewer afterwards', as
     // the one being exercised (a planned mission with no worktree fails earlier).
     const provisioned = await tower.provision({ missionId: 'M1' })
     const wt = provisioned.worktree.path
+    const catalogueRoute = 'complete the mission first, then spawn the reviewer'
+    const bookkeepingRoute =
+      'let the owning worker finish and file its completion; if that worker is stopped, spawn a short-lived bookkeeping worker on the mission to finish the work and call tower_complete, then spawn the reviewer'
 
-    await assertRejectsWith(
+    // #F109: a planned mission has no owning worker yet, so the catalogue
+    // sentence remains the route and the blocker sentence is untouched.
+    await assert.rejects(
       () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'reviewer' }),
-      [/reviewer/i, /completed/i],
+      (error) => {
+        const message = String(error.message)
+        for (const pattern of [/reviewer/i, /completed/i]) assert.match(message, pattern)
+        assert.equal(error.code, 'reviewer-prerequisite')
+        assert.equal(error.nextAction, catalogueRoute)
+        assert.ok(message.includes('reviewer requires a completed mission; M1 is planned'))
+        return true
+      },
     )
 
     await tower.mission({ id: 'M1', status: 'active' })
-    await assertRejectsWith(
+    // #F109: the mission now has an owning worker, so the route is to finish
+    // the work and file the completion — never the catalogue's status sentence.
+    await assert.rejects(
       () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'reviewer' }),
-      [/reviewer/i, /completed/i],
+      (error) => {
+        const message = String(error.message)
+        for (const pattern of [/reviewer/i, /completed/i]) assert.match(message, pattern)
+        assert.equal(error.code, 'reviewer-prerequisite')
+        assert.equal(error.nextAction, bookkeepingRoute)
+        assert.ok(message.includes('reviewer requires a completed mission; M1 is active'))
+        assert.ok(message.endsWith(` — next: ${bookkeepingRoute}`))
+        assert.equal(message.split(' — next: ').length - 1, 1)
+        return true
+      },
     )
     assert.equal(harness.subagents.activations.length, 0, 'a rejected reviewer must not start an activation')
 

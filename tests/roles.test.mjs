@@ -282,6 +282,74 @@ test('workers update tasks, blockers and notes; the tower owns lifecycle; review
   }
 })
 
+// #F109: the status refusal must not borrow the catalogue's "complete the
+// mission first" sentence when the mission already has an owning worker. The
+// route is to finish the work and file the completion; a short-lived bookkeeping
+// worker exists for exactly that. Asserted through the registered tool path, so
+// the sentence the caller sees is the precheck's pass-through, not the domain
+// function in isolation.
+test('reviewer refusal on an active mission routes to the bookkeeping worker (#F109)', async () => {
+  const { root, repo } = seedRepo('dsh-tower-roles-route-active-')
+  const { tools, subagents } = makeCtx()
+  try {
+    // A real worker spawn gives the mission its worktree, so the *status*
+    // prerequisite is the one being exercised here.
+    const { spawned } = await spawnWorker(repo, tools)
+    assert.ok(spawned.worktree?.path, 'the active mission must have a worktree for this case')
+    const route =
+      'let the owning worker finish and file its completion; if that worker is stopped, spawn a short-lived bookkeeping worker on the mission to finish the work and call tower_complete, then spawn the reviewer'
+    await assert.rejects(
+      () => call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'reviewer' }),
+      (error) => {
+        assertCode(error, 'reviewer-prerequisite')
+        // The blocker sentence itself belongs to the role contract and is
+        // unchanged; the route is carried separately so both can be asserted.
+        assert.equal(
+          error.message.split(' — next: ')[0],
+          '[tower:reviewer-prerequisite] reviewer requires a completed mission; M1 is active',
+        )
+        assert.equal(error.nextAction, route)
+        assert.ok(String(error.message).endsWith(` — next: ${route}`), 'the rendered message carries the route exactly once')
+        return true
+      },
+    )
+    assert.equal(subagents.activations.length, 1, 'a refused reviewer must not start an activation')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #F109: a mission with no worktree cannot satisfy the reviewer's worktree
+// prerequisite either. The route must name a worker spawn (which creates the
+// worktree and commits a tip), never the completion sentence the catalogue
+// attaches to this code.
+test('reviewer refusal without a mission worktree routes to a worker spawn (#F109)', async () => {
+  const { root, repo } = seedRepo('dsh-tower-roles-route-worktree-')
+  const { tools, subagents } = makeCtx()
+  try {
+    // The roster worker is recorded directly: the mission is active but has
+    // no worktree yet, so the worktree prerequisite is the first blocker.
+    await rosterWorker(repo, tools)
+    const route = 'spawn a worker for the mission first so a worktree and a committed tip exist, then spawn the reviewer'
+    await assert.rejects(
+      () => call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'reviewer' }),
+      (error) => {
+        assertCode(error, 'reviewer-prerequisite')
+        assert.equal(
+          error.message.split(' — next: ')[0],
+          '[tower:reviewer-prerequisite] reviewer needs an existing mission worktree; spawn a worker first',
+        )
+        assert.equal(error.nextAction, route)
+        assert.ok(String(error.message).endsWith(` — next: ${route}`), 'the rendered message carries the route exactly once')
+        return true
+      },
+    )
+    assert.equal(subagents.activations.length, 0, 'a refused reviewer must not start an activation')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('tower-only tools reject a roster worker and start no activations', async () => {
   const { root, repo } = seedRepo('dsh-tower-roles-toweronly-')
   const { tools, subagents } = makeCtx()

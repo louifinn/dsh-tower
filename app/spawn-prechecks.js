@@ -102,6 +102,19 @@ export function resolveRosterName({ role, missionId, requested, roster }) {
 }
 
 /**
+ * #F109: the role-contract blocker rendered with the route that contract
+ * attaches. The blocker prose belongs to the role contract (the #F84
+ * single-source exception), so the passthrough keeps one construction site and
+ * no ERROR_COPY entry; the optional route rides the same error.
+ */
+class RoleBlockerError extends TowerToolError {
+  /** @param {{ code: string, message: string, nextAction?: string }} blocker */
+  constructor(blocker) {
+    super(blocker.code, blocker.message, blocker.nextAction ? { nextAction: blocker.nextAction } : undefined)
+  }
+}
+
+/**
  * Role/mission preconditions checked before any provisioning.
  * `config` is the repository-resolved Tower config (#M39): with
  * `review.mode:off` there is no review to dispatch, so the reviewer role is
@@ -122,7 +135,7 @@ export function assertSpawnableMission({ role, context, config }) {
   // sentence (operator copy for the review posture included), so the precheck
   // must not rewrite any code's message here; the caller gets the registry's
   // wording and the registry's matching next step.
-  throw new TowerToolError(blocker.code, blocker.message)
+  throw new RoleBlockerError(blocker)
 }
 
 /** One roster row in an error message: role, state and the agent id if any. */
