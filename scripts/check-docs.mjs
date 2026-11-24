@@ -658,9 +658,15 @@ export function retiredToolNameProblems(root = packageRoot) {  const problems = 
 // The lexers read the spellings the pages actually use (R206): byte counts as
 // "32,794 B", "13,287 input bytes" or "6,348 bytes"; tool totals as "23 tools",
 // "18 mounted tools", "23 个工具", "23-tool", and the verb-first "the default
-// profile mounts 18" / "registers 18" / "advertises 15". A number that merely
-// looks like a count — "45 tool error codes", "21 alias fields", "28/28" — is not
-// a figure and is left alone.
+// profile mounts 18" / "registers 18" / "advertises 15" in every inflection that
+// verb takes ("mounted 16", "mounting 18", "registered 14", "advertising 15").
+// A number that merely looks like a count — "45 tool error codes", "21 alias
+// fields", "28/28" — is not a figure and is left alone.
+//
+// The default-mounted count is not a baseline axis: it is checked against the
+// live measurement (facts.defaultTools), and a historical "mounted N" is read
+// only when N is also a value the baseline records (a profile or build total).
+// The page says so instead of implying a ladder nobody keeps.
 const SURFACE_HISTORY_MARKER = /^<!--\s*tower-surface-history\s+(\d{4}-\d{2}-\d{2})\s*:\s*(.+?)\s*-->$/
 const SURFACE_SAMPLE_MARKER = /^<!--\s*tower-surface-sample\s*:\s*(.+?)\s*-->$/
 const SURFACE_MARKER_PREFIX = /^<!--\s*tower-surface-(?:history|sample)\b/
@@ -675,8 +681,11 @@ const SURFACE_TOOLS_FIGURE =
   /(?<![\d/.,])(\d{1,3})(?:\s+mounted)?\s*(?:个工具(?!错误|形|别名)|-tool\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?))|tools?\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?)))/g
 // The verb-first spelling: "the default profile mounts 18", "registers 23",
 // "advertises 15". R206 showed this form escaped a number-first lexer entirely,
-// and every page that writes it means the same tool count.
-const SURFACE_MOUNTED_FIGURE = /(?<![\w/.-])(?:mounts?|registers?|advertis(?:e|es|ed|ing))\s+(\d{1,3})(?!\d|\.\d|,\d{3})/g
+// and every page that writes it means the same tool count. R208 caught the
+// inflection claim: `mounts?`/`registers?` read only the -s form, so "mounted 16"
+// on this very page was invisible. Every inflection is covered now.
+const SURFACE_MOUNTED_FIGURE =
+  /(?<![\w/.-])(?:mount(?:s|ed|ing)?|register(?:s|ed|ing)?|advertis(?:e|es|ed|ing))\s+(\d{1,3})(?!\d|\.\d|,\d{3})/g
 const SURFACE_PROFILE_ID = /`(host:(?:mode-off|idle|active)|preset:(?:worker|reviewer|survey|survey-sandbox))`/g
 const SURFACE_PROFILE_WORD = /(?:`(tower|worker|reviewer)`|\b(?:the\s+)?(tower|worker|reviewer)\s+profile\b)/g
 
@@ -834,7 +843,10 @@ export function surfaceFigureProblems(root = packageRoot) {
   }
   recordDecisions(baseline.profileBytes?.decisions, recordedBytes)
   // The baseline's own prose is a record too: a page may quote a historical tool
-  // count or byte size the decisions' notes spell out ("mounts 17", "22,061 B").
+  // count or byte size the decisions' notes spell out ("21 advertised alias
+  // fields", "22,061 B"). The verb-first harvest is a fallback for a note that
+  // spells a count that way; no note does today, which is why the mounted count
+  // is not a quotable axis (see docs/reference/surface-budget.md).
   for (const match of baselineText.matchAll(SURFACE_TOOLS_FIGURE)) recordedTools.add(Number(match[1]))
   for (const match of baselineText.matchAll(SURFACE_MOUNTED_FIGURE)) recordedTools.add(Number(match[1]))
   for (const match of baselineText.matchAll(/\d[\d,]*\s*B\b/g)) {

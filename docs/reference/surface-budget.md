@@ -115,18 +115,20 @@ predicate and belong to the worker/survey and reviewer presets, so the tower
 profile advertised 16 → 14 tools and 12,921 → 10,582 input bytes (both dated
 decisions). The five subsystem rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
-shipped profile mounted 16 of the 21 at that point. Closing a row is not a
-surface reduction: the tools stay in the build and `tower_inspect`'s `doctor`
-view reports each one as off with its enable step. The default
-tool list and the all-on list are documented in
+shipped profile mounted all of the 21 except those five rows at that point.
+Closing a row is not a surface reduction: the tools stay in the build and
+`tower_inspect`'s `doctor` view reports each one as off with its enable step. The
+default tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
 
 <!-- tower-surface-history 2026-11-21: #201 added `tower_wait`, the one bounded blocking reach -->
 
 #201 adds `tower_wait`, the one bounded blocking reach (#201, recorded in
-[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22,
-the shipped profile mounted count moves 16 → 17 (the five default-off rows do
-not move), and the tower profile advertises 15 tools / 15,379 B. The tool is
+[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22
+and the default profile gains that tool with it, but the mounted count is not a
+tracked surface axis — no baseline ladder records it, so this page does not
+restate it as a checked figure. The five default-off rows do not move, and the
+tower profile advertises 15 tools / 15,379 B. The tool is
 tower-only, so the worker (6 tools) and reviewer
 (5 tools) tool counts do not move; their input schemas grew by the 211 bytes
 #207 added to `tower_inspect`'s `agent`/`tail` descriptions. R185 then made the
@@ -170,8 +172,8 @@ becomes 6 tools / 7,260 input bytes (was 5 / 5,725; `VerifyInput` is 1,535
 bytes) and `preset:reviewer` 9,202 B (was 7,342). The tool is role-owned
 (`tower_verify` is in `ROLE_TOOLS`), so the tower profile stays 15 tools /
 18,871 B, the host ladder and every other preset are unchanged, and the shipped
-profile now mounts 18 (the #201 note above records 17 for the surface *before*
-this tool).
+profile now mounts 18 — a live measurement, not a ladder rung, because the
+default-mounted count is not a tracked surface axis.
 
 #219 adds the single-form `widen` object to `tower_mission`
 (`mode:"refuse"|"defer-conflicts"`, `restoreDeferrals`, `keepStatus`): it is
@@ -451,13 +453,14 @@ The scanned spelling is exact, because a prose gate is only honest about the for
 it actually reads. A byte count is read as the number, an optional thousands
 separator, then `B`, `input bytes` or `bytes` (`32,794 B`, `18,871 input bytes`,
 `7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
-or `N-tool`, and as the verb-first `mounts N`, `registers N` and `advertises N`
-with their other inflections (`advertised`, `mounted`); those verbs are read as a
-tool count wherever they appear, because in these pages they never mean anything
-else — a page that means something else by them fails and is reworded, which is
-the safe direction. Numbers that only look like a figure are not figures and stay
-unscanned: `45 tool error codes`, `45 个工具错误码`, `21 个工具形别名`, `28/28`,
-and a bare Chinese `N 个` with no 工具 after it (`21 个之中`).
+or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
+`registers N` / `registered N` / `registering N` and `advertises N` /
+`advertised N` / `advertising N`; those verbs are read as a
+tool count in every inflection they take, because in these pages they never mean
+anything else — a page that means something else by them fails and is reworded,
+which is the safe direction. Numbers that only look like a figure are not figures
+and stay unscanned: `45 tool error codes`, `45 个工具错误码`, `21 个工具形别名`,
+`28/28`, and a bare Chinese `N 个` with no 工具 after it (`21 个之中`).
 
 Two forms are deliberately outside the gate. `docs/adr/**` records what a
 decision measured at the time and is never re-measured, so the ADRs' own
@@ -467,5 +470,14 @@ reads one line at a time: write a claim's figure on one line. A historical
 measurement stays readable only behind a dated
 `<!-- tower-surface-history YYYY-MM-DD: reason -->` marker whose figures are
 recorded in the baseline; a fenced sample of tool output needs
-`<!-- tower-surface-sample: reason -->`. Every figure those forms express is
-accounted for; nothing outside these forms is claimed.
+`<!-- tower-surface-sample: reason -->`.
+
+One count is measured live but never charted: **how many tools the default
+profile mounts**. `scripts/surface-baseline.json` ladders per-profile and build
+totals, not that number. A live mounted count is therefore checked against the
+live measurement, while a historical one can only be accepted because the same
+number appears somewhere on a recorded ladder — a coincidence, not a check of
+the mounted count. The page therefore writes no historical mounted count as a
+figure. Where the count matters, the derivation is written instead (`mounted all
+of the 21 except those five rows`), and the one live figure (`mounts 18`) is
+checked like any other.

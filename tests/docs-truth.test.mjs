@@ -619,6 +619,59 @@ test('#223: an invented "mounts N" tool count fails closed', (t) => {
   )
 })
 
+// R208: `mounts?` accepted only the -s form, so the page's own "shipped profile
+// mounted 16" was invisible while the closing section claimed every inflection
+// was read. The tamper is the inflected spelling, not the -s one.
+test('#223: an invented "mounted N" tool count fails closed', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe shipped profile mounted 24 of the 21 at that point.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem === 'docs/reference/surface-notes.md:3: unrecognised surface figure mounted 24: not a live surface value (expected one of 1, 2, 5, 6, 15, 18, 23); fix it, or add "<!-- tower-surface-history YYYY-MM-DD: reason -->" above it if it records history'),
+    problems.join('\n'),
+  )
+})
+
+// The claim on the page and the lexer must agree, or the page documents a
+// promise the gate does not keep: every verb inflection the page lists is
+// written here and must produce a figure.
+test('#223: every verb-first inflection the closing section names is actually read', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  const budget = fs.readFileSync(path.join(copy, 'docs', 'reference', 'surface-budget.md'), 'utf8')
+  const forms = ['mounts', 'mounted', 'mounting', 'registers', 'registered', 'registering', 'advertises', 'advertised', 'advertising']
+  for (const form of forms) {
+    assert.ok(
+      budget.includes(`\`${form} N\``),
+      `docs/reference/surface-budget.md must list \`${form} N\` among the scanned spellings`,
+    )
+    fs.writeFileSync(page, `# Surface notes\n\nThe default profile ${form} 24 in this draft.\n`)
+    const problems = surfaceFigureProblems(copy)
+    assert.ok(
+      problems.some((problem) => new RegExp(`^docs/reference/surface-notes\\.md:3: unrecognised surface figure ${form} 24: `).test(problem)),
+      `${form} 24 was not read as a tool figure:\n${problems.join('\n')}`,
+    )
+  }
+})
+
+// P2-2's hazard: a mounted count the baseline does not record cannot hide in a
+// history block. 17 is the #201 value; the baseline ladders profile and build
+// totals only, so it is not a recorded figure and must fail there.
+test('#223: a historical mounted count the baseline does not record is refused', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(
+    page,
+    '# Surface notes\n\n<!-- tower-surface-history 2026-11-21: #201 added `tower_wait` -->\n\nThe shipped profile mounted 17 at that point.\n',
+  )
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:5: mounted 17 is neither a live surface figure nor recorded in scripts\/surface-baseline\.json; a history marker cannot protect an invented value/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
 // The other half of the same rule: the live spelling must stay readable, so a
 // page that states the current value passes without a marker.
 test('#223: the live verb-first and "input bytes" spellings pass without a marker', (t) => {
