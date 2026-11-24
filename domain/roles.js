@@ -178,9 +178,12 @@ export function resolveRoleSpawn(role, { config, shape, shapePreset = null }) {
  * Role prerequisites for one mission. The caller checks service-level facts
  * (`reviewAvailable`); shape facts arrive on `shape`/`mission`. Returns
  * blockers in the order a human would fix them; the caller throws the first.
+ * A blocker may carry its own `nextAction` when the way forward differs from
+ * the code's static catalogue sentence (#F109); the caller renders it and falls
+ * back to the catalogue when it is absent.
  * @param {string} role
  * @param {{ shape: any, mission: any, reviewAvailable?: boolean }} input
- * @returns {Array<{ code: string, message: string }>}
+ * @returns {Array<{ code: string, message: string, nextAction?: string }>}
  */
 export function roleMissionBlockers(role, { shape, mission, reviewAvailable = true }) {
   const spec = roleContract(role)
@@ -215,6 +218,9 @@ export function roleMissionBlockers(role, { shape, mission, reviewAvailable = tr
     blockers.push({
       code: 'reviewer-prerequisite',
       message: 'reviewer needs an existing mission worktree; spawn a worker first',
+      // #F109: no worktree means no tip to review, so the route is a worker
+      // spawn, not the `completed` status the catalogue sentence asks for.
+      nextAction: 'spawn a worker for the mission first so a worktree and a committed tip exist, then spawn the reviewer',
     })
   }
   const statuses = spec.requires.statuses === 'shape' ? (shape?.spawn?.missionStatuses ?? []) : spec.requires.statuses
@@ -228,6 +234,19 @@ export function roleMissionBlockers(role, { shape, mission, reviewAvailable = tr
         : {
             code: 'reviewer-prerequisite',
             message: `reviewer requires a completed mission; ${mission?.id} is ${mission?.status}`,
+            // #F109: a mission already assigned to a worker has a real way
+            // forward — that worker finishes and files the completion, or a
+            // fresh bookkeeping worker does it. A bare `completed` status patch
+            // would skip the completion report and the evidence the merge gate
+            // reads, so it is never the route. A planned mission has no owning
+            // worker yet, so it keeps the catalogue sentence (and the worker
+            // route above when it also lacks a worktree).
+            ...(mission?.status === 'active' || mission?.status === 'blocked'
+              ? {
+                  nextAction:
+                    'let the owning worker finish and file its completion; if that worker is stopped, spawn a short-lived bookkeeping worker on the mission to finish the work and call tower_complete, then spawn the reviewer',
+                }
+              : {}),
           },
     )
   }
