@@ -424,6 +424,40 @@ test('tower_mode is gated by config and requires a reason', async () => {
   assert.equal(anonymous.mode, 'unknown')
 })
 
+// #230: `tower_mode` is registered directly by the Host entry, not through
+// define(), so its dispatch seam is the one in authorizeSessionCall. The DSH
+// pipeline hands the body the parsed arguments as `exec.arguments` — the same
+// object it passes as the first parameter — and that is what the seam reads: an
+// undeclared top-level key is refused before the handler runs, while a declared
+// call is untouched.
+test('#230: tower_mode refuses an undeclared top-level key at dispatch', async () => {
+  const { ctx, tools } = makeCtx()
+  apply(ctx, { allowAgentControl: true })
+  const agent = makeAgent('agent-argument-seam')
+  const control = tools.get('tower_mode')
+  const hostile = { active: true, reason: 'enter', takeoverBy: 'someone else' }
+  await assert.rejects(
+    () => control.execute(hostile, { agent, arguments: hostile }),
+    (error) => {
+      assert.equal(error.code, 'invalid-argument')
+      assert.match(error.message, /"takeoverBy"/)
+      assert.match(error.message, /tower_mode/)
+      assert.ok(
+        error.message.includes(
+          JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version,
+        ),
+      )
+      return true
+    },
+  )
+  // The same call with only declared keys still enters, so the seam did not
+  // change the behavior of a legitimate call.
+  const declared = { active: true, reason: 'enter' }
+  const entered = await control.execute(declared, { agent, arguments: declared })
+  assert.equal(entered.mode, 'on')
+  assert.equal(entered.changed, true)
+})
+
 test('session tools stay callable when the repository state is unreadable (F31)', async () => {
   const { root, repo } = makeRepo()
   try {
