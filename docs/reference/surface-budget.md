@@ -36,6 +36,8 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 `tools.expose*` route to any tool is refused before it can remove a review,
 merge or host tool.
 
+<!-- tower-surface-history 2026-10-23: the 2.3.0 baseline correction, when only the define() path was counted -->
+
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` is registered directly by `index.js` — one of the two direct
 registrations that were uncounted at 2.3.0, the other being `tower_control`,
@@ -80,6 +82,8 @@ the reviewer from 5,871 to 4,661. Every such contraction is a dated decision in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); a later
 growth past the committed value fails `npm run surface:check` the same way.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 3 folded the five read-only views into `tower_inspect` -->
+
 #163 Phase 3 folded the five read-only views (`status`, `roster`, `diff`,
 `preflight`, `doctor`) into one `tower_inspect` tool: the build surface went
 29 → 25, the tower profile 23 → 19 tools (12,895 input bytes), the worker
@@ -88,6 +92,8 @@ worker and reviewer allow-lists name `tower_inspect` exactly once (it serves
 their status and diff views), which is why their count drops by one rather
 than five. The removed tools are recorded as a dated decision on the `tools`
 surface and a dated decision per profile metric.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 4 folded the four same-resource tool pairs -->
 
 #163 Phase 4 folded four same-resource pairs: `init`+`adopt`,
 `finding`+`findings`, `mode`+`control`, and `import_legacy`+`legacy_map`. The
@@ -98,6 +104,8 @@ bytes), the worker 7 → 6 tools (6,175 bytes) and the reviewer 6 → 5 tools
 audit reference, which is larger than the old read-only schema it absorbed.
 The tool count still falls by three there; that is a dated decision, not an
 exemption from the two-way rule.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 5 moved the role-owned tools out of the tower profile -->
 
 #163 Phase 5 kept the build surface at 21 but narrowed what the tower profile
 mounts: `tower_complete` and `tower_review` are registered with a role
@@ -110,6 +118,8 @@ surface reduction: the tools stay in the build and `tower_inspect`'s `doctor`
 view reports each one as off with its enable step. The default
 tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
+
+<!-- tower-surface-history 2026-11-21: #201 added `tower_wait`, the one bounded blocking reach -->
 
 #201 adds `tower_wait`, the one bounded blocking reach (#201, recorded in
 [ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22,
@@ -125,6 +135,8 @@ polling: it never holds the state lock, never writes state or activity, and
 returns `reached`, `timeout` or `unknown` within a 1000–600000 ms bound
 (default 30000). Per-agent progress (#207) rides the existing `tower_inspect`
 `status`/`roster` views; no second read tool appears.
+
+<!-- tower-surface-history 2026-11-22: M165 (#215/#216) added the bulk `tower_mission` form -->
 
 M165 (#215/#216) added the bulk `tower_mission` form (a closed `missions[]`
 array, the `ids` lifecycle shorthand and `atomic`): every profile that mounts
@@ -421,3 +433,13 @@ surface; they do not decide which key is bad.
 
 Enforced by: `scripts/surface-baseline.mjs` and `domain/surface.js`; tests in
 `tests/surface.test.mjs`; gate: `npm run surface:check`.
+
+The prose in this page is checked too: `npm run docs:check` (through
+`scripts/check-docs.mjs`) rescans every shipped markdown page for surface-shaped
+figures — tool totals and input-schema byte counts — against
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) plus the
+live default-profile and all-rows-on counts, and fails on a figure it cannot
+account for. A historical measurement stays readable only behind a dated
+`<!-- tower-surface-history YYYY-MM-DD: reason -->` marker whose figures are
+recorded in the baseline; a fenced sample of tool output needs
+`<!-- tower-surface-sample: reason -->`. No prose figure escapes the gate.

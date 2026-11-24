@@ -14,6 +14,9 @@ import { LEGACY_TOOL_REPLACEMENTS } from '../host/tool-profiles.js'
 import { FOREIGN_CAPABILITIES } from '../host/doctor-acceptance.js'
 import { DENY_OWNER_TOOLS } from '../domain/generated/deny-surface.js'
 import { CAPABILITY_STANCE, CAPABILITY_STANCES } from '../domain/vocabulary.js'
+import { SURFACE_BASELINE_FILE } from '../domain/surface.js'
+import { toolBytes } from './lib/profile-surface.mjs'
+import { loadShippedToolSurface } from './lib/tool-surface.mjs'
 import { parseArgs, runMain } from './lib/cli.mjs'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -646,6 +649,463 @@ export function retiredToolNameProblems(root = packageRoot) {  const problems = 
   return problems
 }
 
+// #223: prose surface figures. A hand-written "N tools" or "N,NNN B" figure must
+// restate the live surface, not last release's. Expected values come from
+// `scripts/surface-baseline.json` plus the two numbers only a live load knows: the
+// default profile's mounted tool count and the all-rows-on build bytes (#202's
+// 32,792 B had no source of truth at all and was two bytes stale).
+const SURFACE_HISTORY_MARKER = /^<!--\s*tower-surface-history\s+(\d{4}-\d{2}-\d{2})\s*:\s*(.+?)\s*-->$/
+const SURFACE_SAMPLE_MARKER = /^<!--\s*tower-surface-sample\s*:\s*(.+?)\s*-->$/
+const SURFACE_MARKER_PREFIX = /^<!--\s*tower-surface-(?:history|sample)\b/
+const SURFACE_BYTES_FIGURE = /(?<![\w.,/])(\d[\d,]*)\s*B\b/g
+const SURFACE_TOOLS_FIGURE =
+  /(?<![\d/.,])(\d{1,3})\s*(?:个工具(?!错误|形|别名)|tools?\b(?!\s+(?:error|alias(?:es)?|shape|names?|codes?)))/g
+const SURFACE_PROFILE_ID = /`(host:(?:mode-off|idle|active)|preset:(?:worker|reviewer|survey|survey-sandbox))`/g
+const SURFACE_PROFILE_WORD = /(?:`(tower|worker|reviewer)`|\b(?:the\s+)?(tower|worker|reviewer)\s+profile\b)/g
+
+const SURFACE_MIRROR_PAIRS = [
+  ['README.en.md', 'README.md'],
+  ['docs/reference/tools.md', 'docs/zh/reference/tools.md'],
+  ['docs/reference/doctor.md', 'docs/zh/reference/doctor.md'],
+  ['docs/guide/install-upgrade-migration.md', 'docs/zh/guide/install-upgrade-migration.md'],
+]
+const SURFACE_MIRROR_EXEMPT = new Map([
+  ['docs/reference/surface-budget.md', 'measurement history; the zh tree cites it from docs/zh/reference/tools.md'],
+])
+
+let shippedSurface
+/**
+ * The two surface facts no JSON file records: how many tools the default profile
+ * mounts, and how many bytes the all-rows-on build surface advertises.
+ *
+ * @returns {{defaultTools: number, buildBytes: number}|{error: string}}
+ */
+function shippedSurfaceFacts() {
+  if (shippedSurface) return shippedSurface
+  try {
+    const surface = loadShippedToolSurface()
+    try {
+      let buildBytes = 0
+      for (const definition of surface.definitions.values()) buildBytes += toolBytes(definition)
+      shippedSurface = { defaultTools: surface.defaultDefinitions.size, buildBytes }
+    } finally {
+      surface.dispose()
+    }
+  } catch (error) {
+    shippedSurface = { error: `cannot measure the shipped tool surface (${error.message})` }
+  }
+  return shippedSurface
+}
+
+/**
+ * Every surface figure on one line, in source order.
+ *
+ * @param {string} line
+ * @returns {{kind: 'bytes'|'tools', value: number, raw: string, index: number}[]}
+ */
+function surfaceFiguresIn(line) {
+  const figures = []
+  for (const match of line.matchAll(SURFACE_BYTES_FIGURE)) {
+    figures.push({ kind: 'bytes', value: Number(match[1].replaceAll(',', '')), raw: match[0].trim(), index: match.index })
+  }
+  for (const match of line.matchAll(SURFACE_TOOLS_FIGURE)) {
+    figures.push({ kind: 'tools', value: Number(match[1]), raw: match[0].trim(), index: match.index })
+  }
+  return figures.sort((left, right) => left.index - right.index)
+}
+
+/**
+ * The subject a figure belongs to, from the nearest label before it. Labels are
+ * backticked profile ids, backticked `tower`/`worker`/`reviewer`, or "the X
+ * profile"; the sentence punctuation resets the search so a label cannot leak
+ * across clauses.
+ *
+ * @param {string} prefix line text before the figure
+ * @returns {string|null} `host:...`/`preset:...`/`profiles.<name>` or null
+ */
+function surfaceLabelAt(prefix) {
+  let start = 0
+  for (const match of prefix.matchAll(/[。；;]/g)) start = match.index + 1
+  const segment = prefix.slice(start)
+  let label = null
+  let at = -1
+  for (const match of segment.matchAll(SURFACE_PROFILE_ID)) {
+    at = match.index
+    label = match[1]
+  }
+  for (const match of segment.matchAll(SURFACE_PROFILE_WORD)) {
+    if (match.index <= at) continue
+    at = match.index
+    label = `profiles.${match[1] ?? match[2]}`
+  }
+  return label
+}
+
+/**
+ * The markdown block a marker protects: the fence that opens at the next
+ * non-blank line, or the contiguous paragraph/list/table run that starts there.
+ *
+ * @param {string[]} lines
+ * @param {number} markerIndex
+ * @returns {{start: number, end: number, fence: boolean}|null}
+ */
+function surfaceBlockAfterMarker(lines, markerIndex) {
+  let start = markerIndex + 1
+  while (start < lines.length && lines[start].trim() === '') start += 1
+  if (start >= lines.length) return null
+  if (lines[start].trimStart().startsWith('```')) {
+    for (let end = start + 1; end < lines.length; end += 1) {
+      if (lines[end].trimStart().startsWith('```')) return { start, end, fence: true }
+    }
+    return { start, end: lines.length - 1, fence: true }
+  }
+  let end = start
+  while (end + 1 < lines.length && lines[end + 1].trim() !== '') end += 1
+  return { start, end, fence: false }
+}
+
+/**
+ * @param {string=} root repository root
+ * @returns {string[]} one problem per stale, invented or unprotected surface figure
+ */
+export function surfaceFigureProblems(root = packageRoot) {
+  const facts = shippedSurfaceFacts()
+  if (facts.error) return [`surface figures: ${facts.error}`]
+  let baselineText
+  let baseline
+  try {
+    baselineText = fs.readFileSync(path.join(root, SURFACE_BASELINE_FILE), 'utf8')
+    baseline = JSON.parse(baselineText)
+  } catch (error) {
+    return [`surface figures: cannot read ${SURFACE_BASELINE_FILE} (${error.message})`]
+  }
+
+  const bytesCurrent = new Set([facts.buildBytes])
+  const toolsCurrent = new Set([facts.defaultTools])
+  const recordedBytes = new Set()
+  const recordedTools = new Set()
+  for (const entry of Object.values(baseline.profiles ?? {})) {
+    if (Number.isFinite(entry?.inputBytes?.value)) bytesCurrent.add(entry.inputBytes.value)
+    if (Number.isFinite(entry?.tools?.value)) toolsCurrent.add(entry.tools.value)
+  }
+  for (const entry of Object.values(baseline.profileBytes?.profiles ?? {})) {
+    if (Number.isFinite(entry?.bytes)) bytesCurrent.add(entry.bytes)
+    if (Number.isFinite(entry?.tools)) toolsCurrent.add(entry.tools)
+  }
+  if (Number.isFinite(baseline.surfaces?.tools?.value)) toolsCurrent.add(baseline.surfaces.tools.value)
+  const recordDecisions = (decisions, target) => {
+    for (const decision of decisions ?? []) {
+      for (const value of [decision?.from, decision?.to]) if (Number.isFinite(value)) target.add(value)
+    }
+  }
+  for (const surface of Object.values(baseline.surfaces ?? {})) recordDecisions(surface?.decisions, recordedTools)
+  for (const profile of Object.values(baseline.profiles ?? {})) {
+    recordDecisions(profile?.tools?.decisions, recordedTools)
+    recordDecisions(profile?.inputBytes?.decisions, recordedBytes)
+  }
+  recordDecisions(baseline.profileBytes?.decisions, recordedBytes)
+  for (const match of baselineText.matchAll(/\d[\d,]*\s*B\b/g)) {
+    recordedBytes.add(Number(match[0].replace(/\s*B$/, '').replaceAll(',', '')))
+  }
+
+  const targetFor = (label) => {
+    if (!label) return null
+    if (label.startsWith('profiles.')) {
+      const entry = baseline.profiles?.[label.slice('profiles.'.length)]
+      return entry ? { name: label, tools: entry.tools?.value, bytes: entry.inputBytes?.value } : null
+    }
+    const entry = baseline.profileBytes?.profiles?.[label]
+    return entry ? { name: label, tools: entry.tools, bytes: entry.bytes } : null
+  }
+  const isCurrent = (figure) => (figure.kind === 'bytes' ? bytesCurrent : toolsCurrent).has(figure.value)
+  const isRecorded = (figure) => (figure.kind === 'bytes' ? recordedBytes : recordedTools).has(figure.value)
+  const expectedList = (kind) =>
+    [...(kind === 'bytes' ? bytesCurrent : toolsCurrent)].sort((left, right) => left - right).join(', ')
+
+  const problems = []
+  const relativePages = new Map(
+    currentDocPages(root).map((page) => [page, path.relative(root, page).split(path.sep).join('/')]),
+  )
+  const pageSet = new Set(relativePages.values())
+  const claimPages = new Set()
+  for (const [page, relative] of relativePages) {
+    const lines = fs.readFileSync(page, 'utf8').split(/\r?\n/)
+    const figures = lines.map(surfaceFiguresIn)
+    const fenceLines = new Set()
+    let fenceOpen = -1
+    lines.forEach((line, index) => {
+      if (!line.trimStart().startsWith('```')) return
+      if (fenceOpen < 0) {
+        fenceOpen = index
+        return
+      }
+      for (let cursor = fenceOpen; cursor <= index; cursor += 1) fenceLines.add(cursor)
+      fenceOpen = -1
+    })
+    if (fenceOpen >= 0) {
+      for (let cursor = fenceOpen; cursor < lines.length; cursor += 1) fenceLines.add(cursor)
+    }
+
+    const protectedLines = new Map()
+    const historyMarkers = []
+    const sampleMarkers = []
+    lines.forEach((line, index) => {
+      const trimmed = line.trim()
+      if (!SURFACE_MARKER_PREFIX.test(trimmed) || fenceLines.has(index)) return
+      const history = trimmed.match(SURFACE_HISTORY_MARKER)
+      const sample = trimmed.match(SURFACE_SAMPLE_MARKER)
+      if (!history && !sample) {
+        problems.push(
+          `${relative}:${index + 1}: malformed surface marker; write "<!-- tower-surface-history YYYY-MM-DD: reason -->" or "<!-- tower-surface-sample: reason -->"`,
+        )
+        return
+      }
+      const block = surfaceBlockAfterMarker(lines, index)
+      if (block === null) {
+        problems.push(`${relative}:${index + 1}: surface marker protects no block; put it directly above the paragraph or fence it describes`)
+        return
+      }
+      if (history) {
+        const date = history[1]
+        const stamp = new Date(`${date}T00:00:00Z`)
+        if (Number.isNaN(stamp.getTime()) || stamp.toISOString().slice(0, 10) !== date) {
+          problems.push(`${relative}:${index + 1}: surface history marker needs a real date (YYYY-MM-DD)`)
+          return
+        }
+        for (let cursor = block.start; cursor <= block.end; cursor += 1) protectedLines.set(cursor, 'history')
+        historyMarkers.push({ line: index, block })
+        return
+      }
+      if (!block.fence) {
+        problems.push(`${relative}:${index + 1}: surface sample marker must precede a fenced sample of illustrative output, not prose`)
+        return
+      }
+      for (let cursor = block.start; cursor <= block.end; cursor += 1) protectedLines.set(cursor, 'sample')
+      sampleMarkers.push({ line: index, block })
+    })
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const mode = protectedLines.get(index) ?? 'claim'
+      if (mode === 'sample' || figures[index].length === 0) continue
+      if (mode === 'claim') claimPages.add(relative)
+      for (const figure of figures[index]) {
+        if (mode === 'history') {
+          if (isCurrent(figure) || isRecorded(figure)) continue
+          problems.push(
+            `${relative}:${index + 1}: ${figure.raw} is neither a live surface figure nor recorded in ${SURFACE_BASELINE_FILE}; a history marker cannot protect an invented value`,
+          )
+          continue
+        }
+        const label = surfaceLabelAt(lines[index].slice(0, figure.index))
+        const target = label ? targetFor(label) : null
+        if (target) {
+          const expected = figure.kind === 'bytes' ? target.bytes : target.tools
+          if (Number.isFinite(expected) && figure.value === expected) continue
+          problems.push(
+            `${relative}:${index + 1}: ${figure.raw} does not match ${target.name} (expected ${expected}); the live value is in ${SURFACE_BASELINE_FILE}`,
+          )
+          continue
+        }
+        if (isCurrent(figure)) continue
+        problems.push(
+          `${relative}:${index + 1}: unrecognised surface figure ${figure.raw}: not a live surface value (expected one of ${expectedList(figure.kind)}); fix it, or add "<!-- tower-surface-history YYYY-MM-DD: reason -->" above it if it records history`,
+        )
+      }
+    }
+
+    for (const marker of historyMarkers) {
+      const blockFigures = []
+      for (let cursor = marker.block.start; cursor <= marker.block.end; cursor += 1) blockFigures.push(...figures[cursor])
+      if (blockFigures.length === 0) {
+        problems.push(`${relative}:${marker.line + 1}: surface history marker protects no surface figure; remove it`)
+        continue
+      }
+      if (blockFigures.every(isCurrent)) {
+        problems.push(
+          `${relative}:${marker.line + 1}: surface history marker protects only live figures; remove it (history markers cover recorded history, not the current ladder)`,
+        )
+      }
+    }
+    for (const marker of sampleMarkers) {
+      let count = 0
+      for (let cursor = marker.block.start; cursor <= marker.block.end; cursor += 1) count += figures[cursor].length
+      if (count === 0) {
+        problems.push(`${relative}:${marker.line + 1}: surface sample marker protects no surface figure; remove it`)
+      }
+    }
+  }
+
+  for (const [en, zh] of SURFACE_MIRROR_PAIRS) {
+    if (!pageSet.has(en)) problems.push(`${en} is not scanned for surface figures; keep it in the gate`)
+    if (!fs.existsSync(path.join(root, zh))) {
+      problems.push(`${zh} is missing: a missing zh mirror of ${en} is a failure, not a skip`)
+    } else if (!pageSet.has(zh)) {
+      problems.push(`${zh} exists but is not scanned for surface figures`)
+    }
+  }
+  for (const relative of claimPages) {
+    if (!relative.startsWith('docs/reference/') || SURFACE_MIRROR_EXEMPT.has(relative)) continue
+    const mirror = `docs/zh/${relative.slice('docs/'.length)}`
+    if (!fs.existsSync(path.join(root, mirror))) {
+      problems.push(`${relative} states surface figures but its zh mirror ${mirror} is missing; a missing zh mirror is a failure, not a skip`)
+    } else if (!pageSet.has(mirror)) {
+      problems.push(`${mirror} exists but is not scanned for surface figures`)
+    }
+  }
+  return problems
+}
+
+// Release-evidence check (#229): `tests/README.md` is the one place release
+// evidence lives. The newest `### <version> release evidence (YYYY-MM-DD)` block
+// may state only figures the tree can prove — the surface-figure gate above
+// checks those. Declaration, pass, skip, file and wall-clock counts describe one
+// run on one machine and rot the moment anyone re-runs the suite (the 2.9.8 block
+// once carried a mount-smoke duration the run did not produce), so this gate
+// refuses them in the newest block and points at the CI job log instead.
+// `CONTRIBUTING.md` and `docs/guide/release.md` must both name the same anchor,
+// so there is one evidence home, not two.
+
+/** The one page that records release evidence. */
+export const EVIDENCE_PAGE = 'tests/README.md'
+/** The stable section heading; its GitHub slug is the anchor everything links. */
+export const EVIDENCE_SECTION = '## Release evidence'
+/** Anchor form other pages must link. */
+export const EVIDENCE_ANCHOR = `${EVIDENCE_PAGE}#release-evidence`
+/** Every page that must name the one evidence home. */
+export const EVIDENCE_LINKERS = ['CONTRIBUTING.md', 'docs/guide/release.md']
+
+const EVIDENCE_BLOCK = /^###\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s+release evidence\s+\((\d{4}-\d{2}-\d{2})\)\s*$/
+const EVIDENCE_GATE_MENTIONS = ['check-docs.mjs', 'npm run docs:check']
+
+/**
+ * Figures that only a run can produce. Each carries the label used in the
+ * failure line. The duration patterns are deliberately narrow: integer seconds
+ * are also how config bounds read ("the 3 s discovery timeout"), while a run's
+ * wall-clock is decimal or parenthesised.
+ */
+const EVIDENCE_RUN_FIGURES = [
+  [/\b\d[\d,]*\s+(?:declarations?|pass(?:ed)?|skips?|fail(?:ed|ures?)?)\b/i, 'a declaration, pass, skip or failure count'],
+  [/\b(?:all\s+)?\d[\d,]*\s+files?\b/i, 'a file count'],
+  [/(?<![\w.])\d[\d,]*\s+(?:runs?|inputs?|seeds?)\b/i, 'a run count'],
+  [/\b\d+\s+of\s+\d+\b/, 'a pass ratio'],
+  [/\(\s*\d+(?:\.\d+)?\s*(?:s|sec(?:onds?)?|ms)\s*\)/i, 'a wall-clock duration'],
+  [/\b\d{1,4}\.\d+\s*(?:s|sec(?:onds?)?|ms)\b/i, 'a wall-clock duration'],
+  [/\b(?:took|elapsed|finished in|ran in)\s*[:=]?\s*\d+(?:\.\d+)?\s*(?:s|sec(?:onds?)?|ms)\b/i, 'a wall-clock duration'],
+]
+
+/**
+ * @param {string} left version
+ * @param {string} right version
+ * @returns {number} negative when left < right, positive when left > right
+ */
+function compareEvidenceVersions(left, right) {
+  const [leftCore, leftPre = ''] = left.split('-', 2)
+  const [rightCore, rightPre = ''] = right.split('-', 2)
+  const leftNumbers = leftCore.split('.').map(Number)
+  const rightNumbers = rightCore.split('.').map(Number)
+  for (let index = 0; index < Math.max(leftNumbers.length, rightNumbers.length); index += 1) {
+    const delta = (leftNumbers[index] ?? 0) - (rightNumbers[index] ?? 0)
+    if (delta !== 0) return delta
+  }
+  if (leftPre === rightPre) return 0
+  if (leftPre === '') return 1
+  if (rightPre === '') return -1
+  return leftPre < rightPre ? -1 : 1
+}
+
+/**
+ * @param {string=} root repository root
+ * @returns {string[]} one problem per release-evidence drift
+ */
+export function releaseEvidenceProblems(root = packageRoot) {
+  const problems = []
+  const page = path.join(root, EVIDENCE_PAGE)
+  if (!fs.existsSync(page)) {
+    return [`${EVIDENCE_PAGE} is missing: it is the one place release evidence lives`]
+  }
+  const lines = fs.readFileSync(page, 'utf8').split(/\r?\n/)
+  const sectionIndex = lines.findIndex((line) => line.trim() === EVIDENCE_SECTION)
+  if (sectionIndex < 0) {
+    problems.push(
+      `${EVIDENCE_PAGE} must keep the "${EVIDENCE_SECTION}" section: its #release-evidence anchor is the one place other pages link`,
+    )
+  }
+  const blocks = []
+  lines.forEach((line, index) => {
+    const match = line.match(EVIDENCE_BLOCK)
+    if (match) blocks.push({ index, version: match[1], date: match[2] })
+  })
+  if (blocks.length === 0) {
+    problems.push(
+      `${EVIDENCE_PAGE} must keep at least one "### <version> release evidence (YYYY-MM-DD)" block under "${EVIDENCE_SECTION}"`,
+    )
+    return problems
+  }
+  const newest = blocks[0]
+  if (sectionIndex >= 0 && newest.index < sectionIndex) {
+    problems.push(
+      `${EVIDENCE_PAGE}:${newest.index + 1}: the newest evidence block must sit under the "${EVIDENCE_SECTION}" heading, not above it`,
+    )
+  }
+  for (let index = 1; index < blocks.length; index += 1) {
+    const previous = blocks[index - 1]
+    const current = blocks[index]
+    if (compareEvidenceVersions(previous.version, current.version) < 0) {
+      problems.push(
+        `${EVIDENCE_PAGE}:${current.index + 1}: evidence blocks are newest-first; ${current.version} sits below ${previous.version}`,
+      )
+    }
+    if (current.date > previous.date) {
+      problems.push(
+        `${EVIDENCE_PAGE}:${current.index + 1}: evidence blocks are newest-first by date; ${current.date} sits below ${previous.date}`,
+      )
+    }
+  }
+
+  // The newest block is the live one; older blocks are frozen records of their
+  // release's run and are not re-measured.
+  let end = lines.length
+  for (let index = newest.index + 1; index < lines.length; index += 1) {
+    if (/^#{2,3}\s/.test(lines[index])) {
+      end = index
+      break
+    }
+  }
+  const newestBlock = lines.slice(newest.index + 1, end)
+  const blockText = newestBlock.join('\n')
+  for (const mention of EVIDENCE_GATE_MENTIONS) {
+    if (!blockText.includes(mention)) {
+      problems.push(
+        `${EVIDENCE_PAGE}:${newest.index + 1}: the newest evidence block must name the gate (${mention}); run-local figures are refused here`,
+      )
+    }
+  }
+  newestBlock.forEach((line, offset) => {
+    const lineNumber = newest.index + 2 + offset
+    for (const [pattern, label] of EVIDENCE_RUN_FIGURES) {
+      const match = line.match(pattern)
+      if (!match) continue
+      problems.push(
+        `${EVIDENCE_PAGE}:${lineNumber}: restates ${label} ("${match[0].trim()}"); the tree cannot prove it — record it in the CI job log and keep only checked figures here`,
+      )
+    }
+  })
+
+  for (const file of EVIDENCE_LINKERS) {
+    const linker = path.join(root, file)
+    if (!fs.existsSync(linker)) {
+      problems.push(`${file} is missing but must name the one release-evidence home: ${EVIDENCE_ANCHOR}`)
+      continue
+    }
+    if (!fs.readFileSync(linker, 'utf8').includes(EVIDENCE_ANCHOR)) {
+      problems.push(
+        `${file} must name the one release-evidence home: ${EVIDENCE_ANCHOR} (tests/README.md records it; this file must not restate a run)`,
+      )
+    }
+  }
+  return problems
+}
+
 /**
  * Check one repository root. The registries are imported from this package, so a
  * fixture root may carry a copy of the documentation without duplicating the
@@ -836,6 +1296,8 @@ export function checkDocs(root = packageRoot) {
   problems.push(...denyTableProblems(root))
   problems.push(...toolTableRowProblems(root))
   problems.push(...retiredToolNameProblems(root))
+  problems.push(...surfaceFigureProblems(root))
+  problems.push(...releaseEvidenceProblems(root))
   problems.push(...linkProblems(root))
   return {
     problems,

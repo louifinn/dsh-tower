@@ -156,29 +156,42 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+## Release evidence
+
+This section is the one place release evidence lives: [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
+[`docs/guide/release.md`](../docs/guide/release.md) both link here instead of restating a run. Each
+release records its evidence under `### <version> release evidence (YYYY-MM-DD)`, newest first; the
+GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is linked by older notes, so
+a block heading is stable and never renamed. The newest block is machine-checked by
+`scripts/check-docs.mjs`, which runs inside `npm run docs:check`: it must name that
+gate, and it refuses declaration, pass, skip, file and wall-clock counts, because those describe one
+run on one machine and cannot be recomputed from the tree — record them in the CI job log instead.
+Figures the tree can prove, such as the live surface counts and byte totals, stay in the block and
+are re-measured by the same docs check. Older blocks are frozen records of their release's run.
+
 ### 2.9.8 release evidence (2026-11-22)
 
 2.9.8 closes the fifteen issues filed from the two retros about how the tool surface behaves
 under real use: a bounded blocking wait and per-agent read views, a reviewer-owned read-only
 execution surface with citable `runId`s, batched `tower_mission` plus a plan `dry_run`,
-link-safe teardown, and one shared process-tree kill. Release preparation re-ran every number
-below on the same bounded runner and machine as the 2.9.7 block; declarations are counted, so
-the one skip is included in the total:
+link-safe teardown, and one shared process-tree kill. Release preparation re-ran the gates
+below on the same bounded runner and machine as the 2.9.7 block; the run's own counts and
+durations stay in the CI job log:
 
 > Scope of the tree-kill evidence in this block: it was produced on a Windows host, and the
 > `interruption.test.mjs` fixture deliberately spawns its grandchild **without** `detached`, so
 > the F105 proof covers the win32 ordering and an ordinary POSIX group kill. It does **not**
 > cover a POSIX descendant that calls `setsid(2)`; that gap is F107, filed from the Linux legs
-> of the gate on PR #226 and fixed with the `ps`-enumerated sweep described above. The numbers
-> below are the 2.9.8 run's own record and were not recomputed after F107 added
+> of the gate on PR #226 and fixed with the `ps`-enumerated sweep described above. The facts
+> below are the 2.9.8 record and were not recomputed after F107 added
 > [`process-tree.test.mjs`](process-tree.test.mjs).
 
-| Run | Command | Declarations | Result |
-|---|---|---|---|
-| Focused gate (8 files) | `node --test tests/wait.test.mjs tests/verify.test.mjs tests/interruption.test.mjs tests/evidence.test.mjs tests/scope-reach.test.mjs tests/cleanup.test.mjs tests/tool-schemas.test.mjs tests/status.test.mjs` | **101** | 101 pass, 0 fail, 0 skip |
-| Property PR tier (12 files) | `npm run test:property` | **124** | 124 pass, 0 fail |
-| Bounded offline suite, all 129 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1480** | 1479 pass, 1 skip, 0 fail |
-| Mount smoke | `npm run smoke:mount` | 18 tools | 18 of 18 tower tools, 3 skills, 4 presets with distinct labels, `/tower` present, 1 top-level bundle row on `@deepseek-ai/dsh@0.2.2-rc.5` (74.2 s) |
+The checks this block records are the ones the tree can prove: its surface figures are re-measured
+by `npm run docs:check`, and `scripts/check-docs.mjs` refuses the run-local counts and
+durations it used to restate, so the suites are named by pattern instead — every
+`tests/*.test.mjs` file for the offline suite and every `tests/property/*.prop.mjs` file for the
+property PR tier. The focused files, the failing-case list and the mount-smoke checks are the
+run's own record and live in the CI job log.
 
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs). The 2.9.8 cases run inside the
@@ -403,6 +416,8 @@ pressure across all 113 files at once. The three isolated runs are executed one 
 
 Every static gate in `npm run check` (the whole chain except its two test commands) plus the CI-only
 release check exited 0 in that same checkout:
+
+<!-- tower-surface-history 2026-11-12: the W5 static-gate table records that run's own surface line -->
 
 | Group | Commands | Exit |
 |---|---|---|

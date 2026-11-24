@@ -272,6 +272,7 @@ The Host plugin loads at DSH startup: **restart DSH after install or update**.
   - No configuration key changed. Update the plugin and restart DSH; nothing else to migrate.
 
 <!-- tower-retired-names:begin 2.9.0-migration -->
+<!-- tower-surface-history 2026-11-12: the 2.9.0 migration note states that release's counts, not today's -->
 - **2.8.0 → 2.9.0 (#163, #176, #160, #164, #162, #159, #161) — consolidated tool surface**: the
   build surface drops from 29 tools to 21 (16 tools in the default profile). The five read-only
   tools (`tower_status`, `tower_roster`, `tower_diff`, `tower_preflight`, `tower_doctor`) are now

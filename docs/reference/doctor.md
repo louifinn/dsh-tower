@@ -3,6 +3,7 @@
 `tower_inspect({ view: "doctor" })` is read-only. It never takes the state lock, writes state, or changes Git.
 It returns:
 
+<!-- tower-surface-sample: sample activity-log counters from a doctor run, not surface measurements -->
 ```json
 {
   "ok": true,

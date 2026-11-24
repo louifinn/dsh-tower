@@ -62,6 +62,16 @@ Everything an agent can do belongs in one release PR against protected `main`:
   pair;
 - run the offline gates and commit the result.
 
+### Release evidence — the one place
+
+Release evidence is recorded in one place, the [release-evidence section of
+`tests/README.md`](../../tests/README.md#release-evidence), never copied into the CHANGELOG or this
+guide. A release adds its block there as `### <version> release evidence (YYYY-MM-DD)` — newest
+first, heading stable because older notes link its GitHub anchor — and the block names the checked
+surface figures. Run-local numbers (declaration, pass, skip and file counts, wall-clock and
+durations) are refused by `scripts/check-docs.mjs`, which runs inside
+`npm run docs:check`: record them in the CI job log instead. Older blocks are frozen records.
+
 Merge the release PR, then continue from a **clean clone/worktree at the merge commit** — not the
 integration worktree. The guards refuse a dirty tree, so run the remaining steps from a checkout
 whose `git status --porcelain` is empty.

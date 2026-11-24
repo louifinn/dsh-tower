@@ -4,6 +4,7 @@
 
 `tower_inspect({ view: "doctor" })` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
 
+<!-- tower-surface-sample: sample activity-log counters from a doctor run, not surface measurements -->
 ```json
 {
   "ok": true,
