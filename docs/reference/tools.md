@@ -172,6 +172,17 @@ findings but not mutate them. Violations throw `[tower:not-authorized]` or
 | `tower_resource` | `action` (`acquire`/`release`/`status`), `name?`, `holder?`, `token?`, `ttlMs?`, `force?` | Advisory per-repository lease in `<common>/dsh-tower/leases.json`. No OS CPU/memory hard cap. A live lease is released only by its holder token; an **expired** lease is recovered by an explicit `force: true` release (never taken over automatically). |
 | `tower_import` | `op?` (`snapshot` inferred from `sourcePath` / `map` default), `sourcePath?`, `action?` (`map`/`status`), `sourceHash?`, `oldId?`, `newMissionId?` | One legacy-resource tool (#163 Phase 4). `snapshot`: read-only import of a Tower Codex `schemaVersion:1` or DSH legacy state; the full payload goes under `<common>/dsh-tower/legacy/<sha256>.json` and state stores a summary only. `map`: audit-only legacy-id mapping; mappings are append-only. `action:"status"` lists mappings. Never activates/adopts/resumes paused missions. Tower-only except the read-only `status` action. |
 
+### An undeclared argument is refused, not dropped
+
+Every tool declares a closed input object, and a call carrying a top-level key that
+tool does not declare is refused before its handler runs with
+`[tower:invalid-argument]`, naming the keys, the tool and the plugin version, never
+returning `ok:true` (#230: 2.9.7 sent `task_add` to `tower_plan`, lost every task and
+still reported success). The accepted set is the tool's own declared keys plus the
+alias names its row lists and the explicit `repoRoot` the runtime keeps accepting
+from headless callers ([#163](https://github.com/ranxianglei/dsh-tower/issues/163)
+Phase 1). Nested values are not re-validated.
+
 ### Reading less than the whole view
 
 The read views accept opt-in projections, so a caller can bound a large response

@@ -159,6 +159,14 @@ roster 角色由 `exec.agent` 与 roster 共同决定。mission 级工具（`tow
 | `tower_resource` | `action`（`acquire`/`release`/`status`）、`name?`、`holder?`、`token?`、`ttlMs?`、`force?` | 每个仓库的咨询式租约，位于 `<common>/dsh-tower/leases.json`。没有 OS CPU/内存硬上限；过期的租约需要显式 `force` 与正确 token。 |
 | `tower_import` | `op?`（有 `sourcePath` 时推断为 `snapshot`，否则 `map`）、`sourcePath?`、`action?`（`map`/`status`）、`sourceHash?`、`oldId?`、`newMissionId?` | 一个遗留资源工具（#163 Phase 4）。`snapshot`：只读导入 Tower Codex `schemaVersion:1` 或 DSH 旧版 state，完整 payload 存到 `<common>/dsh-tower/legacy/<sha256>.json`，state 中只保存摘要。`map`：仅审计用途的旧 id 映射，映射只追加；`action:"status"` 列出映射。绝不激活/接管/恢复暂停的 mission。除只读 `status` 动作外仅限控制塔。 |
 
+### 未声明的参数会被拒绝，而不是被丢弃
+
+每个工具都声明封闭的输入对象，调用中若带有该工具未声明的顶层键，会在处理函数运行之前以
+`[tower:invalid-argument]` 被拒绝，并指出这些键、工具名和插件版本，绝不会返回 `ok:true`
+（#230：2.9.7 把 `task_add` 发给并未声明它的 `tower_plan`，所有 task 都被丢弃，而调用仍报告成功）。
+接受集合是该工具自己声明的键，加上上表所列的别名，以及运行时继续为无头调用者接受的显式 `repoRoot`
+（[#163](https://github.com/ranxianglei/dsh-tower/issues/163) 第一阶段）。嵌套值不会被重新校验。
+
 ### 只读取视图的一部分
 
 只读视图支持可选的投影，调用方可以在不改变任何默认输出的前提下压缩大响应。每行都是一个工具的一种调用：
