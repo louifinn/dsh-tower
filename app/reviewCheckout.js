@@ -185,7 +185,9 @@ export function pathKey(value) {
 /**
  * Every checkout path the state claims: mission worktrees, detached sandboxes
  * and live review checkouts. Teardown protects all of them, and their absence
- * from a reinitialised state is what makes the old checkouts orphans.
+ * from a reinitialised state is what makes the old checkouts orphans. #234: a
+ * worktree record whose removal was stamped is not a live checkout, so its path
+ * is released to the sweep instead of masking the shell left behind.
  * @param {any} state
  * @returns {Set<string>}
  */
@@ -195,11 +197,20 @@ export function referencedCheckoutPaths(state) {
     if (typeof value === 'string' && value.length > 0) paths.add(pathKey(value))
   }
   for (const mission of state.missions ?? []) {
-    add(mission.worktree?.path)
+    if (!mission.worktreeRemovedAt) add(mission.worktree?.path)
     add(mission.sandbox)
   }
   for (const entry of state.roster ?? []) add(entry.reviewCheckout)
   return paths
+}
+
+/** #234: how many recorded worktree paths a removal stamp released. */
+function releasedCheckoutCount(state) {
+  let released = 0
+  for (const mission of state.missions ?? []) {
+    if (mission.worktreeRemovedAt && typeof mission.worktree?.path === 'string' && mission.worktree.path.length > 0) released += 1
+  }
+  return released
 }
 
 /**
@@ -253,11 +264,8 @@ export function reservedCheckoutPaths(state, root) {
 }
 
 // #214: directory enumeration and removal are optional StorePort filesystem
-// capabilities (ports/store.js), the same precedent as `copyFileExclusive`. The
-// app layer feature-detects them and reports the limitation; it never reaches for
-// the filesystem module directly, which the architecture gate keeps inside
-// adapters/**. A store that exposes neither must not be read as "no shells": every
-// caller surfaces `available: false` and the reason instead.
+// capabilities (ports/store.js). The app layer feature-detects them and reports
+// the limitation; a store exposing neither must never be read as "no shells".
 export const DIRECTORY_SCAN_UNSUPPORTED = 'the store does not expose directory enumeration'
 export const DIRECTORY_REMOVAL_UNSUPPORTED = 'the store does not expose empty-directory removal'
 
@@ -342,13 +350,91 @@ export async function removeEmptyDirectory(store, dir) {
   }
 }
 
-// #218/F100: a worktree may contain a `node_modules` junction pointing at the
-// baseline checkout's installed dependencies (created by `spawn.nodeModules:
-// "link"`). `git worktree remove --force` deletes the checkout recursively, so a
-// link must be unlinked by Tower first — and a link Tower did not create blocks
-// the removal instead of being followed. These helpers only ever `unlink` a link
-// the worktree record names, or `rmdir` a directory proved empty; nothing here
-// recurses into a directory.
+// #227: a leftover shell can hold the `node_modules` junction `spawn.nodeModules:
+// "link"` creates, and `readdir` counts it as an entry. Such a link may be
+// unlinked when its canonical target proves it points inside the repository or the
+// worktree root; any other entry keeps the shell and is named. No link is followed.
+const LEFTOVER_LINK_REASON = 'leftover directory holding only dependency links'
+const LEFTOVER_LINK_REMOVED_REASON = `${LEFTOVER_LINK_REASON}; the links were unlinked and their targets were not touched`
+const DIRECTORY_LINK_REMOVAL_UNSUPPORTED = 'the store does not expose link removal'
+
+/** @param {any} tower @param {any} [state] */
+function leftoverScanContext(tower, state = null) {
+  const canonicalPath = tower?.deps?.ownership?.canonicalPath
+  const repoRoot = typeof state?.repoRoot === 'string' && state.repoRoot.length > 0 ? state.repoRoot : null
+  return {
+    repositoryRoot: repoRoot ?? (typeof tower?.root === 'string' && tower.root.length > 0 ? tower.root : null),
+    resolveLinkTarget: typeof canonicalPath === 'function' ? (value) => canonicalPath(value) : null,
+  }
+}
+
+/**
+ * #227: decide what one leftover directory is. Empty is removable, and so is a
+ * directory whose every entry is a link whose canonical target is strictly
+ * inside the repository or the worktree root; `links` then names what may be
+ * unlinked. Otherwise `detail` names every blocking entry.
+ * @param {any} store
+ * @param {string} root worktree root; a link into it is Tower's own tree too
+ * @param {string} dir
+ * @param {{ repositoryRoot?: string | null, resolveLinkTarget?: ((value: string) => Promise<string>) | null }} [context]
+ * @returns {Promise<{ removable: boolean, detail: string, links: Array<{ name: string, path: string, target: string }> }>}
+ */
+async function classifyLeftover(store, root, dir, context = {}) {
+  const { readdir } = directoryCapabilities(store)
+  if (!readdir) return { removable: false, detail: DIRECTORY_SCAN_UNSUPPORTED, links: [] }
+  const names = await readdir(dir)
+  if (names.length === 0) return { removable: true, detail: 'empty leftover directory', links: [] }
+  const resolve = typeof context.resolveLinkTarget === 'function' ? context.resolveLinkTarget : null
+  const roots = []
+  for (const candidate of [context.repositoryRoot, root]) {
+    if (typeof candidate !== 'string' || candidate.length === 0) continue
+    const resolved = path.resolve(candidate)
+    const canonical = resolve ? await resolve(resolved).catch(() => null) : null
+    roots.push(canonical ?? resolved)
+  }
+  const blockers = []
+  const links = []
+  for (const name of [...names].sort()) {
+    const entryPath = path.join(dir, name)
+    let info = null
+    try {
+      info = typeof store.lstat === 'function' ? await store.lstat(entryPath) : null
+    } catch {
+      info = null
+    }
+    if (!info) {
+      blockers.push(name)
+      continue
+    }
+    if (info.isSymbolicLink() !== true) {
+      blockers.push(info.isDirectory() === true ? `${name}/` : name)
+      continue
+    }
+    const target = resolve ? await resolve(entryPath).catch(() => null) : null
+    if (target === null) {
+      blockers.push(`${name} (a link whose target could not be resolved)`)
+      continue
+    }
+    if (!roots.some((base) => isInsideWorktreeRoot(base, target))) {
+      blockers.push(`${name} -> ${target} (outside the repository and the worktree root)`)
+      continue
+    }
+    links.push({ name, path: entryPath, target })
+  }
+  if (blockers.length === 0 && links.length > 0 && (typeof store.unlink !== 'function' || typeof store.rmdir !== 'function')) {
+    const detail = typeof store.unlink === 'function' ? DIRECTORY_REMOVAL_UNSUPPORTED : DIRECTORY_LINK_REMOVAL_UNSUPPORTED
+    return { removable: false, detail, links: [] }
+  }
+  if (blockers.length === 0) return { removable: true, detail: links.length > 0 ? LEFTOVER_LINK_REASON : 'empty leftover directory', links }
+  const shown = blockers.slice(0, 4)
+  const detail = `not an empty directory; kept (holds ${shown.join(', ')}${blockers.length > shown.length ? ', ...' : ''})`
+  return { removable: false, detail, links: [] }
+}
+
+// #218/F100: a `node_modules` junction may point at the baseline checkout's
+// dependencies; `git worktree remove --force` would follow it, so Tower unlinks
+// the link the record names first and refuses to remove a checkout holding any
+// other link. Nothing below recurses into a directory.
 const NODE_MODULES_LINK_NAME = 'node_modules'
 
 /** @param {any} worktree */
@@ -520,48 +606,49 @@ export async function settleResidualWorktree(tower, dir, worktree) {
 }
 
 /**
- * #214: ordinary directories directly under the worktree root that neither
- * state nor `git worktree list` claims. They are the shells a review checkout
- * leaves behind when its contents were removed but the directory survived; a
- * non-empty or unreadable directory is reported as a keep, never removed. A
- * store without directory enumeration returns `available: false` with the
- * reason, which every caller must surface rather than report a clean sweep.
+ * #214: ordinary directories directly under the worktree root that neither state
+ * nor `git worktree list` claims: the shells a review checkout leaves when its
+ * contents were removed but the directory survived. #227: a shell holding only
+ * dependency links is removable (see `classifyLeftover`); anything else is a keep
+ * naming the blockers. A store without enumeration returns `available: false`
+ * with the reason instead of a clean sweep. #234: `released` counts the stamped
+ * worktree paths this scan was allowed to see.
  * @param {any} store
  * @param {string} root
  * @param {any} state
  * @param {Set<string>} registered canonical keys from `git worktree list`
- * @returns {Promise<{ leftovers: any[], error: string | null, available: boolean, reason: string | null }>}
+ * @param {any} [tower] supplies the repository root and the link-target resolver
+ * @returns {Promise<{ leftovers: any[], error: string | null, available: boolean, reason: string | null, released: number }>}
  */
-export async function inventoryEmptyLeftovers(store, root, state, registered) {
+export async function inventoryEmptyLeftovers(store, root, state, registered, tower = null) {
   const referenced = referencedCheckoutPaths(state)
   const reserved = reservedCheckoutPaths(state, root)
+  const context = leftoverScanContext(tower, state)
+  const released = releasedCheckoutCount(state)
   const leftovers = []
   let scan
   try {
     scan = await directChildDirectories(store, root)
   } catch (error) {
     if (/** @type {any} */ (error)?.code === 'ENOENT') {
-      return { leftovers, error: null, available: true, reason: null }
+      return { leftovers, error: null, available: true, reason: null, released }
     }
     return {
       leftovers,
       error: String(/** @type {any} */ (error)?.message ?? error).slice(0, 240),
       available: false,
       reason: null,
+      released,
     }
   }
-  if (!scan.available) return { leftovers, error: null, available: false, reason: scan.reason }
+  if (!scan.available) return { leftovers, error: null, available: false, reason: scan.reason, released }
   for (const name of scan.directories) {
     const entryPath = path.join(root, name)
     const key = pathKey(entryPath)
     if (referenced.has(key) || reserved.has(key) || registered.has(key)) continue
     try {
-      const inspection = await isEmptyDirectory(store, entryPath)
-      leftovers.push(
-        inspection.empty
-          ? { name, path: entryPath, action: 'remove', reason: 'empty leftover directory' }
-          : { name, path: entryPath, action: 'keep', reason: 'not an empty directory; kept' },
-      )
+      const inspection = await classifyLeftover(store, root, entryPath, context)
+      leftovers.push({ name, path: entryPath, action: inspection.removable ? 'remove' : 'keep', reason: inspection.detail })
     } catch (error) {
       leftovers.push({
         name,
@@ -571,15 +658,16 @@ export async function inventoryEmptyLeftovers(store, root, state, registered) {
       })
     }
   }
-  return { leftovers, error: null, available: true, reason: null }
+  return { leftovers, error: null, available: true, reason: null, released }
 }
 
 /**
  * #214: remove the empty leftover directories the inventory marked, re-checking
  * each one on a freshly loaded state under the git lock. A path state now
  * claims, a reserved path, a registered checkout, a path outside the root, a
- * non-empty directory and a failed removal are all kept; only an empty ordinary
- * directory with no other owner can be removed.
+ * non-empty directory and a failed removal are all kept; only a directory that
+ * `classifyLeftover` proved empty — or holds nothing but unlinked dependency
+ * links — can be removed.
  * @param {any} tower
  * @param {{ root: string, leftovers: any[], leftoverScanAvailable?: boolean, leftoverScanReason?: string | null }} inventory
  * @returns {Promise<{ decisions: any[], removed: string[], available: boolean, reason?: string }>}
@@ -608,6 +696,7 @@ export async function sweepEmptyLeftovers(tower, inventory) {
     }
     const referenced = referencedCheckoutPaths(state)
     const reserved = reservedCheckoutPaths(state, inventory.root)
+    const context = leftoverScanContext(tower, state)
     const registered = new Set((await tower.deps.vcs.listWorktrees(tower.root)).map((entry) => pathKey(entry.path)))
     const results = new Map()
     for (const entry of targets) {
@@ -646,17 +735,28 @@ export async function sweepEmptyLeftovers(tower, inventory) {
       }
       let inspection
       try {
-        inspection = await isEmptyDirectory(tower.deps.store, entry.path)
+        inspection = await classifyLeftover(tower.deps.store, inventory.root, entry.path, context)
       } catch (error) {
         keep(`could not inspect the directory: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 200)}`)
         continue
       }
-      if (!inspection.available) {
-        keep(String(inspection.reason))
+      if (!inspection.removable) {
+        keep(inspection.detail)
         continue
       }
-      if (!inspection.empty) {
-        keep('not empty')
+      const unlinked = []
+      let unlinkFailure = null
+      for (const link of inspection.links) {
+        try {
+          await tower.deps.store.unlink(link.path)
+          unlinked.push(link)
+        } catch (error) {
+          unlinkFailure = `the leftover link ${link.name} could not be unlinked: ${String(/** @type {any} */ (error)?.message ?? error).slice(0, 160)}`
+          break
+        }
+      }
+      if (unlinkFailure !== null) {
+        keep(unlinkFailure)
         continue
       }
       const removal = await removeEmptyDirectory(tower.deps.store, entry.path)
@@ -668,7 +768,11 @@ export async function sweepEmptyLeftovers(tower, inventory) {
         keep(removal.ok ? 'the directory was already gone or changed' : removal.error ?? 'the removal failed')
         continue
       }
-      results.set(key, { action: 'removed', reason: 'empty leftover directory' })
+      results.set(key, {
+        action: 'removed',
+        reason: unlinked.length > 0 ? LEFTOVER_LINK_REMOVED_REASON : 'empty leftover directory',
+        ...(unlinked.length > 0 ? { links: unlinked.map(({ name, target }) => ({ name, target })) } : {}),
+      })
     }
     return { phase: 'done', results }
   }, tower.gitMutexOptions({ phase: 'teardown' }))
@@ -687,8 +791,7 @@ export async function sweepEmptyLeftovers(tower, inventory) {
   for (const entry of decisions) {
     const swept = outcome.results.get(pathKey(entry.path))
     if (!swept) continue
-    entry.action = swept.action
-    entry.reason = swept.reason
+    Object.assign(entry, swept)
     if (swept.action === 'removed') removed.push(entry.path)
   }
   return { decisions, removed, available: true }

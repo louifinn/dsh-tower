@@ -1379,7 +1379,7 @@ test('doctor: empty leftover review-checkout shells are visible and orphan teard
     const before = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const check = before.checks.find((entry) => entry.id === 'worktrees-orphans')
     assert.equal(check.status, 'warn')
-    assert.match(check.detail, /2 empty leftover directories under the worktree root/)
+    assert.match(check.detail, /2 leftover directories under the worktree root/)
     assert.match(check.detail, /M52-review-reviewer-m52-r2/)
     assert.match(check.detail, /tower_teardown/)
     assert.match(check.action, /worktree teardown step/)
@@ -1394,6 +1394,58 @@ test('doctor: empty leftover review-checkout shells are visible and orphan teard
     assert.equal(fs.existsSync(kept), true, 'a non-empty unknown directory is preserved')
     const keptRow = swept.orphanWorktrees.leftovers.find((entry) => path.resolve(entry.path) === path.resolve(kept))
     assert.equal(keptRow.action, 'keep')
+
+    const after = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(afterCheck.status, 'pass')
+    assert.equal(afterCheck.detail, 'no unrecorded worktrees')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #234: after a stamped teardown the mission keeps its `worktree` record, so the
+// path used to stay "referenced" and the shell behind it was invisible to both
+// the doctor and the sweep. A stamped path is released, and the report counts it.
+test('doctor: a stamped worktree path is released so its shell is visible and swept (#234)', async () => {
+  const { root, repo } = seedRepo()
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo }, OWNER)
+    const tower = await Tower.open(repo)
+    await tower.plan({ missions: [{ title: 'Swept shell', scope: ['src/**'], tasks: ['write'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    git(repo, ['worktree', 'remove', '--force', provisioned.worktree.path])
+    fs.mkdirSync(provisioned.worktree.path, { recursive: true })
+    const now = Date.now()
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === 'M1')
+    mission.status = 'merged'
+    mission.mergedCommit = 'b'.repeat(40)
+    mission.mergedAt = now
+    mission.worktreeRemovedAt = now
+    mission.updatedAt = now
+    state.roster = []
+    state.revision += 1
+    validateState(state, tower.paths.state)
+    await writeJsonAtomic(tower.paths.state, state)
+
+    const before = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const check = before.checks.find((entry) => entry.id === 'worktrees-orphans')
+    assert.equal(check.status, 'warn', 'a released path must not hide the shell it left behind')
+    assert.match(check.detail, /1 leftover directory under the worktree root/)
+    assert.match(check.detail, /M1/)
+    assert.doesNotMatch(check.detail, /no unrecorded worktrees/)
+    assert.equal(before.ok, true, 'a leftover shell is advisory, not a failure')
+    assert.equal(fs.existsSync(provisioned.worktree.path), true, 'doctor stays read-only')
+
+    const swept = await tower.teardown({ orphans: true })
+    assert.equal(swept.orphanWorktrees.leftoversReleased, 1, 'the report says the path was released')
+    assert.deepEqual(
+      swept.orphanWorktrees.leftoversRemoved.map((entry) => path.resolve(entry)),
+      [path.resolve(provisioned.worktree.path)],
+    )
+    assert.equal(fs.existsSync(provisioned.worktree.path), false)
 
     const after = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const afterCheck = after.checks.find((entry) => entry.id === 'worktrees-orphans')

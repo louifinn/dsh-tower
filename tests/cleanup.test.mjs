@@ -748,7 +748,7 @@ test('teardown: orphan mode removes empty shells, keeps non-empty directories an
     assert.equal(fs.existsSync(kept), true, 'a non-empty directory is never touched')
     const keptRow = report.leftovers.find((entry) => samePath(entry.path, kept))
     assert.equal(keptRow.action, 'keep')
-    assert.equal(keptRow.reason, 'not an empty directory; kept')
+    assert.equal(keptRow.reason, 'not an empty directory; kept (holds notes.txt)')
 
     const after = await tower.load()
     assert.equal(after.revision, before.revision, 'the shell sweep writes no state record')
@@ -803,6 +803,138 @@ test('teardown: a store without directory enumeration reports the shell sweep as
       result.warnings.some((line) => /tower_teardown cannot clean review-checkout shells/.test(line)),
       'the warning names the operation that cannot work',
     )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #227: the shells that survived the #214 sweep on this machine held the
+// `node_modules` junction `spawn.nodeModules: "link"` creates, so `readdir` saw
+// an entry and the empty rule could never fire. A shell whose only entries are
+// links whose canonical target sits inside the repository is removable; every
+// other entry keeps it and is named in the reason.
+test('teardown: a shell holding only a node_modules junction is swept and its target survives (#227)', async () => {
+  const { root, repo, tower } = await setupRepo('dsh-tower-leftover-link-')
+  try {
+    const target = seedDependencies(repo)
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const shell = path.join(checkoutRoot, 'M64-review-reviewer-m64')
+    fs.mkdirSync(shell)
+    const linkPath = linkDependencies(target, shell)
+
+    const preview = await tower.teardown({ orphans: true, dryRun: true })
+    const previewRow = preview.orphanWorktrees.leftovers.find((entry) => samePath(entry.path, shell))
+    assert.equal(previewRow.action, 'remove', 'a shell holding only a dependency link is a removable leftover')
+    assert.match(previewRow.reason, /dependency link/)
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, 'a dry run unlinks nothing')
+
+    const result = await tower.teardown({ orphans: true })
+    const report = result.orphanWorktrees
+    assert.deepEqual(report.leftoversRemoved.map((entry) => path.resolve(entry)), [path.resolve(shell)])
+    const sweptRow = report.leftovers.find((entry) => samePath(entry.path, shell))
+    assert.equal(sweptRow.action, 'removed')
+    assert.match(sweptRow.reason, /dependency link/)
+    assert.deepEqual(sweptRow.links, [{ name: 'node_modules', target: fs.realpathSync.native(target) }])
+    assert.equal(fs.existsSync(shell), false, 'the link-only shell is removed')
+    assert.equal(fs.existsSync(path.join(target, 'sentinel.txt')), true, 'the junction target and its contents survive')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a leftover with a real file or a foreign junction is kept and the reason names it (#227)', async () => {
+  const { root, repo, tower } = await setupRepo('dsh-tower-leftover-blocked-')
+  const foreignRoot = tempDir('dsh-tower-foreign-deps-')
+  try {
+    const checkoutRoot = teardownWorktreeRoot(tower)
+    fs.mkdirSync(checkoutRoot, { recursive: true })
+    const withFile = path.join(checkoutRoot, 'M65-review-reviewer-m65')
+    fs.mkdirSync(withFile)
+    fs.writeFileSync(path.join(withFile, 'notes.txt'), 'not Tower\'s to delete\n')
+    const foreignTarget = path.join(foreignRoot, 'deps')
+    fs.mkdirSync(foreignTarget, { recursive: true })
+    fs.writeFileSync(path.join(foreignTarget, 'sentinel.txt'), 'keep\n')
+    const withForeign = path.join(checkoutRoot, 'M66-review-reviewer-m66')
+    fs.mkdirSync(withForeign)
+    const foreignLink = path.join(withForeign, 'node_modules')
+    fs.symlinkSync(foreignTarget, foreignLink, 'junction')
+
+    const result = await tower.teardown({ orphans: true })
+    const report = result.orphanWorktrees
+    assert.deepEqual(report.leftoversRemoved, [], 'neither shape is a removable leftover')
+
+    const fileRow = report.leftovers.find((entry) => samePath(entry.path, withFile))
+    assert.equal(fileRow.action, 'keep')
+    assert.match(fileRow.reason, /notes\.txt/, 'the reason names the file that blocked the removal')
+
+    const foreignRow = report.leftovers.find((entry) => samePath(entry.path, withForeign))
+    assert.equal(foreignRow.action, 'keep')
+    assert.match(foreignRow.reason, /outside the repository and the worktree root/)
+    assert.ok(foreignRow.reason.includes(fs.realpathSync.native(foreignTarget)), 'the reason names the foreign target')
+
+    assert.equal(fs.existsSync(path.join(withFile, 'notes.txt')), true)
+    assert.equal(fs.existsSync(withForeign), true)
+    assert.equal(fs.lstatSync(foreignLink).isSymbolicLink(), true, 'the foreign junction itself is untouched')
+    assert.equal(fs.existsSync(path.join(foreignTarget, 'sentinel.txt')), true)
+  } finally {
+    removeTemp(root)
+    removeTemp(foreignRoot)
+  }
+})
+
+// #234: a merged mission keeps its `worktree` record after teardown, with
+// `worktreeRemovedAt` as the stamp. The path is not a live checkout any more, so
+// it must not protect the shell that stayed behind — and the report says how
+// many paths the scan was allowed to see.
+test('teardown: a stamped worktree path is released to the sweep and the report counts it (#234)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-leftover-released-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    const removal = await tower.teardown({ force: true })
+    assert.ok(removal.removed.includes(mission.id), 'the checkout is removed and its record stamped')
+    const state = await tower.load()
+    assert.equal(typeof state.missions.find((entry) => entry.id === mission.id).worktreeRemovedAt, 'number')
+    fs.mkdirSync(worktree.path, { recursive: true })
+
+    const preview = await tower.teardown({ orphans: true, dryRun: true })
+    assert.equal(preview.orphanWorktrees.leftoversReleased, 1, 'the stamped path is released, not skipped')
+    const row = preview.orphanWorktrees.leftovers.find((entry) => samePath(entry.path, worktree.path))
+    assert.ok(row, 'the released path is inspected instead of being skipped as referenced')
+    assert.equal(row.action, 'remove')
+    assert.equal(row.reason, 'empty leftover directory')
+
+    const swept = await tower.teardown({ orphans: true })
+    assert.deepEqual(swept.orphanWorktrees.leftoversRemoved.map((entry) => path.resolve(entry)), [path.resolve(worktree.path)])
+    assert.equal(fs.existsSync(worktree.path), false)
+
+    const after = await tower.teardown({ orphans: true, dryRun: true })
+    assert.deepEqual(after.orphanWorktrees.leftovers, [], 'the shell is gone')
+    assert.equal(after.orphanWorktrees.leftoversReleased, 1, 'an empty leftovers list is explained by the released count')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('teardown: a merged mission without the removal stamp still protects its path (#234)', async () => {
+  const { root, tower } = await setupRepo('dsh-tower-leftover-protected-')
+  try {
+    const { mission, worktree } = await mergedMission(tower)
+    // The directory disappears without Tower stamping the record: the path is
+    // still claimed, so a shell there is not a leftover.
+    await tower.git(tower.root, ['worktree', 'remove', '--force', worktree.path])
+    fs.mkdirSync(worktree.path, { recursive: true })
+
+    const preview = await tower.teardown({ orphans: true, dryRun: true })
+    assert.equal(preview.orphanWorktrees.leftoversReleased, 0)
+    assert.equal(
+      preview.orphanWorktrees.leftovers.some((entry) => samePath(entry.path, worktree.path)),
+      false,
+      'a recorded path without the stamp stays protected',
+    )
+    const state = await tower.load()
+    assert.equal(state.missions.find((entry) => entry.id === mission.id).worktreeRemovedAt, undefined)
+    assert.equal(fs.existsSync(worktree.path), true)
   } finally {
     removeTemp(root)
   }
