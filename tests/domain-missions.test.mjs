@@ -762,6 +762,311 @@ test('finding policy normalizes, filters, transitions, and projects', () => {
 // #216: bulk normalization is one pure gate in the lifecycle module. It keeps
 // the forms mutually exclusive, keeps every bulk item inside the single-form
 // field set, and refuses to smuggle human acceptance through a batch.
+// #219: one widen call decides what happens to its conflicting neighbours.
+// These tests are load-bearing: each reddens when its guard in
+// domain/missions/lifecycle.js is deleted (the proof is in the mission report).
+test('#219 widen defer-conflicts defers a planned neighbour in the same call', () => {
+  const receiver = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const neighbour = mission({ id: 'M2', status: 'planned', scope: ['src/lib/**'] })
+  const state = { missions: [receiver, neighbour] }
+
+  const widened = applyMissionUpdate({
+    mission: receiver,
+    state,
+    input: { scope: ['src/lib/deep/**'], widen: { mode: 'defer-conflicts' } },
+    config: config(),
+  })
+  // One call: the receiver widens, the neighbour steps out of the ordering.
+  assert.deepEqual(widened.changes, [
+    'deferred conflicting planned neighbour(s): M2',
+    'scope widened',
+  ])
+  assert.equal(neighbour.deferred, true)
+  assert.equal(neighbour.status, 'planned', 'a deferral is a flag, not a status patch')
+  assert.deepEqual(receiver.scope, ['src/lib/deep/**'])
+  assert.equal(receiver.scopeGeneration, 2)
+  assert.deepEqual(receiver.deferralsCreated, ['M2'])
+  assert.deepEqual(widened.widen, { mode: 'defer-conflicts', deferred: ['M2'], restored: [], statusKept: false })
+})
+
+test('#219 a widen refuses by default and names every conflict with status and kind', () => {
+  const receiver = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const planned = mission({ id: 'M2', status: 'planned', scope: ['src/lib/**'] })
+  const active = mission({ id: 'M3', status: 'active', scope: ['src/other/**'] })
+  const state = { missions: [receiver, planned, active] }
+
+  assert.throws(
+    () => applyMissionUpdate({ mission: receiver, state, input: { scope: ['src/**'] }, config: config() }),
+    (error) => {
+      // The pre-#219 substring stays for callers that matched on it.
+      assert.match(error.message, /widened scope overlaps mission M2, M3/)
+      // Each conflict carries its own status and kind in the same message.
+      assert.match(error.message, /M2: planned build/)
+      assert.match(error.message, /M3: active build/)
+      assert.match(error.message, /deferred/)
+      return error.code === 'invalid-argument'
+    },
+  )
+  // An explicit `refuse` is the same path, not a second behaviour.
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: receiver,
+        state,
+        input: { scope: ['src/**'], widen: { mode: 'refuse' } },
+        config: config(),
+      }),
+    /widened scope overlaps mission M2, M3/,
+  )
+  // A refusal mutates nothing.
+  assert.equal(planned.deferred, undefined)
+  assert.equal(active.deferred, undefined)
+  assert.equal(receiver.scopeGeneration, undefined)
+  assert.deepEqual(receiver.scope, ['src/**'])
+})
+
+test('#219 a widen never defers an active neighbour: it would strand in-flight work', () => {
+  const receiver = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const inFlight = mission({ id: 'M2', status: 'active', scope: ['src/lib/**'] })
+  const state = { missions: [receiver, inFlight] }
+
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: receiver,
+        state,
+        input: { scope: ['src/lib/**'], widen: { mode: 'defer-conflicts' } },
+        config: config(),
+      }),
+    (error) =>
+      error.code === 'invalid-argument' &&
+      /a deferral would strand in-flight work: M2: active build/.test(error.message) &&
+      /only a planned neighbour can be deferred/.test(error.message),
+  )
+  assert.equal(inFlight.deferred, undefined, 'no partial deferral survives the refusal')
+  assert.equal(receiver.scopeGeneration, undefined)
+  assert.deepEqual(receiver.scope, ['src/**'])
+
+  // A blocked neighbour has work in flight too.
+  const blocked = mission({ id: 'M2', status: 'blocked', scope: ['src/lib/**'] })
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: receiver,
+        state: { missions: [receiver, blocked] },
+        input: { scope: ['src/lib/**'], widen: { mode: 'defer-conflicts' } },
+        config: config(),
+      }),
+    /a deferral would strand in-flight work: M2: blocked build/,
+  )
+  // A completed neighbour is not in flight; it still may not be deferred.
+  const completed = mission({ id: 'M2', status: 'completed', scope: ['src/lib/**'] })
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: receiver,
+        state: { missions: [receiver, completed] },
+        input: { scope: ['src/lib/**'], widen: { mode: 'defer-conflicts' } },
+        config: config(),
+      }),
+    (error) =>
+      /only a planned neighbour can be deferred: M2: completed build/.test(error.message) &&
+      !/strand in-flight/.test(error.message),
+  )
+})
+
+test('#219 a widen restores exactly the deferrals it recorded and leaves a human flag alone', () => {
+  const receiver = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const byWiden = mission({ id: 'M2', status: 'planned', scope: ['src/lib/**'] })
+  const byHand = mission({ id: 'M3', status: 'planned', scope: ['src/other/**'], deferred: true })
+  const state = { missions: [receiver, byWiden, byHand] }
+
+  const widened = applyMissionUpdate({
+    mission: receiver,
+    state,
+    input: { scope: ['src/lib/**'], widen: { mode: 'defer-conflicts' } },
+    config: config(),
+  })
+  assert.deepEqual(widened.widen.deferred, ['M2'])
+  assert.equal(byWiden.deferred, true)
+
+  const restored = applyMissionUpdate({
+    mission: receiver,
+    state,
+    input: { widen: { restoreDeferrals: true } },
+    config: config(),
+  })
+  assert.deepEqual(restored.widen, { mode: 'refuse', deferred: [], restored: ['M2'], statusKept: false })
+  assert.equal(byWiden.deferred, undefined, 'the recorded flag is cleared')
+  assert.equal(byHand.deferred, true, 'a human-set flag is not ours to clear')
+  assert.equal(Object.hasOwn(receiver, 'deferralsCreated'), false)
+  assert.deepEqual(receiver.scope, ['src/lib/**'], 'a restore is not a widen')
+
+  // With nothing recorded there is nothing to restore, and that is said out loud.
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: receiver,
+        state,
+        input: { widen: { restoreDeferrals: true } },
+        config: config(),
+      }),
+    /mission M1 has no deferred neighbours recorded to restore/,
+  )
+  // A neighbour whose flag already vanished is simply no longer recorded.
+  receiver.deferralsCreated = ['M2']
+  const gone = applyMissionUpdate({
+    mission: receiver,
+    state,
+    input: { widen: { restoreDeferrals: true } },
+    config: config(),
+  })
+  assert.deepEqual(gone.widen.restored, ['M2'])
+  assert.equal(Object.hasOwn(receiver, 'deferralsCreated'), false)
+})
+
+test('#219 keepStatus leaves a completed mission completed for its reviewer', () => {
+  const completed = mission({ id: 'M1', status: 'completed', scope: ['src/**'] })
+  const state = { missions: [completed] }
+
+  const kept = applyMissionUpdate({
+    mission: completed,
+    state,
+    input: { scope: ['src/lib/**'], widen: { keepStatus: true } },
+    config: config(),
+  })
+  assert.deepEqual(kept.changes, ['scope widened'])
+  assert.equal(completed.status, 'completed', 'a reviewer spawns on completed, so no status patch is needed')
+  assert.equal(completed.scopeGeneration, 2)
+  assert.deepEqual(completed.scope, ['src/lib/**'])
+  assert.deepEqual(kept.widen, { mode: 'refuse', deferred: [], restored: [], statusKept: true })
+
+  // Without keepStatus a completed mission still returns to active (pre-#219).
+  const reopened = mission({ id: 'M1', status: 'completed', scope: ['src/**'] })
+  const widened = applyMissionUpdate({
+    mission: reopened,
+    state: { missions: [reopened] },
+    input: { scope: ['src/lib/**'] },
+    config: config(),
+  })
+  assert.equal(reopened.status, 'active')
+  assert.deepEqual(widened.changes, ['scope widened'])
+  assert.equal(widened.widen, null, 'without widen there is no widen descriptor to read')
+
+  // keepStatus on a planned edit never applies: a planned edit does not start.
+  const planned = mission({ id: 'M1', status: 'planned', scope: ['src/**'] })
+  const edited = applyMissionUpdate({
+    mission: planned,
+    state: { missions: [planned] },
+    input: { scope: ['src/lib/**'], widen: { keepStatus: true } },
+    config: config(),
+  })
+  assert.deepEqual(edited.changes, ['scope edited'])
+  assert.equal(planned.status, 'planned')
+  assert.equal(planned.scopeGeneration, 2)
+  assert.equal(edited.widen.statusKept, false)
+})
+
+test('#219 a planned scope edit reports scope and scopeGeneration with no status change', () => {
+  const planned = mission({ id: 'M1', status: 'planned', scope: ['src/**'] })
+  const edited = applyMissionUpdate({
+    mission: planned,
+    state: { missions: [planned] },
+    input: { scope: ['src/lib/**'] },
+    config: config(),
+  })
+  // The two paths are told apart by the descriptor: a planned edit carries no
+  // widen, so a caller never mistakes it for a started mission.
+  assert.equal(edited.widen, null)
+  assert.deepEqual(edited.state.scope, ['src/lib/**'])
+  assert.equal(edited.state.scopeGeneration, 2)
+  assert.equal(edited.state.status, 'planned')
+  assert.deepEqual(edited.changes, ['scope edited'])
+})
+
+test('#219 widen validation: single form only, closed fields, boolean switches', () => {
+  assert.throws(
+    () => applyMissionUpdate({ mission: mission(), state: { missions: [] }, input: { widen: [] }, config: config() }),
+    /tower_mission widen must be an object/,
+  )
+  // A misspelled widen key must not silently become the default: the overlap
+  // refusal still fires, so the caller learns the widen never applied.
+  const typoReceiver = mission({ id: 'M1', status: 'active', scope: ['src/**'] })
+  const typoNeighbour = mission({ id: 'M2', status: 'planned', scope: ['src/lib/**'] })
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: typoReceiver,
+        state: { missions: [typoReceiver, typoNeighbour] },
+        input: { scope: ['src/lib/**'], widn: { mode: 'defer-conflicts' } },
+        config: config(),
+      }),
+    /widened scope overlaps mission M2/,
+  )
+  assert.equal(typoNeighbour.deferred, undefined)
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: mission(),
+        state: { missions: [] },
+        input: { widen: { mode: 'defer' }, note: 'x' },
+        config: config(),
+      }),
+    /tower_mission widen.mode must be "refuse" or "defer-conflicts"/,
+  )
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: mission(),
+        state: { missions: [] },
+        input: { widen: { keepStatus: 'yes' }, note: 'x' },
+        config: config(),
+      }),
+    /tower_mission widen.keepStatus must be a boolean/,
+  )
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: mission(),
+        state: { missions: [] },
+        input: { widen: { nope: true }, note: 'x' },
+        config: config(),
+      }),
+    /tower_mission widen: unknown field "nope"/,
+  )
+  // A widen with neither a scope nor a restore has nothing to act on.
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: mission(),
+        state: { missions: [] },
+        input: { widen: { keepStatus: true }, note: 'x' },
+        config: config(),
+      }),
+    /tower_mission widen requires scope or widen.restoreDeferrals/,
+  )
+  // Workers hold no ordering power, so a widen is a tower-only decision.
+  assert.throws(
+    () =>
+      applyMissionUpdate({
+        mission: mission(),
+        state: { missions: [] },
+        input: { actor: { name: 'w', role: 'worker' }, widen: { keepStatus: true } },
+        config: config(),
+      }),
+    (error) => error.code === 'not-authorized' && /only the tower can decide widen behaviour/.test(error.message),
+  )
+  // Bulk items and the ids shorthand never carry widen.
+  assert.throws(
+    () => normalizeMissionBatch({ missions: [{ id: 'M1', widen: { mode: 'defer-conflicts' } }] }),
+    /tower_mission widen is only available on the single-mission form/,
+  )
+  assert.throws(
+    () => normalizeMissionBatch({ ids: ['M1'], widen: { keepStatus: true } }),
+    /tower_mission ids only applies lifecycle fields; use missions for widen/,
+  )
+})
+
 test('bulk mission normalization: one form, closed fields, atomic default', () => {
   assert.equal(normalizeMissionBatch({ id: 'M1', status: 'active' }), null)
 

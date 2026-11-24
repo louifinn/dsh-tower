@@ -115,8 +115,13 @@ import {
   MODEL_REJECTION_CODES,
   MODEL_REVIEW_STATUSES,
   MODEL_STATUSES,
+  MODEL_WIDEN_CONFLICT_ACTIONS,
+  MODEL_WIDEN_MODES,
+  MODEL_WIDEN_STATUS_EFFECTS,
   modelCanPatchStatus,
   modelCanTransitionFinding,
+  modelWidenCanDefer,
+  modelWidenResultStatus,
 } from './model/tables.mjs'
 import {
   assertModelAgrees,
@@ -1136,7 +1141,8 @@ runProperty({
 /**
  * A minimal in-memory state for the frozen replays. No file, no repository: the
  * domain functions under test are pure.
- * @param {{ status?: string, pauseCause?: string | null, findingStatus?: string }} [options]
+ * @param {{ status?: string, pauseCause?: string | null, findingStatus?: string,
+ *   neighbours?: Array<{ status?: string, deferred?: boolean }> }} [options]
  * @returns {Record<string, any>}
  */
 function frozenState(options = {}) {
@@ -1227,6 +1233,64 @@ function attemptStatus(state, target, options = {}) {
   validateState(draft, `status ${target}`)
   assert.equal(draft.revision, state.revision, 'the helper does not bump the revision itself')
   return null
+}
+
+/**
+ * Apply one widen attempt to a clone of a two-mission state and return both the
+ * rejection code (`null` when accepted) and the draft, so a caller can compare
+ * the mutation with the model.
+ * @param {Record<string, any>} state
+ * @param {Record<string, any>} input
+ * @returns {{ code: string | null, draft: Record<string, any> }}
+ */
+function attemptWiden(state, input) {
+  const draft = structuredClone(state)
+  try {
+    applyMissionUpdate({ mission: draft.missions[0], state: draft, input, config: MODEL_CONFIG })
+  } catch (error) {
+    assert.ok(error instanceof TowerToolError, `widen: expected a domain rejection, got ${String(error)}`)
+    return { code: error.code, draft }
+  }
+  validateState(draft, 'widen')
+  assert.equal(draft.revision, state.revision, 'the helper does not bump the revision itself')
+  return { code: null, draft }
+}
+
+/**
+ * A two-mission state with a receiver fenced to `src/a/**` and one neighbour
+ * fenced to `src/shared/**`, so widening the receiver to `src/**` conflicts.
+ * @param {string} receiverStatus
+ * @param {string} neighbourStatus
+ * @param {{ deferred?: boolean, deferralsCreated?: string[] }} [options]
+ * @returns {Record<string, any>}
+ */
+function widenState(receiverStatus, neighbourStatus, options = {}) {
+  const state = frozenState({ status: receiverStatus })
+  const mission = state.missions[0]
+  mission.scope = ['src/a/**']
+  if (options.deferralsCreated) mission.deferralsCreated = [...options.deferralsCreated]
+  /** @type {Record<string, any>} */
+  const neighbour = {
+    id: 'M2',
+    title: 'widen neighbour',
+    kind: 'build',
+    scope: ['src/shared/**'],
+    tasks: [],
+    deps: [],
+    context: '',
+    references: [],
+    reviewPolicy: 'required-clean',
+    status: neighbourStatus,
+    owner: null,
+    blockers: [],
+    notes: [],
+    scopeGeneration: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+  }
+  if (options.deferred) neighbour.deferred = true
+  state.missions.push(neighbour)
+  return state
 }
 
 /**
@@ -1345,6 +1409,92 @@ test('frozen finding matrix: every refused edge rejects and leaves the state byt
     assert.equal(JSON.stringify(state), before, 'a rejected finding transition mutated the committed state')
     noteObservedRejection({ command: 'findings.transition', from, to, code: String(code) })
   }
+})
+
+// #219: a widen is the one mission command whose effect is not a status patch,
+// so it gets its own frozen matrix. It must agree with the model on the
+// receiver's status and on what happens to the conflicting neighbour, and every
+// refused widen must leave the state byte-identical.
+test('frozen widen matrix: every (receiver, neighbour, mode, keepStatus) cell agrees with the model', () => {
+  for (const receiver of MODEL_STATUSES) {
+    for (const neighbour of MODEL_STATUSES) {
+      const action = MODEL_WIDEN_CONFLICT_ACTIONS[neighbour]
+      const conflicts = action !== 'skip'
+      for (const mode of MODEL_WIDEN_MODES) {
+        for (const keepStatus of [false, true]) {
+          const state = widenState(receiver, neighbour)
+          const before = JSON.stringify(state)
+          const { code, draft } = attemptWiden(state, {
+            scope: ['src/**'],
+            widen: { mode, keepStatus },
+          })
+          const label = `${receiver} receiver / ${neighbour} neighbour / ${mode} / keepStatus=${keepStatus}`
+          const expectedStatus = modelWidenResultStatus(receiver, { keepStatus })
+          // A deferring widen is refused when the neighbour may not be deferred;
+          // a refusing one is refused by any live conflict at all.
+          const shouldDefer = mode === 'defer-conflicts' && modelWidenCanDefer(neighbour)
+          const accepted = expectedStatus !== null && (!conflicts || shouldDefer)
+          assert.equal(code === null, accepted, `${label}: the model and the domain disagree (${String(code)})`)
+          if (!accepted) {
+            assert.equal(JSON.stringify(state), before, `${label}: a refused widen mutated the committed state`)
+            // Every widen refusal is the documented overlap/deferral guard, which
+            // the domain reports as invalid-argument.
+            assert.equal(code, 'invalid-argument', `${label}: rejection code`)
+            continue
+          }
+          assert.equal(draft.missions[0].status, expectedStatus, `${label}: receiver status`)
+          assert.equal(draft.missions[0].scopeGeneration, 2, `${label}: a widen bumps scopeGeneration once`)
+          if (shouldDefer) {
+            assert.equal(draft.missions[1].deferred, true, `${label}: a planned neighbour is deferred`)
+            assert.deepEqual(draft.missions[0].deferralsCreated, ['M2'], `${label}: the receiver records the neighbour`)
+          } else {
+            assert.equal(draft.missions[1].deferred, undefined, `${label}: no neighbour may be deferred`)
+          }
+        }
+      }
+    }
+  }
+})
+
+test('frozen widen deferral set: only planned neighbours are ever deferred', () => {
+  for (const neighbour of MODEL_STATUSES) {
+    const action = MODEL_WIDEN_CONFLICT_ACTIONS[neighbour]
+    const state = widenState('active', neighbour)
+    const { code, draft } = attemptWiden(state, { scope: ['src/**'], widen: { mode: 'defer-conflicts' } })
+    const label = `active receiver / ${neighbour} neighbour`
+    if (action === 'defer') {
+      assert.equal(code, null, `${label}: a planned neighbour is deferrable`)
+      assert.equal(draft.missions[1].deferred, true, `${label}: deferred flag`)
+    } else if (action === 'strand') {
+      assert.equal(code, 'invalid-argument', `${label}: deferring in-flight work is refused`)
+      assert.equal(draft.missions[1].deferred, undefined, `${label}: nothing was deferred`)
+    } else if (action === 'refuse') {
+      assert.equal(code, 'invalid-argument', `${label}: a completed neighbour may not be deferred`)
+      assert.equal(draft.missions[1].deferred, undefined, `${label}: nothing was deferred`)
+    } else {
+      // `skip` is not a conflict at all, so the widen simply succeeds.
+      assert.equal(code, null, `${label}: a non-conflicting neighbour does not block the widen`)
+      assert.equal(draft.missions[1].deferred, undefined, `${label}: an absent conflict is not recorded`)
+    }
+  }
+})
+
+test('frozen widen default: refuse names every conflict and keepStatus only suppresses completion', () => {
+  // The default mode changes nothing and names the neighbour with status/kind.
+  const state = widenState('active', 'planned')
+  const before = JSON.stringify(state)
+  const { code } = attemptWiden(state, { scope: ['src/**'] })
+  assert.equal(code, 'invalid-argument', 'the default widen mode refuses an overlap')
+  assert.equal(JSON.stringify(state), before, 'a refused widen mutates nothing')
+  // A widen without scope or restoreDeferrals is not a widen at all.
+  assert.equal(attemptWiden(widenState('active', 'planned'), { widen: { mode: 'refuse' } }).code, 'invalid-argument')
+  // keepStatus is ignored while the receiver is still being planned.
+  const planned = attemptWiden(widenState('planned', 'planned'), {
+    scope: ['src/**'],
+    widen: { mode: 'defer-conflicts', keepStatus: true },
+  })
+  assert.equal(planned.code, null, 'a planned edit is allowed')
+  assert.equal(planned.draft.missions[0].status, 'planned', 'a planned edit keeps planned regardless of keepStatus')
 })
 
 test('frozen status table: all 49 status pairs agree with the model', () => {

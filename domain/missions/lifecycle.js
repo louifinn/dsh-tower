@@ -16,6 +16,22 @@ import { isReviewerRole, isWorkerRole } from '../vocabulary.js'
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
 /**
+ * #219: the neighbour ids one widen deferred on this mission's behalf. It is a
+ * persisted mission field, exactly like `deferred` itself; the shared Mission
+ * declaration predates #219, so the widen code reaches it through this narrow
+ * view rather than widening the public type for one flag.
+ * @typedef {Mission & { deferralsCreated?: string[] }} WidenMission
+ */
+
+/**
+ * @param {Mission} mission
+ * @returns {WidenMission}
+ */
+function widenView(mission) {
+  return /** @type {WidenMission} */ (/** @type {unknown} */ (mission))
+}
+
+/**
  * @param {string} message
  * @param {string} [code]
  * @returns {never}
@@ -60,6 +76,9 @@ export function assertMissionActor(mission, actor, input) {
     // ordering decision the tower owns even on the worker's own mission: a
     // worker must not take its mission out of the tower's gate (#205).
     if (input.deferred !== undefined) fail('only the tower can defer a mission', 'not-authorized')
+    // #219: a widen decision can defer neighbours in the same call, so it is the
+    // same tower-only ordering power as `deferred` itself.
+    if (input.widen !== undefined) fail('only the tower can decide widen behaviour', 'not-authorized')
     if (input.pause_cause !== undefined || input.authorization !== undefined) {
       fail('only the tower can record pause/authorization metadata', 'not-authorized')
     }
@@ -211,14 +230,51 @@ const MISSION_UPDATE_FIELDS = [
   'scope',
   'allowMissingScope',
   'deferred',
+  'widen',
   'pause_cause',
   'authorization',
   'accept',
   'accept_note',
 ]
 
-/** Fields that make sense for the `ids` shorthand, which is lifecycle-only. */
+/**
+ * #219: the widen modes. `refuse` is the pre-#219 behaviour (a conflicting
+ * neighbour refuses the widen); `defer-conflicts` defers every conflicting
+ * planned neighbour in the same call.
+ */
+const WIDEN_MODES = ['refuse', 'defer-conflicts']
+const WIDEN_FIELDS = ['mode', 'restoreDeferrals', 'keepStatus']
+
+/**
+ * Fields that make sense for the `ids` shorthand, which is lifecycle-only.
+ */
 const IDS_SHORTHAND_FIELDS = ['status', 'note', 'blocker', 'clear_blockers', 'deferred', 'pause_cause', 'authorization']
+
+/**
+ * Normalize the optional `widen` object (#219). Only the single-mission form
+ * carries it: deferring a neighbour is one ordering decision on one receiver.
+ * @param {any} value
+ * @returns {{ mode: string, restoreDeferrals: boolean, keepStatus: boolean } | null}
+ */
+function normalizeWiden(value) {
+  if (value === undefined) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('tower_mission widen must be an object')
+  }
+  for (const key of Object.keys(value)) {
+    if (!WIDEN_FIELDS.includes(key)) fail(`tower_mission widen: unknown field "${key}"`)
+  }
+  const mode = value.mode === undefined ? 'refuse' : value.mode
+  if (typeof mode !== 'string' || !WIDEN_MODES.includes(mode)) {
+    fail('tower_mission widen.mode must be "refuse" or "defer-conflicts"')
+  }
+  for (const key of ['restoreDeferrals', 'keepStatus']) {
+    if (value[key] !== undefined && typeof value[key] !== 'boolean') {
+      fail(`tower_mission widen.${key} must be a boolean`)
+    }
+  }
+  return { mode, restoreDeferrals: value.restoreDeferrals === true, keepStatus: value.keepStatus === true }
+}
 
 /**
  * @param {unknown} value
@@ -283,6 +339,9 @@ export function normalizeMissionBatch(input = {}) {
       if (key === 'accept' || key === 'accept_note') {
         fail('tower_mission accept is only available on the single-mission form')
       }
+      // #219: deferring a neighbour is one ordering decision on one receiver;
+      // a batch item never carries widen behaviour.
+      if (key === 'widen') fail('tower_mission widen is only available on the single-mission form')
       if (!MISSION_UPDATE_FIELDS.includes(key)) fail(`tower_mission missions[${index}]: unknown field "${key}"`)
     }
     const id = normalizeBulkId(item.id, `missions[${index}]`)
@@ -313,7 +372,8 @@ function assertUniqueBatchIds(items) {
  * the human-readable change list used by the activity log plus the domain
  * events the transition describes.
  * @param {{ mission: Mission, state: TowerState, input: any, config: any }} params
- * @returns {{ state: Mission, changes: string[], events: Array<{ type: string, missionId: string }> }}
+ * @returns {{ state: Mission, changes: string[], events: Array<{ type: string, missionId: string }>,
+ *   widen: { mode: string, deferred: string[], restored: string[], statusKept: boolean } | null }}
  */
 export function applyMissionUpdate({ mission, state, input, config }) {
   const actor = input.actor ?? { name: 'tower', role: 'tower' }
@@ -515,43 +575,142 @@ export function applyMissionUpdate({ mission, state, input, config }) {
     )
   }
 
-  if (input.scope !== undefined) {
-    if (!shape.reach.ownsPaths) {
-      fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
+  // #219: one call decides how a widen treats its conflicting neighbours. The
+  // whole plan is validated before the first mutation, so a refused widen
+  // leaves the draft exactly as it found it.
+  const widen = normalizeWiden(input.widen)
+  const receiver = widenView(mission)
+  if (widen && input.scope === undefined && !widen.restoreDeferrals) {
+    fail('tower_mission widen requires scope or widen.restoreDeferrals')
+  }
+  /** @type {string[]} */
+  const restoreIds = []
+  if (widen?.restoreDeferrals) {
+    const recorded = receiver.deferralsCreated
+    if (!Array.isArray(recorded) || recorded.length === 0) {
+      fail(`mission ${mission.id} has no deferred neighbours recorded to restore`)
     }
-    // A planned mission edits its fence while it is still being planned; that
-    // is not a widen and must not start the mission. A patch that also moves it
-    // to active edits that same fence: both statuses keep the planned-edit
-    // semantics. Active and completed missions keep the original widening
-    // semantics.
-    const plannedEdit = statusBefore === 'planned' && ['planned', 'active'].includes(mission.status)
-    if (!plannedEdit && !['active', 'completed'].includes(mission.status)) {
-      fail(`scope can only be edited for planned, widened for active or completed missions, not ${mission.status}`)
+    restoreIds.push(...recorded)
+  }
+  const scopePatch = input.scope === undefined
+    ? null
+    : planScopePatch({ mission, state, input, shape, statusBefore, widen, restoring: new Set(restoreIds) })
+
+  // Only now, with every check passed, do the mutations land. A deferral this
+  // mission recorded is cleared; a neighbour whose flag is already gone is
+  // simply no longer recorded, and one a human deferred by hand keeps its flag.
+  if (restoreIds.length > 0) {
+    for (const id of restoreIds) {
+      const other = state.missions.find((entry) => entry.id === id)
+      if (other && other.deferred === true) delete other.deferred
     }
-    const scope = normalizeScope(input.scope)
-    const others = state.missions.filter((entry) => {
-      if (entry.id === mission.id) return false
-      // #205: a paused mission is stopped and a deferred mission has stepped
-      // out of the ordering; neither can fence a widen until it moves again.
-      if (entry.deferred === true) return false
-      if (entry.status === 'paused') return false
-      const other = shapeFor(entry.kind)
-      return other.reach.ownsPaths && !other.isTerminal(entry.status)
-    })
-    const caseInsensitive = state.caseInsensitive === true
-    for (const other of others) {
-      if (scopesOverlap(scope, other.scope, { caseInsensitive })) {
-        fail(
-          `widened scope overlaps mission ${other.id}; retire it, pause it, mark it deferred, or add an explicit ordering`,
-        )
-      }
+    delete receiver.deferralsCreated
+    changes.push(`restored ${restoreIds.length} deferral(s): ${restoreIds.join(', ')}`)
+  }
+
+  let widenStatusKept = false
+  if (scopePatch) {
+    for (const id of scopePatch.deferred) {
+      const other = state.missions.find((entry) => entry.id === id)
+      if (other) other.deferred = true
     }
-    mission.scope = scope
+    if (scopePatch.deferred.length > 0) {
+      const recorded = Array.isArray(receiver.deferralsCreated) ? [...receiver.deferralsCreated] : []
+      receiver.deferralsCreated = [...new Set([...recorded, ...scopePatch.deferred])]
+      changes.push(`deferred conflicting planned neighbour(s): ${scopePatch.deferred.join(', ')}`)
+    }
+    mission.scope = scopePatch.scope
     mission.scopeGeneration = (mission.scopeGeneration ?? 1) + 1
-    if (!plannedEdit) mission.status = 'active'
-    changes.push(plannedEdit ? 'scope edited' : 'scope widened')
+    widenStatusKept = scopePatch.statusKept
+    if (!scopePatch.plannedEdit && !widenStatusKept) mission.status = 'active'
+    changes.push(scopePatch.plannedEdit ? 'scope edited' : 'scope widened')
   }
 
   if (changes.length === 0) fail('tower_mission requires at least one change')
-  return { state: mission, changes, events }
+  const widenOutcome = widen
+    ? {
+        mode: widen.mode,
+        deferred: scopePatch?.deferred ?? [],
+        restored: restoreIds,
+        statusKept: widenStatusKept,
+      }
+    : null
+  return { state: mission, changes, events, widen: widenOutcome }
+}
+
+/**
+ * Validate a scope patch without mutating anything (#219). The overlap check
+ * compares against every path-owning neighbour that is neither paused nor
+ * deferred, and the returned plan names the neighbours `defer-conflicts` may
+ * defer once the caller's patch is known to be legal.
+ * @param {{ mission: any, state: any, input: any, shape: any, statusBefore: string,
+ *   widen: { mode: string, restoreDeferrals: boolean, keepStatus: boolean } | null,
+ *   restoring: Set<string> }} params
+ * @returns {{ scope: string[], deferred: string[], plannedEdit: boolean, statusKept: boolean }}
+ */
+function planScopePatch({ mission, state, input, shape, statusBefore, widen, restoring }) {
+  if (!shape.reach.ownsPaths) {
+    fail(`mission ${mission.id} is a ${shape.kind}: it reads a commit and does not own scope`)
+  }
+  // A planned mission edits its fence while it is still being planned; that is
+  // not a widen and must not start the mission. A patch that also moves it to
+  // active edits that same fence: both statuses keep the planned-edit
+  // semantics. Active and completed missions keep the widening semantics.
+  const plannedEdit = statusBefore === 'planned' && ['planned', 'active'].includes(mission.status)
+  if (!plannedEdit && !['active', 'completed'].includes(mission.status)) {
+    fail(`scope can only be edited for planned, widened for active or completed missions, not ${mission.status}`)
+  }
+  const scope = normalizeScope(input.scope)
+  const others = state.missions.filter((entry) => {
+    if (entry.id === mission.id) return false
+    // #205: a paused mission is stopped and a deferred mission has stepped out
+    // of the ordering; neither can fence a widen until it moves again. A
+    // neighbour this same call restores is still a fence.
+    if (entry.deferred === true && !restoring.has(entry.id)) return false
+    if (entry.status === 'paused') return false
+    const other = shapeFor(entry.kind)
+    return other.reach.ownsPaths && !other.isTerminal(entry.status)
+  })
+  const caseInsensitive = state.caseInsensitive === true
+  const conflicts = others.filter((other) => scopesOverlap(scope, other.scope, { caseInsensitive }))
+  const describe = (/** @type {any} */ other) => `${other.id}: ${other.status} ${shapeFor(other.kind).kind}`
+  // #219: a widen used to fail on the first conflict and leave the caller to
+  // choreograph the neighbours by hand (defer, widen, restore). `defer-conflicts`
+  // does that in one call; `refuse` still refuses, now naming every conflicting
+  // neighbour with its status and kind so one round trip is enough to decide.
+  if (widen?.mode === 'defer-conflicts') {
+    const stranded = conflicts.filter((other) => other.status !== 'planned')
+    if (stranded.length > 0) {
+      // Only a planned neighbour may be deferred: an active or blocked one has
+      // work in flight and a deferral would strand it.
+      const inFlight = stranded.filter((other) => ['active', 'blocked'].includes(other.status))
+      if (inFlight.length > 0) {
+        fail(
+          `a deferral would strand in-flight work: ${inFlight
+            .map(describe)
+            .join(', ')}; only a planned neighbour can be deferred`,
+        )
+      }
+      fail(`only a planned neighbour can be deferred: ${stranded.map(describe).join(', ')}`)
+    }
+    return {
+      scope,
+      deferred: conflicts.map((other) => other.id),
+      plannedEdit,
+      // `keepStatus` leaves a started mission as it is, so a completed mission
+      // stays completed and its reviewer can spawn without a status patch.
+      statusKept: widen.keepStatus === true && !plannedEdit,
+    }
+  }
+  if (conflicts.length > 0) {
+    const them = conflicts.length === 1 ? 'it' : 'them'
+    fail(
+      `widened scope overlaps mission ${conflicts
+        .map((other) => other.id)
+        .join(', ')}; retire ${them}, pause ${them}, mark ${them} deferred, or add an explicit ordering (${conflicts
+        .map(describe)
+        .join(', ')})`,
+    )
+  }
+  return { scope, deferred: [], plannedEdit, statusKept: widen?.keepStatus === true && !plannedEdit }
 }

@@ -74,6 +74,73 @@ export const MODEL_TERMINAL_STATUSES = Object.freeze(new Set(['merged', 'abandon
 /** Why a mission is paused; only meaningful for status `paused`. */
 export const MODEL_PAUSE_CAUSES = Object.freeze(['user', 'failure', 'resource', 'dependency'])
 
+/**
+ * How a widen may treat its conflicting neighbours (#219). `refuse` is the
+ * default: it changes nothing and names every conflict. `defer-conflicts` steps
+ * planned neighbours out of the ordering in the same call.
+ */
+export const MODEL_WIDEN_MODES = Object.freeze(['refuse', 'defer-conflicts'])
+
+/**
+ * The status a widen leaves the receiver in, per starting status. A planned
+ * mission edits its fence and stays planned; an active widen is already active;
+ * a completed mission returns to active so the fence can change again — unless
+ * `keepStatus` is set, which leaves it completed for its reviewer. Every other
+ * status is not a fence owner state and refuses.
+ * @type {Readonly<Record<string, {default: string | null, keepStatus: string | null}>>}
+ */
+export const MODEL_WIDEN_STATUS_EFFECTS = Object.freeze({
+  planned: Object.freeze({ default: 'planned', keepStatus: 'planned' }),
+  active: Object.freeze({ default: 'active', keepStatus: 'active' }),
+  completed: Object.freeze({ default: 'active', keepStatus: 'completed' }),
+  blocked: Object.freeze({ default: null, keepStatus: null }),
+  paused: Object.freeze({ default: null, keepStatus: null }),
+  merged: Object.freeze({ default: null, keepStatus: null }),
+  abandoned: Object.freeze({ default: null, keepStatus: null }),
+})
+
+/**
+ * What `defer-conflicts` may do to a conflicting neighbour, per its status. Only
+ * a planned neighbour has no work in flight; deferring an active or blocked one
+ * would strand it, and any later status refuses outright. A paused neighbour has
+ * stepped out of the ordering and a terminal one owns no live fence, so neither
+ * is a conflict at all.
+ * @type {Readonly<Record<string, 'defer' | 'strand' | 'refuse' | 'skip'>>}
+ */
+export const MODEL_WIDEN_CONFLICT_ACTIONS = Object.freeze({
+  planned: 'defer',
+  active: 'strand',
+  blocked: 'strand',
+  completed: 'refuse',
+  paused: 'skip',
+  merged: 'skip',
+  abandoned: 'skip',
+})
+
+/**
+ * The status a planned widen leaves a receiver in, or `null` when the widen is
+ * refused for that starting status. Written from the documented rule, not read
+ * from the domain.
+ * @param {string} from
+ * @param {{ keepStatus?: boolean }} [options]
+ * @returns {string | null}
+ */
+export function modelWidenResultStatus(from, options = {}) {
+  const effects = MODEL_WIDEN_STATUS_EFFECTS[from]
+  if (!effects) return null
+  return options.keepStatus === true ? effects.keepStatus : effects.default
+}
+
+/**
+ * Whether `defer-conflicts` may defer a neighbour in this status.
+ * @param {string} status
+ * @returns {boolean}
+ */
+export function modelWidenCanDefer(status) {
+  return MODEL_WIDEN_CONFLICT_ACTIONS[status] === 'defer'
+}
+
+
 /** Finding lifecycle statuses. */
 export const MODEL_FINDING_STATUSES = Object.freeze(['open', 'triaged', 'fixed', 'wontfix'])
 

@@ -73,7 +73,7 @@ import {
 } from '../../domain/missions/review.js'
 import { mergeVerdictArb, reviewStatusArb, stateWithMissionsArb } from './arbitraries/index.mjs'
 import { runProperty } from './helpers/harness.mjs'
-import { MODEL_CONFIG, MODEL_STATUSES } from './model/tables.mjs'
+import { MODEL_CONFIG, MODEL_STATUSES, MODEL_WIDEN_MODES } from './model/tables.mjs'
 
 const NOW = 1_700_000_000_000
 const REPORT = 'property-driven completion report'
@@ -841,3 +841,103 @@ runProperty({
     )
   },
 })
+
+// #219: a widen mutates a neighbour, so it gets its own frozen matrix. Two
+// invariants are load-bearing and neither is a status transition: only a planned
+// neighbour may ever be deferred, and a refused widen changes nothing at all.
+const widenMatrix = []
+for (const receiver of ['planned', 'active', 'completed', 'blocked', 'paused']) {
+  for (const neighbour of MODEL_STATUSES) {
+    for (const mode of MODEL_WIDEN_MODES) {
+      widenMatrix.push({ receiver, neighbour, mode, entry: `${receiver} receiver / ${neighbour} neighbour / ${mode}` })
+    }
+  }
+}
+
+/** A two-mission state whose receiver fence contains the neighbour's fence. */
+function widenState(receiver, neighbour) {
+  const patch = { scope: ['src/a/**'] }
+  // `blocked` is derived from open blockers and `paused` records its cause; the
+  // state validator requires both, so the frozen base state carries them.
+  if (receiver === 'blocked') patch.blockers = ['frozen widen base blocker']
+  if (receiver === 'paused') patch.pauseCause = 'user'
+  const state = frozenState({ status: receiver, patch })
+  state.missions.push({
+    id: 'M2',
+    title: 'widen neighbour',
+    status: neighbour,
+    kind: 'build',
+    scope: ['src/shared/**'],
+    deps: [],
+    tasks: [],
+    blockers: [],
+    notes: [],
+    owner: null,
+    reviewPolicy: 'required-clean',
+    scopeGeneration: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    completionReport: neighbour === 'completed' || neighbour === 'merged'
+      ? { report: REPORT, reportBytes: REPORT.length, by: null, at: NOW, checks: [] }
+      : null,
+    ...(neighbour === 'blocked' ? { blockers: ['frozen widen neighbour blocker'] } : {}),
+    ...(neighbour === 'paused' ? { pauseCause: 'user' } : {}),
+  })
+  return state
+}
+
+runProperty({
+  name: 'widen pipeline: only a planned neighbour is ever deferred and a refused widen is a no-op',
+  arbitrary: fc.constantFrom(...widenMatrix),
+  predicate: ({ receiver, neighbour, mode, entry }) => {
+    const state = widenState(receiver, neighbour)
+    validateState(state, `frozen widen matrix: ${entry}`)
+    const baseGeneration = state.missions[0].scopeGeneration ?? 1
+    const draft = structuredClone(state)
+    const [mission, other] = draft.missions
+    let error = null
+    try {
+      applyMissionUpdate({
+        mission,
+        state: draft,
+        input: { scope: ['src/**'], widen: { mode } },
+        config: MODEL_CONFIG,
+      })
+    } catch (caught) {
+      error = caught
+    }
+    if (error !== null) {
+      assert.ok(error instanceof TowerToolError, `${entry}: a refusal must be a TowerToolError, got ${error}`)
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(draft)),
+        JSON.parse(JSON.stringify(state)),
+        `${entry}: a refused widen must be a no-op`,
+      )
+      return
+    }
+    // An accepted widen: the fence moved exactly one generation and no
+    // non-planned neighbour gained a deferred flag.
+    assert.equal(
+      draft.missions[0].scopeGeneration,
+      baseGeneration + 1,
+      `${entry}: a widen must bump scopeGeneration exactly once`,
+    )
+    for (const entryMission of [draft.missions[0], draft.missions[1]]) {
+      if (entryMission.deferred === true) {
+        assert.equal(entryMission.status, 'planned', `${entry}: only a planned mission may carry a deferred flag`)
+      }
+    }
+    const recorded = draft.missions[0].deferralsCreated ?? []
+    if (recorded.length > 0) {
+      for (const id of recorded) {
+        const recordedMission = draft.missions.find((candidate) => candidate.id === id)
+        assert.ok(recordedMission, `${entry}: deferralsCreated names an unknown mission ${id}`)
+        assert.equal(recordedMission.deferred, true, `${entry}: ${id} is recorded as deferred but is not deferred`)
+      }
+    }
+    // The synthetic neighbour is not a full pipeline state (no review or merge
+    // projection), so only the state validator applies, not the merge invariant.
+    validateState(draft, `frozen widen matrix: ${entry}`)
+  },
+})
+

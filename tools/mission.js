@@ -77,6 +77,7 @@ export function registerMissionTool(ctx, deps) {
         scope: args.scope,
         allowMissingScope: args.allowMissingScope,
         deferred: args.deferred,
+        widen: args.widen,
         pause_cause: args.pause_cause,
         authorization: args.authorization,
         missions: args.missions,

@@ -17,7 +17,7 @@ export async function updateMission(tower, input = {}) {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === missionId)
     if (!mission) fail(`unknown mission "${missionId}"`, 'mission-not-found')
-    const { changes, events } = applyMissionUpdate({ mission, state, input, config: tower.config })
+    const { changes, events, widen } = applyMissionUpdate({ mission, state, input, config: tower.config })
     const now = Date.now()
     mission.updatedAt = now
     await sweepArchive(tower, state, { now })
@@ -32,8 +32,29 @@ export async function updateMission(tower, input = {}) {
       missionId: mission.id,
       text: changes.join('; '),
     })
+    // #219: a widen that deferred or restored a neighbour touched that mission
+    // too, so it gets its own activity entry even though the whole call is one
+    // revision bump.
+    if (widen) {
+      for (const id of widen.deferred) {
+        await tower.appendActivity({
+          at: now,
+          type: 'mission',
+          missionId: id,
+          text: `deferred by widen of ${mission.id}`,
+        })
+      }
+      for (const id of widen.restored) {
+        await tower.appendActivity({
+          at: now,
+          type: 'mission',
+          missionId: id,
+          text: `deferral restored by ${mission.id}`,
+        })
+      }
+    }
     tower.emitEvents(events, { revision: state.revision, at: now })
-    return { revision: state.revision, mission: fullMission(mission) }
+    return { revision: state.revision, mission: fullMission(mission), ...(widen ? { widen } : {}) }
   })
   // Abandoning a detached survey disposes its sandbox. The state transition is
   // already durable; cleanup is advisory and reports rather than throws.
