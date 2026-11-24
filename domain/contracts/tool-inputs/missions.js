@@ -50,6 +50,11 @@ const missionFields = {
   scope: Type.Optional(Type.Array(Type.String(), { description: 'Tower only: replacement scope globs. A planned mission edits its fence and keeps planned-edit order; an active or completed one widens and starts; bumps scopeGeneration.' })),
   allowMissingScope: Type.Optional(Type.Boolean({ description: 'With scope: accept entries matching no tracked file yet, for paths this mission will create; recorded as one scope.unverified activity entry, not stored on the mission.' })),
   deferred: Type.Optional(Type.Boolean({ description: 'Tower only: step a planned or active mission that owns paths (build or artifact) out of the overlap check; pass false to rejoin. It never blocks another mission from widening.' })),
+  widen: Type.Optional(Type.Object({
+    mode: Type.Optional(Type.String({ description: 'refuse (default) names every conflicting neighbour with its status and kind and changes nothing; defer-conflicts defers the planned ones in the same call.' })),
+    restoreDeferrals: Type.Optional(Type.Boolean({ description: 'Clear exactly the deferred flags an earlier widen deferred on this mission\'s behalf; a human-set flag stays.' })),
+    keepStatus: Type.Optional(Type.Boolean({ description: 'With scope: keep the receiver\'s status instead of returning a completed mission to active, so a reviewer can spawn straight away.' })),
+  }, { additionalProperties: false, description: 'Tower only, single form: how one call treats a widen\'s conflicting neighbours. Without scope it must set restoreDeferrals.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
 }

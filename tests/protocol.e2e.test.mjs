@@ -28,16 +28,39 @@ function initRepo(repo) {
   git(repo, ['commit', '-m', 'seed'])
 }
 
+/** Minimal `subagents` stand-in: records activations, never calls a model. */
+function fakeSubagents() {
+  let seq = 0
+  const activations = []
+  return {
+    activations,
+    list: () => ['spawn'],
+    async startActivation(input) {
+      seq += 1
+      const childId = `child-${seq}`
+      activations.push({ ...input, childId })
+      return {
+        childId,
+        result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
+      }
+    },
+    async sendMessage() {},
+    async listDescendants() {
+      return []
+    },
+  }
+}
+
 /** Register the real tool surface on a minimal host context. */
-function makeCtx() {
+function makeCtx(services = {}) {
   const tools = new Map()
   const ctx = {
     effect(fn) {
       const dispose = fn()
       return typeof dispose === 'function' ? dispose : () => {}
     },
-    get() {
-      return undefined
+    get(name) {
+      return services[name]
     },
     tools: {
       register(definition) {
@@ -907,6 +930,199 @@ test('tower_mission bulk partial mode reports each item and keeps successes', as
     assert.match(bulk[0].text, /partial/)
     assert.match(bulk[0].text, /M1/)
     assert.match(bulk[0].text, /M99/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+/** Tracked seed directories make a widened fence match real files (#200). */
+function seedTracked(repo, files) {
+  for (const file of files) {
+    const target = path.join(repo, file)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, `${file}\n`)
+  }
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'fixtures'])
+}
+
+// #219: one call defers the planned neighbours a widen collides with, under the
+// same single revision bump, with one activity record per neighbour so the
+// deferral is visible on the neighbour's own timeline.
+test('#219 a widen defers planned neighbours in one call', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-one-call-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'src/shared/s.txt', 'other/o.txt'])
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Receiver', scope: ['src/a/**'] },
+        { title: 'Neighbour', scope: ['src/shared/**'] },
+        { title: 'Bystander', scope: ['other/**'] },
+      ],
+    })
+    const [receiver, neighbour] = planned.missions.map((mission) => mission.id)
+    await call(tools, 'tower_mission', { repoRoot: repo, id: receiver, status: 'active' })
+    const tower = await Tower.open(repo)
+    const beforeRevision = (await tower.load()).revision
+
+    const widened = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id: receiver,
+      scope: ['src/**'],
+      widen: { mode: 'defer-conflicts' },
+    })
+    assert.equal(widened.revision, beforeRevision + 1, 'one call adds exactly one revision')
+    assert.equal(widened.mission.status, 'active')
+    assert.equal(widened.mission.scopeGeneration, 2)
+    assert.deepEqual(widened.mission.scope, ['src/**'])
+    assert.deepEqual(widened.widen, { mode: 'defer-conflicts', deferred: [neighbour], restored: [], statusKept: false })
+
+    const state = await tower.load()
+    const stored = state.missions.find((mission) => mission.id === neighbour)
+    assert.equal(stored.status, 'planned', 'a deferred neighbour keeps its status')
+    assert.equal(stored.deferred, true)
+    assert.deepEqual(state.missions.find((mission) => mission.id === receiver).deferralsCreated, [neighbour])
+
+    const activity = await tower.deps.store.readActivityTail(tower.paths.activity, 20)
+    const perMission = activity.filter((entry) => entry.type === 'mission' && entry.missionId !== undefined)
+    // The widening writes the receiver record plus one record per neighbour, in
+    // that order, and nothing else.
+    const widening = perMission.slice(-2)
+    assert.deepEqual(widening.map((entry) => entry.missionId), [receiver, neighbour])
+    assert.match(widening[0].text, /scope widened/)
+    assert.equal(widening[1].text, `deferred by widen of ${receiver}`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #219 task 5: keepStatus leaves a completed mission completed, so the reviewer
+// can be spawned immediately instead of the tower patching the status back.
+test('#219 keepStatus keeps a completed mission completed for its reviewer', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-keep-status-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'other/o.txt'])
+  const { tools } = makeCtx({
+    subagents: fakeSubagents(),
+    agentPresets: { list: async () => [{ id: 'tower-worker' }, { id: 'tower-reviewer' }] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Finished', scope: ['src/a/**'], tasks: ['work'] },
+        { title: 'Other', scope: ['other/**'] },
+      ],
+    })
+    const id = planned.missions[0].id
+    const tower = await Tower.open(repo)
+    const provisioned = await tower.provision({ missionId: id })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'work.txt'), 'work\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', `${id} work`])
+    await tower.mission({ id, status: 'active' })
+    await tower.mission({ id, task_done: 'work' })
+    await tower.recordSpawn({
+      missionId: id,
+      name: `worker-${id.toLowerCase()}`,
+      role: 'worker',
+      agentId: `agent-${id}`,
+      parentSessionId: 'session-e2e',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    await tower.complete({ missionId: id, agentId: `agent-${id}`, report: 'done' })
+
+    const kept = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id,
+      scope: ['src/**'],
+      widen: { keepStatus: true },
+    })
+    assert.equal(kept.mission.status, 'completed', 'keepStatus must not return the mission to active')
+    assert.equal(kept.mission.scopeGeneration, 2)
+    assert.deepEqual(kept.mission.scope, ['src/**'])
+    assert.equal(kept.widen.statusKept, true)
+
+    // The reviewer prerequisite is a status check, so no intermediate patch.
+    const reviewer = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: id, role: 'reviewer' })
+    assert.equal(reviewer.role, 'reviewer')
+    assert.ok(reviewer.agentId)
+    const after = await tower.load()
+    assert.equal(after.missions.find((mission) => mission.id === id).status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #219 tasks 2 and 3: the default mode is the historical refusal, but it names
+// every conflicting neighbour with its status and kind; an in-flight neighbour
+// is never auto-deferred.
+test('#219 a widen refuses by default and never strands an active neighbour', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-refusal-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'src/shared/s.txt', 'src/deep/d.txt'])
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Receiver', scope: ['src/a/**'] },
+        { title: 'Planned neighbour', scope: ['src/shared/**'] },
+        { title: 'Active neighbour', scope: ['src/deep/**'] },
+      ],
+    })
+    const [receiver, plannedId, activeId] = planned.missions.map((mission) => mission.id)
+    await call(tools, 'tower_mission', { repoRoot: repo, id: receiver, status: 'active' })
+    await call(tools, 'tower_mission', { repoRoot: repo, id: activeId, status: 'active' })
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+
+    await assert.rejects(
+      () => call(tools, 'tower_mission', { repoRoot: repo, id: receiver, scope: ['src/**'] }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /widened scope overlaps mission /.test(error.message) &&
+        new RegExp(`widened scope overlaps mission [^;]*${plannedId}`).test(error.message) &&
+        new RegExp(`widened scope overlaps mission [^;]*${activeId}`).test(error.message) &&
+        /: planned build/.test(error.message) &&
+        /: active build/.test(error.message),
+    )
+
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_mission', {
+          repoRoot: repo,
+          id: receiver,
+          scope: ['src/**'],
+          widen: { mode: 'defer-conflicts' },
+        }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /a deferral would strand in-flight work/.test(error.message) &&
+        new RegExp(`${activeId}: active build`).test(error.message),
+    )
+
+    const after = await tower.load()
+    assert.equal(after.revision, before.revision, 'a refused widen writes nothing')
+    for (const missionId of [plannedId, activeId]) {
+      const stored = after.missions.find((mission) => mission.id === missionId)
+      assert.equal(Object.hasOwn(stored, 'deferred'), false, `${missionId} must not be deferred`)
+    }
   } finally {
     removeTemp(root)
   }
