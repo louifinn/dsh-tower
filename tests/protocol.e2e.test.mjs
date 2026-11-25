@@ -1373,3 +1373,81 @@ test('#222 tower_complete accepts the declared files argument and records the un
     removeTemp(root)
   }
 })
+
+// R211: the recorded footprint must read the same split as the merge gate, or a
+// case-only path can be accepted at preflight and then reported to the reviewer
+// as an out-of-scope change — a false accusation. This pins the whole chain on a
+// case-insensitive checkout: gate accepts, footprint says inside, briefing stays
+// silent. It asserts the two agree in one test so a future drift reddens here.
+test('#222 on a case-insensitive checkout the gate and the footprint agree on a case-only path', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-case-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    // The mode a real Windows/macOS checkout detects at `tower_init`, injected so
+    // the case-insensitive branch runs on a case-sensitive CI filesystem too.
+    const statePath = path.join(repo, '.git', 'dsh-tower', 'state.json')
+    const seeded = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    seeded.caseInsensitive = true
+    fs.writeFileSync(statePath, JSON.stringify(seeded, null, 2))
+
+    await tower.plan({ missions: [{ title: 'Case-only footprint', scope: ['src/Api/**'], tasks: ['write api'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    // The file differs from the fence only by case: on this checkout, in scope.
+    fs.mkdirSync(path.join(wt, 'src', 'api'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'api', 'x.js'), 'x\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 case-only path'])
+
+    // The gate is the authority on permission: it accepts the case-only path,
+    // and rejects an unrelated one, on the same state the footprint will read.
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    assert.equal(
+      gate.blockers.some((blocker) => blocker.code === 'out-of-scope'),
+      false,
+      `the gate must accept src/api/x.js under src/Api/** on a case-insensitive checkout: ${JSON.stringify(gate.blockers)}`,
+    )
+
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write api' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.insideScope, ['src/api/x.js'], 'the footprint reads the same split the gate accepted')
+    assert.deepEqual(footprint.outsideScope, [], 'a case-only path is never an out-of-scope accusation')
+
+    // And the reviewer briefing, which renders outsideScope verbatim, stays quiet.
+    const { buildSpawnBriefing } = await import('../app/spawn-support.js')
+    const context = buildSpawnBriefing({
+      role: 'reviewer',
+      towerRoot: repo,
+      context: {
+        base: 'main',
+        mission: completed.mission,
+        deps: [],
+        reviews: [],
+        findings: [],
+        completionReport: completed.mission.completionReport,
+      },
+      worktree: { path: wt, branch: provisioned.worktree.branch, baseCommit: provisioned.worktree.baseCommit },
+      review: null,
+      instructions: undefined,
+    })
+    assert.doesNotMatch(context, /Outside the mission scope/, 'the briefing must not accuse a gate-approved path')
+  } finally {
+    removeTemp(root)
+  }
+})

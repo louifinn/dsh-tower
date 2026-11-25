@@ -1157,6 +1157,31 @@ test('#222 an undeclared completion records no mismatch, and a widen records its
   assert.deepEqual(widened.widenedTo, ['src/**', 'docs/guide/**'])
 })
 
+// R211: the footprint must compare scope exactly like the merge gate, or the
+// same mission can call a path inside on completion and outside at review. The
+// checkout's mode is an argument, never an assumption (docs at
+// domain/scope.js:93-95 state the invariant this pins).
+test('#222 the footprint folds case exactly when the gate does', () => {
+  const target = mission({ kind: 'build', scope: ['src/Api/**'] })
+  // Case-sensitive (the historic default): the case-only path stays outside.
+  const sensitive = completionFootprint({ mission: target, changed: ['src/api/x.js'] })
+  assert.deepEqual(sensitive.insideScope, [])
+  assert.deepEqual(sensitive.outsideScope, ['src/api/x.js'])
+  assert.deepEqual(
+    completionFootprint({ mission: target, changed: ['src/api/x.js'], caseInsensitive: false }).outsideScope,
+    ['src/api/x.js'],
+    'an explicit false is still case-sensitive',
+  )
+  // Case-insensitive checkout: the same path is inside, so the gate that
+  // accepts it and the record that describes it cannot disagree.
+  const insensitive = completionFootprint({ mission: target, changed: ['src/api/x.js'], caseInsensitive: true })
+  assert.deepEqual(insensitive.insideScope, ['src/api/x.js'])
+  assert.deepEqual(insensitive.outsideScope, [])
+  // Folding the comparison must not widen the fence to unrelated trees.
+  const stray = completionFootprint({ mission: target, changed: ['docs/x.md'], caseInsensitive: true })
+  assert.deepEqual(stray.outsideScope, ['docs/x.md'])
+})
+
 test('#222 the completion report omits the footprint when none was derived', () => {
   const worker = { name: 'worker-1' }
   const bare = completionReport({ report: 'done', worker, checks: [], now: 7 })

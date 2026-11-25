@@ -297,15 +297,21 @@ export function normalizeDeclaredFiles(files) {
  * the authority; a declaration only ever ADDS a name (the union is reported) and
  * a disagreement is recorded as a mismatch note rather than a refusal.
  *
- * @param {{ mission: Mission, declared?: string[], changed?: string[], widenAt?: number | null }} params
+ * `caseInsensitive` is the checkout's comparison mode, detected once at
+ * `tower_init` and stored in state. It is threaded through here for the same
+ * reason `scopeSplit` takes it: the footprint and the merge gate must produce
+ * one split, so a case-only path cannot be inside for the record and outside for
+ * review (R211).
+ *
+ * @param {{ mission: Mission, declared?: string[], changed?: string[], widenAt?: number | null, caseInsensitive?: boolean }} params
  * @returns {any}
  */
-export function completionFootprint({ mission, declared = [], changed = [], widenAt = null }) {
+export function completionFootprint({ mission, declared = [], changed = [], widenAt = null, caseInsensitive = false }) {
   const shape = shapeFor(mission.kind)
   const derived = Array.isArray(changed) ? changed.filter((file) => typeof file === 'string' && file.length > 0) : []
   const claimed = Array.isArray(declared) ? declared : []
   const union = [...new Set([...derived, ...claimed])].sort()
-  const split = scopeSplit({ mission, reach: shape.reach, changedFiles: union })
+  const split = scopeSplit({ mission, reach: shape.reach, changedFiles: union, caseInsensitive: caseInsensitive === true })
   const derivedSet = new Set(derived)
   const claimedSet = new Set(claimed)
   /** @type {string[]} */

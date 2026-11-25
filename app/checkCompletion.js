@@ -157,7 +157,9 @@ async function completionFootprintFor(tower, mission, input, state) {
   const changed = await footprintDiff(tower, mission)
   if (changed === null) return null
   const widenAt = await widenRecordedAt(tower, mission)
-  return completionFootprint({ mission, declared, changed, widenAt })
+  // R211: the checkout's comparison mode is a state fact, and the footprint must
+  // split scope exactly like the merge gate (app/gate.js:136) does.
+  return completionFootprint({ mission, declared, changed, widenAt, caseInsensitive: state.caseInsensitive === true })
 }
 
 /**
@@ -176,7 +178,10 @@ async function footprintDiff(tower, mission) {
       ? await tower.branchTip(mission)
       : await tower.revParse(sandbox, 'HEAD')
     const base = worktree ? worktree.baseCommit : /** @type {string} */ (mission.readCommit)
-    if (!tip || !base) return []
+    // R211: an unresolvable tip or base is an unreadable diff, not an empty one.
+    // Returning [] here would record a footprint claiming nothing changed, while
+    // docs/reference/tools.md:157 promises the footprint is omitted in this case.
+    if (!tip || !base) return null
     return await changedPaths(tower, worktree?.path ?? sandbox, `${base}..${tip}`)
   } catch {
     // Undeliverable diffs are recorded as "no footprint", never as a refusal:
