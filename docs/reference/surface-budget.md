@@ -215,7 +215,7 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**34,286 B / 23 tools**, and that figure is a build-surface statement, never a
+**34,579 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -226,8 +226,8 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **15,109 B / 6 tools**, `preset:reviewer` **9,202 B / 6**,
-`preset:survey` and `preset:survey-sandbox` **13,924 B / 5** each (the
+`preset:worker` **15,402 B / 6 tools**, `preset:reviewer` **9,202 B / 6**,
+`preset:survey` and `preset:survey-sandbox` **14,217 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
@@ -457,7 +457,7 @@ live default-profile and all-rows-on counts.
 
 The scanned spelling is exact, because a prose gate is only honest about the forms
 it actually reads. A byte count is read as the number, an optional thousands
-separator, then `B`, `input bytes` or `bytes` (`34,286 B`, `20,363 input bytes`,
+separator, then `B`, `input bytes` or `bytes` (`34,579 B`, `20,363 input bytes`,
 `7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
 or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
 `registers N` / `registered N` / `registering N` and `advertises N` /

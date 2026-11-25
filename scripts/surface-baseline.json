@@ -391,7 +391,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 13153,
+        "value": 13446,
         "decisions": [
           {
             "from": 8159,
@@ -477,6 +477,13 @@
             "date": "2026-11-25",
             "adr": "docs/adr/0004-surface-budget.md",
             "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth, and it is the same 1,492 bytes the tower profile pays because the worker preset mounts the same MissionInput: profiles.worker.inputBytes becomes 13,153 (was 11,661). The tool count stays 6 and no other worker schema moves. The growth buys the one call that replaces the manual bulk-defer choreography — a worker widening its own mission no longer needs 2N+2 defer/restore round trips."
+          },
+          {
+            "from": 13153,
+            "to": 13446,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#222/M179: tower_complete's input schema gains the optional `files` array (repository-relative paths the worker claims to have touched, bounded at 500 entries of 400 chars), and the worker preset mounts tower_complete, so the one advertised CompleteInput grows by 293 bytes: profiles.worker.inputBytes becomes 13,446 (was 13,153). The tool count stays 6 and no other worker schema moves; tower and reviewer do not mount tower_complete and do not move. The growth buys the declared half of the completion footprint — a claim the completion records beside the derived branch diff — while the footprint itself stays derived, so a driver that omits `files` behaves exactly as before."
           }
         ]
       }
@@ -591,7 +598,7 @@
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 15109
+        "bytes": 15402
       },
       "preset:reviewer": {
         "tools": 6,
@@ -599,11 +606,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 13924
+        "bytes": 14217
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 13924
+        "bytes": 14217
       }
     },
     "decisions": [
@@ -696,6 +703,11 @@
         "date": "2026-11-25",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth. Every profile that mounts tower_mission pays the same 1,492 advertised bytes: host:active becomes 15 tools / 25,191 B (was 23,699), preset:worker 6 / 15,109 B (was 13,617), preset:survey and preset:survey-sandbox 5 / 13,924 B each (was 12,432). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged. The growth buys the one call that replaces the manual bulk-defer choreography (2N+2 tower_mission defer/restore round trips, plus the intermediate status patch before spawning the reviewer), which is what #219 exists to remove."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#222/M179: tower_complete's input schema gains the optional `files` array (repository-relative paths the worker claims to have touched, bounded at 500 entries of 400 chars), and every preset that mounts tower_complete pays the same 293 advertised bytes: preset:worker becomes 6 tools / 15,402 B (was 15,109), preset:survey and preset:survey-sandbox 5 / 14,217 B each (was 13,924). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves, and the field is optional, so a completion that omits `files` is byte-identical to before and the footprint stays derived from the branch diff."
       }
     ]
   }
