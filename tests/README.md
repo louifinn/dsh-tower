@@ -161,8 +161,8 @@ node --test tests/workflow-contract.test.mjs
 This section is the one place release evidence lives: [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
 [`docs/guide/release.md`](../docs/guide/release.md) both link here instead of restating a run. Each
 release records its evidence under `### <version> release evidence (YYYY-MM-DD)`, newest first; the
-GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is linked by older notes, so
-a block heading is stable and never renamed. The newest block is machine-checked by
+GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is the one links resolve
+against, so a block heading is stable and never renamed. The newest block is machine-checked by
 `scripts/check-docs.mjs`, which runs inside `npm run docs:check`: it must name that
 gate, and it refuses declaration, pass, skip, file and wall-clock counts, because those describe one
 run on one machine and cannot be recomputed from the tree — record them in the CI job log instead.
@@ -308,9 +308,11 @@ excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (recovery through the real
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
-`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.8 release evidence](#298-release-evidence-2026-11-22) above, and the W5
-table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
+`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5
+totals, and this block is their record: later releases keep their own numbers in their own blocks,
+the newest block above records only what the tree can prove, and each run's declaration counts live
+in the CI job log. The W5 table below is the historical record of `feat/2.8.0-structure` at
+`bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
 
@@ -329,9 +331,10 @@ The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 `git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
-passed. These were the 2.9.4 totals; the current totals are in
-[2.9.5 release evidence](#295-release-evidence-2026-11-19) above, and the W5 table below is the
-historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
+passed. These were the 2.9.4 totals, and this block is their record: later releases keep their own
+numbers in their own blocks, the newest block above records only what the tree can prove, and each
+run's declaration counts live in the CI job log. The W5 table below is the historical record of
+`feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.3 release evidence (2026-11-18)
 
@@ -397,8 +400,8 @@ This is the final W5 integration record for the branch that carries the M75 stru
 bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean worktree of
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
-are included. It is history: the current totals are in
-[2.9.8 release evidence](#298-release-evidence-2026-11-22) above.
+are included. It is history: the newest evidence block above records only what the tree can prove,
+and that run's declaration counts live in the CI job log.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
