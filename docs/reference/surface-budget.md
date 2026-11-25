@@ -36,6 +36,8 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 `tools.expose*` route to any tool is refused before it can remove a review,
 merge or host tool.
 
+<!-- tower-surface-history 2026-10-23: the 2.3.0 baseline correction, when only the define() path was counted -->
+
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` is registered directly by `index.js` — one of the two direct
 registrations that were uncounted at 2.3.0, the other being `tower_control`,
@@ -73,12 +75,16 @@ lists live in `domain/exposure.js` (`PRESET_ALLOWS`) and are re-exported by
 `host/tool-profiles.js` for the role predicates, so `worker.js` /
 `reviewer.js`, the authorization kernel and this gate all read one table.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 1+2 removed the repeated repoRoot field and the 21 server-side-only alias fields -->
+
 #163 Phase 1+2 shrank the advertised schemas without changing the tool count:
 removing the repeated `repoRoot` field and the 21 alias fields took the tower
 profile from 17,008 to 13,287 input bytes, the worker from 8,159 to 6,465, and
 the reviewer from 5,871 to 4,661. Every such contraction is a dated decision in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); a later
 growth past the committed value fails `npm run surface:check` the same way.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 3 folded the five read-only views into `tower_inspect` -->
 
 #163 Phase 3 folded the five read-only views (`status`, `roster`, `diff`,
 `preflight`, `doctor`) into one `tower_inspect` tool: the build surface went
@@ -88,6 +94,8 @@ worker and reviewer allow-lists name `tower_inspect` exactly once (it serves
 their status and diff views), which is why their count drops by one rather
 than five. The removed tools are recorded as a dated decision on the `tools`
 surface and a dated decision per profile metric.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 4 folded the four same-resource tool pairs -->
 
 #163 Phase 4 folded four same-resource pairs: `init`+`adopt`,
 `finding`+`findings`, `mode`+`control`, and `import_legacy`+`legacy_map`. The
@@ -99,22 +107,29 @@ audit reference, which is larger than the old read-only schema it absorbed.
 The tool count still falls by three there; that is a dated decision, not an
 exemption from the two-way rule.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 5 moved the role-owned tools out of the tower profile -->
+
 #163 Phase 5 kept the build surface at 21 but narrowed what the tower profile
 mounts: `tower_complete` and `tower_review` are registered with a role
 predicate and belong to the worker/survey and reviewer presets, so the tower
 profile advertised 16 → 14 tools and 12,921 → 10,582 input bytes (both dated
 decisions). The five subsystem rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
-shipped profile mounted 16 of the 21 at that point. Closing a row is not a
-surface reduction: the tools stay in the build and `tower_inspect`'s `doctor`
-view reports each one as off with its enable step. The default
-tool list and the all-on list are documented in
+shipped profile mounted all of the 21 except those five rows at that point.
+Closing a row is not a surface reduction: the tools stay in the build and
+`tower_inspect`'s `doctor` view reports each one as off with its enable step. The
+default tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
 
+<!-- tower-surface-history 2026-11-21: #201 added `tower_wait`, the one bounded blocking reach -->
+
 #201 adds `tower_wait`, the one bounded blocking reach (#201, recorded in
-[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22,
-the shipped profile mounts 17, and the tower profile advertises 15 tools /
-15,379 B. The tool is tower-only, so the worker (6 tools) and reviewer
+[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22
+and the default profile gains that tool with it, but the mounted count is not a
+tracked surface axis — no baseline ladder records it, so this page does not
+restate it as a checked figure. The five default-off rows do not move, and the
+tower profile advertises 15 tools / 15,379 B. The tool is
+tower-only, so the worker (6 tools) and reviewer
 (5 tools) tool counts do not move; their input schemas grew by the 211 bytes
 #207 added to `tower_inspect`'s `agent`/`tail` descriptions. R185 then made the
 `compact` key set explicit in the same schema, adding 116 bytes to every profile
@@ -125,6 +140,8 @@ polling: it never holds the state lock, never writes state or activity, and
 returns `reached`, `timeout` or `unknown` within a 1000–600000 ms bound
 (default 30000). Per-agent progress (#207) rides the existing `tower_inspect`
 `status`/`roster` views; no second read tool appears.
+
+<!-- tower-surface-history 2026-11-22: M165 (#215/#216) added the bulk `tower_mission` form -->
 
 M165 (#215/#216) added the bulk `tower_mission` form (a closed `missions[]`
 array, the `ids` lifecycle shorthand and `atomic`): every profile that mounts
@@ -137,6 +154,8 @@ moves. The two figures it moved (`tower` and `host:active`) are re-measured
 again by #217/#218 and then by #219 below, which is why the ladder further down
 reads 25,191 B.
 
+<!-- tower-surface-history 2026-11-22: #217/#218 added the plan preview and worktree links; #219 re-measured both rungs afterwards -->
+
 #217/#218 added `tower_plan`'s `dry_run` and plan-local `key` fields and
 `spawn.nodeModules`: the two profiles that mount `tower_plan` and `tower_spawn`
 grow by 605 advertised bytes each, so `tower` becomes 15 tools / 18,871 B input
@@ -145,6 +164,8 @@ schema and `host:active` 15 tools / 23,699 B, while `preset:worker` (13,617),
 either tool and stay put. The config surface grows by exactly one tuning key,
 `spawn.nodeModules` (`none` default / `link`), 58 → 59 keys in the same 16
 sections; no tool, section or component moves.
+
+<!-- tower-surface-history 2026-11-22: #202 gave the reviewer `tower_verify`; the tower rung it quotes moved again with #217/#218 and #219 -->
 
 #202 adds `tower_verify`, the reviewer's one verifiable read surface: a closed
 whitelist of `{kind:"tests", files:["tests/*.test.mjs"]}`, `{kind:"tsc"}` and
@@ -155,8 +176,10 @@ becomes 6 tools / 7,260 input bytes (was 5 / 5,725; `VerifyInput` is 1,535
 bytes) and `preset:reviewer` 9,202 B (was 7,342). The tool is role-owned
 (`tower_verify` is in `ROLE_TOOLS`), so the tower profile stays 15 tools /
 18,871 B, the host ladder and every other preset are unchanged, and the shipped
-profile now mounts 18 (the #201 note above records 17 for the surface *before*
-this tool).
+profile now mounts 18 — a live measurement, not a ladder rung, because the
+default-mounted count is not a tracked surface axis.
+
+<!-- tower-surface-history 2026-11-22: #219's measured delta and the rungs it replaced; the ladder below states those same profiles live -->
 
 #219 adds the single-form `widen` object to `tower_mission`
 (`mode:"refuse"|"defer-conflicts"`, `restoreDeferrals`, `keepStatus`): it is
@@ -421,3 +444,46 @@ surface; they do not decide which key is bad.
 
 Enforced by: `scripts/surface-baseline.mjs` and `domain/surface.js`; tests in
 `tests/surface.test.mjs`; gate: `npm run surface:check`.
+
+The prose in this page is checked too: `npm run docs:check` (through
+`scripts/check-docs.mjs`) rescans every current-facing markdown page — the
+`docs/**` tree except `docs/adr/`, the markdown `package.json` ships (the
+READMEs, CONTRIBUTING, COMPATIBILITY, GLOSSARY, PRINCIPLES, SECURITY, the
+`skills/*.md` briefings, `ui-bundle/README.md`) and `tests/README.md` — for the
+tool totals and input-schema byte counts those pages write, and fails on a figure
+it cannot account for against
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) plus the
+live default-profile and all-rows-on counts.
+
+The scanned spelling is exact, because a prose gate is only honest about the forms
+it actually reads. A byte count is read as the number, an optional thousands
+separator, then `B`, `input bytes` or `bytes` (`34,286 B`, `20,363 input bytes`,
+`7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
+or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
+`registers N` / `registered N` / `registering N` and `advertises N` /
+`advertised N` / `advertising N`; those verbs are read as a
+tool count in every inflection they take, because in these pages they never mean
+anything else — a page that means something else by them fails and is reworded,
+which is the safe direction. Numbers that only look like a figure are not figures
+and stay unscanned: `45 tool error codes`, `45 个工具错误码`, `21 个工具形别名`,
+`28/28`, and a bare Chinese `N 个` with no 工具 after it (`21 个之中`).
+
+Two forms are deliberately outside the gate. `docs/adr/**` records what a
+decision measured at the time and is never re-measured, so the ADRs' own
+tool-count and byte figures — including their verb-first spelling — are not
+scanned. And a figure wrapped across a line break is invisible, because the lexer
+reads one line at a time: write a claim's figure on one line. A historical
+measurement stays readable only behind a dated
+`<!-- tower-surface-history YYYY-MM-DD: reason -->` marker whose figures are
+recorded in the baseline; a fenced sample of tool output needs
+`<!-- tower-surface-sample: reason -->`.
+
+One count is measured live but never charted: **how many tools the default
+profile mounts**. `scripts/surface-baseline.json` ladders per-profile and build
+totals, not that number. A live mounted count is therefore checked against the
+live measurement, while a historical one can only be accepted because the same
+number appears somewhere on a recorded ladder — a coincidence, not a check of
+the mounted count. The page therefore writes no historical mounted count as a
+figure. Where the count matters, the derivation is written instead (`mounted all
+of the 21 except those five rows`), and the one live figure (`mounts 18`) is
+checked like any other.
