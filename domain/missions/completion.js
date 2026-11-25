@@ -6,6 +6,7 @@
 import { TowerToolError } from '../errors.js'
 import { EVIDENCE_SOURCE, evidenceEntries } from '../evidence.js'
 import { completedEvent } from '../events.js'
+import { scopeSplit } from '../scope.js'
 import { shapeFor } from '../shapes/index.js'
 import { isWorkerRole } from '../vocabulary.js'
 
@@ -245,12 +246,94 @@ export function assertCompletionInbox({ mission, worker, unread }) {
 
 /**
  * Project the completion report stored on the mission.
- * @param {{ report: string, worker: RosterEntry, checks: any[], now: number, maxReportBytes?: number }} params
+ *
+ * #222: `footprint` is the one durable record of which files the completion
+ * actually covered. It is omitted entirely when the caller could not derive one
+ * (a completion is never refused because the diff was unreadable), so the
+ * historical report shape is unchanged for every caller that has no footprint.
+ *
+ * @param {{ report: string, worker: RosterEntry, checks: any[], now: number, maxReportBytes?: number, footprint?: any }} params
  * @returns {any}
  */
-export function completionReport({ report, worker, checks, now, maxReportBytes }) {
+export function completionReport({ report, worker, checks, now, maxReportBytes, footprint }) {
   const text = report.trim()
-  return { report: text, reportBytes: assertReportSize(text, maxReportBytes), by: worker.name, at: now, checks }
+  // The published CompletionReport type does not name `footprint` yet
+  // (types/index.d.ts is outside this mission's fence); widen locally instead.
+  const stored = /** @type {any} */ ({
+    report: text,
+    reportBytes: assertReportSize(text, maxReportBytes),
+    by: worker.name,
+    at: now,
+    checks,
+  })
+  if (footprint) stored.footprint = footprint
+  return stored
+}
+
+/**
+ * Normalize the files a worker declared it touched (`tower_complete.files`).
+ * Declarations are a claim, never the authority: they are bounded and trimmed
+ * so a transcript-sized list cannot reach the state document.
+ * @param {unknown} files
+ * @returns {string[]}
+ */
+export function normalizeDeclaredFiles(files) {
+  if (files === undefined || files === null) return []
+  if (!Array.isArray(files)) fail('files must be an array of repository-relative paths')
+  if (files.length > 500) fail('files supports at most 500 entries')
+  /** @type {Set<string>} */
+  const seen = new Set()
+  for (const entry of files) {
+    if (typeof entry !== 'string' || entry.trim().length === 0) fail('files entries must be non-empty strings')
+    if (entry.length > 400) fail(`files entry is longer than 400 characters: ${JSON.stringify(entry.slice(0, 40))}…`)
+    seen.add(entry.trim())
+  }
+  return [...seen].sort()
+}
+
+/**
+ * Build the completion footprint (#222): what the branch diff contains, how the
+ * mission's fence splits it, and what the worker claimed. The derived diff is
+ * the authority; a declaration only ever ADDS a name (the union is reported) and
+ * a disagreement is recorded as a mismatch note rather than a refusal.
+ *
+ * @param {{ mission: Mission, declared?: string[], changed?: string[], widenAt?: number | null }} params
+ * @returns {any}
+ */
+export function completionFootprint({ mission, declared = [], changed = [], widenAt = null }) {
+  const shape = shapeFor(mission.kind)
+  const derived = Array.isArray(changed) ? changed.filter((file) => typeof file === 'string' && file.length > 0) : []
+  const claimed = Array.isArray(declared) ? declared : []
+  const union = [...new Set([...derived, ...claimed])].sort()
+  const split = scopeSplit({ mission, reach: shape.reach, changedFiles: union })
+  const derivedSet = new Set(derived)
+  const claimedSet = new Set(claimed)
+  /** @type {string[]} */
+  const mismatch = []
+  if (claimed.length > 0) {
+    for (const file of claimed) {
+      if (!derivedSet.has(file)) mismatch.push(`${file} (declared, absent from the branch diff)`)
+    }
+    for (const file of derived) {
+      if (!claimedSet.has(file)) mismatch.push(`${file} (changed, not declared)`)
+    }
+  }
+  const scope = Array.isArray(mission.scope) ? [...mission.scope] : []
+  const rawGeneration = mission.scopeGeneration
+  const scopeGeneration = typeof rawGeneration === 'number' && Number.isInteger(rawGeneration) ? rawGeneration : 1
+  const widenedTo = scopeGeneration > 1 ? [...scope] : null
+  return {
+    scope,
+    scopeGeneration,
+    widenAt: widenAt ?? null,
+    widenedTo,
+    changed: union,
+    insideScope: split.insideScope,
+    outsideScope: split.outsideScope,
+    declared: [...claimed].sort(),
+    mismatch,
+    mismatchNote: mismatch.length === 0 ? null : `the worker's declaration and the branch diff disagree: ${mismatch.join('; ')}`,
+  }
 }
 
 /**

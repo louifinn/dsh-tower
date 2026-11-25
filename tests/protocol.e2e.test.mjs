@@ -1128,6 +1128,189 @@ test('#219 a widen refuses by default and never strands an active neighbour', as
   }
 })
 
+// #222: a completion must record the files the worker actually touched. The
+// branch diff is the authority: a worker that never declares a single file
+// still leaves evidence, and a commit outside its fence is named rather than
+// passing silently.
+test('#222 completion records a footprint derived from the branch diff', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Footprint case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    fs.mkdirSync(path.join(wt, 'docs'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'docs', 'stray.md'), 'stray\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in and out'])
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed', 'an out-of-fence commit never fails the completion')
+    const footprint = completed.mission.completionReport.footprint
+    assert.ok(footprint, 'a completion always records the derived footprint')
+    assert.deepEqual(footprint.insideScope, ['src/a/in.txt'])
+    assert.deepEqual(footprint.outsideScope, ['docs/stray.md'])
+    assert.deepEqual(footprint.changed, ['docs/stray.md', 'src/a/in.txt'])
+    assert.deepEqual(footprint.scope, ['src/a/**'])
+    assert.equal(footprint.scopeGeneration, 1)
+    assert.equal(footprint.widenAt, null)
+    assert.equal(footprint.widenedTo, null)
+    assert.deepEqual(footprint.declared, [], 'the worker declared nothing')
+    assert.deepEqual(footprint.mismatch, [], 'nothing was declared, so nothing is contradicted')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 2: a declared file the diff does not contain is a contradicted
+// claim, not a failure. The union is reported and a mismatch note rides the
+// completion, so the tower can see both what was claimed and what happened.
+test('#222 a declared file the diff lacks becomes a mismatch note, never a failure', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-mismatch-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Mismatch case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 only in'])
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({
+      missionId: 'M1',
+      agentId: 'agent-m1',
+      report: 'done',
+      files: ['src/a/in.txt', 'src/a/imaginary.txt'],
+    })
+    assert.equal(completed.mission.status, 'completed', 'a contradicted declaration never fails the completion')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.declared, ['src/a/imaginary.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.changed, ['src/a/imaginary.txt', 'src/a/in.txt'], 'the union is reported')
+    assert.deepEqual(footprint.insideScope, ['src/a/imaginary.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.mismatch, [
+      'src/a/imaginary.txt (declared, absent from the branch diff)',
+    ])
+    assert.match(
+      footprint.mismatchNote,
+      /declaration and the branch diff disagree: src\/a\/imaginary\.txt \(declared, absent from the branch diff\)/,
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 3: the preflight blocker names the outside-scope files it found and
+// carries them as an array, because the human-readable detail truncates at 8.
+test('#222 preflight carries the outside-scope files as an array in the blocker', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-gate-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Gate case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    for (const file of ['docs/one.md', 'docs/two.md', 'src/a/in.txt']) {
+      const target = path.join(wt, file)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, `${file}\n`)
+    }
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in and out'])
+
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    const blocker = gate.blockers.find((entry) => entry.code === 'out-of-scope')
+    assert.ok(blocker, JSON.stringify(gate.blockers))
+    assert.deepEqual(blocker.details.outsideScope, ['docs/one.md', 'docs/two.md'], 'every outside path, not just the first 8')
+    assert.match(blocker.detail, /docs\/one\.md/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 4: a later reader must be able to tell a planned fence from a
+// widened one. The footprint keeps the split as of completion plus the widen
+// provenance the lifecycle already records.
+test('#222 the footprint keeps inside/outside plus widenAt and widenedTo', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-widen-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'docs/guide/quickstart.md'])
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Widen case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', scope: ['src/a/**', 'docs/guide/**'] })
+    const widenedAt = Date.now()
+    for (const file of ['src/a/a.txt', 'docs/guide/quickstart.md']) {
+      fs.writeFileSync(path.join(wt, file), `${file} edited\n`)
+    }
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 edited in the widened fence'])
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    const footprint = completed.mission.completionReport.footprint
+    assert.equal(footprint.scopeGeneration, 2, 'the widen bumped the generation')
+    assert.deepEqual(footprint.scope, ['src/a/**', 'docs/guide/**'])
+    assert.deepEqual(footprint.widenedTo, ['src/a/**', 'docs/guide/**'], 'the widened fence is recorded verbatim')
+    assert.equal(typeof footprint.widenAt, 'number', 'the widen timestamp is recorded')
+    assert.ok(footprint.widenAt <= widenedAt + 60_000, 'the timestamp is the widen activity record')
+    assert.deepEqual(footprint.insideScope, ['docs/guide/quickstart.md', 'src/a/a.txt'])
+    assert.deepEqual(footprint.outsideScope, [], 'both files are inside the widened fence')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('mission transitions: blocked resumes through clear_blockers and can complete again', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-transition-'))
   const repo = path.join(root, 'repo')
@@ -1146,6 +1329,46 @@ test('mission transitions: blocked resumes through clear_blockers and can comple
     assert.deepEqual(resumed.mission.blockers, [])
     const completed = await tower.mission({ id: 'M1', status: 'completed' })
     assert.equal(completed.mission.status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 6: the footprint inputs must be reachable from the advertised tool
+// surface. `tower_complete` sets additionalProperties:false, so an undeclared
+// argument is refused before it runs — this proves `files` is in the contract
+// and that the schema the registry publishes accepts it.
+test('#222 tower_complete accepts the declared files argument and records the union', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-tool-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx({ subagents: fakeSubagents() })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Footprint tool case', scope: ['src/a/**'], tasks: ['write a'] }],
+    })
+    const provisioned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in'])
+    await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', task_done: 'write a' })
+    const exec = { agent: { id: provisioned.agentId } }
+    const completed = await call(
+      tools,
+      'tower_complete',
+      { repoRoot: repo, missionId: 'M1', report: 'done', files: ['src/a/in.txt', 'src/a/ghost.txt'] },
+      exec,
+    )
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.declared, ['src/a/ghost.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.changed, ['src/a/ghost.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.mismatch, ['src/a/ghost.txt (declared, absent from the branch diff)'])
+    assert.match(footprint.mismatchNote, /declared, absent from the branch diff/)
   } finally {
     removeTemp(root)
   }

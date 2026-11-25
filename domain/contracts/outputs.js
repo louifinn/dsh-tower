@@ -20,7 +20,17 @@ const resolutionStepSchema = S.obj(
 )
 const dependencyCycleSchema = S.obj({ code: S.str, missionIds: S.arr(S.str), detail: S.str }, ['code', 'missionIds', 'detail'])
 const blockerSchema = S.obj(
-  { code: S.str, detail: S.str, cleanup: S.str, timeout: S.bool, resolution: S.arr(resolutionStepSchema) },
+  {
+    code: S.str,
+    detail: S.str,
+    cleanup: S.str,
+    timeout: S.bool,
+    // #222: the machine-readable form of the same fact. `detail` truncates for
+    // human eyes; this carries every entry. Declared so the output contract
+    // names it instead of tolerating it as an unknown property.
+    details: S.obj({ outsideScope: S.arr(S.str) }),
+    resolution: S.arr(resolutionStepSchema),
+  },
   ['code', 'detail'],
 )
 const worktreeSchema = S.obj({ path: S.str, branch: S.str, baseCommit: S.str })

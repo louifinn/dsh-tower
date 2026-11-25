@@ -407,3 +407,66 @@ test('missionContext feeds the briefing with the real review and finding history
     removeTemp(root)
   }
 })
+
+// #222 task 5: the reviewer sees what the completion actually covered, but only
+// when the derived footprint says something the reviewer must check. A clean
+// in-fence completion gains no noise.
+test('#222 reviewer briefing prints the footprint split only when files landed outside the fence', () => {
+  const clean = reviewerBriefing(fixture())
+  assert.doesNotMatch(clean, /Outside the mission scope/, 'the happy path gains no footprint noise')
+
+  const outside = fixture({
+    completionReport: {
+      by: 'worker-m1',
+      report: 'completed',
+      checks: [],
+      footprint: {
+        scope: ['src/**', 'docs/**'],
+        scopeGeneration: 1,
+        widenAt: null,
+        widenedTo: null,
+        changed: ['docs/stray.md', 'src/a.js'],
+        insideScope: ['src/a.js'],
+        outsideScope: ['docs/stray.md'],
+        declared: [],
+        mismatch: [],
+        mismatchNote: null,
+      },
+    },
+  })
+  const text = reviewerBriefing(outside)
+  assert.match(text, /Outside the mission scope \(1 file\):/)
+  assert.match(text, /- docs\/stray\.md/)
+  assert.doesNotMatch(text, /- src\/a\.js/, 'inside-scope files are the diff the reviewer already reads')
+  // The block is context for the rules, never a rules line itself.
+  assert.ok(text.indexOf('Outside the mission scope') < text.indexOf('Rules:'))
+})
+
+// #222 tasks 2 and 5: the reviewer must see a contradicted declaration, because
+// a worker that over-claimed is exactly the case a review exists to catch.
+test('#222 reviewer briefing reports the footprint mismatch note', () => {
+  const text = reviewerBriefing(
+    fixture({
+      completionReport: {
+        by: 'worker-m1',
+        report: 'completed',
+        checks: [],
+        footprint: {
+          scope: ['src/**'],
+          scopeGeneration: 2,
+          widenAt: 1700000000000,
+          widenedTo: ['src/**'],
+          changed: ['src/a.js'],
+          insideScope: ['src/a.js'],
+          outsideScope: [],
+          declared: ['src/ghost.js'],
+          mismatch: ['src/ghost.js (declared, absent from the branch diff)'],
+          mismatchNote: "the worker's declaration and the branch diff disagree: src/ghost.js (declared, absent from the branch diff)",
+        },
+      },
+    }),
+  )
+  assert.match(text, /Footprint mismatch \(1 file\):/)
+  assert.match(text, /src\/ghost\.js \(declared, absent from the branch diff\)/)
+  assert.match(text, /Widened after planning: widenAt 1700000000000, scope at completion: src\/\*\*/)
+})

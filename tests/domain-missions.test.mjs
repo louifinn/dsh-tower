@@ -17,6 +17,8 @@ import {
   assertCompletionInbox,
   completionReport,
   applyCompletion,
+  normalizeDeclaredFiles,
+  completionFootprint,
 } from '../domain/missions/completion.js'
 import {
   assertReviewableMission,
@@ -1106,4 +1108,60 @@ test('bulk mission normalization: one form, closed fields, atomic default', () =
   assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1', accept: true }] }), /accept/)
   assert.throws(() => normalizeMissionBatch({ atomic: false, id: 'M1' }), /atomic/)
   assert.throws(() => normalizeMissionBatch({ missions: [{ id: 'M1' }], ids: ['M2'] }), /not more than one/)
+})
+
+// #222: the footprint is derived, so its split and its mismatch note are pure
+// functions of (mission fence, branch diff, declared files). These pin the rules
+// the e2e tests can only observe once.
+test('#222 declared files are bounded, trimmed, deduped and sorted', () => {
+  assert.deepEqual(normalizeDeclaredFiles(undefined), [])
+  assert.deepEqual(normalizeDeclaredFiles(null), [])
+  assert.deepEqual(normalizeDeclaredFiles(['b.js', ' a.js ', 'a.js']), ['a.js', 'b.js'])
+  assert.throws(() => normalizeDeclaredFiles('src/a.js'), /files must be an array/)
+  assert.throws(() => normalizeDeclaredFiles([1]), /files entries must be non-empty strings/)
+  assert.throws(() => normalizeDeclaredFiles(['   ']), /files entries must be non-empty strings/)
+  assert.throws(() => normalizeDeclaredFiles([`${'x'.repeat(401)}`]), /files entry is longer than 400 characters/)
+  assert.throws(() => normalizeDeclaredFiles(Array.from({ length: 501 }, (_, i) => `f${i}.js`)), /at most 500 entries/)
+})
+
+test('#222 the footprint splits the union of the diff and the declaration', () => {
+  const target = mission({ kind: 'build', scope: ['src/**'], scopeGeneration: 1 })
+  const footprint = completionFootprint({
+    mission: target,
+    changed: ['src/a.js', 'docs/stray.md'],
+    declared: ['src/a.js', 'src/ghost.js'],
+  })
+  assert.deepEqual(footprint.scope, ['src/**'])
+  assert.equal(footprint.scopeGeneration, 1)
+  assert.equal(footprint.widenAt, null)
+  assert.equal(footprint.widenedTo, null)
+  // The union is the report: a declared file the diff lacks is still named.
+  assert.deepEqual(footprint.changed, ['docs/stray.md', 'src/a.js', 'src/ghost.js'])
+  assert.deepEqual(footprint.insideScope, ['src/a.js', 'src/ghost.js'])
+  assert.deepEqual(footprint.outsideScope, ['docs/stray.md'])
+  assert.deepEqual(footprint.declared, ['src/a.js', 'src/ghost.js'])
+  assert.deepEqual(footprint.mismatch, [
+    'src/ghost.js (declared, absent from the branch diff)',
+    'docs/stray.md (changed, not declared)',
+  ])
+  assert.match(footprint.mismatchNote, /^the worker's declaration and the branch diff disagree: /)
+})
+
+test('#222 an undeclared completion records no mismatch, and a widen records its target', () => {
+  const target = mission({ kind: 'build', scope: ['src/**', 'docs/guide/**'], scopeGeneration: 2 })
+  const quiet = completionFootprint({ mission: target, changed: ['src/a.js'], declared: [] })
+  assert.deepEqual(quiet.mismatch, [])
+  assert.equal(quiet.mismatchNote, null)
+  const widened = completionFootprint({ mission: target, changed: ['src/a.js'], widenAt: 1700000000000 })
+  assert.equal(widened.widenAt, 1700000000000)
+  assert.deepEqual(widened.widenedTo, ['src/**', 'docs/guide/**'])
+})
+
+test('#222 the completion report omits the footprint when none was derived', () => {
+  const worker = { name: 'worker-1' }
+  const bare = completionReport({ report: 'done', worker, checks: [], now: 7 })
+  assert.deepEqual(Object.keys(bare).sort(), ['at', 'by', 'checks', 'report', 'reportBytes'])
+  const footprint = { scope: ['src/**'] }
+  const stored = completionReport({ report: 'done', worker, checks: [], now: 7, footprint })
+  assert.deepEqual(stored.footprint, footprint)
 })

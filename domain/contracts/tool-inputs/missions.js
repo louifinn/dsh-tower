@@ -108,6 +108,13 @@ export const CompleteInput = Type.Object({
       { description: 'Optional evidence ledger entries: {name, command?, exitCode?, evidence?}.' },
     ),
   ),
+  files: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 400 }), {
+      maxItems: 500,
+      description:
+        'Repository-relative paths you touched. A claim, not the authority: the footprint is derived from the branch diff and a disagreement is recorded as a mismatch note, never a refusal.',
+    }),
+  ),
 }, { additionalProperties: false })
 
 export const ReviewInput = Type.Object({

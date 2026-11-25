@@ -57,6 +57,46 @@ function predecessorResidueLines(mission) {
 }
 
 /**
+ * #222: the completion footprint is the reviewer's answer to "what did this
+ * completion actually cover?". It renders only the parts a reviewer must act on
+ * — files the fence did not allow, and declarations the diff contradicts — so a
+ * clean in-fence completion adds nothing to the prompt.
+ * @param {any} footprint
+ * @returns {string[]}
+ */
+function footprintLines(footprint) {
+  if (!footprint || typeof footprint !== 'object') return []
+  const lines = []
+  const outside = Array.isArray(footprint.outsideScope) ? footprint.outsideScope : []
+  if (outside.length > 0) {
+    lines.push('')
+    lines.push(`Outside the mission scope (${outside.length} ${outside.length === 1 ? 'file' : 'files'}):`)
+    for (const file of outside.slice(0, 20)) lines.push(`- ${file}`)
+    if (outside.length > 20) lines.push(`- … ${outside.length - 20} more (see the completion record)`)
+    lines.push(
+      '- The completion was accepted with these paths changed. Judge whether each one is deliberate: a missing widen is a finding, not something to fix here.',
+    )
+  }
+  const mismatch = Array.isArray(footprint.mismatch) ? footprint.mismatch : []
+  if (mismatch.length > 0) {
+    lines.push('')
+    lines.push(`Footprint mismatch (${mismatch.length} ${mismatch.length === 1 ? 'file' : 'files'}):`)
+    for (const entry of mismatch.slice(0, 20)) lines.push(`- ${entry}`)
+    lines.push(
+      '- The worker\'s declared files and the branch diff disagree. A declaration the diff lacks was never committed; a change the worker did not declare is unreviewed surface.',
+    )
+  }
+  if (Number.isInteger(footprint.scopeGeneration) && footprint.scopeGeneration > 1) {
+    const scope = Array.isArray(footprint.scope) ? footprint.scope.join(', ') : ''
+    const when = footprint.widenAt ? `widenAt ${footprint.widenAt}` : 'widenAt not recorded'
+    lines.push('')
+    lines.push(`Widened after planning: ${when}, scope at completion: ${scope}`)
+    lines.push('- The fence was widened after the plan; confirm the widening itself was the tower\'s decision.')
+  }
+  return lines
+}
+
+/**
  * Dependency lines shared by the worker and reviewer briefings. A survey
  * dependency carries its recorded result (#148 D6) alongside its status, with
  * bounded formatting so a large evidence set cannot crowd out the mission.
@@ -287,6 +327,9 @@ export function reviewerBriefing({
     lines.push('Related findings:')
     for (const finding of findings) lines.push(`- ${finding.id} [${finding.status}] ${finding.severity ?? 'severity?'} ${finding.title}`)
   }
+  // #222: the footprint is not in the published CompletionReport type yet
+  // (types/index.d.ts is outside this mission's fence; #222 follow-up owns it).
+  lines.push(...footprintLines(completion ? /** @type {any} */ (completion).footprint : null))
   lines.push('')
   lines.push('Rules:')
   lines.push('- Read-only: do not modify files, commit, or merge.')
