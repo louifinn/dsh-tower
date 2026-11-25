@@ -154,6 +154,8 @@ moves. The two figures it moved (`tower` and `host:active`) are re-measured
 again by #217/#218 and then by #219 below, which is why the ladder further down
 reads 25,191 B.
 
+<!-- tower-surface-history 2026-11-22: #217/#218 added the plan preview and worktree links; #219 re-measured both rungs afterwards -->
+
 #217/#218 added `tower_plan`'s `dry_run` and plan-local `key` fields and
 `spawn.nodeModules`: the two profiles that mount `tower_plan` and `tower_spawn`
 grow by 605 advertised bytes each, so `tower` becomes 15 tools / 18,871 B input
@@ -162,6 +164,8 @@ schema and `host:active` 15 tools / 23,699 B, while `preset:worker` (13,617),
 either tool and stay put. The config surface grows by exactly one tuning key,
 `spawn.nodeModules` (`none` default / `link`), 58 → 59 keys in the same 16
 sections; no tool, section or component moves.
+
+<!-- tower-surface-history 2026-11-22: #202 gave the reviewer `tower_verify`; the tower rung it quotes moved again with #217/#218 and #219 -->
 
 #202 adds `tower_verify`, the reviewer's one verifiable read surface: a closed
 whitelist of `{kind:"tests", files:["tests/*.test.mjs"]}`, `{kind:"tsc"}` and
@@ -174,6 +178,8 @@ bytes) and `preset:reviewer` 9,202 B (was 7,342). The tool is role-owned
 18,871 B, the host ladder and every other preset are unchanged, and the shipped
 profile now mounts 18 — a live measurement, not a ladder rung, because the
 default-mounted count is not a tracked surface axis.
+
+<!-- tower-surface-history 2026-11-22: #219's measured delta and the rungs it replaced; the ladder below states those same profiles live -->
 
 #219 adds the single-form `widen` object to `tower_mission`
 (`mode:"refuse"|"defer-conflicts"`, `restoreDeferrals`, `keepStatus`): it is
@@ -451,7 +457,7 @@ live default-profile and all-rows-on counts.
 
 The scanned spelling is exact, because a prose gate is only honest about the forms
 it actually reads. A byte count is read as the number, an optional thousands
-separator, then `B`, `input bytes` or `bytes` (`32,794 B`, `18,871 input bytes`,
+separator, then `B`, `input bytes` or `bytes` (`34,286 B`, `20,363 input bytes`,
 `7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
 or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
 `registers N` / `registered N` / `registering N` and `advertises N` /

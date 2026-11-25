@@ -210,15 +210,18 @@ next actions, in [`scope-reach.test.mjs`](scope-reach.test.mjs); link-aware tear
 (unlink the recorded junction alone, keep a checkout that holds an unrecorded one, remainders
 handled without recursion), in [`cleanup.test.mjs`](cleanup.test.mjs); and the registered-tool
 surface for the new optional `orphans` input, in [`tool-schemas.test.mjs`](tool-schemas.test.mjs).
-The supporting static gates also pass on this tree: `npm run docs:check`, every
+<!-- tower-surface-history 2026-11-22: what the 2.9.8 tree measured at its release; #219 re-pinned the ladder afterwards -->
+
+The supporting static gates also pass on that tree: `npm run docs:check`, every
 `npm run docs:check:generated:<name>` target (`tools`, `events`, `shapes`, `config`,
 `blockers`, `types`, `locale`, `components`), `npm run types:check`, `npm run types:coverage`,
 `npm run types:strict:check`, `npm run architecture:check`, `npm run surface:check`,
 `npm run blockers:check`, `npm run shape:audit`, `npm run deny:check`, `npm run pack:check`,
 `npm run domain:check` and `npm run support:check`. The 2.9.8 surface itself did not move in
-release preparation beyond what the fix missions re-pinned: `host:active` stays 15 tools /
-23,699 B, the build surface is 23 tools, and [`scripts/surface-baseline.json`](../scripts/surface-baseline.json)
-still matches the committed classification.
+release preparation beyond what the fix missions re-pinned: at that release `host:active` read
+15 tools / 23,699 B, the build surface read 23 tools, and
+[`scripts/surface-baseline.json`](../scripts/surface-baseline.json) still matched the committed
+classification.
 
 ### 2.9.7 release evidence (2026-11-21)
 
