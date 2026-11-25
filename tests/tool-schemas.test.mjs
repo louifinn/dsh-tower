@@ -482,6 +482,29 @@ test('tower_mission bulk form is a closed schema, not an unknown-field escape ha
   assert.deepEqual(Object.keys(parameters.properties.missions.items.properties).sort(), expected.sort())
 })
 
+// #221: the review note channel is an optional array of short strings, never a
+// second findings field. `fold_notes` is the tower-only audit action on the
+// single-mission form; the bulk item inherits the field from the shared set and
+// `normalizeMissionBatch` refuses it by name there (single-form-only contract).
+test('tower_review advertises the non-blocking notes channel (#221)', () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const review = tools.get('tower_review').parameters
+  const notes = review.properties.notes
+  assert.equal(notes.type, 'array')
+  assert.equal(notes.items.type, 'string')
+  assert.equal(notes.items.maxLength, 400)
+  assert.equal(notes.maxItems, 10)
+  assert.match(notes.description, /non-blocking/i)
+  assert.match(notes.description, /never changes the verdict/)
+  // The verdict itself is unchanged: notes is optional and never required.
+  assert.deepEqual([...review.required].sort(), ['decision', 'findings', 'merge', 'status'])
+  const mission = tools.get('tower_mission').parameters
+  assert.equal(mission.properties.fold_notes.type, 'boolean')
+  assert.match(mission.properties.fold_notes.description, /Tower only/)
+  assert.equal(mission.required, undefined)
+})
+
 // #230: 2.9.7 sent `task_add` to `tower_plan` (which never declared it), the
 // dispatcher dropped the key, and the call still returned `ok: true` while every
 // task was lost. The dispatch seam now refuses an undeclared top-level key from

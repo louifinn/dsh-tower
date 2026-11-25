@@ -315,6 +315,27 @@ test('review gate: only required produces review blockers; off and optional skip
   assert.deepEqual(mergeCodes(configs.off, { review: p1 }), [])
 })
 
+// #221: a review note is an observation, not a finding. The merge gate never
+// reads the note array, `gates.requireChecks` still counts only completion-report
+// evidence, and the blocker set is identical with and without notes.
+test('review gate: review notes never change a blocker set', () => {
+  const required = { review: { mode: 'required' } }
+  const noted = {
+    ...CLEAN_REVIEW,
+    notes: [
+      { id: 'N1.1', reviewId: 'R1', round: 1, reviewer: 'reviewer-a', at: 1, text: 'a stale count', state: 'open' },
+      { id: 'N1.2', reviewId: 'R1', round: 1, reviewer: 'reviewer-a', at: 1, text: 'a wording nit', state: 'open' },
+    ],
+  }
+  assert.deepEqual(mergeCodes(required, { review: noted }), [])
+  // The checks gate is about the completion report, not the review: notes do not
+  // add and do not satisfy `tests-missing`.
+  const withChecks = { review: { mode: 'required' }, gates: { requireChecks: true } }
+  assert.deepEqual(mergeCodes(withChecks, { review: noted }), mergeCodes(withChecks, { review: CLEAN_REVIEW }))
+  // A note can never make a clean verdict read as non-clean for the gate.
+  assert.deepEqual(mergeCodes(required, { review: { ...noted, status: 'p1-1items' } }), ['not-clean'])
+})
+
 test('review gate: review-exemption-invalid exists only in required and names the review target', () => {
   const exempt = { ...MISSION, reviewPolicy: 'none', reviewExemptionReason: 'docs only' }
   const required = { review: { mode: 'required' } }
@@ -773,10 +794,67 @@ test('review modes end to end: status, doctor, reviewer spawn, preflight and mer
   }
 })
 
+// #221: release prep sees the open-note count as a warning and the doctor never
+// flips `ok` on it. Folding is an audit action through the same tool: one call,
+// one revision, one activity entry, and the warning clears.
+test('review notes: the doctor warns, never fails, and folding clears the warning', async () => {
+  const { root, repo } = makeRepo()
+  const { ctx, tools } = makeCtx()
+  configureRuntime({})
+  registerTowerTools(ctx)
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', { repoRoot: repo, missions: [{ title: 'M notes', scope: ['src/**'] }] })
+    const missionId = planned.missions[0].id
+    const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId, role: 'worker' })
+    fs.mkdirSync(path.join(spawned.worktree.path, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(spawned.worktree.path, 'src', 'a.txt'), 'a\n')
+    git(spawned.worktree.path, ['add', '-A'])
+    git(spawned.worktree.path, ['commit', '-m', 'work'])
+    await call(tools, 'tower_complete', { repoRoot: repo, missionId, report: 'done' }, { agent: { id: spawned.agentId } })
+
+    const reviewed = await call(tools, 'tower_review', {
+      repoRoot: repo,
+      missionId,
+      status: 'clean',
+      merge: 'merge',
+      findings: 'none',
+      decision: 'reviewed the diff; the nits are notes',
+      notes: ['the docs page still quotes the old count', 'a comment repeats the function name'],
+      breakGlassReason: 'tower self-review of a one-line fixture',
+    })
+    assert.equal(reviewed.review.status, 'clean')
+    assert.equal(reviewed.review.mergeVerdict, 'merge')
+    assert.equal(reviewed.review.notes.length, 2)
+
+    // A clean review with notes still opens the merge gate.
+    const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
+    assert.equal(preflight.ok, true, JSON.stringify(preflight.blockers))
+    assert.equal(preflight.blockers.some((blocker) => /note/.test(blocker.code)), false)
+
+    const noted = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    const noteCheck = noted.checks.find((check) => check.id === 'review-notes')
+    assert.equal(noteCheck.status, 'warn')
+    assert.match(noteCheck.detail, /2 open review notes/)
+    assert.match(noteCheck.detail, new RegExp(`${missionId}:N1\\.1`))
+    assert.equal(noted.ok, true, 'an open note never fails the doctor')
+
+    const folded = await call(tools, 'tower_mission', { repoRoot: repo, id: missionId, fold_notes: true })
+    assert.equal(folded.mission.status, 'completed')
+    assert.equal(
+      folded.mission.tasks.filter((task) => task.text.startsWith('folded review note')).length,
+      2,
+    )
+    const afterFold = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
+    assert.equal(afterFold.checks.find((check) => check.id === 'review-notes').status, 'pass')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // #188: Auto review and the delegated child contract.
 // ---------------------------------------------------------------------------
-
 // Auto review sits in front of every native and PTC tool call. DSH gives a
 // delegated child the `never` approval policy, so a worker call the reviewer
 // denies fails closed: no approval prompt, no escalation path. Tower records

@@ -40,6 +40,7 @@ export function registerReviewTool(ctx, deps) {
         merge: args.merge,
         findings: args.findings,
         checks: args.checks,
+        notes: args.notes,
         decision: args.decision,
         breakGlassReason: args.breakGlassReason,
       })

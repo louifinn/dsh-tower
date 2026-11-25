@@ -57,6 +57,7 @@ const missionFields = {
   }, { additionalProperties: false, description: 'Tower only, single form: how one call treats a widen\'s conflicting neighbours. Without scope it must set restoreDeferrals.' })),
   pause_cause: Type.Optional(enumOf(PAUSE_CAUSES, { description: 'With status=paused: why the mission was paused (default user).' })),
   authorization: Type.Optional(Type.String({ description: 'Authorization reference recorded when resuming a user-paused mission.' })),
+  fold_notes: Type.Optional(Type.Boolean({ description: 'Tower only, single form: fold this mission\'s open review notes into its task list as done history and mark them folded, in the same revision bump. Never blocks or reopens the mission; notes of another mission are refused.' })),
 }
 
 const acceptanceFields = {
@@ -123,6 +124,10 @@ export const ReviewInput = Type.Object({
   merge: enumOf(MERGE_VERDICTS, { description: 'Merge recommendation for the tower.' }),
   findings: Type.String({ description: 'Full findings text (markdown); write "none" when clean.' }),
   checks: Type.Optional(Type.Array(Type.String(), { description: 'Checklist items you verified.' })),
+  notes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 400 }), {
+    maxItems: 10,
+    description: 'Non-blocking observations (at most 10, each at most 400 characters): wording, counts, comments, polish. A note never changes the verdict and never gates a merge; use it instead of a p1/p2 when the branch is still correct to land.',
+  })),
   decision: Type.String({ description: 'The reasoning behind your verdict.' }),
   breakGlassReason: Type.Optional(Type.String({ description: 'Tower-only exceptional self-review: why no independent reviewer was used.' })),
 }, { additionalProperties: false })

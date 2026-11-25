@@ -99,6 +99,7 @@ async function prepareReview(tower, input) {
     findings: verdict.findings,
     checks: verdict.checks,
     decision: verdict.decision,
+    notes: verdict.notes,
     reviewerName,
     reviewerRole,
     reviewerRounds,
@@ -146,6 +147,8 @@ export async function submitReview(tower, input) {
             findings: prepared.findings,
             checks: prepared.checks,
             decision: prepared.decision,
+            // #221: notes are stamped with the review sequence inside the lock.
+            notes: prepared.notes,
           },
           reviewerName: prepared.reviewerName,
           reviewerRole: prepared.reviewerRole,

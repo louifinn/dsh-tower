@@ -28,6 +28,9 @@ export function registerMissionTool(ctx, deps) {
       // option continues; a profile without the channel is refused rather than
       // auto-accepted.
       let accept = undefined
+      if (args.fold_notes !== undefined && (args.missions !== undefined || args.ids !== undefined)) {
+        throw new TowerToolError('invalid-argument', 'tower_mission fold_notes is only available on the single-mission form')
+      }
       if (args.accept === true && (args.missions !== undefined || args.ids !== undefined)) {
         throw new TowerToolError('invalid-argument', 'tower_mission accept is only available on the single-mission form')
       }
@@ -80,6 +83,7 @@ export function registerMissionTool(ctx, deps) {
         widen: args.widen,
         pause_cause: args.pause_cause,
         authorization: args.authorization,
+        fold_notes: args.fold_notes,
         missions: args.missions,
         ids: args.ids,
         atomic: args.atomic,
