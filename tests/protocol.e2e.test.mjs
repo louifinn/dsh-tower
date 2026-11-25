@@ -28,6 +28,16 @@ function initRepo(repo) {
   git(repo, ['commit', '-m', 'seed'])
 }
 
+/** True when `file` exists at `commit` — a probe, not a command that throws. */
+function atCommit(cwd, commit, file) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${commit}:${file}`], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Minimal `subagents` stand-in: records activations, never calls a model. */
 function fakeSubagents() {
   let seq = 0
@@ -1447,6 +1457,132 @@ test('#222 on a case-insensitive checkout the gate and the footprint agree on a 
       instructions: undefined,
     })
     assert.doesNotMatch(context, /Outside the mission scope/, 'the briefing must not accuse a gate-approved path')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R212: the footprint and the merge gate must diff from the same anchor, not
+// merely with the same comparison mode. `worktree.baseCommit` is written once at
+// provisioning and `tower_rebase` records only `mission.rebase`
+// (app/rebase.js:284), so after a rebase a diff from that stale anchor lists
+// every path the BASE changed since provisioning — other missions' files. This
+// test drives the supported route (worker stops -> tower_rebase -> completion)
+// and pins the recorded footprint and the reviewer prompt against that bug.
+test('#222 a rebased branch records only its own files, anchored like the merge gate', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-rebase-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Rebase footprint', scope: ['src/mine/**'], tasks: ['write mine'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    const provisionedBase = provisioned.worktree.baseCommit
+
+    // 1. The mission commits one file inside its own fence.
+    fs.mkdirSync(path.join(wt, 'src', 'mine'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'mine', 'own.txt'), 'mine\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 own file'])
+
+    // 2. Another mission lands on the base: a commit that touches a different
+    // file. `git diff <stale baseCommit>..<rebased tip>` would report it.
+    fs.mkdirSync(path.join(repo, 'src', 'theirs'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'src', 'theirs', 'landed.txt'), 'theirs\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'other mission lands'])
+    const baseTip = git(repo, ['rev-parse', 'HEAD'])
+
+    // 3. The worker has stopped, so the supported route lets the tower rebase.
+    // `activity: {}` models the stopped worker: `liveAgentFor` refuses a rebase
+    // only when the catalog reports the row's agent as 'running'.
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write mine' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    const rebased = await tower.rebase({ missionId: 'M1', activity: {} })
+    assert.equal(rebased.ok, true, `tower_rebase must succeed: ${JSON.stringify(rebased)}`)
+
+    // The precondition that makes the bug possible: the branch tip now contains
+    // the base-side file, while the recorded provisioning anchor does not.
+    const rebasedTip = await tower.branchTip({ id: 'M1', worktree: { branch: provisioned.worktree.branch } })
+    assert.equal(
+      atCommit(repo, rebasedTip, 'src/theirs/landed.txt'),
+      true,
+      'precondition: the rebased tip contains the base-side file',
+    )
+    assert.equal(
+      atCommit(repo, provisionedBase, 'src/theirs/landed.txt'),
+      false,
+      'precondition: the provisioning anchor predates the base-side file',
+    )
+    // The red-first proof, asserted on real git: diffing from the stale anchor
+    // reports the base-side path, which is the bug this test guards.
+    const staleDiff = git(wt, ['diff', '--name-only', `${provisionedBase}..${rebasedTip}`])
+      .split('\n')
+      .filter(Boolean)
+    assert.ok(
+      staleDiff.includes('src/theirs/landed.txt'),
+      `red-first: the old worktree.baseCommit anchor reports the base-side file (${JSON.stringify(staleDiff)})`,
+    )
+
+    // 4. Complete and inspect the derived footprint.
+    // The gate on the same state resolves its own diff: it must name the same
+    // set, so the record and the gate cannot disagree after a rebase.
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    assert.equal(
+      gate.blockers.some((blocker) => blocker.code === 'out-of-scope'),
+      false,
+      `the gate accepts the rebased in-fence branch: ${JSON.stringify(gate.blockers)}`,
+    )
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(
+      footprint.changed,
+      ['src/mine/own.txt'],
+      `the footprint must exclude the base-side file: ${JSON.stringify(footprint.changed)}`,
+    )
+    assert.deepEqual(
+      footprint.outsideScope,
+      [],
+      `a base-side file is never an out-of-scope accusation: ${JSON.stringify(footprint.outsideScope)}`,
+    )
+    assert.deepEqual(footprint.insideScope, ['src/mine/own.txt'])
+
+    // And the reviewer briefing stays silent about a scope it never violated.
+    const { buildSpawnBriefing } = await import('../app/spawn-support.js')
+    const context = buildSpawnBriefing({
+      role: 'reviewer',
+      towerRoot: repo,
+      context: {
+        base: 'main',
+        mission: completed.mission,
+        deps: [],
+        reviews: [],
+        findings: [],
+        completionReport: completed.mission.completionReport,
+      },
+      worktree: { path: wt, branch: provisioned.worktree.branch, baseCommit: provisioned.worktree.baseCommit },
+      review: null,
+      instructions: undefined,
+    })
+    assert.doesNotMatch(
+      context,
+      /Outside the mission scope/,
+      'a rebased branch must not print a false out-of-scope accusation',
+    )
+    assert.equal(rebased.baseTip, baseTip, 'sanity: the rebase replayed onto the base tip the test advanced')
   } finally {
     removeTemp(root)
   }
