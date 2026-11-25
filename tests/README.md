@@ -161,8 +161,8 @@ node --test tests/workflow-contract.test.mjs
 This section is the one place release evidence lives: [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
 [`docs/guide/release.md`](../docs/guide/release.md) both link here instead of restating a run. Each
 release records its evidence under `### <version> release evidence (YYYY-MM-DD)`, newest first; the
-GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is the one links resolve
-against, so a block heading is stable and never renamed. The newest block is machine-checked by
+GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is how a note cites that
+block, so a heading is stable and never renamed. The newest block is machine-checked by
 `scripts/check-docs.mjs`, which runs inside `npm run docs:check`: it must name that
 gate, and it refuses declaration, pass, skip, file and wall-clock counts, because those describe one
 run on one machine and cannot be recomputed from the tree — record them in the CI job log instead.
