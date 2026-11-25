@@ -233,6 +233,18 @@ of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
 modules import directly — one table, not a copy per consumer.
 
+#221 adds the review note channel without adding a tool: `tower_review` gains
+an optional `notes` array (at most 10 short strings, and a note never carries a
+verdict or gates a merge) and `tower_mission` an optional `fold_notes` boolean
+(tower only, single form). `ReviewInput` grows by 341 advertised bytes and
+`MissionInput` by 540, so every profile that mounts them is re-measured in the
+ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,693 B, `reviewer` 6 /
+7,601 B, `host:active` 25,731 B, `preset:worker` 15,649 B, `preset:reviewer`
+9,543 B, `preset:survey` and `preset:survey-sandbox` 14,464 B each, and the
+all-on build surface 35,167 B. No tool count, config key, section or component
+moves, and the reviewer preset is the one rung that pays for the review schema
+without mounting `tower_mission`, so it takes the 341-byte increment alone.
+
 `scripts/surface-baseline.json` carries these as a top-level `profileBytes`
 block, measured as the UTF-8 bytes of the advertised `name`, `description` and
 `parameters` fields in fixed key order, over the surface each profile actually
