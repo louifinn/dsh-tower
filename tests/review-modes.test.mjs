@@ -831,6 +831,14 @@ test('review notes: the doctor warns, never fails, and folding clears the warnin
     const preflight = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
     assert.equal(preflight.ok, true, JSON.stringify(preflight.blockers))
     assert.equal(preflight.blockers.some((blocker) => /note/.test(blocker.code)), false)
+    // The notes are still visible to release prep: one advisory warning, never a
+    // blocker, and `ok` stays true because the verdict is clean (#221).
+    const noteWarnings = preflight.warnings.filter((warning) => warning.code === 'review-notes-open')
+    assert.equal(noteWarnings.length, 1, JSON.stringify(preflight.warnings))
+    assert.equal(noteWarnings[0].missionId, missionId)
+    assert.equal(noteWarnings[0].notes, 2)
+    assert.match(noteWarnings[0].message, /2 open review notes/)
+    assert.match(noteWarnings[0].message, new RegExp(`${missionId}:N1\\.1`))
 
     const noted = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     const noteCheck = noted.checks.find((check) => check.id === 'review-notes')
@@ -847,6 +855,10 @@ test('review notes: the doctor warns, never fails, and folding clears the warnin
     )
     const afterFold = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(afterFold.checks.find((check) => check.id === 'review-notes').status, 'pass')
+    // Folding is what clears the preflight warning too: one audit action, no gate.
+    const foldedGate = await call(tools, 'tower_inspect', { view: 'preflight', repoRoot: repo, missionId })
+    assert.equal(foldedGate.ok, true, JSON.stringify(foldedGate.blockers))
+    assert.equal(foldedGate.warnings.some((warning) => warning.code === 'review-notes-open'), false)
   } finally {
     removeTemp(root)
   }

@@ -398,7 +398,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 13693,
+        "value": 13986,
         "decisions": [
           {
             "from": 8159,
@@ -487,10 +487,17 @@
           },
           {
             "from": 13153,
-            "to": 13693,
+            "to": 13446,
             "date": "2026-11-25",
             "adr": "docs/adr/0004-surface-budget.md",
-            "note": "#221: the worker preset mounts tower_mission, whose MissionInput advertises the optional fold_notes boolean, so its one advertised schema grows by the same 540 bytes: profiles.worker.inputBytes becomes 13,693 (was 13,153). The tool count stays 6."
+            "note": "#222/M179: tower_complete's input schema gains the optional `files` array (repository-relative paths the worker claims to have touched, bounded at 500 entries of 400 chars), and the worker preset mounts tower_complete, so the one advertised CompleteInput grows by 293 bytes: profiles.worker.inputBytes becomes 13,446 (was 13,153)."
+          },
+          {
+            "from": 13446,
+            "to": 13986,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#221: the worker preset mounts tower_mission, whose MissionInput advertises the optional fold_notes boolean, so its one advertised schema grows by the same 540 bytes: profiles.worker.inputBytes becomes 13,986 (was 13,446). The tool count stays 6. This lands after #222's 293-byte `files` field, so the two effects compose rather than replace: 13,153 + 293 + 540."
           }
         ]
       }
@@ -612,7 +619,7 @@
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 15649
+        "bytes": 15942
       },
       "preset:reviewer": {
         "tools": 6,
@@ -620,11 +627,11 @@
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 14464
+        "bytes": 14757
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 14464
+        "bytes": 14757
       }
     },
     "decisions": [
@@ -721,7 +728,12 @@
       {
         "date": "2026-11-25",
         "adr": "docs/adr/0004-surface-budget.md",
-        "note": "#221: the review note channel grows two advertised schemas. tower_review advertises the optional non-blocking notes array (ReviewInput, +341 bytes) and tower_mission advertises the optional fold_notes boolean (MissionInput, +540 bytes). Every profile that mounts tower_mission pays the 540: host:active becomes 15 tools / 25,731 B (was 25,191), preset:worker 6 / 15,649 B (was 15,109), preset:survey and preset:survey-sandbox 5 / 14,464 B each (was 13,924). preset:reviewer becomes 6 / 9,543 B (was 9,202) because it mounts tower_review. Mode-off and idle mount neither tool and are unchanged; no tool count moves. The growth buys the channel that keeps a nit out of a rework round: a clean verdict can now carry observations that a release sweep folds, instead of every nit either reopening the mission or shipping unmentioned."
+        "note": "#222/M179: tower_complete's input schema gains the optional `files` array, and every preset that mounts tower_complete pays the same 293 advertised bytes: preset:worker becomes 6 tools / 15,402 B (was 15,109), preset:survey and preset:survey-sandbox 5 / 14,217 B each (was 13,924). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves, and the field is optional, so a completion that omits `files` is byte-identical to before and the footprint stays derived from the branch diff."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#221: the review note channel grows two advertised schemas. tower_review advertises the optional non-blocking notes array (ReviewInput, +341 bytes) and tower_mission advertises the optional fold_notes boolean (MissionInput, +540 bytes). Every profile that mounts tower_mission pays the 540 on top of #222's 293: host:active becomes 15 tools / 25,731 B (was 25,191), preset:worker 6 / 15,942 B (was 15,402), preset:survey and preset:survey-sandbox 5 / 14,757 B each (was 14,217). preset:reviewer becomes 6 / 9,543 B (was 9,202) because it mounts tower_review. Mode-off and idle mount neither tool and are unchanged; no tool count moves. The growth buys the channel that keeps a nit out of a rework round: a clean verdict can now carry observations that a release sweep folds, instead of every nit either reopening the mission or shipping unmentioned."
       }
     ]
   }

@@ -3,6 +3,7 @@ import { ROSTER_INACTIVE_STATES } from '../domain/roster.js'
 import { completionBlockers, mergeGateBlockers, unverifiedCheckWarnings } from '../domain/gate.js'
 import { fullMission } from '../domain/summary.js'
 import { latestReview, reviewsForBranch } from '../domain/integration/review.js'
+import { reviewNoteWarnings } from '../domain/missions/review.js'
 import { assertActionSupported } from '../domain/shapes/index.js'
 import {
   baseDirtyBlocker,
@@ -205,7 +206,13 @@ export async function evaluateGate(tower, input) {
         review: latest,
         blockers,
       }),
-      warnings: [...sandboxWarnings, ...unverifiedCheckWarnings(mission)],
+      warnings: [
+        ...sandboxWarnings,
+        ...unverifiedCheckWarnings(mission),
+        // #221: open review notes are a release-prep reminder, not a gate. The
+        // code is not a blocker code, so it never appears in `blockers[]`.
+        ...reviewNoteWarnings({ missionId: mission.id, reviews }),
+      ],
       ...(archivedEntry ? { archived: true } : {}),
     }
   }

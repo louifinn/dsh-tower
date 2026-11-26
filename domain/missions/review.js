@@ -339,6 +339,33 @@ export function summarizeOpenReviewNotes(reviews) {
   return { total: open.length, missions, sample: `${sample}${open.length > 3 ? ', …' : ''}` }
 }
 
+/** Advisory preflight warning code for a mission's open review notes (#221). */
+export const REVIEW_NOTE_WARNING = 'review-notes-open'
+
+/**
+ * Advisory preflight warnings for the open review notes a mission's own review
+ * rows still carry (#221). At most one warning per mission, naming the count and
+ * the bounded `missionId:noteId` sample `summarizeOpenReviewNotes` already
+ * builds. A note never blocks a merge, so this is a release-prep reminder in the
+ * same shape as `unverifiedCheckWarnings`: never a blocker code, never a status.
+ * @param {{ missionId: string, reviews?: any[] | undefined }} params
+ * @returns {Array<{ code: string, missionId: string, notes: number, message: string }>}
+ */
+export function reviewNoteWarnings({ missionId, reviews }) {
+  const own = (Array.isArray(reviews) ? reviews : []).filter((review) => review?.missionId === missionId)
+  const summary = summarizeOpenReviewNotes(own)
+  if (summary.total === 0) return []
+  const plural = summary.total === 1 ? '' : 's'
+  return [
+    {
+      code: REVIEW_NOTE_WARNING,
+      missionId,
+      notes: summary.total,
+      message: `${summary.total} open review note${plural} on ${missionId} (${summary.sample}); a note never blocks a merge — fold them at release prep with tower_mission({ id: "${missionId}", fold_notes: true }), or address them in a later round`,
+    },
+  ]
+}
+
 /**
  * Plan the fold of one mission's open review notes into its task list (#221).
  * Pure: it reports what would change; app/mission.js applies it. A fold is an

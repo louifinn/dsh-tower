@@ -215,7 +215,7 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**35,167 B / 23 tools**, and that figure is a build-surface statement, never a
+**35,460 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -226,8 +226,8 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **15,649 B / 6 tools**, `preset:reviewer` **9,543 B / 6**,
-`preset:survey` and `preset:survey-sandbox` **14,464 B / 5** each (the
+`preset:worker` **15,942 B / 6 tools**, `preset:reviewer` **9,543 B / 6**,
+`preset:survey` and `preset:survey-sandbox` **14,757 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
@@ -238,10 +238,10 @@ an optional `notes` array (at most 10 short strings, and a note never carries a
 verdict or gates a merge) and `tower_mission` an optional `fold_notes` boolean
 (tower only, single form). `ReviewInput` grows by 341 advertised bytes and
 `MissionInput` by 540, so every profile that mounts them is re-measured in the
-ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,693 B, `reviewer` 6 /
-7,601 B, `host:active` 25,731 B, `preset:worker` 15,649 B, `preset:reviewer`
-9,543 B, `preset:survey` and `preset:survey-sandbox` 14,464 B each, and the
-all-on build surface 35,167 B. No tool count, config key, section or component
+ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,986 B, `reviewer` 6 /
+7,601 B, `host:active` 25,731 B, `preset:worker` 15,942 B, `preset:reviewer`
+9,543 B, `preset:survey` and `preset:survey-sandbox` 14,757 B each, and the
+all-on build surface 35,460 B. No tool count, config key, section or component
 moves, and the reviewer preset is the one rung that pays for the review schema
 without mounting `tower_mission`, so it takes the 341-byte increment alone.
 
@@ -469,7 +469,7 @@ live default-profile and all-rows-on counts.
 
 The scanned spelling is exact, because a prose gate is only honest about the forms
 it actually reads. A byte count is read as the number, an optional thousands
-separator, then `B`, `input bytes` or `bytes` (`35,167 B`, `20,903 input bytes`,
+separator, then `B`, `input bytes` or `bytes` (`35,460 B`, `20,903 input bytes`,
 `7,601 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
 or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
 `registers N` / `registered N` / `registering N` and `advertises N` /

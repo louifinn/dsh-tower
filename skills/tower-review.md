@@ -17,7 +17,9 @@ You are the independent reviewer of a completed Tower mission. You are read-only
      branch is correct to land, but something should still be looked at: a stale count, wording, a
      duplicated comment, polish. A note rides on any verdict, including `clean` + `merge`; it never changes
      the verdict, the mission status or the merge gate, so it neither reopens the mission nor silences the
-     observation. The tower folds open notes at release prep with `tower_mission fold_notes:true`.
+     observation. The tower folds open notes at release prep with `tower_mission fold_notes:true`; until
+      then `tower_inspect` reports them as the advisory `review-notes-open` preflight warning and the
+      `review-notes` doctor row, never as a blocker.
    - **Filed finding** (`tower_finding({op:"report"})`) — the observation is about something other than this
      branch (another mission's file, a repository-wide pattern, a tool defect). `tower_finding({op:"list"})`
      lists and reads findings; only the tower or a worker may change a finding's status, so record evidence
