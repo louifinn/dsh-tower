@@ -1,7 +1,8 @@
 // Mission lifecycle update use case.
 import { TowerToolError } from '../domain/errors.js'
 import { applyMissionUpdate } from '../domain/missions/lifecycle.js'
-import { baseMismatchMessage } from '../domain/vocabulary.js'
+import { foldReviewNotes } from '../domain/missions/review.js'
+import { baseMismatchMessage, isTowerRole } from '../domain/vocabulary.js'
 import { validateState } from '../domain/state.js'
 import { fullMission } from '../domain/summary.js'
 import { sweepArchive } from './archive.js'
@@ -10,15 +11,56 @@ function fail(message, code = 'invalid-argument') {
   throw new TowerToolError(code, message)
 }
 
+// #221: fields that are not a lifecycle update; `id` and `actor` always ride
+// along, and `fold_notes` is handled as its own audit action below.
+const NON_UPDATE_KEYS = new Set(['id', 'actor', 'fold_notes'])
+
+/**
+ * #221: folding review notes is an audit action on the mission, not a lifecycle
+ * update. It is tower-only, folds only this mission's own open notes, and can
+ * never reopen the mission, add a blocker or touch a verdict.
+ * @param {{ mission: any, state: any, actor: any, now: number }} params
+ */
+function planNoteFold({ mission, state, actor, now }) {
+  const callingActor = actor ?? { name: 'tower', role: 'tower' }
+  if (!isTowerRole(callingActor.role)) fail('only the tower can fold review notes', 'not-authorized')
+  const plan = foldReviewNotes({ mission, reviews: state.reviews })
+  for (const { note } of plan.folded) {
+    note.state = 'folded'
+    note.foldedAt = now
+  }
+  return plan
+}
+
 export async function updateMission(tower, input = {}) {
   const missionId = typeof input.id === 'string' ? input.id.trim() : input.id
   if (typeof missionId !== 'string' || missionId.length === 0) fail('tower_mission requires id')
+  // #221: `fold_notes` is a single-mission action: the fold records who folded
+  // what, so it cannot be batched into a bulk item or the ids shorthand.
+  const foldRequested = input.fold_notes !== undefined
+  if (foldRequested && input.fold_notes !== true) fail('tower_mission fold_notes must be true when present')
+  if (foldRequested && (input.missions !== undefined || input.ids !== undefined)) {
+    fail('tower_mission fold_notes is only available on the single-mission form')
+  }
   const result = await tower.withStateLock(async (_paths, held) => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === missionId)
     if (!mission) fail(`unknown mission "${missionId}"`, 'mission-not-found')
-    const { changes, events, widen } = applyMissionUpdate({ mission, state, input, config: tower.config })
     const now = Date.now()
+    const fold = foldRequested ? planNoteFold({ mission, state, actor: input.actor, now }) : null
+    const update = /** @type {any} */ ({ ...input })
+    delete update.fold_notes
+    // A fold-only call is a complete tower_mission action; it must not be
+    // refused as "requires at least one change".
+    const hasUpdate = Object.keys(update).some((key) => !NON_UPDATE_KEYS.has(key) && update[key] !== undefined)
+    const applied = hasUpdate
+      ? applyMissionUpdate({ mission, state, input: update, config: tower.config })
+      : { changes: /** @type {string[]} */ ([]), events: /** @type {any[]} */ ([]), widen: null }
+    if (fold) {
+      for (const task of fold.tasks) mission.tasks.push(task)
+      applied.changes.push(fold.change)
+    }
+    const { changes, events, widen } = applied
     mission.updatedAt = now
     await sweepArchive(tower, state, { now })
     state.revision += 1

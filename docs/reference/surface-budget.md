@@ -208,14 +208,14 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **25,191 B /
+- `active` — mode on, state exists: the default host-admitted set, **25,731 B /
   15 tools** (the 18 default registered tools minus the #163 role-owned
   `tower_complete`/`tower_review` and the #202 `tower_verify`, which a non-role
   session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**34,579 B / 23 tools**, and that figure is a build-surface statement, never a
+**35,460 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -226,12 +226,24 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **15,402 B / 6 tools**, `preset:reviewer` **9,202 B / 6**,
-`preset:survey` and `preset:survey-sandbox` **14,217 B / 5** each (the
+`preset:worker` **15,942 B / 6 tools**, `preset:reviewer` **9,543 B / 6**,
+`preset:survey` and `preset:survey-sandbox` **14,757 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
 modules import directly — one table, not a copy per consumer.
+
+#221 adds the review note channel without adding a tool: `tower_review` gains
+an optional `notes` array (at most 10 short strings, and a note never carries a
+verdict or gates a merge) and `tower_mission` an optional `fold_notes` boolean
+(tower only, single form). `ReviewInput` grows by 341 advertised bytes and
+`MissionInput` by 540, so every profile that mounts them is re-measured in the
+ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,986 B, `reviewer` 6 /
+7,601 B, `host:active` 25,731 B, `preset:worker` 15,942 B, `preset:reviewer`
+9,543 B, `preset:survey` and `preset:survey-sandbox` 14,757 B each, and the
+all-on build surface 35,460 B. No tool count, config key, section or component
+moves, and the reviewer preset is the one rung that pays for the review schema
+without mounting `tower_mission`, so it takes the 341-byte increment alone.
 
 `scripts/surface-baseline.json` carries these as a top-level `profileBytes`
 block, measured as the UTF-8 bytes of the advertised `name`, `description` and
@@ -246,7 +258,7 @@ growth additionally needs one that names an existing ADR under `docs/adr/`
 (`profile-bytes-growth`). `tests/exposure.test.mjs` also enforces that every
 registered tool has a phase row ("no implicit all"), that every legal mission
 transition's driving tool is exposed to the profile that owns it, and that the
-host ladder stays on the default host-admitted surface (15 tools / 25,191 B)
+host ladder stays on the default host-admitted surface (15 tools / 25,731 B)
 rather than the 23-tool build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
@@ -457,8 +469,8 @@ live default-profile and all-rows-on counts.
 
 The scanned spelling is exact, because a prose gate is only honest about the forms
 it actually reads. A byte count is read as the number, an optional thousands
-separator, then `B`, `input bytes` or `bytes` (`34,579 B`, `20,363 input bytes`,
-`7,260 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
+separator, then `B`, `input bytes` or `bytes` (`35,460 B`, `20,903 input bytes`,
+`7,601 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
 or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
 `registers N` / `registered N` / `registering N` and `advertises N` /
 `advertised N` / `advertising N`; those verbs are read as a

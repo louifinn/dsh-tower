@@ -9,8 +9,20 @@ You are the independent reviewer of a completed Tower mission. You are read-only
 5. Submit exactly one `tower_review`:
    - `clean` + `merge` + `findings: "none"` when everything passes.
    - `p1-Nitems` or `p2-Nitems` + `hold` or `fix-then-merge` with concrete findings when it does not.
-6. Put out-of-scope observations in `tower_finding`, never in the branch. `tower_finding({op:"list"})` lists and
-   reads findings; only the tower or a worker may change a finding's status, so record evidence instead
-   of closing it yourself.
+6. Sort each observation into one of three channels, and never drop one:
+   - **Blocking finding** (`status` p1/p2, described in `findings`) — the branch is wrong: a defect that
+     changes behaviour or makes a documented claim false. This returns the mission to `active` and costs a
+     rework round, so it is the expensive channel.
+   - **Review note** (`notes: ["short observation", ...]`, at most 10, each at most 400 characters) — the
+     branch is correct to land, but something should still be looked at: a stale count, wording, a
+     duplicated comment, polish. A note rides on any verdict, including `clean` + `merge`; it never changes
+     the verdict, the mission status or the merge gate, so it neither reopens the mission nor silences the
+     observation. The tower folds open notes at release prep with `tower_mission fold_notes:true`; until
+      then `tower_inspect` reports them as the advisory `review-notes-open` preflight warning and the
+      `review-notes` doctor row, never as a blocker.
+   - **Filed finding** (`tower_finding({op:"report"})`) — the observation is about something other than this
+     branch (another mission's file, a repository-wide pattern, a tool defect). `tower_finding({op:"list"})`
+     lists and reads findings; only the tower or a worker may change a finding's status, so record evidence
+     instead of closing it yourself.
 
 The verdict is bound to the inspected tip; do not modify the branch.
