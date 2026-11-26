@@ -19,7 +19,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
 import { latestReview, reviewsNewestFirst } from '../domain/integration/review.js'
-import { reviewAdmission, reviewRound } from '../domain/missions/review.js'
+import { foldReviewNotes, reviewAdmission, reviewRound } from '../domain/missions/review.js'
 import { validateState } from '../domain/state.js'
 import {
   modelLatestReview,
@@ -556,6 +556,30 @@ test('tower_mission fold_notes folds open notes in one revision bump and one act
     // A second fold has nothing left to claim and is refused, not silently a no-op.
     await assert.rejects(() => tower.mission({ id: 'M1', fold_notes: true }), /no open review notes to fold/)
     assert.equal((await tower.load()).revision, after.revision)
+
+    // The folded task text is bounded at 200 characters and marks the cut with an
+    // ellipsis, so a long note is clipped visibly instead of losing its tail.
+    const long = `p2 wording nit ${'x'.repeat(400)}`
+    const plan = foldReviewNotes({
+      mission: { id: 'M1', worktree: { branch } },
+      reviews: [
+        {
+          id: 'R7',
+          seq: 7,
+          missionId: 'M1',
+          branch,
+          round: 2,
+          notes: [
+            { id: 'N7.1', reviewId: 'R7', round: 2, reviewer: 'reviewer-a', at: 0, text: long, state: 'open' },
+            { id: 'N7.2', reviewId: 'R7', round: 2, reviewer: 'reviewer-a', at: 0, text: 'short nit', state: 'open' },
+          ],
+        },
+      ],
+    })
+    assert.equal(plan.tasks[0].text, `folded review note N7.1: ${long.slice(0, 199)}…`)
+    assert.equal(plan.tasks[0].text.length, 'folded review note N7.1: '.length + 200)
+    assert.equal(plan.tasks[1].text, 'folded review note N7.2: short nit')
+    assert.equal(plan.change, 'folded 2 review notes into the task list')
   } finally {
     removeTemp(root)
   }

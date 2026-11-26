@@ -395,11 +395,18 @@ export function foldReviewNotes({ mission, reviews }) {
     for (const note of openReviewNotes(review)) folded.push({ review, note })
   }
   if (folded.length === 0) fail(`mission ${mission.id} has no open review notes to fold`)
-  const tasks = folded.map(({ review, note }) => ({
-    text: `folded review note ${note.id}: ${String(note.text).slice(0, 200)}`,
-    status: 'done',
-    note: `folded from review ${review.id} (round ${review.round}) by the tower`,
-  }))
+  const tasks = folded.map(({ review, note }) => {
+    // A note may carry up to 400 characters; the folded task text is bounded,
+    // and the cut is marked with an ellipsis instead of dropping the tail
+    // silently.
+    const text = String(note.text)
+    const clipped = text.length > 200 ? `${text.slice(0, 199)}…` : text
+    return {
+      text: `folded review note ${note.id}: ${clipped}`,
+      status: 'done',
+      note: `folded from review ${review.id} (round ${review.round}) by the tower`,
+    }
+  })
   return {
     tasks,
     folded,

@@ -853,6 +853,18 @@ test('review notes: the doctor warns, never fails, and folding clears the warnin
       folded.mission.tasks.filter((task) => task.text.startsWith('folded review note')).length,
       2,
     )
+    // #221: the fold is single-form only, and the refusal says so instead of
+    // surfacing as an unknown field: a bulk call and a bulk item both name the
+    // real reason, because neither form can carry a per-mission audit action.
+    for (const args of [
+      { repoRoot: repo, ids: [missionId], fold_notes: true },
+      { repoRoot: repo, missions: [{ id: missionId, fold_notes: true }] },
+    ]) {
+      await assert.rejects(
+        () => call(tools, 'tower_mission', args),
+        /tower_mission fold_notes is only available on the single-mission form/,
+      )
+    }
     const afterFold = await call(tools, 'tower_inspect', { view: 'doctor', repoRoot: repo })
     assert.equal(afterFold.checks.find((check) => check.id === 'review-notes').status, 'pass')
     // Folding is what clears the preflight warning too: one audit action, no gate.
