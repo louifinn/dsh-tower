@@ -88,6 +88,22 @@ missing, replaced or unrecorded link under the `worktree-links` check. Because t
 the baseline install, the worktree sees the same dependency versions without a second install; a
 worker that must install its own dependencies should keep `none`.
 
+`spawn.preflightTimeoutMs` bounds the whole `tower_spawn` pre-flight with one deadline (#237): the
+queue for the repository plus every read the spawn performs before the roster reservation commits —
+the descendant catalog, the roster, the ownership check, the preset list, provisioning and test
+admission. It is not a per-await timeout, so a hundred fast reads share the same budget as one slow
+one; the default is 30000 and both a floor (`1000`) and a ceiling (`600000`) refuse a bound that
+cannot protect a call. When the deadline expires the call fails with `[tower:spawn-unavailable]` and
+`details: {phase, elapsedMs}`, where `phase` is one of the frozen names in
+`SPAWN_PREFLIGHT_PHASES` (`queue`, `open`, `resolve`, `observe`, `roster`, `ownership`, `services`,
+`provision`, `discovery`, `reserve`, `activate`, `record`). Because the bound runs before the
+reservation, an expired pre-flight changes no mission status and writes no roster row, worktree or
+agent — a retry needs no cleanup. A caller that cancels its own signal gets the same error with a
+`cancelled` message instead of waiting for the deadline. The same key bounds how long a spawn may
+wait behind another spawn for the same repository; that failure reports `phase: "queue"` with
+`{waitedMs, depth}`, and `tower_inspect({view:"status"})` exposes the live queue as
+`spawn.depth` and `spawn.oldestWaitMs`.
+
 ## Example
 
 ```yaml

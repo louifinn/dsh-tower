@@ -41,6 +41,34 @@ left untouched; `parentStatus` carries the per-parent status (`empty: …` / `un
 positively absent. If adopt keeps reporting `empty:` for a session that still has live workers, retry once
 the catalog settles; do not force the rows to `retired` by hand.
 
+## A spawn that appears hung
+
+A `tower_spawn` call used to be able to hang before it wrote anything: the queue for the repository
+or one of its pre-flight reads (the descendant catalog, the roster, the preset list, provisioning)
+could never settle, so no roster row, worktree or `reserve` entry appeared and the mission stayed
+`planned` with no trace of why. The pre-flight is now bounded by `spawn.preflightTimeoutMs`
+(default 30000), so the same situation ends the call instead of holding it.
+
+- **What the caller sees.** The tool returns `[tower:spawn-unavailable]` with
+  `details: {phase, elapsedMs}`. `phase` names the step that stalled — `queue` for a wait behind
+  another spawn, `observe`/`roster`/`ownership`/`services` for the catalog and roster reads,
+  `provision` for the worktree, `discovery` for test admission, `reserve`/`activate`/`record` for the
+  writes. A cancelled caller gets the same error code with a `cancelled` message.
+- **What `tower_inspect({view:"status"})` shows.** `spawn.depth` is how many spawns hold or wait for
+  the repository's spawn slot and `spawn.oldestWaitMs` is the oldest wait; both are read-only
+  snapshots, so a wedged queue is visible from another session while the first call is still stuck.
+  `spawn.budget` and `spawn.blockedUntil` still carry the provider-cooldown state.
+- **Nothing to clean up.** The bound runs before the roster reservation, so an expired pre-flight
+  leaves the mission `planned`, writes no roster row, starts no agent and creates no worktree. Fix
+  the cause (usually a catalog or preset service that is not answering), then retry the same call;
+  there is no reservation to reap and no worktree to delete. If the mission is no longer `planned`,
+  the failure happened after the reservation and the normal paths apply — see
+  [A worker died mid-mission](#a-worker-died-mid-mission).
+- **When retrying is safe.** A timeout is not a provider cooldown: it does not count toward
+  `spawn.backoff`, so one retry after the service settles is the intended recovery. Raise
+  `spawn.preflightTimeoutMs` only for a legitimately slow provisioning step, not to paper over a
+  catalog that never answers.
+
 ## A worker died mid-mission
 
 A worker that exits without calling `tower_complete` leaves its mission `active` with a roster row the

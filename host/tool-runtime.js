@@ -7,6 +7,7 @@
 // and `tool-registry.js` re-exports the stable public names.
 import { Tower } from '../app/tower.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
+import { DEFAULT_SPAWN_PREFLIGHT_TIMEOUT_MS } from '../domain/config/schema.js'
 import { exposureWhen, resetExposureMemo } from './exposure.js'
 import {
   allowsAnonymous,
@@ -357,16 +358,130 @@ export function watchedRepos() {
   return WATCHED_REPOS
 }
 
-/** Serialize spawn decisions per repository so precheck + activation + record are atomic. */
-export function enqueueSpawn(key, operation) {
-  const previous = SPAWN_QUEUES.get(key) ?? Promise.resolve()
-  const run = previous.catch(() => {}).then(operation)
-  const settled = run.catch(() => {})
-  SPAWN_QUEUES.set(key, settled)
-  settled.finally(() => {
-    if (SPAWN_QUEUES.get(key) === settled) SPAWN_QUEUES.delete(key)
+/**
+ * Serialize spawn decisions per repository so precheck + activation + record are atomic.
+ *
+ * #237: the serialization used to be unbounded. A pre-flight that never settled
+ * (a host that never answers `listDescendants`, a preset list that never
+ * returns) kept the queue tail pending forever, so every later spawn waited
+ * forever with no depth counter and no wait bound — the tool call simply never
+ * returned and nothing recorded why. The queue is now metered: each entry knows
+ * how long it has waited and the depth it found, and a spawn that waited longer
+ * than `spawn.preflightTimeoutMs` is refused with `spawn-unavailable`
+ * `details {phase: 'queue', waitedMs, depth}` instead of running late.
+ *
+ * The bound is armed only for a spawn that actually has to wait: a spawn that
+ * gets the slot immediately is bounded by its own pre-flight deadline, not by a
+ * queue timer that would blame the queue for its own duration.
+ *
+ * @param {string} key
+ * @param {() => Promise<any>} operation
+ * @param {{
+ *   timeoutMs?: number | undefined,
+ *   onQueue?: ((wait: { waitedMs: number, depth: number }) => void) | undefined,
+ *   onWait?: ((wait: { depth: number, queuedAt: number }) => void) | undefined,
+ * }} [options]
+ */
+export function enqueueSpawn(key, operation, options = {}) {
+  const id = String(key)
+  const entry = spawnQueueEntry(id)
+  const limit = Number(options.timeoutMs)
+  const budgetMs = Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_SPAWN_PREFLIGHT_TIMEOUT_MS
+  const queuedAt = Date.now()
+  // Read and bump synchronously: every caller in this tick sees the ones before
+  // it, which is what makes `depth` and the serialization honest.
+  const ahead = entry.active
+  entry.active += 1
+  const depth = ahead + 1
+  const wait = { queuedAt, abandoned: false }
+  if (ahead > 0) entry.waiters.push(wait)
+  // #237: the caller learns it is queued the moment the decision is made, not
+  // when the wait ends. A spawn that later loses its own deadline must be able
+  // to report `phase: 'queue'` with the wait it burned, and a caller watching
+  // the repository learns a second spawn is behind the first.
+  if (ahead > 0) options.onWait?.({ depth, queuedAt })
+  /** @type {Promise<never>} */
+  let deadline = /** @type {any} */ (new Promise(() => {}))
+  let timer
+  if (ahead > 0) {
+    deadline = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => {
+        // The caller's bound expires while it is still waiting: refuse it now.
+        // Waiting for the slot to free would be the very unbounded behavior this
+        // guards, and the pre-flight it would then run describes a state the
+        // caller has already given up on.
+        if (wait.abandoned) return
+        wait.abandoned = true
+        // The caller is gone: it neither waits nor holds a chain slot any more,
+        // so the snapshot must stop counting it (the blocker stays visible).
+        const index = entry.waiters.indexOf(wait)
+        if (index >= 0) entry.waiters.splice(index, 1)
+        entry.active -= 1
+        const waitedMs = Math.max(0, Date.now() - wait.queuedAt)
+        options.onQueue?.({ waitedMs, depth })
+        reject(
+          new TowerToolError(
+            'spawn-unavailable',
+            `tower_spawn stayed queued for ${waitedMs}ms behind ${depth - 1} other spawn(s) (spawn.preflightTimeoutMs ${budgetMs}ms); the mission keeps its planned status and no worker was started, so a retry needs no cleanup`,
+            { details: { phase: 'queue', waitedMs, depth } },
+          ),
+        )
+      }, budgetMs)
+    })
+    // The chain still has to move for the spawns behind a refused caller, so
+    // the abandoned turn resolves immediately when it is reached.
+    deadline.catch(() => {})
+  }
+  const previous = entry.tail
+  const turn = previous.catch(() => {}).then(async () => {
+    // A caller that already failed must not run its pre-flight late; the chain
+    // still has to move for the spawns behind it.
+    if (wait.abandoned) return undefined
+    const index = entry.waiters.indexOf(wait)
+    if (index >= 0) entry.waiters.splice(index, 1)
+    // #237: the queue reports the wait it actually cost, once, so the caller can
+    // write one activity line instead of polling the queue for progress.
+    if (index >= 0) options.onQueue?.({ waitedMs: Math.max(0, Date.now() - wait.queuedAt), depth })
+    return await operation()
   })
-  return run
+  const settled = turn.catch(() => {})
+  entry.tail = settled
+  settled.finally(() => {
+    clearTimeout(timer)
+    // A refused waiter already left the count when its deadline fired.
+    if (!wait.abandoned) entry.active -= 1
+    const leftover = entry.waiters.indexOf(wait)
+    if (leftover >= 0) entry.waiters.splice(leftover, 1)
+    if (entry.tail === settled && entry.waiters.length === 0 && entry.active <= 0) SPAWN_QUEUES.delete(id)
+  })
+  return ahead > 0 ? Promise.race([turn, deadline]) : turn
+}
+
+/** @param {string} key */
+function spawnQueueEntry(key) {
+  let entry = SPAWN_QUEUES.get(key)
+  if (!entry) {
+    entry = { tail: Promise.resolve(), active: 0, waiters: [] }
+    SPAWN_QUEUES.set(key, entry)
+  }
+  return entry
+}
+
+/**
+ * Read-only snapshot of the spawn queue for one repository (#237): how many
+ * spawns hold or wait for the slot and how long the oldest waiter has waited.
+ * `oldestWaitMs` is 0 when nothing is waiting — a running spawn is not a wait.
+ * @param {string} key
+ * @returns {{ depth: number, oldestWaitMs: number }}
+ */
+export function spawnQueueView(key) {
+  const entry = SPAWN_QUEUES.get(String(key))
+  if (!entry) return { depth: 0, oldestWaitMs: 0 }
+  const oldest = entry.waiters.length > 0 ? entry.waiters[0].queuedAt : 0
+  return {
+    depth: entry.active,
+    oldestWaitMs: oldest > 0 ? Math.max(0, Date.now() - oldest) : 0,
+  }
 }
 
 /** In-memory per-repository tower_send rate limit (process-local, advisory). */
@@ -605,4 +720,5 @@ export const __testSpawnBackoff = {
   recordSpawnThrottle,
   recordSpawnSuccess,
   spawnBackoffView,
+  spawnQueueView,
 }

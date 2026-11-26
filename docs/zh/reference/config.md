@@ -74,6 +74,19 @@ agent；需要中断时请显式传 `interrupt:true`。生成页中的其他值�
 被替换或未登记，`tower_inspect({view:"doctor"})` 的 `worktree-links` 检查会报告。由于链接直接指向
 基线安装，工作树无需二次安装即可看到相同版本的依赖；需要自行安装依赖的 worker 应保持 `none`。
 
+`spawn.preflightTimeoutMs` 用同一个截止时间约束整个 `tower_spawn` 预检（#237）：仓库的队列等待，
+加上 roster 预约提交之前 spawn 执行的每一次读取——子代理目录、roster、所有权检查、preset 列表、
+准备工作树与测试准入。它不是每个 await 各自的超时，所以一百次快速读取和一个慢读取共享同一份预算；
+默认值为 30000，下限（`1000`）与上限（`600000`）会拒绝无法真正保护调用的取值。截止时间到期时，
+调用以 `[tower:spawn-unavailable]` 失败，并带有 `details: {phase, elapsedMs}`，其中 `phase` 是
+`SPAWN_PREFLIGHT_PHASES` 中冻结的名字之一（`queue`、`open`、`resolve`、`observe`、`roster`、
+`ownership`、`services`、`provision`、`discovery`、`reserve`、`activate`、`record`）。由于约束发生在
+预约之前，预检超时不会改变任何 mission 状态，也不会写入 roster 行、worktree 或 agent——重试无需清理。
+调用方取消自己的 signal 时会得到同一个错误（消息为 `cancelled`），而不必等到截止时间。同一个键也
+限制一个 spawn 在等待同仓库其他 spawn 时的排队时长；该失败报告 `phase: "queue"` 与
+`{waitedMs, depth}`，而 `tower_inspect({view:"status"})` 以 `spawn.depth` 与
+`spawn.oldestWaitMs` 暴露实时队列。
+
 ## 示例
 
 ```yaml

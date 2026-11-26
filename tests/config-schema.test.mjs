@@ -214,11 +214,14 @@ test('the gate catches drift, duplicates, a stale default, a changed count, a ha
     }).some((problem) => problem.includes('default for `git.timeoutMs`')),
   )
 
+  // Derived from the live schema so the proof survives a key being added: the
+  // header check must fail whenever the count in the page disagrees with it.
+  const keyCount = configSurface().count
   assert.ok(
     problemsFor((dir) => {
       const file = path.join(dir, CONFIG_REFERENCE_FILE)
-      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('config keys: 59', 'config keys: 58'))
-    }).some((problem) => problem.includes('header says 58 config keys')),
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(`config keys: ${keyCount}`, `config keys: ${keyCount - 1}`))
+    }).some((problem) => problem.includes(`header says ${keyCount - 1} config keys`)),
   )
 
   assert.ok(

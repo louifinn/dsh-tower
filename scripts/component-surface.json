@@ -338,6 +338,11 @@
       "note": "Upper bound for a blocking spawn wait."
     },
     {
+      "name": "spawn.preflightTimeoutMs",
+      "class": "optional-config",
+      "note": "Bound on the whole spawn pre-flight: a read that never answers refuses instead of hanging."
+    },
+    {
       "name": "spawn.requireLease",
       "class": "optional-config",
       "note": "Advisory-lease gate before a worker starts.",
