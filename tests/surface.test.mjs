@@ -156,7 +156,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   // allow-lists. #202 adds tower_verify to the reviewer allow-list.
   assert.deepEqual(current.profiles, {
     tower: { tools: 15, inputBytes: 20363 },
-    worker: { tools: 6, inputBytes: 13153 },
+    worker: { tools: 6, inputBytes: 13446 },
     reviewer: { tools: 6, inputBytes: 7260 },
   })
   // #163 Phase 1+2 shrank the advertised schemas and Phase 3 folded the five
@@ -164,11 +164,13 @@ test('the live surface equals the committed baseline and is fully classified', (
   // committed value is the chain's tail, not the seed. #201 added tower_wait,
   // the 22nd tool and the 15th mounted in the tower profile; #202 adds
   // tower_verify to the reviewer profile only. #219 adds the single-form widen
-  // object to MissionInput, which is the only cause of the last step.
+  // object to MissionInput, and #222 adds the optional `files` array to
+  // CompleteInput, which the worker preset mounts; those two are the causes of
+  // the last two steps.
   assert.equal(baseline.profiles.tower.tools.value, 15)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 6)
-  for (const [profile, bytes] of [['tower', 20363], ['worker', 13153], ['reviewer', 7260]]) {
+  for (const [profile, bytes] of [['tower', 20363], ['worker', 13446], ['reviewer', 7260]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)

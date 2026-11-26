@@ -12,6 +12,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { workerBriefing, reviewerBriefing } from '../app/briefing.js'
 import { buildSpawnBriefing } from '../app/spawn-support.js'
+import { completionFootprint } from '../domain/missions/completion.js'
 import { Tower } from '../host/tower.js'
 
 function git(cwd, args) {
@@ -406,4 +407,94 @@ test('missionContext feeds the briefing with the real review and finding history
   } finally {
     removeTemp(root)
   }
+})
+
+// #222 task 5: the reviewer sees what the completion actually covered, but only
+// when the derived footprint says something the reviewer must check. A clean
+// in-fence completion gains no noise.
+test('#222 reviewer briefing prints the footprint split only when files landed outside the fence', () => {
+  const clean = reviewerBriefing(fixture())
+  assert.doesNotMatch(clean, /Outside the mission scope/, 'the happy path gains no footprint noise')
+
+  const outside = fixture({
+    completionReport: {
+      by: 'worker-m1',
+      report: 'completed',
+      checks: [],
+      footprint: {
+        scope: ['src/**', 'docs/**'],
+        scopeGeneration: 1,
+        widenAt: null,
+        widenedTo: null,
+        changed: ['docs/stray.md', 'src/a.js'],
+        insideScope: ['src/a.js'],
+        outsideScope: ['docs/stray.md'],
+        declared: [],
+        mismatch: [],
+        mismatchNote: null,
+      },
+    },
+  })
+  const text = reviewerBriefing(outside)
+  assert.match(text, /Outside the mission scope \(1 file\):/)
+  assert.match(text, /- docs\/stray\.md/)
+  assert.doesNotMatch(text, /- src\/a\.js/, 'inside-scope files are the diff the reviewer already reads')
+  // The block is context for the rules, never a rules line itself.
+  assert.ok(text.indexOf('Outside the mission scope') < text.indexOf('Rules:'))
+})
+
+// R211: the briefing renders `outsideScope` verbatim, so a footprint that
+// disagrees with the gate turns into a false accusation in the reviewer prompt.
+// The source of truth is the domain split, not the briefing: this case constructs
+// the footprint from a case-insensitive completion and proves nothing is printed.
+test('#222 a case-insensitive footprint prints no outside-scope block', () => {
+  const target = { id: 'M1', kind: 'build', scope: ['src/Api/**'], scopeGeneration: 1, tasks: [], deps: [] }
+  const footprint = completionFootprint({ mission: target, changed: ['src/api/x.js'], caseInsensitive: true })
+  assert.deepEqual(footprint.outsideScope, [], 'precondition: the case-only path is inside on this checkout')
+  const text = reviewerBriefing(
+    fixture({
+      mission: { ...fixture().mission, scope: ['src/Api/**'] },
+      completionReport: { by: 'worker-m1', report: 'completed', checks: [], footprint },
+    }),
+  )
+  assert.doesNotMatch(text, /Outside the mission scope/, 'a gate-approved path must never reach the reviewer as outside')
+
+  // The same mission on a case-sensitive checkout still names the path, so the
+  // silence above is folding, not a dropped block.
+  const sensitive = completionFootprint({ mission: target, changed: ['src/api/x.js'] })
+  const warned = reviewerBriefing(
+    fixture({
+      mission: { ...fixture().mission, scope: ['src/Api/**'] },
+      completionReport: { by: 'worker-m1', report: 'completed', checks: [], footprint: sensitive },
+    }),
+  )
+  assert.match(warned, /Outside the mission scope \(1 file\):/)
+  assert.match(warned, /- src\/api\/x\.js/)
+})
+
+test('#222 reviewer briefing reports the footprint mismatch note', () => {
+  const text = reviewerBriefing(
+    fixture({
+      completionReport: {
+        by: 'worker-m1',
+        report: 'completed',
+        checks: [],
+        footprint: {
+          scope: ['src/**'],
+          scopeGeneration: 2,
+          widenAt: 1700000000000,
+          widenedTo: ['src/**'],
+          changed: ['src/a.js'],
+          insideScope: ['src/a.js'],
+          outsideScope: [],
+          declared: ['src/ghost.js'],
+          mismatch: ['src/ghost.js (declared, absent from the branch diff)'],
+          mismatchNote: "the worker's declaration and the branch diff disagree: src/ghost.js (declared, absent from the branch diff)",
+        },
+      },
+    }),
+  )
+  assert.match(text, /Footprint mismatch \(1 file\):/)
+  assert.match(text, /src\/ghost\.js \(declared, absent from the branch diff\)/)
+  assert.match(text, /Widened after planning: widenAt 1700000000000, scope at completion: src\/\*\*/)
 })

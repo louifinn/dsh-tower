@@ -534,8 +534,8 @@ test('#223: a changed tool total in the surface ladder fails with file, line and
   const copy = copyRepo(t)
   const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
   const text = fs.readFileSync(page, 'utf8')
-  assert.ok(text.includes('**34,286 B / 23 tools**'))
-  fs.writeFileSync(page, text.replace('**34,286 B / 23 tools**', '**34,286 B / 24 tools**'))
+  assert.ok(text.includes('**34,579 B / 23 tools**'))
+  fs.writeFileSync(page, text.replace('**34,579 B / 23 tools**', '**34,579 B / 24 tools**'))
   const problems = surfaceFigureProblems(copy)
   assert.ok(
     problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: unrecognised surface figure 24 tools: /.test(problem)
@@ -562,12 +562,12 @@ test('#223: a labeled byte figure must match its own subject, and the message ca
   const copy = copyRepo(t)
   const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
   const text = fs.readFileSync(page, 'utf8')
-  const needle = '`preset:worker` **15,109 B / 6 tools**'
+  const needle = '`preset:worker` **15,402 B / 6 tools**'
   assert.ok(text.includes(needle))
   fs.writeFileSync(page, text.replace(needle, '`preset:worker` **15,111 B / 6 tools**'))
   const problems = surfaceFigureProblems(copy)
   assert.ok(
-    problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: 15,111 B does not match preset:worker \(expected 15109\)/.test(problem)),
+    problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: 15,111 B does not match preset:worker \(expected 15402\)/.test(problem)),
     problems.join('\n'),
   )
 })
@@ -594,7 +594,7 @@ test('#223: a brand-new "input bytes" claim fails closed too', (t) => {
   const problems = surfaceFigureProblems(copy)
   assert.ok(
     problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: unrecognised surface figure 24,999 input bytes: /.test(problem)
-      && problem.includes('expected one of 846, 2185, 7260, 9202, 13153, 13924, 15109, 20363, 25191, 34286')),
+      && problem.includes('expected one of 846, 2185, 7260, 9202, 13446, 14217, 15402, 20363, 25191, 34579')),
     problems.join('\n'),
   )
   fs.writeFileSync(page, '# Surface notes\n\nThe tower profile advertises 24,999 input bytes in this draft.\n')
@@ -679,7 +679,7 @@ test('#223: the live verb-first and "input bytes" spellings pass without a marke
   const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
   fs.writeFileSync(
     page,
-    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 34,286 bytes.\nThe tower profile advertises 15 tools / 20,363 input bytes.\n',
+    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 34,579 bytes.\nThe tower profile advertises 15 tools / 20,363 input bytes.\n',
   )
   fs.writeFileSync(path.join(copy, 'docs', 'zh', 'reference', 'surface-notes.md'), '# 表面笔记\n\n默认 profile 挂载 18 个工具。\n')
   assert.deepEqual(surfaceFigureProblems(copy), [])

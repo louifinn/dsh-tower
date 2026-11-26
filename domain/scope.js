@@ -85,8 +85,35 @@ export function comparisonMode(caseInsensitive) {
   return caseInsensitive === true ? 'case-insensitive' : 'case-sensitive'
 }
 
-/** @typedef {{ code: string, detail: string }} ScopeBlocker */
+/** @typedef {{ code: string, detail: string, details?: { outsideScope: string[] } }} ScopeBlocker */
 /** @typedef {{ ownsPaths: boolean, fence: 'scope' | 'read-only' }} Reach */
+/** @typedef {{ insideScope: string[], outsideScope: string[] }} ScopeSplit */
+
+/**
+ * Split changed files into what the mission's fence allows and what it does not
+ * (#222). The completion footprint and the merge gate read the same split, so a
+ * path can never be "inside" for the completion record and "outside" for review.
+ *
+ * A read-only reach allows no path at all: everything changed is outside.
+ *
+ * @param {{ mission: { scope?: string[] | null }, reach: Reach | null | undefined, changedFiles?: string[], caseInsensitive?: boolean }} input
+ * @returns {ScopeSplit}
+ */
+export function scopeSplit({ mission, reach, changedFiles = [], caseInsensitive = false }) {
+  const files = Array.isArray(changedFiles) ? changedFiles : []
+  const ownsPaths = reach?.ownsPaths === true && reach?.fence !== 'read-only'
+  if (!ownsPaths) return { insideScope: [], outsideScope: [...files] }
+  const scope = mission?.scope ?? []
+  /** @type {string[]} */
+  const insideScope = []
+  /** @type {string[]} */
+  const outsideScope = []
+  for (const file of files) {
+    if (fileInScope(scope, file, { caseInsensitive })) insideScope.push(file)
+    else outsideScope.push(file)
+  }
+  return { insideScope, outsideScope }
+}
 
 /**
  * The one path-permission fence (#149 W4). A shape's `reach` is the single
@@ -112,10 +139,11 @@ export function scopeFenceBlocker({ mission, reach, changedFiles = [], caseInsen
     return {
       code: 'out-of-scope',
       detail: `mission ${mission?.id ?? '(unknown)'} is read-only and changed ${files.length} tracked path(s): ${files.slice(0, 8).join(', ')}`,
+      details: { outsideScope: [...files] },
     }
   }
   const scope = mission?.scope ?? []
-  const outOfScope = files.filter((file) => !fileInScope(scope, file, { caseInsensitive }))
+  const { outsideScope: outOfScope } = scopeSplit({ mission, reach, changedFiles: files, caseInsensitive })
   if (outOfScope.length === 0) return null
   const parts = [`changed files outside scope (${scope.join(', ')}): ${outOfScope.slice(0, 8).join(', ')}`]
   // On a case-sensitive checkout a case-only mismatch is a human error worth
@@ -133,7 +161,7 @@ export function scopeFenceBlocker({ mission, reach, changedFiles = [], caseInsen
       .slice(0, 3)
     if (hints.length > 0) parts.push(`case mismatch: ${hints.join('; ')}`)
   }
-  return { code: 'out-of-scope', detail: parts.join('. ') }
+  return { code: 'out-of-scope', detail: parts.join('. '), details: { outsideScope: outOfScope } }
 }
 
 // Mission titles are printable Unicode, not printable ASCII (#88). The hazards

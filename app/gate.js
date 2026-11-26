@@ -99,7 +99,15 @@ export async function evaluateGate(tower, input) {
     const reviews = archivedEntry ? [...(state.reviews ?? []), ...(archivedEntry.reviews ?? [])] : state.reviews
     const activity = input.activity ?? {}
     const blockers = []
-    const push = (code, detail) => blockers.push({ code, detail })
+    // A blocker's `detail` is prose for a human; `details` is the same fact in
+    // machine-readable form for the caller (#222). Extras are copied only when
+    // the producing rule supplies them, so the shape of every other blocker is
+    // exactly what it was.
+    const push = (code, detail, details) => {
+      const blocker = { code, detail }
+      if (details !== undefined) blocker.details = details
+      blockers.push(blocker)
+    }
 
     for (const blocker of completionBlockers(mission, tower.config)) push(blocker.code, blocker.detail)
     if (state.mergeIntent && state.mergeIntent.missionId === mission.id) {
@@ -126,7 +134,7 @@ export async function evaluateGate(tower, input) {
           push(blocker.code, blocker.detail)
         }
         const scopeBlocker = outOfScopeBlocker({ mission, changedFiles, caseInsensitive: state.caseInsensitive === true })
-        if (scopeBlocker) push(scopeBlocker.code, scopeBlocker.detail)
+        if (scopeBlocker) push(scopeBlocker.code, scopeBlocker.detail, /** @type {any} */ (scopeBlocker).details)
         const dirty = await dirtyPaths(tower)
         const dirtyBlocker = baseDirtyBlocker(overwrittenPaths(changedFiles, dirty))
         if (dirtyBlocker) push(dirtyBlocker.code, dirtyBlocker.detail)
