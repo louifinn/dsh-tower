@@ -119,6 +119,7 @@ All keys from `domain/config/schema.js`, classified on the component axis.
 | `spawn.maxLiveWorkers` | `core` | Resource-safety cap on live workers. |
 | `spawn.staleMs` | `optional-config` | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | `optional-config` | Upper bound for a blocking spawn wait. |
+| `spawn.preflightTimeoutMs` | `optional-config` | Bound on the whole spawn pre-flight: a read that never answers refuses instead of hanging. |
 | `spawn.requireLease` | `optional-config` | Advisory-lease gate before a worker starts. Tuning exemption: Tuning the safety level inside the optional tower-leases row; with leases off the Host refuses requireLease instead of removing the spawn capability. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |
 | `send.maxPerMinute` | `optional-config` | Process-local advisory message rate limit; zero disables it. |
 | `send.interruptDefault` | `optional-config` | Default for the interrupt-before-deliver flag. Tuning exemption: Tuning, not capability: the send component always exists and the switch only picks a delivery default. (2026-11-03 · #138 · [0005-component-surface.md](../adr/0005-component-surface.md)) |

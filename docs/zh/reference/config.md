@@ -74,6 +74,30 @@ agent；需要中断时请显式传 `interrupt:true`。生成页中的其他值�
 被替换或未登记，`tower_inspect({view:"doctor"})` 的 `worktree-links` 检查会报告。由于链接直接指向
 基线安装，工作树无需二次安装即可看到相同版本的依赖；需要自行安装依赖的 worker 应保持 `none`。
 
+`spawn.preflightTimeoutMs` 用同一个截止时间约束整个 `tower_spawn` 预检（#237）：仓库的队列等待，
+加上 roster 预约提交之前 spawn 执行的每一次读取与写入——子代理目录、roster、所有权检查、preset 列表、
+准备工作树与测试准入。它不是每个 await 各自的超时，所以一百次快速读取和一个慢读取共享同一份预算；
+默认值为 30000，下限（`1000`）与上限（`600000`）会拒绝无法真正保护调用的取值。截止时间到期时，
+调用以 `[tower:spawn-unavailable]` 失败，并带有 `details: {phase, elapsedMs, rollback}`，其中 `phase`
+是 `SPAWN_PREFLIGHT_PHASES` 中冻结的名字之一（`queue`、`open`、`resolve`、`observe`、`roster`、
+`ownership`、`services`、`provision`、`discovery`、`reserve`、`activate`、`record`）。截止时间会真正
+中止预检，而不只是提前返回：预检已经完成的写入会在失败返回之前被释放——它写入的 roster 预约、它创建的
+worktree、分离的 sandbox——`details.rollback` 会逐项报告 released、removed、`none`，或无法撤销时的
+`kept` 以及路径与原因。调用前就属于该 mission 的 worktree 不会被删除；已经启动的子代理也不会被报告为
+未启动。reviewer 是看起来反常但正确的情况：它只为简报借用被评审 mission 已完成的 branch worktree，
+自己创建的只是分离的 review checkout，因此 `details.rollback.worktree` 报告 `kept`，而它真正创建的
+checkout 会按路径单独清理。调用方取消自己的 signal 时会得到同一个错误（消息为 `cancelled`），而不必等到
+截止时间。同一个键也
+限制一个 spawn 在等待同仓库其他 spawn 时的排队时长；该失败报告 `phase: "queue"` 与
+`{waitedMs, depth}`，而 `tower_inspect({view:"status"})` 以 `spawn.depth` 与
+`spawn.oldestWaitMs` 暴露实时队列。
+
+释放本身是有界的：拒绝最多等待两秒，让进行中的阶段观察到中止，并报告那一刻的释放状态。若 unwind 仍在
+运行，`details.rollback` 会是 `{status: "pending", note}`，而不是逐项报告——释放完成后活动日志会记录
+结果，所以 `pending` 意味着应当去读日志，而不是假定那些写入仍然存在。第一次写入之前的阶段
+（`pending`、`queue`、`open`、`resolve`、`observe`、`roster`、`ownership`、`services`）完全不携带
+`rollback` 键，因为那时还没有任何写入。
+
 ## 示例
 
 ```yaml

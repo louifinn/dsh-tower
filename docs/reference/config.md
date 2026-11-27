@@ -88,6 +88,36 @@ missing, replaced or unrecorded link under the `worktree-links` check. Because t
 the baseline install, the worktree sees the same dependency versions without a second install; a
 worker that must install its own dependencies should keep `none`.
 
+`spawn.preflightTimeoutMs` bounds the whole `tower_spawn` pre-flight with one deadline (#237): the
+queue for the repository plus every read and write the spawn performs up to the roster reservation
+committing — the descendant catalog, the roster, the ownership check, the preset list, provisioning
+and test admission. It is not a per-await timeout, so a hundred fast reads share the same budget as
+one slow one; the default is 30000 and both a floor (`1000`) and a ceiling (`600000`) refuse a bound
+that cannot protect a call. When the deadline expires the call fails with
+`[tower:spawn-unavailable]` and `details: {phase, elapsedMs, rollback}`, where `phase` is one of the
+frozen names in `SPAWN_PREFLIGHT_PHASES` (`queue`, `open`, `resolve`, `observe`, `roster`,
+`ownership`, `services`, `provision`, `discovery`, `reserve`, `activate`, `record`). The deadline
+stops the pre-flight rather than just returning early: the writes it had already made are released
+before the failure is returned — the roster reservation it wrote, the worktree it created, a detached
+sandbox — and `details.rollback` reports each as released, removed, `none` or, when a step could not
+be undone, `kept` with the path and the reason. A worktree the mission already owned before the call
+is never removed; a child that was already started is never reported as unstarted. A reviewer is the
+case that reads oddly but is correct: it borrows the reviewed mission's completed branch worktree for
+its briefing and creates only the detached review checkout, so `details.rollback.worktree` says
+`kept` and the checkout it did create is disposed of by path. A caller that
+cancels its own signal gets the same error with a `cancelled` message instead of waiting for the
+deadline. The same key bounds how long a spawn may wait behind another spawn for the same
+repository; that failure reports `phase: "queue"` with `{waitedMs, depth}`, and
+`tower_inspect({view:"status"})` exposes the live queue as `spawn.depth` and `spawn.oldestWaitMs`.
+
+The release itself is bounded: the refusal waits up to two seconds for an in-flight phase to observe
+the abort, and reports the release as it stands at that moment. When the unwind is still running,
+`details.rollback` is `{status: "pending", note}` rather than a per-artifact report — the activity
+log records what was released once it finishes, so a `pending` rollback is a reason to read the log,
+not a reason to assume the writes survived. Phases before the first write (`pending`, `queue`,
+`open`, `resolve`, `observe`, `roster`, `ownership`, `services`) carry no `rollback` key at all,
+because nothing had been written yet.
+
 ## Example
 
 ```yaml

@@ -393,6 +393,7 @@ tool count moves.
 | `spawn.maxLiveWorkers` | core | Resource-safety cap on live workers. |
 | `spawn.staleMs` | tuning | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | tuning | Upper bound for a blocking spawn wait. |
+| `spawn.preflightTimeoutMs` | tuning | One deadline for the whole `tower_spawn` pre-flight (queueing plus every read before the roster reservation); expiry refuses with `phase` and `elapsedMs`. |
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
 | `spawn.nodeModules` | tuning | Dependency visibility for a spawned worktree: `none` (default) leaves it without `node_modules`; `link` creates `<worktree>/node_modules` as a junction to the baseline checkout's installed dependencies and records it so teardown only ever unlinks that link. Placement tuning, not a capability row; a missing target refuses the spawn. |
 | `send.maxPerMinute` | tuning | Process-local advisory message rate limit; zero disables it. |

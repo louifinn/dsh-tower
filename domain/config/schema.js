@@ -35,6 +35,12 @@ const LEGACY_KEYS = ['section', 'allowAgentControl']
 // tests and embedders call appendJsonl directly).
 export const DEFAULT_ACTIVITY_MAX_BYTES = 4 * 1024 * 1024
 export const DEFAULT_ACTIVITY_RETENTION = 5
+// #237: the bound the spawn pre-flight uses before the repository config is
+// known (opening the repository happens inside that same deadline). The
+// configured `spawn.preflightTimeoutMs` retunes the one deadline as soon as the
+// repository config resolves; keeping the number here means the schema default
+// and the tool fallback cannot drift apart.
+export const DEFAULT_SPAWN_PREFLIGHT_TIMEOUT_MS = 30000
 
 // #133/#135/#149/#M66: a removed key keeps failing as an unknown key — with an
 // upgrade note naming what replaced it. `docs.board` and `archive.enabled`
@@ -211,6 +217,13 @@ export const Config = Schema.object({
       .max(600000)
       .default(90000)
       .description('Upper bound for a blocking tower_spawn wait (default 90s, Kimi-compatible).'),
+    preflightTimeoutMs: Schema.natural()
+      .min(1000)
+      .max(600000)
+      .default(30000)
+      .description(
+        'One deadline for the whole tower_spawn pre-flight — queueing plus every read and write it performs up to the roster reservation — not a separate deadline per await (0 is not allowed; use 600000 for the loosest bound). When it expires the call fails with spawn-unavailable and details {phase, elapsedMs, rollback}: no worker is started, and every write the pre-flight had already made (reservation, worktree, sandbox) is released before the failure is returned, or named in details.rollback as kept when it could not be.',
+      ),
     requireLease: Schema.string().description('Optional lease name tower_spawn must hold before starting a worker.'),
   })
     .default({})

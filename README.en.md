@@ -210,7 +210,7 @@ The list above is the 18 core tools plus 5 component-owned optional tools (`towe
 - **Worktree ownership.** Dirty worktrees, a running worker, or a branch owned by a closed mission block teardown/merge.
 - **Goal isolation.** Entering Tower mode pauses the active goal and records it; leaving does not resume it. Use `/tower off` and resume the goal yourself.
 
-Surface counts (live, checked by `npm run docs:check`): 23 tools, 45 tool error codes, 26 process-local events, 59 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile registers 18 of those tools.
+Surface counts (live, checked by `npm run docs:check`): 23 tools, 45 tool error codes, 26 process-local events, 60 config keys, 36 stable blocker/failure codes, 13 visible components. The default profile registers 18 of those tools.
 
 Five subsystem rows ship off; the `tower_inspect` `doctor` view lists each one as disabled plus how to enable it, and the same table lives in [docs/reference/tools.md](docs/reference/tools.md) under “Default-off subsystems”:
 

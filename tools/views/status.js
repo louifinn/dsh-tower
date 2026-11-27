@@ -255,13 +255,14 @@ async function agentStatusView(ctx, tower, args, state, deps) {
  *   openTower: any,
  *   workspaceHook: any,
  *   spawnBackoffView: any,
+ *   spawnQueueView: any,
  *   observeActivity: any,
  *   componentReport: (ctx: any) => Promise<{ enabled: string[], disabled: Array<{ id: string, reason: string }> }>,
  *   ownershipView?: (ctx: any, tower: any, exec: any) => Promise<any>,
  * }} deps
  */
 export async function runStatusView(ctx, args, exec, deps) {
-  const { define, workspaceHook, spawnBackoffView, observeActivity, componentReport, ownershipView } = deps
+  const { define, workspaceHook, spawnBackoffView, spawnQueueView, observeActivity, componentReport, ownershipView } = deps
       const tower = await deps.openTower(args.repoRoot)
       // #215: the live HEAD label is a read-only git fact, available even when
       // the state file itself is unreadable (degraded status below).
@@ -297,7 +298,15 @@ export async function runStatusView(ctx, args, exec, deps) {
       const inflight = (statusState.roster ?? []).filter(
         (entry) => isWorkerRole(entry.role) && !ROSTER_INACTIVE_STATES.includes(entry.state) && !isReservedState(entry.state),
       ).length
-      const spawn = spawnBackoffView(tower.root, tower.config.spawn?.maxLiveWorkers, inflight)
+      // #237: the spawn slot is a shared resource, so the dashboard reports the
+      // bounded queue next to the throttling facts. `depth` counts the spawn
+      // holding the slot plus the ones waiting for it, and `oldestWaitMs` is how
+      // long the oldest waiter has been waiting — a live number that also says
+      // whether a caller's `spawn.preflightTimeoutMs` is about to expire.
+      const spawn = {
+        ...spawnBackoffView(tower.root, tower.config.spawn?.maxLiveWorkers, inflight),
+        ...spawnQueueView(tower.root),
+      }
       if (args.missionId) {
         const [status, detail] = await Promise.all([
           tower.status({ missionIds: [args.missionId] }),

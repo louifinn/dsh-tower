@@ -104,12 +104,13 @@ function gateRoot(transforms = {}) {
   return dir
 }
 
-test('the shipped component surface passes every rule and classifies all 59 keys', async () => {
+test('the shipped component surface passes every rule and classifies all 60 keys', async () => {
   const report = await checkComponents(root)
   assert.deepEqual(report.findings.filter((entry) => entry.level === 'error'), [])
   assert.equal(report.surface.keys.length, configSurface().count)
-  assert.equal(report.surface.keys.length, 59)
-  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 59)
+  // #237 adds spawn.preflightTimeoutMs as the 60th classified key.
+  assert.equal(report.surface.keys.length, 60)
+  assert.equal(new Set(report.surface.keys.map((key) => key.name)).size, 60)
   assert.deepEqual(report.live.patch.visible, [
     'tower',
     'tower-skills',
@@ -173,8 +174,8 @@ test('the review-policy decision is dated and count-consistent (#M42)', () => {
 
   // The dated decision is count-consistent with the source of truth and the
   // baseline: reclassification moves no key and no component.
-  assert.equal(surface.keys.length, 59)
-  assert.equal(baseline.surfaces.configKeys.value, 59)
+  assert.equal(surface.keys.length, 60)
+  assert.equal(baseline.surfaces.configKeys.value, 60)
   assert.equal(realMergedPatch().visible.length, 13)
   assert.equal(baseline.surfaces.components.value, 13)
 })

@@ -41,6 +41,55 @@ left untouched; `parentStatus` carries the per-parent status (`empty: …` / `un
 positively absent. If adopt keeps reporting `empty:` for a session that still has live workers, retry once
 the catalog settles; do not force the rows to `retired` by hand.
 
+## A spawn that appears hung
+
+A `tower_spawn` call used to be able to hang before it wrote anything: the queue for the repository
+or one of its pre-flight reads (the descendant catalog, the roster, the preset list, provisioning)
+could never settle, so no roster row, worktree or `reserve` entry appeared and the mission stayed
+`planned` with no trace of why. The pre-flight is now bounded by `spawn.preflightTimeoutMs`
+(default 30000), so the same situation ends the call instead of holding it. The same bound also
+stops the pre-flight *between* its writes, so an expiry is a clean stop rather than a race the caller
+loses to steps that keep going.
+
+- **What the caller sees.** The tool returns `[tower:spawn-unavailable]` with
+  `details: {phase, elapsedMs, rollback}`. `phase` names the step that stalled — `queue` for a wait
+  behind another spawn, `observe`/`roster`/`ownership`/`services` for the catalog and roster reads,
+  `provision` for the worktree, `discovery` for test admission, `reserve`/`activate`/`record` for the
+  writes. `rollback` is absent for the phases before the first write, because nothing had been
+  written yet. A cancelled caller gets the same error code with a `cancelled` message. While the call is
+  in flight the tower's activity log narrates it, so a hung spawn is legible from the log alone: each
+  phase transition appends `pre-flight <phase> after <n>ms`, and a call that had to wait behind
+  another appends `pre-flight queued <n>ms behind <n> other spawn(s)` when it starts running.
+- **What `tower_inspect({view:"status"})` shows.** `spawn.depth` is how many spawns hold or wait for
+  the repository's spawn slot and `spawn.oldestWaitMs` is the oldest wait; both are read-only
+  snapshots, so a wedged queue is visible from another session while the first call is still stuck.
+  `spawn.budget` and `spawn.blockedUntil` still carry the provider-cooldown state.
+- **What was released, and what may be left.** The refusal releases every write the pre-flight had
+  already made — the roster reservation it wrote, the worktree it created, a detached sandbox — and
+  reports each one in `details.rollback` as `released`, `removed` or `none`; when a step could not be
+  undone it is reported as `kept` with the path and the reason, and only then is anything left for
+  you to clean up. That report is bounded: the refusal waits up to two seconds for the in-flight step
+  to observe the abort, so `details.rollback` may instead be `{status: "pending", note}` — the unwind
+  was still running when the caller was told, and the activity log records what it released. A
+  `pending` rollback is a reason to read the log, never a reason to assume the writes survived. A
+  worktree the mission already owned before the call is never removed, because it
+  is not this call's to delete. If `rollback` names a kept reservation, the next spawn's pre-check
+  reaps it once it has been stalled for `STALLED_RESERVATION_GRACE_MS` (60s), so waiting that long and
+  retrying is one option; removing the checkout with `tower_teardown` is the other. If `rollback`
+  names a kept worktree, `tower_teardown` is the path that also prunes the branch. Nothing else needs
+  cleanup, and once the cause is fixed the same call can simply be retried. If the mission is no
+  longer `planned`, a child did start: the refusal then reports the activation it could not undo in
+  `details.rollback.reservation` and the normal paths apply — see
+  [A worker died mid-mission](#a-worker-died-mid-mission). A refused **reviewer** spawn reports
+  `rollback.worktree` as `kept` by design: it borrows the reviewed mission's completed branch
+  worktree and creates only the detached review checkout, which the call disposes of itself. If a
+  completed mission's `worktree` record ever disappears after a refused reviewer spawn, that is a
+  bug, not a cleanup step — record it rather than re-provisioning the checkout.
+- **When retrying is safe.** A timeout is not a provider cooldown: it does not count toward
+  `spawn.backoff`, so one retry after the service settles is the intended recovery. Raise
+  `spawn.preflightTimeoutMs` only for a legitimately slow provisioning step, not to paper over a
+  catalog that never answers.
+
 ## A worker died mid-mission
 
 A worker that exits without calling `tower_complete` leaves its mission `active` with a roster row the

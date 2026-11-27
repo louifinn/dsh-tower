@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 59,
+      "value": 60,
       "decisions": [
         {
           "from": 64,
@@ -81,6 +81,13 @@
           "date": "2026-11-22",
           "adr": "docs/adr/0004-surface-budget.md",
           "note": "#217/#218: spawn.nodeModules (none|link, default none) adds one tuning key: it chooses whether tower_spawn materialises <worktree>/node_modules as a junction to the baseline checkout installed node_modules or leaves the worktree without one. It is not a component row and no tool or section moves; the key only decides dependency visibility for a spawned worktree."
+        },
+        {
+          "from": 59,
+          "to": 60,
+          "date": "2026-11-27",
+          "adr": "docs/adr/0004-surface-budget.md",
+          "note": "#237: spawn.preflightTimeoutMs (natural, 1000..600000, default 30000) adds one tuning key: it is the single deadline for a tower_spawn pre-flight — queueing plus every read before the roster reservation — so a spawn that cannot make progress fails as spawn-unavailable naming the phase it reached instead of hanging with nothing recorded. No tool, section or component moves; the key only decides how long a spawn may spend before it is refused."
         }
       ]
     },

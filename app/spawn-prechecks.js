@@ -160,6 +160,7 @@ function rosterDetail(entry) {
  *   maxLiveWorkers: number | undefined,
  *   budget: number,
  *   observeActivity: any,
+ *   signal?: AbortSignal | undefined,
  * }} input
  */
 export async function precheckWorkerOwnership({
@@ -172,6 +173,7 @@ export async function precheckWorkerOwnership({
   maxLiveWorkers,
   budget,
   observeActivity,
+  signal,
 }) {
   let effectiveTakeover = takeover === true
   if (!roleTracksMission(role)) return effectiveTakeover
@@ -236,7 +238,7 @@ export async function precheckWorkerOwnership({
   if (effectiveTakeover) {
     if (sameMission.length === 1) {
       const worker = sameMission[0]
-      const observed = await observeActivity(ctx, tower)
+      const observed = await observeActivity(ctx, tower, { signal })
       if (observed.parentStatus[worker.parentSessionId] !== 'ok') {
         throw new TowerToolError(
           'takeover-refused',

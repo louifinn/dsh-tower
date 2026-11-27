@@ -229,6 +229,55 @@ export async function reserveRoster(tower, input) {
   })
 }
 
+/**
+ * #237 R2 P1: delete a reservation this pre-flight wrote but never turned into a
+ * worker. `reserveRoster` persists the row before activation, so a pre-flight
+ * refused between reserve and record used to leave a `reserved` row behind: the
+ * retry then either waited out `STALLED_RESERVATION_GRACE_MS` or refused with
+ * `a live worker already owns this mission`. Releasing the row restores the
+ * "a refused spawn changed nothing" contract the tool documents.
+ *
+ * Only the exact reservation this call minted is deleted, and only while it is
+ * still `reserved` with no agent: a row that already recorded an activation is
+ * left to the failed-outcome path (F57), which is what makes a *real* activation
+ * failure legible instead of invisible.
+ * @param {any} tower
+ * @param {{ missionId?: string, name: string, reservationId?: string }} input
+ * @returns {Promise<{ released: boolean, reason?: string }>}
+ */
+export async function releaseRosterReservation(tower, input) {
+  return tower.withStateLock(async (_paths, held) => {
+    const state = await tower.load()
+    if (!Array.isArray(state.roster)) return { released: false, reason: 'no roster' }
+    const entry = state.roster.find((row) => row?.name === input.name && row?.missionId === input.missionId)
+    if (!entry) return { released: false, reason: 'no reservation row' }
+    // Ownership proof: without the token this call cannot tell its own row from a
+    // successor that reused the name (F64).
+    if (input.reservationId && entry.reservationId !== input.reservationId) {
+      return { released: false, reason: 'the reservation was replaced by a newer one that owns the name' }
+    }
+    if (entry.state !== 'reserved' || entry.agentId) {
+      return {
+        released: false,
+        reason: `the roster row is ${entry.state}${entry.agentId ? ` (agent ${entry.agentId})` : ''}, not the bare reservation this pre-flight wrote`,
+      }
+    }
+    state.roster = state.roster.filter((row) => row !== entry)
+    const now = Date.now()
+    state.revision += 1
+    state.updatedAt = now
+    validateState(state, tower.paths.state)
+    await tower.writeState(state, held)
+    await tower.appendActivity({
+      at: now,
+      type: 'spawn',
+      missionId: input.missionId,
+      text: `released reservation ${entry.role} ${entry.name}`,
+    }).catch(() => {})
+    return { released: true }
+  })
+}
+
 export async function recordSpawn(tower, input) {
   // Capture the spawn tip before taking the state lock (#51).
   const spawnTip = input.cwd ? ((await tower.tryGit(input.cwd, ['rev-parse', 'HEAD'])) ?? '').trim() || null : null
