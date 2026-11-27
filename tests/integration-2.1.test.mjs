@@ -747,10 +747,13 @@ test('2.1 delivery: inbox records an acknowledgement timestamp', async () => {
     const planned = await initPlan(tools, repo)
     const spawned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: planned.missions[0].id, role: 'worker' })
     await call(tools, 'tower_send', { repoRoot: repo, to: spawned.name, subject: 'hello', body: 'read me' })
+    // `tower_inbox` derives the reader from the actor, so it never declared an
+    // `agent` argument; the extra key was silently dropped until #230 started
+    // refusing undeclared keys (F113).
     const inbox = await call(
       tools,
       'tower_inbox',
-      { repoRoot: repo, agent: spawned.name },
+      { repoRoot: repo },
       { agent: { id: spawned.agentId } },
     )
     assert.equal(inbox.messages.length, 1)
