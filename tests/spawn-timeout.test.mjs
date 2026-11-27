@@ -584,6 +584,104 @@ function registeredWorktrees(repo) {
     .map((line) => path.resolve(line.slice('worktree '.length).trim()))
 }
 
+/**
+ * Every detached survey sandbox the checkout root holds. A `survey.sandbox:
+ * 'detached'` survey provisions a real `git worktree add --detach` checkout
+ * named `<missionId>-sandbox`, so this is the disk side of the rollback fact.
+ * @param {string} repo
+ * @returns {string[]}
+ */
+function sandboxCheckouts(repo, missionId = 'M1') {
+  const root = path.join(path.dirname(repo), '.dsh-tower-worktrees')
+  if (!fs.existsSync(root)) return []
+  /** @type {string[]} */
+  const found = []
+  for (const entry of fs.readdirSync(root)) {
+    const dir = path.join(root, entry)
+    if (!fs.statSync(dir).isDirectory()) continue
+    for (const inner of fs.readdirSync(dir)) {
+      if (inner === `${missionId}-sandbox`) found.push(path.join(dir, inner))
+    }
+  }
+  return found
+}
+
+/**
+ * Plan a one-mission repository whose only mission is a survey. A detached
+ * placement is the one shape that provisions a sandbox instead of a branch
+ * worktree, and it is configured before `tower_init` so provisioning sees it.
+ *
+ * A survey needs its capability row mounted: `tower_plan` refuses a shape whose
+ * required component is off, and `tower-survey` is a preset row read through
+ * `agentPresets` — so the harness has to offer that preset catalog.
+ * @param {string} repo
+ * @param {any} agentPresets
+ */
+async function initSurveyPlan(repo, agentPresets) {
+  const harness = makeHarness({ agentPresets })
+  await callTool(harness.tools, 'tower_init', { repoRoot: repo })
+  const planned = await callTool(harness.tools, 'tower_plan', {
+    repoRoot: repo,
+    missions: [{ title: 'Survey the seed commit', kind: 'survey' }],
+  })
+  assert.equal(planned.missions[0].kind, 'survey', 'the fixture plans a survey')
+}
+
+test('#237 R4 P2: a refused detached survey spawn removes the sandbox it provisioned', async () => {
+  // Round 3 released the writes a refused pre-flight made, but the sandbox arm
+  // shape-tested `sandbox?.path`/`sandbox?.id` against a fact that is a bare
+  // path STRING for a detached survey. Every real sandbox therefore reported
+  // `none` while it was still on disk and `mission.sandbox` still recorded it,
+  // and the honest retry then failed `sandbox path already exists`.
+  const { root, repo } = seedRepo('dsh-tower-spawn-sandbox-refusal-')
+  try {
+    writeRepoConfig(repo, { survey: { sandbox: 'detached' }, spawn: { preflightTimeoutMs: 1500 } })
+    // The detached placement resolves its own preset; both the standing rows and
+    // the survey rows have to exist in the catalog the host reports, and an
+    // unregistered one is refused before provisioning ever runs.
+    const agentPresets = fakeAgentPresets(['tower-worker', 'tower-reviewer', 'tower-survey', 'tower-survey-sandbox'])
+    await initSurveyPlan(repo, agentPresets)
+    const { Tower } = await import('../host/tower.js')
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+    const planned = before.missions.find((entry) => entry.id === 'M1')
+    assert.equal(planned.status, 'planned', 'the fixture survey is planned')
+    assert.equal(planned.sandbox ?? null, null, 'the survey starts with no sandbox recorded')
+    const harness = makeHarness({ subagents: activationHangSubagents(), agentPresets })
+    const error = await within(
+      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }).catch((caught) => caught),
+      25000,
+    )
+    assert.ok(error instanceof Error, 'the refused survey spawn rejects instead of hanging')
+    assert.match(String(error.message), /spawn-unavailable/)
+    assert.match(String(error.message), /spawn\.preflightTimeoutMs/)
+    // The bound has to outlast the detached `git worktree add` and expire inside
+    // the activation request, so the sandbox exists when the refusal lands.
+    assert.equal(error.details?.phase, 'activate', `the refusal names the activation (saw ${error.details?.phase})`)
+    assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
+    assert.equal(
+      error.details.rollback.sandbox,
+      'removed',
+      `the sandbox this call created is reported released (saw ${error.details.rollback.sandbox})`,
+    )
+    // The fact is not prose: the checkout is gone from disk and from git, not
+    // merely from state — a leftover registration is exactly what made the retry
+    // fail with "sandbox path already exists".
+    assert.deepEqual(sandboxCheckouts(repo), [], 'the created sandbox is gone from the checkout root')
+    const after = await tower.load()
+    const mission = after.missions.find((entry) => entry.id === 'M1')
+    assert.equal(mission.sandbox ?? null, null, 'the mission no longer records a sandbox')
+    assert.equal(mission.status, 'planned', 'the mission keeps its planned status')
+    // The retry round 3 could not do: provisioning the survey again provisions a
+    // fresh sandbox instead of refusing the path that was left behind.
+    const reprovisioned = await tower.provision({ missionId: 'M1' })
+    assert.equal(reprovisioned.provisioning, 'detached', 'the survey still provisions a detached sandbox')
+    assert.equal(reprovisioned.created, true, 'the sandbox is created again rather than found stale')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('#237 R3 P1: a refused reviewer spawn keeps the reviewed mission worktree and record', async () => {
   // The round-2 fix released the writes a refused pre-flight made, but it read
   // ONE `created` flag as a claim about TWO artifacts: for a reviewer that flag

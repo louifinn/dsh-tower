@@ -577,8 +577,15 @@ export async function rollbackSpawnWrites(tower, input) {
           : `kept at ${removal.path ?? worktree.path}: ${removal.reason ?? 'the rollback could not prove ownership'}`
   }
 
+  // #237 R4 P2: a detached survey's sandbox fact is a bare path string
+  // (`detachedSandboxResult`), not a `{ path }` record, so shape-testing the
+  // value reported `none` for every real sandbox while it was still on disk and
+  // the mission still recorded it — and the honest retry then failed
+  // `sandbox path already exists`. Normalise the one thing both shapes agree on
+  // before branching on it.
   const sandbox = placement?.sandbox ?? null
-  if (!sandbox?.path && !sandbox?.id) {
+  const sandboxPath = typeof sandbox === 'string' ? sandbox : (sandbox?.path ?? sandbox?.id ?? null)
+  if (!sandboxPath) {
     facts.sandbox = 'none'
   } else if (placement?.created !== true) {
     facts.sandbox = 'kept: reused by the mission before this pre-flight'
