@@ -16,7 +16,7 @@ import {
   activateAndRecordSpawn,
   buildAgentOptions,
   createSpawnPreflightRecorder,
-  provisionSpawnPlacement,
+  provisionRefusalSafe,
   waitForSpawnResult,
   withSpawnDeadline,
 } from '../app/spawn-support.js'
@@ -59,7 +59,7 @@ export function registerSpawnTool(ctx, deps) {
         // A caller stuck in the queue is reported as `queue`, with the wait and
         // the depth it saw — not as the phase the previous spawn reached.
         details: preflight.details,
-        run: async ({ signal, reach, retune }) => {
+        run: async ({ signal, reach, assertLive, retune }) => {
           reach('open')
           tower = await deps.openTower(args.repoRoot)
           preflight.attach(tower)
@@ -112,31 +112,19 @@ export function registerSpawnTool(ctx, deps) {
               // #131: the app layer only needs the row fact; the root owns the registry.
               leaseComponent: deps.leaseComponent,
             })
-            reach('provision')
-            const { mission, worktree, cwd, branch, review, briefing, provisioning, created, sandbox } = await provisionSpawnPlacement(tower, {
-              role,
-              context,
-              missionId,
-              name,
-              worktreeRoot: args.worktreeRoot,
-              includeDirtyBase: args.includeDirtyBase,
-              instructions: args.instructions,
+            // #237 R2 P1: provisioning and discovery are wrapped so a refusal
+            // that lands after the checkout exists releases it.
+            const { placement, agentOptions } = await provisionRefusalSafe(tower, {
+              name, missionId, context, role, args, model, shape, signal, assertLive, reach,
+              buildAgentOptions, isSpawnAdmission, runMissionDiscovery,
             })
-            const agentOptions = buildAgentOptions(model)
-            reach('discovery')
-            if (roleSpawnDiscovery(role, shape) && isSpawnAdmission(tower.config.tests?.admission)) {
-              const discovery = await runMissionDiscovery(tower, mission)
-              if (discovery.configured && discovery.receipt.ok !== true) {
-                throw new TowerToolError(
-                  'tests-failed',
-                  `test admission failed for ${mission.id}: ${discovery.receipt.error}; no child was started`,
-                )
-              }
-            }
             return activateAndRecordSpawn({
-              tower, subagents, provider, preset, name, exec, briefing, cwd, branch, review,
-              mission, role, config, agentOptions, takeover, worktree, sandbox,
-              provisioning, created, reach, recordSpawnSuccess, recordSpawnThrottle,
+              tower, subagents, provider, preset, name, exec, briefing: placement.briefing,
+              cwd: placement.cwd, branch: placement.branch, review: placement.review,
+              mission: placement.mission, role, config, agentOptions, takeover,
+              worktree: placement.worktree, sandbox: placement.sandbox,
+              provisioning: placement.provisioning, created: placement.created,
+              placement, signal, reach, assertLive, recordSpawnSuccess, recordSpawnThrottle,
             })
           }, {
             timeoutMs: config.spawn?.preflightTimeoutMs,

@@ -47,22 +47,34 @@ A `tower_spawn` call used to be able to hang before it wrote anything: the queue
 or one of its pre-flight reads (the descendant catalog, the roster, the preset list, provisioning)
 could never settle, so no roster row, worktree or `reserve` entry appeared and the mission stayed
 `planned` with no trace of why. The pre-flight is now bounded by `spawn.preflightTimeoutMs`
-(default 30000), so the same situation ends the call instead of holding it.
+(default 30000), so the same situation ends the call instead of holding it. The same bound also
+stops the pre-flight *between* its writes, so an expiry is a clean stop rather than a race the caller
+loses to steps that keep going.
 
 - **What the caller sees.** The tool returns `[tower:spawn-unavailable]` with
-  `details: {phase, elapsedMs}`. `phase` names the step that stalled — `queue` for a wait behind
-  another spawn, `observe`/`roster`/`ownership`/`services` for the catalog and roster reads,
+  `details: {phase, elapsedMs, rollback}`. `phase` names the step that stalled — `queue` for a wait
+  behind another spawn, `observe`/`roster`/`ownership`/`services` for the catalog and roster reads,
   `provision` for the worktree, `discovery` for test admission, `reserve`/`activate`/`record` for the
-  writes. A cancelled caller gets the same error code with a `cancelled` message.
+  writes. A cancelled caller gets the same error code with a `cancelled` message. While the call is
+  in flight the tower's activity log narrates it, so a hung spawn is legible from the log alone: each
+  phase transition appends `pre-flight <phase> after <n>ms`, and a call that had to wait behind
+  another appends `pre-flight queued <n>ms behind <n> other spawn(s)` when it starts running.
 - **What `tower_inspect({view:"status"})` shows.** `spawn.depth` is how many spawns hold or wait for
   the repository's spawn slot and `spawn.oldestWaitMs` is the oldest wait; both are read-only
   snapshots, so a wedged queue is visible from another session while the first call is still stuck.
   `spawn.budget` and `spawn.blockedUntil` still carry the provider-cooldown state.
-- **Nothing to clean up.** The bound runs before the roster reservation, so an expired pre-flight
-  leaves the mission `planned`, writes no roster row, starts no agent and creates no worktree. Fix
-  the cause (usually a catalog or preset service that is not answering), then retry the same call;
-  there is no reservation to reap and no worktree to delete. If the mission is no longer `planned`,
-  the failure happened after the reservation and the normal paths apply — see
+- **What was released, and what may be left.** The refusal releases every write the pre-flight had
+  already made — the roster reservation it wrote, the worktree it created, a detached sandbox — and
+  reports each one in `details.rollback` as `released`, `removed` or `none`; when a step could not be
+  undone it is reported as `kept` with the path and the reason, and only then is anything left for
+  you to clean up. A worktree the mission already owned before the call is never removed, because it
+  is not this call's to delete. If `rollback` names a kept reservation, the next spawn's pre-check
+  reaps it once it has been stalled for `STALLED_RESERVATION_GRACE_MS` (60s), so waiting that long and
+  retrying is one option; removing the checkout with `tower_teardown` is the other. If `rollback`
+  names a kept worktree, `tower_teardown` is the path that also prunes the branch. Nothing else needs
+  cleanup, and once the cause is fixed the same call can simply be retried. If the mission is no
+  longer `planned`, a child did start: the refusal then reports the activation it could not undo in
+  `details.rollback.reservation` and the normal paths apply — see
   [A worker died mid-mission](#a-worker-died-mid-mission).
 - **When retrying is safe.** A timeout is not a provider cooldown: it does not count toward
   `spawn.backoff`, so one retry after the service settles is the intended recovery. Raise

@@ -422,7 +422,7 @@ export function enqueueSpawn(key, operation, options = {}) {
         reject(
           new TowerToolError(
             'spawn-unavailable',
-            `tower_spawn stayed queued for ${waitedMs}ms behind ${depth - 1} other spawn(s) (spawn.preflightTimeoutMs ${budgetMs}ms); the mission keeps its planned status and no worker was started, so a retry needs no cleanup`,
+            `tower_spawn stayed queued for ${waitedMs}ms behind ${depth - 1} other spawn(s) (spawn.preflightTimeoutMs ${budgetMs}ms); its pre-flight never ran, so nothing was written and a retry needs no cleanup`,
             { details: { phase: 'queue', waitedMs, depth } },
           ),
         )

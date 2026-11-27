@@ -222,7 +222,7 @@ export const Config = Schema.object({
       .max(600000)
       .default(30000)
       .description(
-        'One deadline for the whole tower_spawn pre-flight — queueing plus every read it performs before the roster reservation is written — not a separate deadline per await (0 is not allowed; use 600000 for the loosest bound). When it expires the call fails with spawn-unavailable and details {phase, elapsedMs}, the mission keeps its planned status and no roster row, worktree or agent exists, so a retry needs no cleanup.',
+        'One deadline for the whole tower_spawn pre-flight — queueing plus every read and write it performs up to the roster reservation — not a separate deadline per await (0 is not allowed; use 600000 for the loosest bound). When it expires the call fails with spawn-unavailable and details {phase, elapsedMs, rollback}: no worker is started, and every write the pre-flight had already made (reservation, worktree, sandbox) is released before the failure is returned, or named in details.rollback as kept when it could not be.',
       ),
     requireLease: Schema.string().description('Optional lease name tower_spawn must hold before starting a worker.'),
   })

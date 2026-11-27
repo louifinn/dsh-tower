@@ -1,13 +1,18 @@
 // tower_spawn support (#56 P3c): briefing assembly, agent options, and the
 // wait/result settling path. Split out of tools/spawn.js; no I/O of its own.
 import { shapeFor } from '../domain/shapes/index.js'
-import { roleBriefingKind, rolePlacement } from '../domain/roles.js'
+import { roleBriefingKind, rolePlacement, roleSpawnDiscovery } from '../domain/roles.js'
 import { TowerToolError, classifyError } from '../domain/errors.js'
 import { DEFAULT_SPAWN_PREFLIGHT_TIMEOUT_MS } from '../domain/config/schema.js'
 import { SPAWN_OUTCOME } from '../domain/vocabulary.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
 import { buildActivationSpec } from './host-contract.js'
 import { cleanupReviewCheckout } from './reviewCheckout.js'
+import { refundRollbackFacts, removeProvisionedWorktree, rollbackSpawnWrites } from './provision.js'
+
+// The rollback composition lives with the provisioning code it drives; the
+// spawn tooling keeps one import site for the pre-flight helpers it uses.
+export { refundRollbackFacts, rollbackSpawnWrites }
 
 /**
  * #237: the phase names a `tower_spawn` pre-flight can be in when its one
@@ -138,11 +143,22 @@ export function createSpawnPreflightRecorder({ missionId }) {
 }
 
 /**
+ * #237 R2 P1: how long a refusal waits for the in-flight phase to observe the
+ * abort and release what it wrote. The abort signal is advisory — a read that
+ * ignores it would otherwise hold the caller — so the wait is bounded, and a
+ * step that outlives the window is named in `details.rollback` as still being
+ * cleaned up rather than silently assumed clean.
+ */
+export const SPAWN_REFUSAL_GRACE_MS = 2000
+
+/**
  * #237: bound the tower_spawn pre-flight with one deadline instead of hoping
  * every read settles. `run` receives an abort signal it must forward to the
  * reads it performs, a `reach(phase)` marker it calls before entering each phase
- * so a stalled call names the step that never answered, and a `retune(ms)`
- * marker it calls once the repository config resolves.
+ * so a stalled call names the step that never answered, an `assertLive(phase)`
+ * guard it calls at the start of every phase that writes (it records the phase
+ * and then refuses when the deadline already fired), and a `retune(ms)` marker
+ * it calls once the repository config resolves.
  *
  * The deadline covers the whole pre-flight: the phases are sequential, so the
  * bound a caller asked for is the bound it gets. The abort signal alone is not
@@ -151,6 +167,12 @@ export function createSpawnPreflightRecorder({ missionId }) {
  * the configured `spawn.preflightTimeoutMs` from the start, so a repository that
  * allows a longer bound gets it while an already spent budget is not refunded.
  *
+ * A refusal does not just reject: it aborts with the very error the caller will
+ * see, then waits up to `SPAWN_REFUSAL_GRACE_MS` for `run` to unwind so the
+ * rollback is done before the caller is told the spawn failed. Longer than that
+ * and the caller is told anyway — but the failure then carries `details.rollback`
+ * saying what was already released, instead of claiming nothing was written.
+ *
  * @template T
  * @param {{
  *   timeoutMs?: number | undefined,
@@ -158,7 +180,12 @@ export function createSpawnPreflightRecorder({ missionId }) {
  *   phase?: string | undefined,
  *   onPhase?: ((phase: string, elapsedMs: number) => void) | undefined,
  *   details?: ((phase: string) => Record<string, unknown>) | undefined,
- *   run: (context: { signal: AbortSignal, reach: (phase: string) => void, retune: (timeoutMs: unknown) => void }) => Promise<T>,
+ *   run: (context: {
+ *     signal: AbortSignal,
+ *     reach: (phase: string) => void,
+ *     assertLive: (phase: string) => void,
+ *     retune: (timeoutMs: unknown) => void,
+ *   }) => Promise<T>,
  * }} options
  * @returns {Promise<T>}
  */
@@ -180,10 +207,13 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     const extra = typeof details === 'function' ? details(name) : null
     return { ...(extra ?? {}), phase: name, elapsedMs: elapsed() }
   }
+  // #237 R2 P1: the message names what the caller can rely on — nothing was
+  // activated and whatever the pre-flight had already written is reported in
+  // `details.rollback` — instead of the old claim that no cleanup could exist.
   const cancelledError = () =>
     new TowerToolError(
       'spawn-unavailable',
-      'tower_spawn was cancelled during pre-flight; the mission keeps its planned status and no worker was started',
+      'tower_spawn was cancelled during pre-flight; no worker was started and details.rollback reports what the pre-flight released',
       { details: factsFor(phase) },
     )
   /** @param {unknown} reason */
@@ -206,6 +236,13 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     phase = next
     onPhase?.(next, elapsed())
   }
+  /**
+   * #237 R2 P1: the refusal the caller will see, once one has happened. Kept so
+   * a phase that skipped `assertLive` still finds the run cancelled instead of
+   * writing after the caller was told the spawn failed.
+   * @type {any}
+   */
+  let stopped = null
   let timer
   /**
    * One deferred rejection for the whole call: `retune` only re-arms the timer,
@@ -217,20 +254,45 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     fail = reject
   })
   expired.catch(() => {})
+  /**
+   * End the pre-flight: remember the refusal, forward it through the abort
+   * signal (so a cooperatively cancelled read sees the caller's own error and
+   * the rollback in `run` can recognize it), and reject the race.
+   * @param {any} error
+   */
+  const stop = (error) => {
+    if (stopped) return stopped
+    stopped = error
+    abort(error)
+    fail(error)
+    return error
+  }
   const fire = () => {
     // A cancelled caller and an expired deadline are different failures: the
     // deadline is ours to report, the cancellation is the caller's own abort.
     if (cancelled()) {
-      fail(cancelledError())
+      stop(cancelledError())
       return
     }
-    fail(
+    stop(
       new TowerToolError(
         'spawn-unavailable',
-        `tower_spawn pre-flight exceeded spawn.preflightTimeoutMs (${budgetMs}ms) in phase ${phase}; the mission keeps its planned status and no worker was started, so a retry needs no cleanup`,
+        `tower_spawn pre-flight exceeded spawn.preflightTimeoutMs (${budgetMs}ms) in phase ${phase}; no worker was started and details.rollback reports what the pre-flight released`,
         { details: factsFor(phase) },
       ),
     )
+  }
+  /**
+   * #237 R2 P1: called at the start of every phase that writes. It records the
+   * phase (so the activity trail and `details.phase` name the step that was
+   * about to mutate) and then refuses if the pre-flight already ended: without
+   * this the deadline only stopped the caller from waiting, while `run` kept
+   * provisioning worktrees, reserving roster rows and activating children.
+   * @param {string} next
+   */
+  const assertLive = (next) => {
+    reach(next)
+    if (stopped) throw stopped
   }
   /** @param {number} ms */
   const arm = (ms) => {
@@ -245,8 +307,7 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     // on the reads cooperating: abort the forwarded signal and end the call now,
     // with the phase it reached.
     onCallerAbort = () => {
-      abort(signal.reason)
-      fail(cancelledError())
+      stop(cancelledError())
     }
     signal.addEventListener('abort', onCallerAbort, { once: true })
   }
@@ -266,12 +327,50 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     // An already-cancelled caller enters no phase and runs no read: starting the
     // pre-flight would spawn a child the caller has already given up on.
     if (cancelled()) throw cancelledError()
-    return await Promise.race([run({ signal: controller.signal, reach, retune }), expired])
+    /** @type {Promise<T>} */
+    const running = run({ signal: controller.signal, reach, assertLive, retune })
+    // A refused run keeps going until it reaches its next `assertLive` (or a
+    // read forwards the abort). The caller must not be told the spawn failed
+    // while that unwind is still writing: wait a bounded grace for it, then
+    // report anyway rather than hang. The refusal itself is what the caller
+    // sees either way — the run's own rejection is already accounted for.
+    const settled = running.catch(() => {})
+    const raced = Promise.race([running, expired])
+    try {
+      return await raced
+    } catch (error) {
+      if (stopped && error === stopped) await withinRefusalGrace(settled)
+      throw error
+    }
   } finally {
     clearTimeout(timer)
     // The deadline is over either way; do not leave the caller's listener behind.
     abort('pre-flight settled')
     if (listenable && onCallerAbort) signal.removeEventListener('abort', onCallerAbort)
+  }
+}
+
+/**
+ * #237 R2 P1: wait for a refused pre-flight to finish unwinding, but never
+ * longer than the grace: the caller was already told the spawn failed, and a
+ * rollback that outlives the window is reported by the rollback facts instead of
+ * being waited for.
+ * @param {Promise<unknown>} settled
+ * @returns {Promise<void>}
+ */
+async function withinRefusalGrace(settled) {
+  /** @type {any} */
+  let timer
+  const bound = new Promise((resolve) => {
+    timer = setTimeout(resolve, SPAWN_REFUSAL_GRACE_MS)
+    // Node keeps the process alive for a pending timer; this one is a bound on a
+    // wait, not work the caller is waiting for.
+    if (typeof timer?.unref === 'function') timer.unref()
+  })
+  try {
+    await Promise.race([settled, bound])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -322,34 +421,127 @@ export async function provisionSpawnPlacement(tower, { role, context, missionId,
 }
 
 /**
+ * #237 R2 P1: the refusal this pre-flight ended with, when the abort signal
+ * carries one. `withSpawnDeadline` aborts with the exact error the caller sees, so
+ * a phase that catches an aborted read can tell "the caller gave up" apart from
+ * "the host refused this activation" — and only the former is rolled back.
+ * @param {any} signal
+ * @returns {any}
+ */
+export function refusalFromSignal(signal) {
+  if (!signal?.aborted) return null
+  const reason = signal.reason
+  if (!(reason instanceof TowerToolError)) return null
+  if (reason.code !== 'spawn-unavailable') return null
+  const details = /** @type {any} */ (reason.details)
+  if (!details || typeof details.phase !== 'string') return null
+  return reason
+}
+
+/**
+ * #237 R2 P1: which signal the activation request carries.
+ *
+ * The host contract forwards the caller's signal to `startActivation` by
+ * identity, and the mock suite asserts that (`spawn.mock.test.mjs`). A caller
+ * driving the tool with a real AbortSignal gets one that also aborts when the
+ * pre-flight is refused — `AbortSignal.any` keeps that promise without dropping
+ * the caller's own cancellation. A duck-typed `{ aborted }` stub cannot be
+ * cancelled at all, so it is forwarded untouched and the deadline relies on
+ * `assertLive` before every write instead.
+ * @param {any} exec
+ * @param {any} deadlineSignal
+ */
+function activationSignalFor(exec, deadlineSignal) {
+  const caller = exec?.signal
+  if (!caller) return deadlineSignal
+  if (typeof caller.addEventListener !== 'function') return caller
+  if (caller === deadlineSignal || typeof AbortSignal.any !== 'function') return caller
+  return AbortSignal.any([caller, deadlineSignal])
+}
+
+/**
+ * #237 R2 P1: the write half of the pre-flight — place the checkout, admit the
+ * mission's tests — wrapped so a refusal that lands after the checkout exists
+ * still releases it. Provisioning used to keep running after the caller was told
+ * the spawn failed, and the honest retry then failed with "worktree path already
+ * exists".
+ *
+ * Only a refusal (cancellation or the deadline) rolls back: a real
+ * `tests-failed` is the caller's answer and the placement is theirs to keep.
+ * @param {any} tower
+ * @param {{
+ *   name: string, missionId: string, context: any, role: string, args: any,
+ *   model: any, shape: any, signal: any,
+ *   assertLive: (phase: string) => void, reach: (phase: string) => void,
+ *   buildAgentOptions: (model: any) => Record<string, unknown>,
+ *   isSpawnAdmission: (admission: any) => boolean,
+ *   runMissionDiscovery: (tower: any, mission: any) => Promise<any>,
+ * }} input
+ */
+export async function provisionRefusalSafe(tower, input) {
+  const { name, missionId, context, role, args, model, shape, signal, assertLive, reach } = input
+  assertLive('provision')
+  /** @type {any} */
+  let placement = null
+  try {
+    placement = await provisionSpawnPlacement(tower, {
+      role,
+      context,
+      missionId,
+      name,
+      worktreeRoot: args.worktreeRoot,
+      includeDirtyBase: args.includeDirtyBase,
+      instructions: args.instructions,
+    })
+    const agentOptions = input.buildAgentOptions(model)
+    reach('discovery')
+    if (roleSpawnDiscovery(role, shape) && input.isSpawnAdmission(tower.config.tests?.admission)) {
+      const discovery = await input.runMissionDiscovery(tower, placement.mission)
+      if (discovery.configured && discovery.receipt.ok !== true) {
+        throw new TowerToolError(
+          'tests-failed',
+          `test admission failed for ${placement.mission.id}: ${discovery.receipt.error}; no child was started`,
+        )
+      }
+    }
+    return { placement, agentOptions }
+  } catch (error) {
+    const refusal = refusalFromSignal(signal)
+    if (!refusal || !placement?.worktree?.path) throw error
+    const missionIdOf = placement.mission?.id ?? missionId
+    const rollback = await rollbackSpawnWrites(tower, { missionId: missionIdOf, name, placement })
+    refundRollbackFacts(refusal, rollback)
+    // A reservation that could not be released still needs its outcome recorded,
+    // exactly like any other pre-activation failure.
+    if (rollback.reservation.startsWith('kept')) {
+      await tower
+        .recordSpawnOutcome({
+          missionId: missionIdOf,
+          name,
+          state: SPAWN_OUTCOME.failed,
+          detail: `spawn failed before activation: ${String(refusal.message ?? refusal).slice(0, 300)}`,
+        })
+        .catch(() => {})
+    }
+    throw refusal
+  }
+}
+
+/**
  * #237: the mutation half of a spawn — reserve the roster row, start the child,
  * record it — kept beside the placement it depends on so `tools/spawn.js` stays
  * a registration and not an orchestration. The failure path is part of the
  * contract here because it is what keeps a half-started spawn honest: the child
- * is interrupted when one already started, the reserved row is failed, and a
- * review spawn's detached checkout is reclaimed, so a retry needs no cleanup.
+ * is interrupted when one already started, and a pre-flight that was refused
+ * before any child existed has its writes rolled back so a retry starts clean.
  *
  * @param {{
- *   tower: any,
- *   subagents: any,
- *   provider: string,
- *   preset: string,
- *   name: string,
- *   exec: any,
- *   briefing: string,
- *   cwd: string,
- *   branch: string | null,
- *   review: any,
- *   mission: any,
- *   role: string,
- *   config: any,
- *   agentOptions: Record<string, unknown>,
- *   takeover: any,
- *   worktree: any,
- *   sandbox: any,
- *   provisioning: any,
- *   created: any,
- *   reach: (phase: string) => void,
+ *   tower: any, subagents: any, provider: string, preset: string, name: string,
+ *   exec: any, briefing: string, cwd: string, branch: string | null, review: any,
+ *   mission: any, role: string, config: any, agentOptions: Record<string, unknown>,
+ *   takeover: any, worktree: any, sandbox: any, provisioning: any, created: any,
+ *   placement?: any, signal?: any,
+ *   reach: (phase: string) => void, assertLive: (phase: string) => void,
  *   recordSpawnSuccess: (root: string, maxLiveWorkers: any) => void,
  *   recordSpawnThrottle: (root: string, maxLiveWorkers: any) => void,
  * }} input
@@ -358,26 +550,33 @@ export async function activateAndRecordSpawn(input) {
   const {
     tower, subagents, provider, preset, name, exec, briefing, cwd, branch, review,
     mission, role, config, agentOptions, takeover, worktree, sandbox,
-    provisioning, created, reach, recordSpawnSuccess, recordSpawnThrottle,
+    provisioning, created, reach, assertLive, signal, placement,
+    recordSpawnSuccess, recordSpawnThrottle,
   } = input
   const maxLiveWorkers = config.spawn.maxLiveWorkers
   const maxDepth = config.spawn.maxDepth ?? 1
   let activation = null
   let agentId = null
   let entry = null
-  reach('reserve')
-  const reserved = await tower.reserveRoster({
-    missionId: mission.id,
-    name,
-    role,
-    parentSessionId: String(exec.agent.id),
-    cwd,
-    branch,
-    reviewCommit: review?.commit,
-    reviewCheckout: review?.path,
-  })
+  /** @type {any} */
+  let reserved = null
   try {
-    reach('activate')
+    // #237 R2 P1: the reservation and the activation are writes, so they start
+    // by re-checking that the pre-flight is still live. A deadline that expires
+    // mid-way now stops the sequence here instead of provisioning and reserving
+    // for a caller who was already told the spawn failed.
+    assertLive('reserve')
+    reserved = await tower.reserveRoster({
+      missionId: mission.id,
+      name,
+      role,
+      parentSessionId: String(exec.agent.id),
+      cwd,
+      branch,
+      reviewCommit: review?.commit,
+      reviewCheckout: review?.path,
+    })
+    assertLive('activate')
     // Flat on DSH 0.2.2-rc.3, nested on rc.1/rc.2; the adapter selects the shape.
     activation = await subagents.startActivation(buildActivationSpec(subagents, {
       provider, label: name,
@@ -386,10 +585,10 @@ export async function activateAndRecordSpawn(input) {
         parent: exec.agent, maxDepth,
         ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
       },
-      signal: exec.signal,
+      signal: activationSignalFor(exec, signal),
     }))
     agentId = String(activation.childId)
-    reach('record')
+    assertLive('record')
     entry = await tower.recordSpawn({
       missionId: mission.id,
       name,
@@ -414,6 +613,46 @@ export async function activateAndRecordSpawn(input) {
       } catch {
         // best effort; the error below is the actionable one
       }
+    }
+    // #237 R2 P1: a refusal must not leave state that contradicts it. Before
+    // activation nothing was started, so the writes are undone (a `reserved` row
+    // and a worktree for a worker that never existed would turn the honest retry
+    // into `a live worker already owns this mission` or `worktree path already
+    // exists`). After activation the child is real: the failed row is the honest
+    // record (F57), and the facts say the artifacts were kept rather than
+    // pretending the pre-flight wrote nothing.
+    const refusal = refusalFromSignal(signal)
+    if (refusal && agentId) {
+      refundRollbackFacts(refusal, {
+        reservation: `kept: the child ${agentId} was started before the refusal, and its roster row records the failure`,
+        worktree: worktree?.path ? `kept: the worker was given ${worktree.path}` : 'none',
+        sandbox: sandbox?.path ?? sandbox?.id ? `kept: the worker was given the survey sandbox` : 'none',
+      })
+      await tower
+        .recordSpawnOutcome({
+          missionId: mission.id,
+          name,
+          state: SPAWN_OUTCOME.failed,
+          detail: `spawn failed after activation ${agentId}: ${String(refusal.message ?? refusal).slice(0, 300)}`,
+        })
+        .catch(() => {})
+      if (review) {
+        await cleanupReviewCheckout(tower, { name, missionId: mission.id }).catch(() => {})
+      }
+      throw refusal
+    }
+    if (refusal) {
+      const rollback = await rollbackSpawnWrites(tower, {
+        missionId: mission.id,
+        name,
+        reservationId: reserved?.reservationId,
+        placement: placement ?? { created, worktree, sandbox, provisioning },
+      })
+      refundRollbackFacts(refusal, rollback)
+      if (review) {
+        await cleanupReviewCheckout(tower, { name, missionId: mission.id }).catch(() => {})
+      }
+      throw refusal
     }
     await tower
       .recordSpawnOutcome({

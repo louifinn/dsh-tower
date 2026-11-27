@@ -15,6 +15,8 @@ import path from 'node:path'
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
 import { provisioningFor } from '../domain/shapes/index.js'
+import { releaseRosterReservation } from './spawn.js'
+import { cleanupSandbox } from './sandbox.js'
 import {
   baseCommitChoice,
   createdWorktreeResult,
@@ -290,6 +292,116 @@ async function rollbackProvision(tower, prepared) {
   }, tower.gitMutexOptions({ phase: 'provision' }))
 }
 
+/**
+ * #237 R2 P1: remove a recorded `node_modules` link before git deletes the
+ * checkout. `git worktree remove --force` recurses into the checkout, and on
+ * Windows a junction into the baseline checkout would make that recursion delete
+ * the *target's* contents. Only the link this repository recorded is unlinked; a
+ * link it did not create keeps the whole removal honest by refusing it.
+ * @param {any} tower
+ * @param {{ path: string, nodeModulesLink?: any }} worktree
+ * @returns {Promise<{ ok: boolean, reason?: string }>}
+ */
+async function unlinkRecordedDependencyLink(tower, worktree) {
+  const store = tower.deps.store
+  const registration = worktree?.nodeModulesLink
+  if (!registration || typeof registration.path !== 'string') return { ok: true }
+  let info = null
+  try {
+    info = await store.lstat(registration.path)
+  } catch {
+    // The link is already gone (or the checkout never had one): nothing to do.
+    return { ok: true }
+  }
+  if (!info || info.isSymbolicLink?.() !== true) return { ok: true }
+  const resolved = path.resolve(registration.path)
+  const expected = path.resolve(worktree.path, 'node_modules')
+  if (resolved !== expected) {
+    return { ok: false, reason: `the recorded dependency link ${resolved} is not inside ${worktree.path}` }
+  }
+  try {
+    await store.unlink(registration.path)
+    delete worktree.nodeModulesLink
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `the recorded dependency link ${resolved} could not be unlinked: ${String(error?.message ?? error).slice(0, 160)}`,
+    }
+  }
+}
+
+/**
+ * #237 R2 P1: roll back a checkout this spawn's pre-flight created but never
+ * handed to a worker. A pre-flight that is refused (deadline or cancellation)
+ * after `provision` used to leave the mission pointing at a worktree for a spawn
+ * that never happened, so the caller retried into "worktree path already exists"
+ * or a mission that looked staffed. This removes exactly the checkout the caller
+ * was told about: the recorded path, the recorded link, and the branch only while
+ * it still sits on the recorded base commit.
+ *
+ * Refuses (and says so) when the recorded worktree is no longer the one the
+ * caller saw, so a concurrent writer's checkout is never discarded.
+ * @param {any} tower
+ * @param {{ missionId: string, worktree: { path: string, branch?: string | null, baseCommit?: string | null } }} input
+ * @returns {Promise<{ state: 'removed' | 'none' | 'kept', path?: string, reason?: string, branchRemoved?: boolean }>}
+ */
+export async function removeProvisionedWorktree(tower, input) {
+  const target = input?.worktree
+  if (!target || typeof target.path !== 'string' || target.path.length === 0) return { state: 'none' }
+  const removed = await tower.deps.store.withGitLock(tower.paths, async () => {
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === input.missionId)
+    const recorded = mission?.worktree
+    if (!recorded || typeof recorded.path !== 'string') return { state: 'none' }
+    if (path.resolve(recorded.path) !== path.resolve(target.path)) {
+      return {
+        state: 'kept',
+        path: recorded.path,
+        reason: `the mission records a different worktree (${recorded.path}) than this pre-flight created`,
+      }
+    }
+    const link = await unlinkRecordedDependencyLink(tower, recorded)
+    if (!link.ok) return { state: 'kept', path: recorded.path, reason: link.reason }
+    // `removeCreatedCheckout` is the same bounded removal provision's own
+    // rollback uses: the checkout, and the branch only while it is still the
+    // base commit this call created it at.
+    await removeCreatedCheckout(tower, {
+      wtPath: recorded.path,
+      branch: recorded.branch,
+      baseCommit: recorded.baseCommit,
+    })
+    return { state: 'removed', path: recorded.path, branch: recorded.branch }
+  }, tower.gitMutexOptions({ phase: 'provision' }))
+  if (removed.state !== 'removed') return removed
+  // The filesystem is clean again: only now drop the record, so a crash in
+  // between leaves a worktree the tower still knows about (recoverable) instead
+  // of an untracked directory (not).
+  const cleared = await tower.withStateLock(async (_paths, held) => {
+    const state = await tower.load()
+    const mission = state.missions.find((entry) => entry.id === input.missionId)
+    const recorded = mission?.worktree
+    if (!recorded || typeof recorded.path !== 'string') return false
+    if (path.resolve(recorded.path) !== path.resolve(target.path)) return false
+    delete mission.worktree
+    delete mission.baseCommit
+    const now = Date.now()
+    mission.updatedAt = now
+    state.revision += 1
+    state.updatedAt = now
+    validateState(state, tower.paths.state)
+    await tower.writeState(state, held)
+    await tower.appendActivity({
+      at: now,
+      type: 'worktree',
+      missionId: input.missionId,
+      text: `rolled back unclaimed worktree at ${target.path} after a refused spawn`,
+    }).catch(() => {})
+    return true
+  })
+  return { ...removed, state: cleared ? 'removed' : 'kept', reason: cleared ? undefined : 'the worktree record changed while the rollback ran' }
+}
+
 /** #51 two-phase provision: prepare/act/commit with rollback on rejection. */
 export async function provision(tower, input = {}) {
   const missionId = input.missionId
@@ -348,4 +460,89 @@ export async function provision(tower, input = {}) {
     return detachedSandboxResult(committed.mission, committed.sandbox, true)
   }
   return createdWorktreeResult(committed.mission, committed.worktree)
+}
+
+/**
+ * #237 R2 P1: attach the rollback facts to the refusal the caller already holds.
+ * The caller was told "no worker was started and details.rollback reports what the
+ * pre-flight released" — this is where that promise is kept. `details` may be a
+ * frozen object on a TowerToolError built elsewhere, so the object is rebuilt
+ * rather than mutated in place.
+ * @param {any} refusal
+ * @param {Record<string, string>} rollback
+ */
+export function refundRollbackFacts(refusal, rollback) {
+  if (!refusal || typeof refusal !== 'object') return
+  const previous = refusal.details && typeof refusal.details === 'object' ? refusal.details : {}
+  refusal.details = { ...previous, rollback }
+}
+
+/**
+ * #237 R2 P1: undo the writes a refused pre-flight made, and report what was
+ * released and what was kept. The caller was told the spawn failed, so the
+ * state must agree with that: a `reserved` roster row and a worktree created for
+ * a worker that never started would otherwise turn the honest retry into
+ * `a live worker already owns this mission` or `worktree path already exists`.
+ *
+ * Everything here is best-effort and individually reported: a rollback that
+ * cannot finish names the artifact it kept, so the caller learns what to clean
+ * up instead of being told "no cleanup".
+ * @param {any} tower
+ * @param {{
+ *   missionId: string,
+ *   name: string,
+ *   reservationId?: string,
+ *   placement?: { created?: boolean, worktree?: any, sandbox?: any, provisioning?: string } | null,
+ * }} input
+ * @returns {Promise<Record<string, string>>}
+ */
+export async function rollbackSpawnWrites(tower, input) {
+  /** @type {Record<string, string>} */
+  const facts = {}
+  const reservation = await releaseRosterReservation(tower, {
+    missionId: input.missionId,
+    name: input.name,
+    reservationId: input.reservationId,
+  }).catch((error) => ({ released: false, reason: String(error?.message ?? error).slice(0, 160) }))
+  facts.reservation = reservation.released === true ? 'released' : `kept: ${reservation.reason ?? 'unknown reason'}`
+
+  const placement = input.placement ?? null
+  const worktree = placement?.worktree ?? null
+  if (!worktree?.path) {
+    facts.worktree = 'none'
+  } else if (placement?.created !== true) {
+    // A checkout the mission already owned before this spawn is not ours to
+    // delete: the caller saw a reused worktree and a retry reuses it again.
+    facts.worktree = 'kept: reused by the mission before this pre-flight'
+  } else {
+    const removal = await removeProvisionedWorktree(tower, {
+      missionId: input.missionId,
+      worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit },
+    }).catch((error) => ({ state: 'kept', path: worktree.path, reason: String(error?.message ?? error).slice(0, 160) }))
+    facts.worktree =
+      removal.state === 'removed'
+        ? 'removed'
+        : removal.state === 'none'
+          ? 'none'
+          : `kept at ${removal.path ?? worktree.path}: ${removal.reason ?? 'the rollback could not prove ownership'}`
+  }
+
+  const sandbox = placement?.sandbox ?? null
+  if (!sandbox?.path && !sandbox?.id) {
+    facts.sandbox = 'none'
+  } else if (placement?.created !== true) {
+    facts.sandbox = 'kept: reused by the mission before this pre-flight'
+  } else {
+    const cleanup = await cleanupSandbox(tower, input.missionId).catch((error) => ({
+      ok: false,
+      error: String(error?.message ?? error).slice(0, 160),
+    }))
+    facts.sandbox =
+      cleanup?.ok === true
+        ? 'removed'
+        : cleanup === null
+          ? 'none'
+          : `kept: ${String(cleanup?.error ?? 'the sandbox cleanup did not complete').slice(0, 160)}`
+  }
+  return facts
 }

@@ -421,6 +421,130 @@ test('#237: a duck-typed exec signal without addEventListener still runs, and st
   assert.equal(error.details?.phase, 'pending')
 })
 
+/**
+ * A subagents service whose activation request never answers until its signal
+ * aborts. `assertLive` cannot help here — the deadline has to reach *through*
+ * the in-flight request — so this is the shape that proves a refusal rolls the
+ * reservation back rather than leaving a row no worker owns.
+ * @param {{ childId?: string }} [options]
+ */
+function activationHangSubagents(options = {}) {
+  const childId = options.childId ?? 'child-late'
+  return {
+    list: () => ['spawn'],
+    async listDescendants() {
+      return []
+    },
+    async startActivation(spec) {
+      return await new Promise((_resolve, reject) => {
+        const signal = spec?.signal
+        // A host that ignores the signal must not hang the suite: the test's own
+        // `within` bound is the backstop, but honoring the abort is the contract.
+        signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('activated too late')), { once: true })
+      })
+    },
+    async sendMessage() {},
+    interrupt() {},
+  }
+}
+
+test('#237 R2 P1: a deadline that expires during activation starts no child and leaves no reservation behind', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-activate-refusal-')
+  try {
+    await initPlan(repo)
+    // The bound has to outlast provisioning (a real `git worktree add`) and
+    // expire inside the activation request, which is the window that used to
+    // leave a `reserved` row plus a recorded worktree for a spawn that failed.
+    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 1500 } })
+    const { Tower } = await import('../host/tower.js')
+    const harness = makeHarness({ subagents: activationHangSubagents() })
+    const error = await within(
+      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }).catch((caught) => caught),
+      20000,
+    )
+    assert.ok(error instanceof Error, 'the refused spawn rejects instead of hanging')
+    assert.match(String(error.message), /spawn-unavailable/)
+    assert.match(String(error.message), /spawn\.preflightTimeoutMs/)
+    // The failure names the step the call was in when the deadline fired.
+    assert.equal(error.details?.phase, 'activate', `the refusal names the activation (saw ${error.details?.phase})`)
+    // ...and the rollback is a reported fact, not a promise in the prose (#237 R2 P1).
+    assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
+    assert.equal(error.details.rollback.reservation, 'released', 'the reservation this call wrote is gone')
+    assert.equal(error.details.rollback.worktree, 'removed', 'the worktree it created is gone')
+
+    const tower = await Tower.open(repo)
+    const after = await tower.load()
+    assert.deepEqual(
+      after.roster.filter((row) => row.name === 'worker-m1'),
+      [],
+      'no roster row survives a spawn that never activated',
+    )
+    const mission = after.missions.find((entry) => entry.id === 'M1')
+    assert.equal(mission.status, 'planned', 'the mission keeps its planned status')
+    assert.equal(mission.worktree ?? null, null, 'the mission no longer records a worktree')
+    // The checkout is gone from git too, not merely from state: a leftover
+    // registration would make the honest retry fail with "worktree path already
+    // exists" even though the tower forgot about it.
+    const listed = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: repo, encoding: 'utf8' })
+    assert.doesNotMatch(listed, /worktrees/, 'the created checkout is unregistered from git')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('#237 R2 P1: a deadline that expires during the reservation releases the row it wrote', async () => {
+  const { root, repo } = seedRepo('dsh-tower-spawn-reserve-refusal-')
+  try {
+    await initPlan(repo)
+    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 1200 } })
+    // The tool opens its own tower through `host/tool-runtime.js`, which imports
+    // the base class from `app/tower.js` directly — patching the host subclass
+    // would never reach it. Patching the base prototype is the only seam that
+    // lets the real reservation land and still stall inside the phase, which is
+    // the shape of a slow state lock or filesystem.
+    const { Tower: InjectedTower } = await import('../app/tower.js')
+    const { Tower } = await import('../host/tower.js')
+    const original = InjectedTower.prototype.reserveRoster
+    InjectedTower.prototype.reserveRoster = async function slowReservation(input) {
+      const reserved = await original.call(this, input)
+      // Outlive the bound (the schema floor is 1000ms), then let the pre-flight
+      // continue so its own guard is what refuses — the row is real, the phase is
+      // merely late.
+      await new Promise((resolve) => setTimeout(resolve, 1800))
+      return reserved
+    }
+    try {
+      const harness = makeHarness({ subagents: stuckSubagents() })
+      const error = await within(
+        () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }).catch((caught) => caught),
+        20000,
+      )
+      assert.ok(error instanceof Error, 'the refused spawn rejects instead of hanging')
+      assert.match(String(error.message), /spawn-unavailable/)
+      // The phase named is where the timer fired, even though the run advanced
+      // one step further before it could be stopped: that is the stall point.
+      assert.equal(error.details?.phase, 'reserve', `the refusal names the reservation (saw ${error.details?.phase})`)
+      assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
+      assert.equal(error.details.rollback.reservation, 'released', 'the reservation the phase wrote is released')
+
+      const tower = await Tower.open(repo)
+      const after = await tower.load()
+      assert.deepEqual(
+        after.roster.filter((row) => row.name === 'worker-m1'),
+        [],
+        'no roster row survives the refused reservation',
+      )
+      const mission = after.missions.find((entry) => entry.id === 'M1')
+      assert.equal(mission.status, 'planned', 'the mission keeps its planned status')
+      assert.equal(mission.worktree ?? null, null, 'the mission records no worktree')
+    } finally {
+      InjectedTower.prototype.reserveRoster = original
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('#237: the pre-flight phase list is frozen, small and used verbatim', async () => {
   const { SPAWN_PREFLIGHT_PHASES, SPAWN_PHASE_PENDING, isSpawnPreflightPhase } = await import('../app/spawn-support.js')
   assert.deepEqual([...SPAWN_PREFLIGHT_PHASES], [
