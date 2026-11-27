@@ -590,13 +590,15 @@ export async function rollbackSpawnWrites(tower, input) {
   } else if (placement?.created !== true) {
     facts.sandbox = 'kept: reused by the mission before this pre-flight'
   } else {
-    const cleanup = await cleanupSandbox(tower, input.missionId).catch((error) => ({
-      ok: false,
-      error: String(error?.message ?? error).slice(0, 160),
-    }))
     // The worktree arm above reports `kept at <path>: <reason>`, and both
     // `docs/reference/tools.md` and `docs/reference/config.md` promise the same
     // for the sandbox — so name the path here too instead of only the reason.
+    // The catch arm carries it because the failure it reports is about that path.
+    const cleanup = await cleanupSandbox(tower, input.missionId).catch((error) => ({
+      ok: false,
+      path: sandboxPath,
+      error: String(error?.message ?? error).slice(0, 160),
+    }))
     const cleanupPath = cleanup?.path ?? sandboxPath
     facts.sandbox =
       cleanup?.ok === true
