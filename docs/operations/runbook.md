@@ -175,14 +175,18 @@ worktree can be re-added from its branch with `git worktree add`, but do not do 
 is active without updating the roster.
 
 Orphan cleanup is opt-in: `tower_teardown({orphans: true})` also removes clean checkouts that git
-registers but no mission or roster row owns, and empty leftover directories directly under the
-worktree root. Those shells are usually the remains of a review checkout whose contents were removed
-(the `git worktree remove` step unregistered it while the directory survived, often because a Windows
-handle was still open), for example `M12-review-reviewer-a`; doctor's `worktrees-orphans` check names
-them and points here. The sweep never touches the main checkout, a state-referenced path, a path
-outside the root, a non-empty directory or a registered checkout, and `dry_run: true` previews every
-decision. A checkout another tool registered outside the worktree root is foreign to Tower: doctor
-names it on a passing row and the sweep keeps it, so reclaim it with the tool that created it. If the
+registers but no mission or roster row owns, and leftover directories directly under the worktree
+root that are empty **or hold nothing but dependency links**. Those shells are usually the remains of a
+review checkout whose contents were removed (the `git worktree remove` step unregistered it while the
+directory survived, often because a Windows handle was still open), for example
+`M12-review-reviewer-a`, or a mission directory whose only remaining entry is a `node_modules`
+junction into the checkout. A link is unlinked without being followed, the directory is re-proved
+empty, and only then removed, so the target itself is never touched. Doctor's `worktrees-orphans` check
+names them and points here. The sweep never touches the main checkout, a state-referenced path, a path
+outside the root, a directory holding a real file (it names the file that stopped it), a link pointing
+outside the repository or the worktree root, or a registered checkout, and `dry_run: true` previews
+every decision. A checkout another tool registered outside the worktree root is foreign to Tower:
+doctor names it on a passing row and the sweep keeps it, so reclaim it with the tool that created it. If the
 configured store does not expose directory enumeration (the optional `readdir`/`rmdir` capabilities),
 neither doctor nor the sweep can see empty shells: doctor warns that the capability is unavailable and
 the teardown report carries `leftoversUnavailable` plus a warning, so remove those directories
