@@ -12,6 +12,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { workerBriefing, reviewerBriefing } from '../app/briefing.js'
 import { buildSpawnBriefing } from '../app/spawn-support.js'
+import { completionFootprint } from '../domain/missions/completion.js'
 import { Tower } from '../host/tower.js'
 
 function git(cwd, args) {
@@ -94,6 +95,52 @@ test('worker briefing: prior reviews, findings, completion report and rules are 
   assert.ok(text.includes('tower_mission({repoRoot:"'))
   assert.ok(text.includes('tower_complete({repoRoot:"'))
   assert.match(text, /Extra tower instructions:\nkeep the diff tiny/)
+})
+
+// #231: the successor must be told, in words, that a predecessor died and left
+// work behind — with the real count, so it can decide what to inspect. The
+// sentence is absent when the predecessor left a clean tree.
+test('worker briefing: a dead predecessor residue is injected with the real count', () => {
+  const text = workerBriefing(
+    fixture({
+      mission: {
+        ...fixture().mission,
+        predecessorResidue: {
+          name: 'worker-m0',
+          at: 1_700_000_000_000,
+          filesChanged: 5,
+          branch: 'tower/m1-case',
+          tip: 'b'.repeat(40),
+          dirty: true,
+          cause: 'interrupted',
+        },
+      },
+    }),
+  )
+  assert.match(text, /A previous worker on this mission died before completing:/)
+  assert.match(text, /worker-m0 left 5 file\(s\) changed on tower\/m1-case at bbbbbbbbbbbb/)
+  assert.match(text, /Recorded cause: interrupted/)
+  assert.match(text, /counts are a snapshot, not a diff/)
+  // It sits above the rules, never inside them.
+  assert.ok(text.indexOf('A previous worker on this mission') < text.indexOf('Rules:'))
+
+  const clean = workerBriefing(
+    fixture({
+      mission: {
+        ...fixture().mission,
+        predecessorResidue: {
+          name: 'worker-m0',
+          at: 1_700_000_000_000,
+          filesChanged: 0,
+          branch: 'tower/m1-case',
+          tip: 'b'.repeat(40),
+          dirty: false,
+        },
+      },
+    }),
+  )
+  assert.doesNotMatch(clean, /A previous worker on this mission died before completing/)
+  assert.doesNotMatch(clean, /file\(s\) changed/)
 })
 
 test('detached survey briefing: the sandbox is the workdir, never the main checkout', () => {
@@ -191,6 +238,45 @@ test('reviewer briefing: completion checks and prior rounds are injected with a 
   assert.match(text, /Read-only: do not modify files, commit, or merge\./)
   assert.ok(text.includes('tower_review({repoRoot:"'))
   assert.match(text, /Extra tower instructions:\nkeep the diff tiny/)
+})
+
+// #233: two children died after a briefing told them to read a mission with
+// `tower_inspect view:"status"`, which dumped the whole state table (104
+// missions, 422 roster rows, hundreds of KB) into their context. Reading
+// narrowly is a rule, not a hint: it must name this mission's id and the
+// missionId/limit/agent-tail reads, and it must sit inside Rules:.
+test('briefings teach the bounded read in both builders, naming this mission id', () => {
+  const workerText = workerBriefing(fixture())
+  const reviewerText = reviewerBriefing(fixture())
+  const rulesStart = (text) => text.indexOf('\nRules:\n')
+
+  for (const [label, text] of [
+    ['worker', workerText],
+    ['reviewer', reviewerText],
+  ]) {
+    const start = rulesStart(text)
+    assert.ok(start >= 0, `${label} briefing keeps its Rules: block`)
+    const rules = text.slice(start)
+    // The one rule, with its concrete bounded calls.
+    assert.match(rules, /^- Read narrowly, never the whole table:/m, `${label} briefing has the bounded-read rule`)
+    assert.ok(rules.includes('tower_inspect({view:"status",missionId:"M1"})'), `${label}: mission-scoped status read`)
+    assert.match(rules, /limit\/offset paging/, `${label}: paging when a listing is unavoidable`)
+    assert.ok(rules.includes('nextOffset'), `${label}: the reply names nextOffset`)
+    assert.ok(rules.includes('tower_inspect({view:"roster",agent:"<name>",tail:N})'), `${label}: agent-scoped tail`)
+    assert.match(rules, /tower_inbox/, `${label}: inbox for messages`)
+    // The cost of ignoring it is stated, not implied.
+    assert.match(rules, /hundreds of KB/, `${label}: names the cost of an unbounded dump`)
+    assert.match(rules, /can end your turn/i, `${label}: names the consequence`)
+    // "status" alone, with no missionId, must never be presented as the way in.
+    assert.doesNotMatch(rules, /tower_inspect\(\{view:"status"\}\)/, `${label}: never teaches the bare table read`)
+  }
+
+  // The reviewer builds its rule from the same helper, so the mission id must be
+  // the reviewer's own mission — not a hard-coded worker id.
+  const reviewer = reviewerBriefing(
+    fixture({ mission: { ...fixture().mission, id: 'M9', title: 'Other' } }),
+  )
+  assert.ok(reviewer.includes('tower_inspect({view:"status",missionId:"M9"})'))
 })
 
 test('briefings truncate long review findings and long reports', () => {
@@ -321,4 +407,94 @@ test('missionContext feeds the briefing with the real review and finding history
   } finally {
     removeTemp(root)
   }
+})
+
+// #222 task 5: the reviewer sees what the completion actually covered, but only
+// when the derived footprint says something the reviewer must check. A clean
+// in-fence completion gains no noise.
+test('#222 reviewer briefing prints the footprint split only when files landed outside the fence', () => {
+  const clean = reviewerBriefing(fixture())
+  assert.doesNotMatch(clean, /Outside the mission scope/, 'the happy path gains no footprint noise')
+
+  const outside = fixture({
+    completionReport: {
+      by: 'worker-m1',
+      report: 'completed',
+      checks: [],
+      footprint: {
+        scope: ['src/**', 'docs/**'],
+        scopeGeneration: 1,
+        widenAt: null,
+        widenedTo: null,
+        changed: ['docs/stray.md', 'src/a.js'],
+        insideScope: ['src/a.js'],
+        outsideScope: ['docs/stray.md'],
+        declared: [],
+        mismatch: [],
+        mismatchNote: null,
+      },
+    },
+  })
+  const text = reviewerBriefing(outside)
+  assert.match(text, /Outside the mission scope \(1 file\):/)
+  assert.match(text, /- docs\/stray\.md/)
+  assert.doesNotMatch(text, /- src\/a\.js/, 'inside-scope files are the diff the reviewer already reads')
+  // The block is context for the rules, never a rules line itself.
+  assert.ok(text.indexOf('Outside the mission scope') < text.indexOf('Rules:'))
+})
+
+// R211: the briefing renders `outsideScope` verbatim, so a footprint that
+// disagrees with the gate turns into a false accusation in the reviewer prompt.
+// The source of truth is the domain split, not the briefing: this case constructs
+// the footprint from a case-insensitive completion and proves nothing is printed.
+test('#222 a case-insensitive footprint prints no outside-scope block', () => {
+  const target = { id: 'M1', kind: 'build', scope: ['src/Api/**'], scopeGeneration: 1, tasks: [], deps: [] }
+  const footprint = completionFootprint({ mission: target, changed: ['src/api/x.js'], caseInsensitive: true })
+  assert.deepEqual(footprint.outsideScope, [], 'precondition: the case-only path is inside on this checkout')
+  const text = reviewerBriefing(
+    fixture({
+      mission: { ...fixture().mission, scope: ['src/Api/**'] },
+      completionReport: { by: 'worker-m1', report: 'completed', checks: [], footprint },
+    }),
+  )
+  assert.doesNotMatch(text, /Outside the mission scope/, 'a gate-approved path must never reach the reviewer as outside')
+
+  // The same mission on a case-sensitive checkout still names the path, so the
+  // silence above is folding, not a dropped block.
+  const sensitive = completionFootprint({ mission: target, changed: ['src/api/x.js'] })
+  const warned = reviewerBriefing(
+    fixture({
+      mission: { ...fixture().mission, scope: ['src/Api/**'] },
+      completionReport: { by: 'worker-m1', report: 'completed', checks: [], footprint: sensitive },
+    }),
+  )
+  assert.match(warned, /Outside the mission scope \(1 file\):/)
+  assert.match(warned, /- src\/api\/x\.js/)
+})
+
+test('#222 reviewer briefing reports the footprint mismatch note', () => {
+  const text = reviewerBriefing(
+    fixture({
+      completionReport: {
+        by: 'worker-m1',
+        report: 'completed',
+        checks: [],
+        footprint: {
+          scope: ['src/**'],
+          scopeGeneration: 2,
+          widenAt: 1700000000000,
+          widenedTo: ['src/**'],
+          changed: ['src/a.js'],
+          insideScope: ['src/a.js'],
+          outsideScope: [],
+          declared: ['src/ghost.js'],
+          mismatch: ['src/ghost.js (declared, absent from the branch diff)'],
+          mismatchNote: "the worker's declaration and the branch diff disagree: src/ghost.js (declared, absent from the branch diff)",
+        },
+      },
+    }),
+  )
+  assert.match(text, /Footprint mismatch \(1 file\):/)
+  assert.match(text, /src\/ghost\.js \(declared, absent from the branch diff\)/)
+  assert.match(text, /Widened after planning: widenAt 1700000000000, scope at completion: src\/\*\*/)
 })

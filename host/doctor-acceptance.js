@@ -1,39 +1,48 @@
 // Extra read-only doctor checks kept out of host/doctor.js.
 //
-// #159: an artifact mission's merge gate is a human acceptance of the committed
-// tip, never a review. A pending acceptance is a warning (the human decides when
-// to accept it), and a recorded one is reported so the decision stays visible
-// without running preflight.
-//
-// #F32/#F71: the state writer lock and the short-lived state-commit mutex are
-// the two records that can wedge every Tower mutation. Both checks live here
-// too, so host/doctor.js stays under its file-size ceiling and the two records
-// are described by one module: the doctor never reclaims or writes anything.
+// #159: an artifact merge gate is a human acceptance of the committed tip, never a
+// review; a pending acceptance is a warning, a recorded one stays visible.
+// #F32/#F71: the state writer lock and the short-lived state-commit mutex are the two
+// records that can wedge every mutation, so both are described here — by one module,
+// with host/doctor.js under its file-size ceiling, and the doctor never reclaims a
+// record or writes anything.
 import { shapeFor } from '../domain/shapes/index.js'
 import { CAPABILITY_STANCE, DOCTOR_STATUS } from '../domain/vocabulary.js'
 import { lockTiming } from '../adapters/persistence.js'
 import { inventoryOrphanWorktrees } from '../app/teardown.js'
 
-// #F75: the remedy an artifact acceptance row injects is user-facing copy. The
-// component gate reads this table, so the sentence names the human decision and
-// the merge consequence without a tool id.
+// #F75: user-facing copy the component gate reads; it names the human decision, never a tool id.
 const DOCTOR_ACTION_COPY = Object.freeze({
   artifactAcceptance:
     'the human accepts through the approval channel; no agent may self-accept and the merge gate refuses without it',
-  // #187: `create_worktree` is allowed and not denied; its checkouts become
-  // visible here instead. The copy names the explicit sweep, never a tool id,
-  // and states the boundary the sweep cannot cross (outside the worktree root).
+  // #187: an allowed checkout becomes visible here; the copy names the explicit sweep, never a tool id.
   orphanWorktrees:
     'run the worktree teardown step with its orphan option; it removes only clean checkouts inside the worktree root, never the main checkout or a path outside it, and nothing is removed automatically',
-  // #188/#189: doctor reports the stance for a non-Tower capability and never
-  // denies or removes it. The remedy names the one-path-at-a-time discipline
-  // without a tool id or a config key.
+  // #188/#189: doctor reports the stance and never denies or removes a capability.
   foreignCapabilities:
     'keep the capability available and land changes through one path at a time, or turn its plugin row off for a run that must land changes through Tower; doctor only reports the stance and never denies or removes a capability',
+  // #228: a full disk turns every durable write into a bare errno; name the volume and the intact document.
+  diskSpace:
+    'free space on the named volume (delete a stale worktree or an old archive file), or move the repository to a volume with room, then retry the operation that was refused; the document that was already on disk is unchanged',
 })
 
-// #214: a store without directory enumeration cannot answer whether a shell is
-// empty, so the limitation is a warning, never a clean pass.
+/**
+ * The `disk-space` doctor check over one free-space reading (#228). A reading the
+ * runtime cannot take is a warning, never a pass: every durable write depends on it.
+ * The passing row names the volume but no live byte count, so two snapshots of a
+ * quiet repository stay identical; the failing row quotes the numbers.
+ * @param {{ volume: string, floorBytes: number, freeBytes: number | null, error?: string }} reading
+ */
+export function diskSpaceCheck(reading) {
+  const id = 'disk-space'
+  const floor = `${Math.round(reading.floorBytes / 1048576)} MB`
+  if (reading.freeBytes === null) return { id, status: 'warn', detail: `free space on volume ${reading.volume} is unreadable (${reading.error}); durable writes cannot be verified`, action: DOCTOR_ACTION_COPY.diskSpace }
+  if (reading.freeBytes < reading.floorBytes) return { id, status: 'fail', detail: `volume ${reading.volume} has ${Math.round(reading.freeBytes / 1048576)} MB free, below the ${floor} every durable write needs`, action: DOCTOR_ACTION_COPY.diskSpace }
+  return { id, status: 'pass', detail: `volume ${reading.volume} is above the ${floor} free-space floor` }
+}
+
+// #214: no directory enumeration means an empty shell cannot be proven empty, so the
+// limitation is a warning, never a clean pass.
 const SHELL_SCAN_UNSUPPORTED =
   'the store implementation does not expose directory enumeration, so empty leftover directories cannot be scanned and tower_teardown cannot clean empty review-checkout shells with this store'
 
@@ -99,10 +108,10 @@ export async function orphanWorktreeCheck(tower, state) {
   const leftoverNames = leftoverRows.slice(0, 5).map((entry) => entry.name)
   const leftoverText =
     leftoverRows.length > 0
-      ? `${leftoverRows.length} empty leftover ${leftoverRows.length === 1 ? 'directory' : 'directories'} under the worktree root (${leftoverNames.join(', ')}${leftoverRows.length > 5 ? ', ...' : ''})`
+      ? `${leftoverRows.length} leftover ${leftoverRows.length === 1 ? 'directory' : 'directories'} under the worktree root (${leftoverNames.join(', ')}${leftoverRows.length > 5 ? ', ...' : ''})`
       : ''
   if (inventory.orphans.length === 0 && leftoverRows.length === 0) {
-    if (inventory.leftoverError) return check('worktrees-orphans', 'warn', `could not scan the worktree root for empty leftover directories: ${inventory.leftoverError}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
+    if (inventory.leftoverError) return check('worktrees-orphans', 'warn', `could not scan the worktree root for leftover directories: ${inventory.leftoverError}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
     if (capabilityNote) return check('worktrees-orphans', 'warn', `${capabilityNote}${foreignNote}${inflightNote}`, DOCTOR_ACTION_COPY.orphanWorktrees)
     return check('worktrees-orphans', 'pass', `no unrecorded worktrees${foreignNote}${inflightNote}`)
   }
@@ -110,7 +119,7 @@ export async function orphanWorktreeCheck(tower, state) {
     return {
       id: 'worktrees-orphans',
       status: 'warn',
-      detail: `${leftoverText}; run tower_teardown with its orphan option to remove empty unrecorded directories${foreignNote}${inflightNote}`,
+      detail: `${leftoverText}; run tower_teardown with its orphan option to remove empty or link-only unrecorded directories${foreignNote}${inflightNote}`,
       action: DOCTOR_ACTION_COPY.orphanWorktrees,
     }
   }
@@ -197,14 +206,12 @@ export function stateLockFacts(lock) {
 /**
  * Facts and the `commit-lock` check for the short-lived commit mutex (#F71).
  *
- * The mutex is held for one serialise→rename→read-back window, so a record
- * that outlives its process is a leftover fence, not a lock anyone waits out.
- * This check is diagnostic only: `tower_recover clear-stale-lock` is the
- * audited way to move the record aside, and the live holder path always keeps
- * the record (a writer may be between its last CAS and the rename).
- *
- * An unreadable mutex is a warning, never a pass (#F71 R1): the torn record
- * exists and every state write keeps failing on it with `state-commit-busy`.
+ * The mutex covers one serialise→rename→read-back window, so a record that outlives
+ * its process is a leftover fence, not a lock anyone waits out. Diagnostic only:
+ * the audited recovery moves the record aside, and the live holder path always keeps
+ * it (a writer may be between its last CAS and the rename). An unreadable mutex is a
+ * warning, never a pass (#F71 R1): every state write keeps failing on it with
+ * `state-commit-busy`.
  * @param {{ record: any, alive: boolean | null, path?: string, error?: string } | null} lock
  */
 export function commitLockFacts(lock) {
@@ -255,13 +262,11 @@ export function commitLockFacts(lock) {
   return { report, check: row }
 }
 
-// #188/#189: the inventory of non-Tower capabilities that can orchestrate agents
-// or land changes. Each row records the stance Tower takes, how doctor detects
-// it, and the one-line cost of denying it. Tower does not deny these by default:
-// denial would break a workflow Tower does not replace while still leaving Tower
-// no record of the change it refused. Doctor reports the inventory and never
-// enforces it; a capability with no readable source is reported as not
-// detectable, never assumed absent.
+// #188/#189: the inventory of non-Tower capabilities that can orchestrate agents or
+// land changes: the stance, how doctor detects it, the cost of denying it. Tower denies
+// none by default — denial breaks a workflow Tower does not replace while leaving no
+// record of the change it refused — so doctor reports and never enforces, and a
+// capability with no readable source is not detectable, never assumed absent.
 const FORGE_PACKAGE = '@deepseek-ai/dsh-experimental-forge'
 const LIVESHARE_PACKAGE = '@deepseek-ai/dsh-experimental-liveshare'
 const AUTO_REVIEW_PACKAGE = '@deepseek-ai/dsh-experimental-auto-review'
@@ -313,10 +318,9 @@ export const FOREIGN_CAPABILITIES = Object.freeze([
   }),
 ])
 
-// Which probe can see each capability. The loader inventory is authoritative for
-// every row; the tool registry is authoritative for the plugin manager tool and
-// the permission preset catalog for Auto; a named service only proves presence,
-// never absence.
+// Which probe can see each capability: the loader inventory is authoritative for every
+// row, the tool registry for the plugin manager tool, the preset catalog for Auto; a
+// named service only proves presence, never absence.
 const CAPABILITY_PROBES = Object.freeze({
   forge: Object.freeze({ loader: Object.freeze({ ids: ['forge'], packages: [FORGE_PACKAGE] }), services: ['forge'] }),
   liveshare: Object.freeze({

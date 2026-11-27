@@ -9,6 +9,7 @@ README.md
 SECURITY.md
 adapters/archive.js
 adapters/caseSensitivity.js
+adapters/commitLock.js
 adapters/default.js
 adapters/git.js
 adapters/leases.js
@@ -52,6 +53,7 @@ app/reviewCheckout.js
 app/roster.js
 app/sandbox.js
 app/sharedCheckout.js
+app/spawn-deadline.js
 app/spawn-prechecks.js
 app/spawn-support.js
 app/spawn.js

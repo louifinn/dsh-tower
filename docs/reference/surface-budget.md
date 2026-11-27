@@ -36,6 +36,8 @@ the `gateableTools` allowlist; it is empty since #122, so a future
 `tools.expose*` route to any tool is refused before it can remove a review,
 merge or host tool.
 
+<!-- tower-surface-history 2026-10-23: the 2.3.0 baseline correction, when only the define() path was counted -->
+
 The 2.3.0 baseline counted 27 tools because it recorded only the `define()` path.
 `tower_mode` is registered directly by `index.js` — one of the two direct
 registrations that were uncounted at 2.3.0, the other being `tower_control`,
@@ -73,12 +75,16 @@ lists live in `domain/exposure.js` (`PRESET_ALLOWS`) and are re-exported by
 `host/tool-profiles.js` for the role predicates, so `worker.js` /
 `reviewer.js`, the authorization kernel and this gate all read one table.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 1+2 removed the repeated repoRoot field and the 21 server-side-only alias fields -->
+
 #163 Phase 1+2 shrank the advertised schemas without changing the tool count:
 removing the repeated `repoRoot` field and the 21 alias fields took the tower
 profile from 17,008 to 13,287 input bytes, the worker from 8,159 to 6,465, and
 the reviewer from 5,871 to 4,661. Every such contraction is a dated decision in
 [`scripts/surface-baseline.json`](../../scripts/surface-baseline.json); a later
 growth past the committed value fails `npm run surface:check` the same way.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 3 folded the five read-only views into `tower_inspect` -->
 
 #163 Phase 3 folded the five read-only views (`status`, `roster`, `diff`,
 `preflight`, `doctor`) into one `tower_inspect` tool: the build surface went
@@ -88,6 +94,8 @@ worker and reviewer allow-lists name `tower_inspect` exactly once (it serves
 their status and diff views), which is why their count drops by one rather
 than five. The removed tools are recorded as a dated decision on the `tools`
 surface and a dated decision per profile metric.
+
+<!-- tower-surface-history 2026-11-12: #163 Phase 4 folded the four same-resource tool pairs -->
 
 #163 Phase 4 folded four same-resource pairs: `init`+`adopt`,
 `finding`+`findings`, `mode`+`control`, and `import_legacy`+`legacy_map`. The
@@ -99,22 +107,29 @@ audit reference, which is larger than the old read-only schema it absorbed.
 The tool count still falls by three there; that is a dated decision, not an
 exemption from the two-way rule.
 
+<!-- tower-surface-history 2026-11-12: #163 Phase 5 moved the role-owned tools out of the tower profile -->
+
 #163 Phase 5 kept the build surface at 21 but narrowed what the tower profile
 mounts: `tower_complete` and `tower_review` are registered with a role
 predicate and belong to the worker/survey and reviewer presets, so the tower
 profile advertised 16 → 14 tools and 12,921 → 10,582 input bytes (both dated
 decisions). The five subsystem rows (`tower-batch`, `tower-import`,
 `tower-leases`, `tower-tests`, `tower-hmr`) ship `disabled: true`, so the
-shipped profile mounted 16 of the 21 at that point. Closing a row is not a
-surface reduction: the tools stay in the build and `tower_inspect`'s `doctor`
-view reports each one as off with its enable step. The default
-tool list and the all-on list are documented in
+shipped profile mounted all of the 21 except those five rows at that point.
+Closing a row is not a surface reduction: the tools stay in the build and
+`tower_inspect`'s `doctor` view reports each one as off with its enable step. The
+default tool list and the all-on list are documented in
 [tools.md](tools.md#tool-sets).
 
+<!-- tower-surface-history 2026-11-21: #201 added `tower_wait`, the one bounded blocking reach -->
+
 #201 adds `tower_wait`, the one bounded blocking reach (#201, recorded in
-[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22,
-the shipped profile mounts 17, and the tower profile advertises 15 tools /
-15,379 B. The tool is tower-only, so the worker (6 tools) and reviewer
+[ADR 0012](../adr/0012-bounded-wait-tool.md)): the build surface moves 21 → 22
+and the default profile gains that tool with it, but the mounted count is not a
+tracked surface axis — no baseline ladder records it, so this page does not
+restate it as a checked figure. The five default-off rows do not move, and the
+tower profile advertises 15 tools / 15,379 B. The tool is
+tower-only, so the worker (6 tools) and reviewer
 (5 tools) tool counts do not move; their input schemas grew by the 211 bytes
 #207 added to `tower_inspect`'s `agent`/`tail` descriptions. R185 then made the
 `compact` key set explicit in the same schema, adding 116 bytes to every profile
@@ -126,6 +141,8 @@ returns `reached`, `timeout` or `unknown` within a 1000–600000 ms bound
 (default 30000). Per-agent progress (#207) rides the existing `tower_inspect`
 `status`/`roster` views; no second read tool appears.
 
+<!-- tower-surface-history 2026-11-22: M165 (#215/#216) added the bulk `tower_mission` form -->
+
 M165 (#215/#216) added the bulk `tower_mission` form (a closed `missions[]`
 array, the `ids` lifecycle shorthand and `atomic`): every profile that mounts
 `tower_mission` grows by 2,887 input-schema bytes — tower 15 tools / 18,266 B,
@@ -134,7 +151,10 @@ worker 6 / 11,661 — and by 2,865 advertised bytes, so at that commit
 `preset:survey`/`preset:survey-sandbox` 12,432 each. Mode-off, idle and
 `preset:reviewer` do not mount `tower_mission` and are unchanged; no tool count
 moves. The two figures it moved (`tower` and `host:active`) are re-measured
-again by #217/#218 below, which is why the ladder further down reads 23,699 B.
+again by #217/#218 and then by #219 below, which is why the ladder further down
+reads 25,191 B.
+
+<!-- tower-surface-history 2026-11-22: #217/#218 added the plan preview and worktree links; #219 re-measured both rungs afterwards -->
 
 #217/#218 added `tower_plan`'s `dry_run` and plan-local `key` fields and
 `spawn.nodeModules`: the two profiles that mount `tower_plan` and `tower_spawn`
@@ -145,6 +165,8 @@ either tool and stay put. The config surface grows by exactly one tuning key,
 `spawn.nodeModules` (`none` default / `link`), 58 → 59 keys in the same 16
 sections; no tool, section or component moves.
 
+<!-- tower-surface-history 2026-11-22: #202 gave the reviewer `tower_verify`; the tower rung it quotes moved again with #217/#218 and #219 -->
+
 #202 adds `tower_verify`, the reviewer's one verifiable read surface: a closed
 whitelist of `{kind:"tests", files:["tests/*.test.mjs"]}`, `{kind:"tsc"}` and
 `{kind:"shards", batch:N}` run in the mission worktree (never a shell, never a
@@ -154,8 +176,26 @@ becomes 6 tools / 7,260 input bytes (was 5 / 5,725; `VerifyInput` is 1,535
 bytes) and `preset:reviewer` 9,202 B (was 7,342). The tool is role-owned
 (`tower_verify` is in `ROLE_TOOLS`), so the tower profile stays 15 tools /
 18,871 B, the host ladder and every other preset are unchanged, and the shipped
-profile now mounts 18 (the #201 note above records 17 for the surface *before*
-this tool).
+profile now mounts 18 — a live measurement, not a ladder rung, because the
+default-mounted count is not a tracked surface axis.
+
+<!-- tower-surface-history 2026-11-22: #219's measured delta and the rungs it replaced; the ladder below states those same profiles live -->
+
+#219 adds the single-form `widen` object to `tower_mission`
+(`mode:"refuse"|"defer-conflicts"`, `restoreDeferrals`, `keepStatus`): it is
+one nested object plus the repeated copy inside `properties.missions.items`, so
+`MissionInput` grows by 1,492 bytes wherever `tower_mission` is mounted — the
+`tower` profile becomes 15 tools / 20,363 B input schema (was 18,871) and the
+`worker` preset 6 / 13,153 (was 11,661) — and every profile that mounts the
+tool pays the same 1,492 advertised bytes: `host:active` reads 15 tools /
+25,191 B (was 23,699), `preset:worker` 15,109 (was 13,617), and
+`preset:survey`/`preset:survey-sandbox` 13,924 each (was 12,432). Mode-off,
+idle and `preset:reviewer` do not mount `tower_mission` and are unchanged; no
+tool count moves. The growth buys the one call that replaces the manual
+bulk-defer choreography: without it every widen had to defer each planned
+overlapping neighbour by hand, widen, then restore them one at a time, and a
+completed receiver had to be pushed back to active before its reviewer could
+spawn.
 
 ## Role × phase exposure (#164)
 
@@ -168,14 +208,14 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **23,699 B /
+- `active` — mode on, state exists: the default host-admitted set, **25,731 B /
   15 tools** (the 18 default registered tools minus the #163 role-owned
   `tower_complete`/`tower_review` and the #202 `tower_verify`, which a non-role
   session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**32,792 B / 23 tools**, and that figure is a build-surface statement, never a
+**35,460 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -186,12 +226,24 @@ arithmetic is in [ADR 0009](../adr/0009-role-phase-exposure.md)).
 Spawned role presets are not gated by the ladder: their `restrict` allow-list
 is the contract, and a role is admitted by both conditions when it also owns a
 role-gated tool. Measured over the tower tools each preset advertises:
-`preset:worker` **13,617 B / 6 tools**, `preset:reviewer` **9,202 B / 6**,
-`preset:survey` and `preset:survey-sandbox` **12,432 B / 5** each (the
+`preset:worker` **15,942 B / 6 tools**, `preset:reviewer` **9,543 B / 6**,
+`preset:survey` and `preset:survey-sandbox` **14,757 B / 5** each (the
 non-Tower names in their allow-lists are not part of this budget). The source
 of truth for all four lists is `domain/exposure.js` (`PRESET_ALLOWS`), which
 `host/tool-profiles.js` re-exports for the role predicates and the preset
 modules import directly — one table, not a copy per consumer.
+
+#221 adds the review note channel without adding a tool: `tower_review` gains
+an optional `notes` array (at most 10 short strings, and a note never carries a
+verdict or gates a merge) and `tower_mission` an optional `fold_notes` boolean
+(tower only, single form). `ReviewInput` grows by 341 advertised bytes and
+`MissionInput` by 540, so every profile that mounts them is re-measured in the
+ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,986 B, `reviewer` 6 /
+7,601 B, `host:active` 25,731 B, `preset:worker` 15,942 B, `preset:reviewer`
+9,543 B, `preset:survey` and `preset:survey-sandbox` 14,757 B each, and the
+all-on build surface 35,460 B. No tool count, config key, section or component
+moves, and the reviewer preset is the one rung that pays for the review schema
+without mounting `tower_mission`, so it takes the 341-byte increment alone.
 
 `scripts/surface-baseline.json` carries these as a top-level `profileBytes`
 block, measured as the UTF-8 bytes of the advertised `name`, `description` and
@@ -206,7 +258,7 @@ growth additionally needs one that names an existing ADR under `docs/adr/`
 (`profile-bytes-growth`). `tests/exposure.test.mjs` also enforces that every
 registered tool has a phase row ("no implicit all"), that every legal mission
 transition's driving tool is exposed to the profile that owns it, and that the
-host ladder stays on the default host-admitted surface (15 tools / 23,699 B)
+host ladder stays on the default host-admitted surface (15 tools / 25,731 B)
 rather than the 23-tool build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
@@ -341,6 +393,7 @@ tool count moves.
 | `spawn.maxLiveWorkers` | core | Resource-safety cap on live workers. |
 | `spawn.staleMs` | tuning | Roster staleness window before merge is blocked. |
 | `spawn.maxWaitMs` | tuning | Upper bound for a blocking spawn wait. |
+| `spawn.preflightTimeoutMs` | tuning | One deadline for the whole `tower_spawn` pre-flight (queueing plus every read before the roster reservation); expiry refuses with `phase` and `elapsedMs`. |
 | `spawn.requireLease` | niche | Advisory-lease gate added for one multi-agent workflow. Removal note: fold into `tower_resource` policy in the next minor unless a second workflow uses it. |
 | `spawn.nodeModules` | tuning | Dependency visibility for a spawned worktree: `none` (default) leaves it without `node_modules`; `link` creates `<worktree>/node_modules` as a junction to the baseline checkout's installed dependencies and records it so teardown only ever unlinks that link. Placement tuning, not a capability row; a missing target refuses the spawn. |
 | `send.maxPerMinute` | tuning | Process-local advisory message rate limit; zero disables it. |
@@ -404,3 +457,46 @@ surface; they do not decide which key is bad.
 
 Enforced by: `scripts/surface-baseline.mjs` and `domain/surface.js`; tests in
 `tests/surface.test.mjs`; gate: `npm run surface:check`.
+
+The prose in this page is checked too: `npm run docs:check` (through
+`scripts/check-docs.mjs`) rescans every current-facing markdown page — the
+`docs/**` tree except `docs/adr/`, the markdown `package.json` ships (the
+READMEs, CONTRIBUTING, COMPATIBILITY, GLOSSARY, PRINCIPLES, SECURITY, the
+`skills/*.md` briefings, `ui-bundle/README.md`) and `tests/README.md` — for the
+tool totals and input-schema byte counts those pages write, and fails on a figure
+it cannot account for against
+[`scripts/surface-baseline.json`](../../scripts/surface-baseline.json) plus the
+live default-profile and all-rows-on counts.
+
+The scanned spelling is exact, because a prose gate is only honest about the forms
+it actually reads. A byte count is read as the number, an optional thousands
+separator, then `B`, `input bytes` or `bytes` (`35,460 B`, `20,903 input bytes`,
+`7,601 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
+or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
+`registers N` / `registered N` / `registering N` and `advertises N` /
+`advertised N` / `advertising N`; those verbs are read as a
+tool count in every inflection they take, because in these pages they never mean
+anything else — a page that means something else by them fails and is reworded,
+which is the safe direction. Numbers that only look like a figure are not figures
+and stay unscanned: `45 tool error codes`, `45 个工具错误码`, `21 个工具形别名`,
+`28/28`, and a bare Chinese `N 个` with no 工具 after it (`21 个之中`).
+
+Two forms are deliberately outside the gate. `docs/adr/**` records what a
+decision measured at the time and is never re-measured, so the ADRs' own
+tool-count and byte figures — including their verb-first spelling — are not
+scanned. And a figure wrapped across a line break is invisible, because the lexer
+reads one line at a time: write a claim's figure on one line. A historical
+measurement stays readable only behind a dated
+`<!-- tower-surface-history YYYY-MM-DD: reason -->` marker whose figures are
+recorded in the baseline; a fenced sample of tool output needs
+`<!-- tower-surface-sample: reason -->`.
+
+One count is measured live but never charted: **how many tools the default
+profile mounts**. `scripts/surface-baseline.json` ladders per-profile and build
+totals, not that number. A live mounted count is therefore checked against the
+live measurement, while a historical one can only be accepted because the same
+number appears somewhere on a recorded ladder — a coincidence, not a check of
+the mounted count. The page therefore writes no historical mounted count as a
+figure. Where the count matters, the derivation is written instead (`mounted all
+of the 21 except those five rows`), and the one live figure (`mounts 18`) is
+checked like any other.

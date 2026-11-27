@@ -79,6 +79,7 @@ export type ErrorCode =
   | 'lease-token'
   | 'batch-invalid'
   | 'legacy-invalid'
+  | 'state-io-failed'
   | 'tool-internal'
 // generated:vocabulary:end
 
@@ -118,10 +119,31 @@ export interface MissionTask {
   note?: string
 }
 
+/**
+ * The `node_modules` junction a spawn recorded on a worktree when
+ * `spawn.nodeModules` is `"link"` (#218). File F103: the record is persisted on
+ * `mission.worktree.nodeModulesLink` by app/spawn.js and read by teardown,
+ * review checkouts and the doctor's `worktree-links` check.
+ */
+export interface MissionWorktreeLink {
+  /** The baseline checkout's installed `node_modules` the link resolves to. */
+  target: string
+  /** The `<worktree>/node_modules` link path the spawn created. */
+  path: string
+  /** When the link was recorded (epoch milliseconds). */
+  createdAt: number
+}
+
 export interface MissionWorktree {
   path: string
   branch: string
   baseCommit: string
+  /** Epoch milliseconds recorded with the checkout; absent on legacy rows. */
+  createdAt?: number
+  /** Canonical realpath of `path`, recorded by the ownership check. */
+  realPath?: string
+  /** The recorded dependency link; absent unless spawn.nodeModules is "link". */
+  nodeModulesLink?: MissionWorktreeLink
 }
 
 export interface CompletionCheck {

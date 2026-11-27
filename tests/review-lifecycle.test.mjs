@@ -19,7 +19,7 @@ import { removeTemp } from './helpers/cleanup.mjs'
 
 import { Tower } from '../host/tower.js'
 import { latestReview, reviewsNewestFirst } from '../domain/integration/review.js'
-import { reviewAdmission, reviewRound } from '../domain/missions/review.js'
+import { foldReviewNotes, reviewAdmission, reviewRound } from '../domain/missions/review.js'
 import { validateState } from '../domain/state.js'
 import {
   modelLatestReview,
@@ -435,6 +435,203 @@ test('a moved tip is judged against the newest same-round verdict, never the sta
     const state = await tower.load()
     assert.deepEqual(state.reviews.map((review) => review.id), ['R1', 'R2'])
     assert.equal(state.missions[0].status, 'active')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #221: reviews had only a binary channel — a p1/p2 (which reopens the mission
+// and costs a rework round) or silence. The note channel records an observation
+// next to the verdict without touching the verdict's meaning, so a clean review
+// can still merge while carrying the polish items a release sweep must fold.
+test('a clean verdict may carry non-blocking notes and the mission still merges', async () => {
+  const { root, tower, wt, branch } = await completedMission('dsh-tower-review-lifecycle-notes-')
+  try {
+    await recordReviewer(tower, wt, branch, 'reviewer-a', 'agent-review-a')
+    const notes = [
+      'docs/zh/README.md:22 still advertises the old tool count',
+      'the comment above line 9 repeats the function name',
+    ]
+    const submitted = await tower.submitReview(routeInput('agent-review-a', { notes }))
+
+    // The verdict is unchanged by the notes: still clean/merge.
+    assert.equal(submitted.review.status, 'clean')
+    assert.equal(submitted.review.mergeVerdict, 'merge')
+    assert.deepEqual(submitted.review.notes.map((note) => note.id), ['N1.1', 'N1.2'])
+    assert.deepEqual(submitted.review.notes.map((note) => note.text), notes)
+    assert.equal(submitted.review.notes[0].state, 'open')
+    assert.equal(submitted.review.notes[0].round, 1)
+    assert.equal(submitted.review.notes[0].reviewer, 'reviewer-a')
+
+    const state = await tower.load()
+    assert.equal(state.missions[0].status, 'completed')
+    assert.doesNotThrow(() => validateState(state, ''))
+
+    // Never blocking: a clean verdict carrying notes leaves the merge gate open.
+    const gate = await tower.evaluateGate({ missionId: 'M1', action: 'preflight' })
+    assert.equal(gate.ok, true, JSON.stringify(gate.blockers))
+    assert.deepEqual(gate.blockers, [])
+
+    // tower_inspect mission detail returns the whole review row (notes included)
+    // while the paged rows keep the compact digest.
+    const detail = await tower.missionDetail('M1')
+    assert.deepEqual(detail.reviews[0].notes.map((note) => note.text), notes)
+    const status = await tower.status({ missionIds: ['M1'] })
+    assert.equal(status.missions[0].review.id, submitted.review.id)
+    assert.equal(status.missions[0].review.notes, undefined)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('notes survive their round: a p1 keeps them and the next review appends its own', async () => {
+  const { root, tower, wt, branch } = await completedMission('dsh-tower-review-lifecycle-notes-rounds-')
+  try {
+    await recordReviewer(tower, wt, branch, 'reviewer-a', 'agent-review-a')
+    const first = await tower.submitReview(routeInput('agent-review-a', {
+      status: 'p1-1items',
+      merge: 'fix-then-merge',
+      findings: 'the copy change is wrong',
+      decision: 'fix the copy, keep the notes',
+      notes: ['surface-budget.md:133 still carries the old byte figure'],
+    }))
+    assert.equal(first.review.round, 1)
+    const returned = await tower.load()
+    assert.equal(returned.missions[0].status, 'active')
+    assert.equal(returned.reviews[0].notes[0].state, 'open')
+
+    fs.writeFileSync(path.join(wt, 'src', 'a.txt'), 'fixed\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 fix the copy'])
+    await tower.complete({ missionId: 'M1', agentId: 'agent-worker', report: 'fixed the copy' })
+
+    await recordReviewer(tower, wt, branch, 'reviewer-b', 'agent-review-b')
+    const second = await tower.submitReview(routeInput('agent-review-b', { notes: ['one more wording nit'] }))
+    assert.equal(second.review.round, 2)
+    assert.equal(second.review.status, 'clean')
+
+    // The earlier round's note is neither moved nor replaced: rounds append.
+    const state = await tower.load()
+    assert.deepEqual(state.reviews.map((review) => review.id), ['R1', 'R2'])
+    assert.deepEqual(state.reviews.map((review) => review.round), [1, 2])
+    assert.deepEqual(state.reviews[0].notes.map((note) => note.text), ['surface-budget.md:133 still carries the old byte figure'])
+    assert.deepEqual(state.reviews[1].notes.map((note) => note.text), ['one more wording nit'])
+    assert.equal(state.reviews[0].notes[0].state, 'open')
+    assert.equal(state.missions[0].status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('tower_mission fold_notes folds open notes in one revision bump and one activity entry', async () => {
+  const { root, tower, wt, branch } = await completedMission('dsh-tower-review-lifecycle-fold-')
+  try {
+    await recordReviewer(tower, wt, branch, 'reviewer-a', 'agent-review-a')
+    const notes = ['README tool count is stale', 'drop the duplicated sentence']
+    await tower.submitReview(routeInput('agent-review-a', { notes }))
+    const before = await tower.load()
+    const activityBefore = fs.readFileSync(tower.paths.activity, 'utf8').trim().split('\n').length
+
+    const folded = await tower.mission({ id: 'M1', fold_notes: true })
+    assert.equal(folded.revision, before.revision + 1)
+    assert.equal(folded.mission.status, 'completed')
+
+    const after = await tower.load()
+    assert.equal(after.revision, before.revision + 1)
+    assert.equal(after.reviews[0].notes.every((note) => note.state === 'folded'), true)
+    assert.equal(after.reviews[0].notes.every((note) => Number.isFinite(note.foldedAt)), true)
+    const foldedTasks = after.missions[0].tasks.filter((task) => task.text.startsWith('folded review note'))
+    assert.deepEqual(foldedTasks.map((task) => task.status), ['done', 'done'])
+    assert.match(foldedTasks[0].text, /^folded review note N1\.1: README tool count is stale$/)
+    assert.match(foldedTasks[0].note, /folded from review R1 \(round 1\)/)
+
+    // Exactly one activity entry for the whole fold, with the audit sentence.
+    const entries = fs.readFileSync(tower.paths.activity, 'utf8').trim().split('\n')
+    assert.equal(entries.length, activityBefore + 1)
+    const record = JSON.parse(entries[entries.length - 1])
+    assert.equal(record.type, 'mission')
+    assert.equal(record.missionId, 'M1')
+    assert.match(record.text, /folded 2 review notes into the task list/)
+
+    // A second fold has nothing left to claim and is refused, not silently a no-op.
+    await assert.rejects(() => tower.mission({ id: 'M1', fold_notes: true }), /no open review notes to fold/)
+    assert.equal((await tower.load()).revision, after.revision)
+
+    // The folded task text is bounded at 200 characters and marks the cut with an
+    // ellipsis, so a long note is clipped visibly instead of losing its tail.
+    const long = `p2 wording nit ${'x'.repeat(400)}`
+    const plan = foldReviewNotes({
+      mission: { id: 'M1', worktree: { branch } },
+      reviews: [
+        {
+          id: 'R7',
+          seq: 7,
+          missionId: 'M1',
+          branch,
+          round: 2,
+          notes: [
+            { id: 'N7.1', reviewId: 'R7', round: 2, reviewer: 'reviewer-a', at: 0, text: long, state: 'open' },
+            { id: 'N7.2', reviewId: 'R7', round: 2, reviewer: 'reviewer-a', at: 0, text: 'short nit', state: 'open' },
+          ],
+        },
+      ],
+    })
+    assert.equal(plan.tasks[0].text, `folded review note N7.1: ${long.slice(0, 199)}…`)
+    assert.equal(plan.tasks[0].text.length, 'folded review note N7.1: '.length + 200)
+    assert.equal(plan.tasks[1].text, 'folded review note N7.2: short nit')
+    assert.equal(plan.change, 'folded 2 review notes into the task list')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+test('fold_notes is tower-only, single-form only, and never claims another mission\'s notes', async () => {
+  const { root, tower, wt, branch } = await completedMission('dsh-tower-review-lifecycle-fold-guard-')
+  try {
+    await recordReviewer(tower, wt, branch, 'reviewer-a', 'agent-review-a')
+    await tower.submitReview(routeInput('agent-review-a', { notes: ['keep me'] }))
+
+    // A worker may report work, never decide that a note is folded.
+    await assert.rejects(
+      () => tower.mission({ id: 'M1', fold_notes: true, actor: { name: 'worker-m1', role: 'worker' } }),
+      /only the tower can fold review notes/,
+    )
+    // The bulk form keeps a per-mission activity contract, so a fold is single.
+    await assert.rejects(
+      () => tower.mission({ missions: [{ id: 'M1', fold_notes: true }] }),
+      /unknown field "fold_notes"/,
+    )
+
+    // A note recorded on the same branch under another mission is refused: a fold
+    // may only claim the notes that mission's own reviews recorded.
+    const seeded = await tower.load()
+    seeded.reviews.push({
+      id: 'R9',
+      seq: 9,
+      missionId: 'M9',
+      branch,
+      round: 1,
+      status: 'clean',
+      mergeVerdict: 'merge',
+      reviewedCommit: seeded.reviews[0].reviewedCommit,
+      findings: 'none',
+      checks: [],
+      decision: 'seeded neighbour',
+      reviewer: 'reviewer-z',
+      reviewerRole: 'reviewer',
+      at: Date.now(),
+      notes: [{ id: 'N9.1', reviewId: 'R9', round: 1, reviewer: 'reviewer-z', at: Date.now(), text: 'foreign note', state: 'open' }],
+    })
+    await tower.deps.store.withLock(tower.paths, async (_paths, held) => {
+      seeded.revision += 1
+      await tower.writeState(seeded, held)
+    })
+    await assert.rejects(
+      () => tower.mission({ id: 'M1', fold_notes: true }),
+      /review note N9\.1 belongs to mission M9, not M1/,
+    )
+    const untouched = await tower.load()
+    assert.equal(untouched.reviews[0].notes[0].state, 'open')
   } finally {
     removeTemp(root)
   }

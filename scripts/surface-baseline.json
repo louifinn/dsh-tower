@@ -4,7 +4,7 @@
   "surfaces": {
     "configKeys": {
       "seed": 64,
-      "value": 59,
+      "value": 60,
       "decisions": [
         {
           "from": 64,
@@ -81,6 +81,13 @@
           "date": "2026-11-22",
           "adr": "docs/adr/0004-surface-budget.md",
           "note": "#217/#218: spawn.nodeModules (none|link, default none) adds one tuning key: it chooses whether tower_spawn materialises <worktree>/node_modules as a junction to the baseline checkout installed node_modules or leaves the worktree without one. It is not a component row and no tool or section moves; the key only decides dependency visibility for a spawned worktree."
+        },
+        {
+          "from": 59,
+          "to": 60,
+          "date": "2026-11-27",
+          "adr": "docs/adr/0004-surface-budget.md",
+          "note": "#237: spawn.preflightTimeoutMs (natural, 1000..600000, default 30000) adds one tuning key: it is the single deadline for a tower_spawn pre-flight — queueing plus every read before the roster reservation — so a spawn that cannot make progress fails as spawn-unavailable naming the phase it reached instead of hanging with nothing recorded. No tool, section or component moves; the key only decides how long a spawn may spend before it is refused."
         }
       ]
     },
@@ -250,7 +257,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 18871,
+        "value": 20903,
         "decisions": [
           {
             "from": 17008,
@@ -353,6 +360,20 @@
             "to": 18871,
             "date": "2026-11-22",
             "note": "#217: PlanInput advertises the optional top-level dry_run flag and the optional per-mission key, and its descriptions state the dry-run report and key/dep rules, so the one advertised schema grows by 605 bytes wherever tower_plan is mounted: profiles.tower.inputBytes becomes 18,871 (was 18,266). Worker, reviewer and survey presets do not mount tower_plan and do not move; the tool count stays 15."
+          },
+          {
+            "from": 18871,
+            "to": 20363,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth. It advertises mode/restoreDeferrals/keepStatus plus the no-scope rule, so MissionInput grows by 1,492 bytes (the nested `widen` object plus the repeated item copy) and profiles.tower.inputBytes becomes 20,363 (was 18,871). Nothing else in the tower profile moved, and the tool count stays 15. The growth buys the one call that replaces the manual bulk-defer choreography: without it every widen had to defer each planned neighbour by hand, widen, then restore them one by one, and a completed receiver was pushed back to active before its reviewer could spawn."
+          },
+          {
+            "from": 20363,
+            "to": 20903,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#221: tower_mission advertises the optional fold_notes boolean (tower-only audit fold of open review notes), so MissionInput grows by 540 bytes wherever it is mounted: profiles.tower.inputBytes becomes 20,903 (was 20,363). The tool count stays 15."
           }
         ]
       }
@@ -384,7 +405,7 @@
       },
       "inputBytes": {
         "seed": 8159,
-        "value": 11661,
+        "value": 13986,
         "decisions": [
           {
             "from": 8159,
@@ -463,6 +484,27 @@
             "to": 11661,
             "date": "2026-11-22",
             "note": "#216: the worker preset mounts tower_mission, whose MissionInput advertises the bulk form (missions/ids/atomic), so its one advertised schema grows by 2,887 bytes and the preset becomes 11,661 (was 8,774). The tool count stays 6; #215 adds no input fields."
+          },
+          {
+            "from": 11661,
+            "to": 13153,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth, and it is the same 1,492 bytes the tower profile pays because the worker preset mounts the same MissionInput: profiles.worker.inputBytes becomes 13,153 (was 11,661). The tool count stays 6 and no other worker schema moves. The growth buys the one call that replaces the manual bulk-defer choreography — a worker widening its own mission no longer needs 2N+2 defer/restore round trips."
+          },
+          {
+            "from": 13153,
+            "to": 13446,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#222/M179: tower_complete's input schema gains the optional `files` array (repository-relative paths the worker claims to have touched, bounded at 500 entries of 400 chars), and the worker preset mounts tower_complete, so the one advertised CompleteInput grows by 293 bytes: profiles.worker.inputBytes becomes 13,446 (was 13,153)."
+          },
+          {
+            "from": 13446,
+            "to": 13986,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#221: the worker preset mounts tower_mission, whose MissionInput advertises the optional fold_notes boolean, so its one advertised schema grows by the same 540 bytes: profiles.worker.inputBytes becomes 13,986 (was 13,446). The tool count stays 6. This lands after #222's 293-byte `files` field, so the two effects compose rather than replace: 13,153 + 293 + 540."
           }
         ]
       }
@@ -500,7 +542,7 @@
       },
       "inputBytes": {
         "seed": 5871,
-        "value": 7260,
+        "value": 7601,
         "decisions": [
           {
             "from": 5871,
@@ -555,13 +597,20 @@
             "to": 7260,
             "date": "2026-11-22",
             "note": "#202: the reviewer preset mounts tower_verify, whose VerifyInput advertises the three whitelisted check kinds and the bounded timeout, adding 1,535 bytes. The reviewer preset becomes 7,260 bytes (was 5,725); the tool count moves 5 -> 6 in the tools decision above."
+          },
+          {
+            "from": 7260,
+            "to": 7601,
+            "date": "2026-11-25",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#221: tower_review advertises the optional non-blocking notes array on ReviewInput, so the reviewer preset grows by 341 bytes: profiles.reviewer.inputBytes becomes 7,601 (was 7,260). The tool count stays 6."
           }
         ]
       }
     }
   },
   "profileBytes": {
-    "date": "2026-11-22",
+    "date": "2026-11-25",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -573,23 +622,23 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 23699
+        "bytes": 25731
       },
       "preset:worker": {
         "tools": 6,
-        "bytes": 13617
+        "bytes": 15942
       },
       "preset:reviewer": {
         "tools": 6,
-        "bytes": 9202
+        "bytes": 9543
       },
       "preset:survey": {
         "tools": 5,
-        "bytes": 12432
+        "bytes": 14757
       },
       "preset:survey-sandbox": {
         "tools": 5,
-        "bytes": 12432
+        "bytes": 14757
       }
     },
     "decisions": [
@@ -677,6 +726,21 @@
         "date": "2026-11-22",
         "adr": "docs/adr/0009-role-phase-exposure.md",
         "note": "#202: the reviewer preset mounts tower_verify, so preset:reviewer becomes 6 tools / 9,202 B (was 5 tools / 7,342 B): 1,535 advertised input bytes plus the tool name and description. Mode-off, idle, host:active, preset:worker and the survey presets do not mount tower_verify and are unchanged; the build surface grows 22 -> 23 tools, recorded in surfaces.tools."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#219/F110: the single-form `widen` object on tower_mission is the only cause of this growth. Every profile that mounts tower_mission pays the same 1,492 advertised bytes: host:active becomes 15 tools / 25,191 B (was 23,699), preset:worker 6 / 15,109 B (was 13,617), preset:survey and preset:survey-sandbox 5 / 13,924 B each (was 12,432). Mode-off, idle and preset:reviewer do not mount tower_mission and are unchanged; no tool count moves, and the single-mission fields and output are unchanged. The growth buys the one call that replaces the manual bulk-defer choreography (2N+2 tower_mission defer/restore round trips, plus the intermediate status patch before spawning the reviewer), which is what #219 exists to remove."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#222/M179: tower_complete's input schema gains the optional `files` array, and every preset that mounts tower_complete pays the same 293 advertised bytes: preset:worker becomes 6 tools / 15,402 B (was 15,109), preset:survey and preset:survey-sandbox 5 / 14,217 B each (was 13,924). host:active, mode-off, idle and preset:reviewer do not mount tower_complete and are unchanged; no tool count moves, and the field is optional, so a completion that omits `files` is byte-identical to before and the footprint stays derived from the branch diff."
+      },
+      {
+        "date": "2026-11-25",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#221: the review note channel grows two advertised schemas. tower_review advertises the optional non-blocking notes array (ReviewInput, +341 bytes) and tower_mission advertises the optional fold_notes boolean (MissionInput, +540 bytes). Every profile that mounts tower_mission pays the 540 on top of #222's 293: host:active becomes 15 tools / 25,731 B (was 25,191), preset:worker 6 / 15,942 B (was 15,402), preset:survey and preset:survey-sandbox 5 / 14,757 B each (was 14,217). preset:reviewer becomes 6 / 9,543 B (was 9,202) because it mounts tower_review. Mode-off and idle mount neither tool and are unchanged; no tool count moves. The growth buys the channel that keeps a nit out of a rework round: a clean verdict can now carry observations that a release sweep folds, instead of every nit either reopening the mission or shipping unmentioned."
       }
     ]
   }

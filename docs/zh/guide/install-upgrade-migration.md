@@ -228,6 +228,7 @@ Host 插件在 DSH 启动时加载：**安装或更新后需要重启 DSH**。
   - 配置键没有变化。更新插件并重启 DSH，其余无需迁移。
 
 <!-- tower-retired-names:begin 2.9.0-migration -->
+<!-- tower-surface-history 2026-11-12: the 2.9.0 migration note states that release's counts, not today's -->
 - **2.8.0 → 2.9.0（#163、#176、#160、#164、#162、#159、#161）—— 工具表面收敛**：构建表面从 29 个工具
   降到 21 个（默认 profile 注册 16 个）。五个只读工具（`tower_status`、`tower_roster`、`tower_diff`、
   `tower_preflight`、`tower_doctor`）现在是 `tower_inspect` 的 `status`、`roster`、`diff`、`preflight`

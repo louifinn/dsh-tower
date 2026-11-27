@@ -3,7 +3,7 @@
 [English](../../reference/errors.md) | **简体中文**
 
 工具失败是抛出的错误，不是 `{ok:false}` 结果（门禁结果是例外：见 [blockers.md](blockers.md)）。
-每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 44 个工具错误码。
+每个抛出的错误都以稳定 code 作为消息前缀。本版本定义 45 个工具错误码。
 
 ```
 [tower:mission-not-found] unknown mission "M9"
@@ -57,6 +57,7 @@
 | `lease-token` | 租约释放 token 与持有者不匹配。 | 用另一个会话的 token 释放 |
 | `batch-invalid` | batch 请求或其 close 证据无效。 | 未知成员、重复 id、不安全的回执路径、缺少回执哈希 |
 | `legacy-invalid` | 旧版快照或映射无效。 | 未知 schema、源路径位于 Tower state 目录内、映射重写 |
+| `state-io-failed` | 宿主文件系统拒绝读写 Tower 文档（state、activity、锁记录、合并记录或模式存储）；磁盘上原有文档保持不变。 | 写 `state.json`、activity 日志、锁记录、合并记录或模式存储时遇到 ENOSPC/EMFILE/ENFILE/EIO |
 | `tool-internal` | 意外失败。 | bug；阅读消息与 activity 日志 |
 
 ## 为什么抛出？

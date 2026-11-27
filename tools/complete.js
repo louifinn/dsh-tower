@@ -38,6 +38,7 @@ export function registerCompleteTool(ctx, deps) {
           missionId: missionId,
           agentId,
           report: args.report,
+          files: args.files,
         },
         options,
       )
@@ -62,6 +63,7 @@ export function registerCompleteTool(ctx, deps) {
           report: args.report,
           result: args.result,
           checks,
+          files: args.files,
         },
         options,
       )

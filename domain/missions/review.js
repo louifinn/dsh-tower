@@ -17,6 +17,12 @@ import { shapeFor } from '../shapes/index.js'
 
 export const MAX_REVIEW_ROUNDS = 5
 
+/** Hard cap on non-blocking notes per verdict (#221). */
+export const MAX_REVIEW_NOTES = 10
+
+/** Hard cap on one note's length, in characters (#221). */
+export const REVIEW_NOTE_MAX_CHARS = 400
+
 /**
  * @param {string} message
  * @param {string} [code]
@@ -74,9 +80,35 @@ export function resolveReviewActor({ mission, caller, actorRole, agentId, breakG
 }
 
 /**
+ * Validate the non-blocking note channel (#221). A note is an observation that
+ * must not change the verdict: it is recorded next to the review, never folded
+ * into `findings`, and never consulted by the merge gate. The shape is
+ * deliberately narrow (a list of short strings) so it can never smuggle a
+ * status or a merge verdict.
+ * @param {unknown} input
+ * @returns {string[]}
+ */
+export function normalizeReviewNotes(input) {
+  if (input === undefined || input === null) return []
+  if (!Array.isArray(input)) fail('notes must be an array of short strings')
+  if (input.length > MAX_REVIEW_NOTES) {
+    fail(`a review carries at most ${MAX_REVIEW_NOTES} notes; fold the rest into one note or file a finding`)
+  }
+  return input.map((entry) => {
+    if (typeof entry !== 'string') fail('each review note must be a string')
+    const text = entry.trim()
+    if (!text) fail('a review note must not be empty')
+    if (text.length > REVIEW_NOTE_MAX_CHARS) {
+      fail(`a review note may not exceed ${REVIEW_NOTE_MAX_CHARS} characters (got ${text.length})`)
+    }
+    return text
+  })
+}
+
+/**
  * Validate the verdict payload fields that are independent of Git.
  * @param {any} input
- * @returns {{ status: string, merge: string, findings: string, decision: string, checks: string[] }}
+ * @returns {{ status: string, merge: string, findings: string, decision: string, checks: string[], notes?: string[] }}
  */
 export function normalizeReviewVerdict(input) {
   if (!REVIEW_STATUS_RE.test(String(input.status ?? ''))) {
@@ -101,7 +133,10 @@ export function normalizeReviewVerdict(input) {
     if (!Array.isArray(input.checks)) fail('checks must be an array of strings')
     checks = input.checks.map((entry) => String(entry))
   }
-  return { status: input.status, merge: input.merge, findings, decision, checks }
+  const notes = normalizeReviewNotes(input.notes)
+  // #221: a verdict without notes keeps the pre-#221 shape exactly, so legacy
+  // callers and stored rows are untouched.
+  return { status: input.status, merge: input.merge, findings, decision, checks, ...(notes.length > 0 ? { notes } : {}) }
 }
 
 /**
@@ -217,8 +252,27 @@ export function applyReviewOutcome({ mission, outcome, now }) {
 }
 
 /**
+ * Project every note of a verdict, preserving the reviewer's order. The id is
+ * derived from the review sequence so it stays stable across replays and reads
+ * in a report (`N3.2` = the second note of review R3).
+ * @param {{ notes: string[], seq: number, round: number, reviewerName: string, now: number }} params
+ * @returns {any[]}
+ */
+export function reviewNoteRecords({ notes, seq, round, reviewerName, now }) {
+  return notes.map((text, index) => ({
+    id: `N${seq}.${index + 1}`,
+    reviewId: `R${seq}`,
+    round,
+    reviewer: reviewerName,
+    at: now,
+    text,
+    state: 'open',
+  }))
+}
+
+/**
  * Project the persisted review record.
- * @param {{ seq: number, missionId: string, branch: string, tip: string, verdict: { status: string, merge: string, findings: string, checks: string[], decision: string }, reviewerName: string, reviewerRole: string, round: number, now: number, breakGlassReason?: string }} params
+ * @param {{ seq: number, missionId: string, branch: string, tip: string, verdict: { status: string, merge: string, findings: string, checks: string[], decision: string, notes?: string[] }, reviewerName: string, reviewerRole: string, round: number, now: number, breakGlassReason?: string }} params
  * @returns {Review}
  */
 export function reviewRecord({
@@ -233,7 +287,8 @@ export function reviewRecord({
   now,
   breakGlassReason,
 }) {
-  return {
+  /** @type {any} */
+  const record = {
     id: `R${seq}`,
     seq,
     missionId,
@@ -250,4 +305,112 @@ export function reviewRecord({
     at: now,
     ...(reviewerRole === 'tower' ? { breakGlassReason } : {}),
   }
+  // #221: the note channel is optional and additive. Rows written before it
+  // existed stay shape-identical, so legacy snapshots keep validating.
+  const notes = Array.isArray(verdict.notes) ? verdict.notes : []
+  if (notes.length > 0) {
+    record.notes = reviewNoteRecords({ notes, seq, round, reviewerName, now })
+  }
+  return record
 }
+
+/**
+ * The notes of one review row that are still open, in recorded order.
+ * @param {any} review
+ * @returns {any[]}
+ */
+export function openReviewNotes(review) {
+  return Array.isArray(review?.notes) ? review.notes.filter((note) => note.state === 'open') : []
+}
+
+/**
+ * Aggregate the open notes across review rows for the doctor surface (#221).
+ * Pure and bounded: `sample` names at most three `missionId:noteId` pairs so a
+ * release sweep stays actionable without serializing every note.
+ * @param {any[] | undefined} reviews
+ * @returns {{ total: number, missions: string[], sample: string }}
+ */
+export function summarizeOpenReviewNotes(reviews) {
+  const open = (Array.isArray(reviews) ? reviews : []).flatMap((review) =>
+    openReviewNotes(review).map((note) => ({ review, note })),
+  )
+  const missions = [...new Set(open.map(({ review }) => review.missionId))].sort()
+  const sample = open.slice(0, 3).map(({ review, note }) => `${review.missionId}:${note.id}`).join(', ')
+  return { total: open.length, missions, sample: `${sample}${open.length > 3 ? ', …' : ''}` }
+}
+
+/** Advisory preflight warning code for a mission's open review notes (#221). */
+export const REVIEW_NOTE_WARNING = 'review-notes-open'
+
+/**
+ * Advisory preflight warnings for the open review notes a mission's own review
+ * rows still carry (#221). At most one warning per mission, naming the count and
+ * the bounded `missionId:noteId` sample `summarizeOpenReviewNotes` already
+ * builds. A note never blocks a merge, so this is a release-prep reminder in the
+ * same shape as `unverifiedCheckWarnings`: never a blocker code, never a status.
+ * @param {{ missionId: string, reviews?: any[] | undefined }} params
+ * @returns {Array<{ code: string, missionId: string, notes: number, message: string }>}
+ */
+export function reviewNoteWarnings({ missionId, reviews }) {
+  const own = (Array.isArray(reviews) ? reviews : []).filter((review) => review?.missionId === missionId)
+  const summary = summarizeOpenReviewNotes(own)
+  if (summary.total === 0) return []
+  const plural = summary.total === 1 ? '' : 's'
+  return [
+    {
+      code: REVIEW_NOTE_WARNING,
+      missionId,
+      notes: summary.total,
+      message: `${summary.total} open review note${plural} on ${missionId} (${summary.sample}); a note never blocks a merge — fold them at release prep with tower_mission({ id: "${missionId}", fold_notes: true }), or address them in a later round`,
+    },
+  ]
+}
+
+/**
+ * Plan the fold of one mission's open review notes into its task list (#221).
+ * Pure: it reports what would change; app/mission.js applies it. A fold is an
+ * audit record, never a gate: it never reopens a mission, never adds a blocker,
+ * and never touches the review verdict. A note recorded on the same branch but
+ * owned by another mission is refused rather than folded, so a fold can never
+ * claim another mission's history.
+ * @param {{ mission: Mission, reviews: any[] | undefined }} params
+ * @returns {{ tasks: Array<{ text: string, status: string, note: string }>, folded: Array<{ review: any, note: any }>, change: string }}
+ */
+export function foldReviewNotes({ mission, reviews }) {
+  const branch = mission.worktree?.branch
+  const relevant = (reviews ?? []).filter(
+    (review) => review.missionId === mission.id || (branch && review.branch === branch),
+  )
+  const foreign = relevant.find((review) => review.missionId !== mission.id && openReviewNotes(review).length > 0)
+  if (foreign) {
+    const note = openReviewNotes(foreign)[0]
+    fail(
+      `review note ${note.id} belongs to mission ${foreign.missionId}, not ${mission.id}; a mission folds only the notes its own reviews recorded`,
+    )
+  }
+  const own = relevant.filter((review) => review.missionId === mission.id)
+  /** @type {Array<{ review: any, note: any }>} */
+  const folded = []
+  for (const review of own) {
+    for (const note of openReviewNotes(review)) folded.push({ review, note })
+  }
+  if (folded.length === 0) fail(`mission ${mission.id} has no open review notes to fold`)
+  const tasks = folded.map(({ review, note }) => {
+    // A note may carry up to 400 characters; the folded task text is bounded,
+    // and the cut is marked with an ellipsis instead of dropping the tail
+    // silently.
+    const text = String(note.text)
+    const clipped = text.length > 200 ? `${text.slice(0, 199)}…` : text
+    return {
+      text: `folded review note ${note.id}: ${clipped}`,
+      status: 'done',
+      note: `folded from review ${review.id} (round ${review.round}) by the tower`,
+    }
+  })
+  return {
+    tasks,
+    folded,
+    change: `folded ${folded.length} review note${folded.length === 1 ? '' : 's'} into the task list`,
+  }
+}
+

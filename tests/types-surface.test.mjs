@@ -35,6 +35,7 @@ import {
 } from '../scripts/generate-types.mjs'
 import { ERROR_CODES } from '../domain/errors.js'
 import { MISSION_STATUSES, REVIEW_STATUSES } from '../domain/mission.js'
+import { WORKTREE_FIELDS, WORKTREE_LINK_FIELDS } from '../domain/state/schema.js'
 import { compareLists, invalidEntries } from '../scripts/types-strict.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -225,6 +226,56 @@ test('generated types: vocabulary aliases are derived from the runtime tables', 
   // Only ERROR_CODES are tool error codes; a blocker code such as
   // `merge-intent-pending` lives in Blocker.code (string), not in ErrorCode.
   assert.ok(!block.includes("'merge-intent-pending'"))
+})
+
+// ---------------------------------------------------------------------------
+// F103: the persisted worktree record has two publishers — the schema/validator
+// side (domain/state/schema.js, enforced by domain/state/semantics.js) and the
+// shipped declaration (types/index.d.ts). A field that exists on one side only
+// either survives validation while TS cannot see it (the original bug) or is
+// promised to consumers while a corrupt record still passes. This gate compares
+// the field *names* declared in the interfaces with the exported field lists;
+// it deliberately does not hash files, so an unrelated edit never reddens it.
+// ---------------------------------------------------------------------------
+
+function interfaceFields(source, name) {
+  const match = new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\n\\}`).exec(source)
+  assert.ok(match, `types/index.d.ts must declare interface ${name}`)
+  const body = match[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const fields = []
+  for (const line of body.split('\n')) {
+    const member = /^\s*([A-Za-z_$][\w$]*)\??:/.exec(line)
+    if (member) fields.push(member[1])
+  }
+  return fields.sort()
+}
+
+function fieldDrift(declared, persisted) {
+  return {
+    missing: persisted.filter((field) => !declared.includes(field)),
+    extra: declared.filter((field) => !persisted.includes(field)),
+  }
+}
+
+test('schema sync: persisted worktree fields and the declaration agree', () => {
+  const source = fs.readFileSync(path.join(root, 'types', 'index.d.ts'), 'utf8')
+  assert.deepEqual(fieldDrift(interfaceFields(source, 'MissionWorktree'), WORKTREE_FIELDS), {
+    missing: [],
+    extra: [],
+  })
+  assert.deepEqual(fieldDrift(interfaceFields(source, 'MissionWorktreeLink'), WORKTREE_LINK_FIELDS), {
+    missing: [],
+    extra: [],
+  })
+  // The gate must redden in both directions; a no-op comparison would let the
+  // next persisted field repeat F103 silently.
+  const declaredOnly = interfaceFields(
+    'export interface MissionWorktree {\n  path: string\n  surprise: string\n}\n',
+    'MissionWorktree',
+  )
+  assert.deepEqual(fieldDrift(declaredOnly, ['path']), { missing: [], extra: ['surprise'] })
+  const persistedOnly = interfaceFields('export interface MissionWorktree {\n  path: string\n}\n', 'MissionWorktree')
+  assert.deepEqual(fieldDrift(persistedOnly, ['path', 'nodeModulesLink']), { missing: ['nodeModulesLink'], extra: [] })
 })
 
 test('generated types: missing markers are a configuration error, not a no-op', () => {

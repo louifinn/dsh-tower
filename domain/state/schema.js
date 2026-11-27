@@ -24,6 +24,30 @@ const NonNegativeInteger = Type.Integer({ minimum: 0 })
 
 const WorktreeSchema = Type.Object({}, optional)
 
+// The persisted worktree-record vocabulary (#218, F103). `WorktreeSchema` stays
+// a permissive object on purpose: state files are forward compatible and legacy
+// rows carry extra keys, so the structural schema never enumerates these. The
+// *semantic* validator in ./semantics.js enforces the types of exactly these
+// fields, and the published `MissionWorktree` interface declares exactly these
+// members — `tests/types-surface.test.mjs` cross-checks the two lists so a field
+// added to one side only fails a gate instead of drifting silently.
+/** @type {readonly string[]} */
+export const WORKTREE_STRING_FIELDS = Object.freeze(['path', 'branch', 'baseCommit', 'realPath'])
+/** @type {readonly string[]} */
+export const WORKTREE_NUMBER_FIELDS = Object.freeze(['createdAt'])
+/** @type {readonly string[]} */
+export const WORKTREE_FIELDS = Object.freeze([...WORKTREE_STRING_FIELDS, ...WORKTREE_NUMBER_FIELDS, 'nodeModulesLink'])
+
+// The `node_modules` junction a `spawn.nodeModules: "link"` spawn records on the
+// worktree record (app/spawn.js). `target` is required: a record that cannot name
+// the checkout its link resolves to leaves teardown unable to attribute the link.
+/** @type {readonly string[]} */
+export const WORKTREE_LINK_STRING_FIELDS = Object.freeze(['target', 'path'])
+/** @type {readonly string[]} */
+export const WORKTREE_LINK_NUMBER_FIELDS = Object.freeze(['createdAt'])
+/** @type {readonly string[]} */
+export const WORKTREE_LINK_FIELDS = Object.freeze([...WORKTREE_LINK_STRING_FIELDS, ...WORKTREE_LINK_NUMBER_FIELDS])
+
 const BuildMissionSchema = Type.Object(
   {
     id: Type.String(),

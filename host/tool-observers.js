@@ -144,9 +144,16 @@ export async function ownershipView(_ctx, tower, exec) {
  * descendant, so the watchdog can require it before trusting an absence.
  * @param {any} ctx
  * @param {any} tower
+ * @param {{ signal?: AbortSignal | undefined }} [options]
+ *   #237: forwarded to every `listDescendants` read, so a bounded caller (the
+ *   tower_spawn pre-flight) can cancel the remaining parents instead of waiting
+ *   for a host that never answers. A cancelled or failed read keeps its
+ *   "unavailable" status and is never reported as an empty catalog: absence of
+ *   evidence stays absence of evidence.
  * @returns {Promise<{ activity: Record<string, string>, parentStatus: Record<string, string>, parentAuthoritative: Record<string, boolean> }>}
  */
-export async function observeActivity(ctx, tower) {
+export async function observeActivity(ctx, tower, options = {}) {
+  const signal = options?.signal
   const view = await tower.rosterView()
   const subagents = ctx.get('subagents')
   /** @type {Record<string, string>} */
@@ -158,8 +165,14 @@ export async function observeActivity(ctx, tower) {
   if (!subagents) return { activity, parentStatus, parentAuthoritative }
   const parents = [...new Set(view.roster.map((entry) => entry.parentSessionId).filter(Boolean))]
   for (const parent of parents) {
+    if (signal?.aborted) {
+      // Cancelled before this parent was read: it stays unknown, not empty.
+      parentStatus[parent] = 'unavailable: observation cancelled'
+      parentAuthoritative[parent] = false
+      continue
+    }
     try {
-      const rows = await subagents.listDescendants(parent)
+      const rows = await subagents.listDescendants(parent, signal)
       for (const row of rows) activity[String(row.id)] = row.activity ?? ROSTER_ACTIVITY.unknown
       parentStatus[parent] = PARENT_STATUS_OK
       // An empty list is absence of evidence, not evidence of absence (#F73):

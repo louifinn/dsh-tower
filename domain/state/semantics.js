@@ -7,6 +7,7 @@ import { TowerToolError } from '../errors.js'
 import { ROSTER_INACTIVE_STATES } from '../roster.js'
 import { isShapeKind, shapeFor } from '../shapes/index.js'
 import { isAcceptanceRecord } from '../shapes/artifact.js'
+import { WORKTREE_LINK_NUMBER_FIELDS, WORKTREE_LINK_STRING_FIELDS, WORKTREE_NUMBER_FIELDS, WORKTREE_STRING_FIELDS } from './schema.js'
 
 /** @typedef {import('../../types/index.js').TowerState} TowerState */
 
@@ -94,15 +95,48 @@ function assertMissionShapeFields(mission, where) {
 function assertWorktreeRecord(mission, where) {
   const worktree = mission.worktree
   if (worktree === undefined || worktree === null) return
-  const invalid = !isPlainObject(worktree) || ['path', 'branch', 'baseCommit', 'realPath'].some(
-    (key) => worktree[key] !== undefined && typeof worktree[key] !== 'string',
-  ) || (worktree.createdAt !== undefined && typeof worktree.createdAt !== 'number')
+  const invalid = !isPlainObject(worktree) || hasMistypedField(worktree, WORKTREE_STRING_FIELDS, 'string')
+    || hasMistypedField(worktree, WORKTREE_NUMBER_FIELDS, 'number')
+    || !hasValidLinkRecord(worktree.nodeModulesLink)
   if (invalid) fail(`mission ${mission.id} has an invalid worktree record${where}`)
 }
 
 /**
- * @param {unknown} value
+ * A field that is absent is fine (legacy rows predate it); a field that is
+ * present must keep its declared type.
+ * @param {Record<string, any>} record
+ * @param {readonly string[]} fields
+ * @param {'string' | 'number'} type
  * @returns {boolean}
+ */
+function hasMistypedField(record, fields, type) {
+  return fields.some((field) => record[field] !== undefined && typeof record[field] !== type)
+}
+
+/**
+ * F103: `spawn.nodeModules: "link"` persists the junction it created as
+ * `worktree.nodeModulesLink`. Teardown, review checkouts and the doctor read that
+ * record to decide which link they may unlink, so a record that is not an object
+ * (or that cannot name its target) is unrecoverable corruption, not a broken
+ * link: it is refused here rather than reported later as a dangling path.
+ * A falsy value is "no link recorded": the field is only ever written as an
+ * object, and a hand-written `null` means the same thing as absence.
+ * @param {unknown} link
+ * @returns {boolean}
+ */
+function hasValidLinkRecord(link) {
+  if (!link) return true
+  if (!isPlainObject(link)) return false
+  // `target` is the one field with no legacy absence: a record written by this
+  // module always carries it, and a record without it names no checkout.
+  if (typeof link.target !== 'string') return false
+  return !hasMistypedField(link, WORKTREE_LINK_STRING_FIELDS, 'string')
+    && !hasMistypedField(link, WORKTREE_LINK_NUMBER_FIELDS, 'number')
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, any>}
  */
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

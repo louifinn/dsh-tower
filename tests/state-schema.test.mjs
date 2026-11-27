@@ -122,8 +122,7 @@ test('schema tolerance: minimal legacy rows, reserved roster rows and extra fiel
   assert.equal(validateState(e2e, 'state.json'), e2e)
 })
 
-test('a terminal roster row may record a null agent id; a live row may not', () => {
-  // F57: a dispatch that failed before activation truthfully records "no agent"
+test('a terminal roster row may record a null agent id; a live row may not', () => {  // F57: a dispatch that failed before activation truthfully records "no agent"
   // on a terminal row. That is a legal state, not corruption — it is the only
   // way the failed-spawn cleanup can persist the outcome (its write used to fail
   // validation, which left the reservation `reserved` and wedged the mission).
@@ -213,6 +212,68 @@ test('key structural and semantic failures keep historical state-corrupt message
       { ...base, missions: [{ ...base.missions[0], worktree: { path: 7, branch: 'b', baseCommit: 'c' } }] },
       'mission M1 has an invalid worktree record at state.json',
     ],
+    // F103: `spawn.nodeModules:"link"` persists `{target, path, createdAt}` as
+    // `mission.worktree.nodeModulesLink`, and teardown/review/doctor read it to
+    // decide which link they may unlink. A record that names no checkout is
+    // corruption, not a broken link, so it is refused instead of surviving to a
+    // later "dangling link" report.
+    [
+      'worktree link is not an object',
+      { ...base, missions: [{ ...base.missions[0], worktree: { ...base.missions[0].worktree, nodeModulesLink: 'link' } }] },
+      'mission M1 has an invalid worktree record at state.json',
+    ],
+    [
+      'worktree link without a target',
+      {
+        ...base,
+        missions: [
+          { ...base.missions[0], worktree: { ...base.missions[0].worktree, nodeModulesLink: { path: '/wt/node_modules', createdAt: 1 } } },
+        ],
+      },
+      'mission M1 has an invalid worktree record at state.json',
+    ],
+    [
+      'worktree link target is not a string',
+      {
+        ...base,
+        missions: [
+          {
+            ...base.missions[0],
+            worktree: { ...base.missions[0].worktree, nodeModulesLink: { target: 7, path: '/wt/node_modules', createdAt: 1 } },
+          },
+        ],
+      },
+      'mission M1 has an invalid worktree record at state.json',
+    ],
+    [
+      'worktree link createdAt is not a number',
+      {
+        ...base,
+        missions: [
+          {
+            ...base.missions[0],
+            worktree: {
+              ...base.missions[0].worktree,
+              nodeModulesLink: { target: '/repo/node_modules', path: '/wt/node_modules', createdAt: '2020-01-01' },
+            },
+          },
+        ],
+      },
+      'mission M1 has an invalid worktree record at state.json',
+    ],
+    [
+      'worktree link path is not a string',
+      {
+        ...base,
+        missions: [
+          {
+            ...base.missions[0],
+            worktree: { ...base.missions[0].worktree, nodeModulesLink: { target: '/repo/node_modules', path: [], createdAt: 1 } },
+          },
+        ],
+      },
+      'mission M1 has an invalid worktree record at state.json',
+    ],
     ['mergeIntent shape', { ...base, mergeIntent: [] }, 'tower state mergeIntent is not an object at state.json'],
     ['rebaseIntent shape', { ...base, rebaseIntent: 'x' }, 'tower state rebaseIntent is not an object at state.json'],
     ['batches array', { ...base, batches: {} }, 'tower state batches is not an array at state.json'],
@@ -259,8 +320,36 @@ test('collection and entry shape failures are rejected as state-corrupt', () => 
   }
 })
 
-test('stateShapeError is pure and reports the first structural problem', () => {
-  const invalid = { ...validState(), schemaVersion: SCHEMA_VERSION + 1 }
+test('a recorded node_modules link stays valid and round-trips unchanged', () => {
+  // F103: the record `spawn.nodeModules:"link"` writes (app/spawn.js) must pass
+  // both layers and be returned as the same object, or every spawn that links
+  // dependencies would leave state that cannot be re-read.
+  const link = { target: '/repo/node_modules', path: '/wt/node_modules', createdAt: 5 }
+  const state = validState()
+  state.missions[0].worktree = { ...state.missions[0].worktree, nodeModulesLink: link }
+  assert.equal(stateShapeError(state), null)
+  assert.equal(validateState(state, 'state.json'), state)
+  assert.deepEqual(validateState(state, 'state.json').missions[0].worktree.nodeModulesLink, link)
+
+  // Legacy rows predate the field, and a retried spawn may find no recorded
+  // link: absence stays valid. So does an explicit null (never written by the
+  // app, but equivalent to absence and not worth refusing).
+  for (const value of [undefined, null]) {
+    const legacy = validState()
+    legacy.missions[0].worktree = { ...legacy.missions[0].worktree, nodeModulesLink: value }
+    assert.equal(stateShapeError(legacy), null)
+    assert.equal(validateState(legacy, 'state.json'), legacy)
+  }
+
+  // A minimal link record that omits the optional fields still validates: only
+  // `target` is load-bearing (it names the checkout the link resolves to).
+  const minimal = validState()
+  minimal.missions[0].worktree = { ...minimal.missions[0].worktree, nodeModulesLink: { target: '/repo/node_modules' } }
+  assert.equal(stateShapeError(minimal), null)
+  assert.equal(validateState(minimal, 'state.json'), minimal)
+})
+
+test('stateShapeError is pure and reports the first structural problem', () => {  const invalid = { ...validState(), schemaVersion: SCHEMA_VERSION + 1 }
   const before = JSON.stringify(invalid)
   assert.match(
     String(stateShapeError(invalid, ' at x.json')),

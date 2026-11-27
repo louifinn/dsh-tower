@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { checkDocs, currentDocPages, DENY_DOC_PAGE, DENY_DOC_PAGE_ZH, denyTableProblems, linkProblems, retiredToolNameProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
+import { checkDocs, currentDocPages, DENY_DOC_PAGE, DENY_DOC_PAGE_ZH, denyTableProblems, linkProblems, releaseEvidenceProblems, retiredToolNameProblems, surfaceFigureProblems, toolTableRowProblems } from '../scripts/check-docs.mjs'
 import { reviewerBriefing, workerBriefing } from '../app/briefing.js'
 import { apply as applyReviewer } from '../reviewer.js'
 import { apply as applyWorker } from '../worker.js'
@@ -520,4 +520,248 @@ test('#191: worker/reviewer protocols and both briefings state the no-ask limita
     assert.match(text, /fails closed/i, `${label} must state that an approval-gated call fails closed`)
     assert.match(text, /tower inbox/i, `${label} must name the tower inbox as an escalation path`)
   }
+})
+
+// #223: prose surface figures are checked against scripts/surface-baseline.json
+// and the live measurement, not against the last release. Each failure names the
+// file, the line, the found figure and the expected value, so a stale page is
+// fixable without re-running a measurement.
+test('#223: the prose surface-figure gate is green on the shipped tree', () => {
+  assert.deepEqual(surfaceFigureProblems(repoRoot), [])
+})
+
+test('#223: a changed tool total in the surface ladder fails with file, line and expected value', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
+  const text = fs.readFileSync(page, 'utf8')
+  assert.ok(text.includes('**35,460 B / 23 tools**'))
+  fs.writeFileSync(page, text.replace('**35,460 B / 23 tools**', '**35,460 B / 24 tools**'))
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: unrecognised surface figure 24 tools: /.test(problem)
+      && problem.includes('18, 23')),
+    problems.join('\n'),
+  )
+})
+
+test('#223: a changed Chinese tool total fails with file, line and expected value', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'zh', 'README.md')
+  const text = fs.readFileSync(page, 'utf8')
+  assert.ok(text.includes('本构建最多 23 个工具'))
+  fs.writeFileSync(page, text.replace('本构建最多 23 个工具', '本构建最多 21 个工具'))
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/zh\/README\.md:\d+: unrecognised surface figure 21 个工具: /.test(problem)
+      && problem.includes('18, 23')),
+    problems.join('\n'),
+  )
+})
+
+test('#223: a labeled byte figure must match its own subject, and the message carries both numbers', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
+  const text = fs.readFileSync(page, 'utf8')
+  const needle = '`preset:worker` **15,942 B / 6 tools**'
+  assert.ok(text.includes(needle))
+  fs.writeFileSync(page, text.replace(needle, '`preset:worker` **15,111 B / 6 tools**'))
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: 15,111 B does not match preset:worker \(expected 15942\)/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+test('#223: a brand-new unmatched byte claim fails closed', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe all-on build advertises 24,999 B in this draft.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: unrecognised surface figure 24,999 B: /.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+// The lexer once read only the `N B` spelling, so "input bytes" and "bytes" were
+// a hole a page could walk through: this is that hole closed, on a page the scan
+// had never before seen. Both message shapes are pinned — an unlabelled claim
+// must list the live values, a labelled one must name the subject and its value.
+test('#223: a brand-new "input bytes" claim fails closed too', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe all-on build advertises 24,999 input bytes in this draft.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: unrecognised surface figure 24,999 input bytes: /.test(problem)
+      && problem.includes('expected one of 846, 2185, 7601, 9543, 13986, 14757, 15942, 20903, 25731, 35460')),
+    problems.join('\n'),
+  )
+  fs.writeFileSync(page, '# Surface notes\n\nThe tower profile advertises 24,999 input bytes in this draft.\n')
+  const labelled = surfaceFigureProblems(copy)
+  assert.ok(
+    labelled.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: 24,999 input bytes does not match profiles\.tower \(expected 20903\)/.test(problem)),
+    labelled.join('\n'),
+  )
+})
+
+// A verb-first tool count ("mounts 18") carries no `tools` noun at all; before
+// this it was invisible to the scan even though it is the clearest way a page
+// states the default profile's size.
+test('#223: an invented "mounts N" tool count fails closed', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe default profile mounts 24 in this draft.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem === 'docs/reference/surface-notes.md:3: unrecognised surface figure mounts 24: not a live surface value (expected one of 1, 2, 5, 6, 15, 18, 23); fix it, or add "<!-- tower-surface-history YYYY-MM-DD: reason -->" above it if it records history'),
+    problems.join('\n'),
+  )
+})
+
+// R208: `mounts?` accepted only the -s form, so the page's own "shipped profile
+// mounted 16" was invisible while the closing section claimed every inflection
+// was read. The tamper is the inflected spelling, not the -s one.
+test('#223: an invented "mounted N" tool count fails closed', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(page, '# Surface notes\n\nThe shipped profile mounted 24 of the 21 at that point.\n')
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem === 'docs/reference/surface-notes.md:3: unrecognised surface figure mounted 24: not a live surface value (expected one of 1, 2, 5, 6, 15, 18, 23); fix it, or add "<!-- tower-surface-history YYYY-MM-DD: reason -->" above it if it records history'),
+    problems.join('\n'),
+  )
+})
+
+// The claim on the page and the lexer must agree, or the page documents a
+// promise the gate does not keep: every verb inflection the page lists is
+// written here and must produce a figure.
+test('#223: every verb-first inflection the closing section names is actually read', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  const budget = fs.readFileSync(path.join(copy, 'docs', 'reference', 'surface-budget.md'), 'utf8')
+  const forms = ['mounts', 'mounted', 'mounting', 'registers', 'registered', 'registering', 'advertises', 'advertised', 'advertising']
+  for (const form of forms) {
+    assert.ok(
+      budget.includes(`\`${form} N\``),
+      `docs/reference/surface-budget.md must list \`${form} N\` among the scanned spellings`,
+    )
+    fs.writeFileSync(page, `# Surface notes\n\nThe default profile ${form} 24 in this draft.\n`)
+    const problems = surfaceFigureProblems(copy)
+    assert.ok(
+      problems.some((problem) => new RegExp(`^docs/reference/surface-notes\\.md:3: unrecognised surface figure ${form} 24: `).test(problem)),
+      `${form} 24 was not read as a tool figure:\n${problems.join('\n')}`,
+    )
+  }
+})
+
+// P2-2's hazard: a mounted count the baseline does not record cannot hide in a
+// history block. 17 is the #201 value; the baseline ladders profile and build
+// totals only, so it is not a recorded figure and must fail there.
+test('#223: a historical mounted count the baseline does not record is refused', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(
+    page,
+    '# Surface notes\n\n<!-- tower-surface-history 2026-11-21: #201 added `tower_wait` -->\n\nThe shipped profile mounted 17 at that point.\n',
+  )
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:5: mounted 17 is neither a live surface figure nor recorded in scripts\/surface-baseline\.json; a history marker cannot protect an invented value/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+// The other half of the same rule: the live spelling must stay readable, so a
+// page that states the current value passes without a marker.
+test('#223: the live verb-first and "input bytes" spellings pass without a marker', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(
+    page,
+    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 35,460 bytes.\nThe tower profile advertises 15 tools / 20,903 input bytes.\n',
+  )
+  fs.writeFileSync(path.join(copy, 'docs', 'zh', 'reference', 'surface-notes.md'), '# 表面笔记\n\n默认 profile 挂载 18 个工具。\n')
+  assert.deepEqual(surfaceFigureProblems(copy), [])
+})
+
+test('#223: a missing zh mirror is a failure, not a skip', (t) => {
+  const copy = copyRepo(t)
+  fs.rmSync(path.join(copy, 'docs', 'zh', 'reference', 'tools.md'))
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.includes('docs/zh/reference/tools.md is missing: a missing zh mirror of docs/reference/tools.md is a failure, not a skip'),
+    problems.join('\n'),
+  )
+})
+
+test('#223: a history marker over live figures is rejected', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
+  const text = fs.readFileSync(page, 'utf8')
+  const needle = 'The host ladder therefore measures'
+  assert.ok(text.includes(needle))
+  fs.writeFileSync(
+    page,
+    text.replace(needle, `<!-- tower-surface-history 2026-11-22: the ladder is live, so this marker must fail -->\n\n${needle}`),
+  )
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: surface history marker protects only live figures/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+test('#223: a history marker cannot protect an invented figure', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
+  fs.writeFileSync(
+    page,
+    '# Surface notes\n\n<!-- tower-surface-history 2026-11-01: an invented number must still fail -->\n\nThe 2019 build advertised 12,345 B of input schema.\n',
+  )
+  const problems = surfaceFigureProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: 12,345 B is neither a live surface figure nor recorded in scripts\/surface-baseline\.json; a history marker cannot protect an invented value/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+// #229: the newest evidence block may state only figures the tree can prove. A
+// run-local count dropped back in must redden, naming the line and the figure.
+test('#229: a run-local count in the newest evidence block is refused', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'tests', 'README.md')
+  const lines = fs.readFileSync(page, 'utf8').split('\n')
+  const index = lines.findIndex((line) => line.startsWith('### 2.9.8 release evidence'))
+  assert.ok(index >= 0, 'the shipped tree must carry the newest evidence block')
+  lines.splice(index + 2, 0, 'This block once restated 1,481 declarations and a 74.2 s mount.')
+  fs.writeFileSync(page, lines.join('\n'))
+  const problems = releaseEvidenceProblems(copy)
+  assert.ok(
+    problems.some((problem) => /^tests\/README\.md:\d+: restates a declaration, pass, skip or failure count \("1,481 declarations"\)/.test(problem)),
+    problems.join('\n'),
+  )
+})
+
+test('#229: the evidence section heading is the anchor other pages link', (t) => {
+  const copy = copyRepo(t)
+  const page = path.join(copy, 'tests', 'README.md')
+  fs.writeFileSync(page, fs.readFileSync(page, 'utf8').replace('## Release evidence', '## Evidence'))
+  const problems = releaseEvidenceProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem.includes('must keep the "## Release evidence" section')),
+    problems.join('\n'),
+  )
+})
+
+test('#229: CONTRIBUTING and the release guide name the one evidence home', (t) => {
+  const copy = copyRepo(t)
+  assert.deepEqual(releaseEvidenceProblems(copy), [])
+  const contributing = path.join(copy, 'CONTRIBUTING.md')
+  fs.writeFileSync(contributing, fs.readFileSync(contributing, 'utf8').replace('tests/README.md#release-evidence', 'tests/README.md'))
+  const problems = releaseEvidenceProblems(copy)
+  assert.ok(
+    problems.some((problem) => problem.startsWith('CONTRIBUTING.md must name the one release-evidence home: tests/README.md#release-evidence')),
+    problems.join('\n'),
+  )
 })

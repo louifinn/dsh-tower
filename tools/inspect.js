@@ -27,6 +27,7 @@ const MISSION_VIEWS = /** @type {Set<string>} */ (new Set([INSPECT_VIEW.diff, IN
  *   openTower: any,
  *   workspaceHook: any,
  *   spawnBackoffView: any,
+ *   spawnQueueView: any,
  *   observeActivity: any,
  *   componentReport: any,
  *   ownershipView: any,

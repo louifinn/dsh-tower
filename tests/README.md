@@ -156,29 +156,42 @@ npm run workflow:check
 node --test tests/workflow-contract.test.mjs
 ```
 
+## Release evidence
+
+This section is the one place release evidence lives: [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
+[`docs/guide/release.md`](../docs/guide/release.md) both link here instead of restating a run. Each
+release records its evidence under `### <version> release evidence (YYYY-MM-DD)`, newest first; the
+GitHub anchor that form produces (`#298-release-evidence-2026-11-22`) is how a note cites that
+block, so a heading is stable and never renamed. The newest block is machine-checked by
+`scripts/check-docs.mjs`, which runs inside `npm run docs:check`: it must name that
+gate, and it refuses declaration, pass, skip, file and wall-clock counts, because those describe one
+run on one machine and cannot be recomputed from the tree — record them in the CI job log instead.
+Figures the tree can prove, such as the live surface counts and byte totals, stay in the block and
+are re-measured by the same docs check. Older blocks are frozen records of their release's run.
+
 ### 2.9.8 release evidence (2026-11-22)
 
 2.9.8 closes the fifteen issues filed from the two retros about how the tool surface behaves
 under real use: a bounded blocking wait and per-agent read views, a reviewer-owned read-only
 execution surface with citable `runId`s, batched `tower_mission` plus a plan `dry_run`,
-link-safe teardown, and one shared process-tree kill. Release preparation re-ran every number
-below on the same bounded runner and machine as the 2.9.7 block; declarations are counted, so
-the one skip is included in the total:
+link-safe teardown, and one shared process-tree kill. Release preparation re-ran the gates
+below on the same bounded runner and machine as the 2.9.7 block; the run's own counts and
+durations stay in the CI job log:
 
 > Scope of the tree-kill evidence in this block: it was produced on a Windows host, and the
 > `interruption.test.mjs` fixture deliberately spawns its grandchild **without** `detached`, so
 > the F105 proof covers the win32 ordering and an ordinary POSIX group kill. It does **not**
 > cover a POSIX descendant that calls `setsid(2)`; that gap is F107, filed from the Linux legs
-> of the gate on PR #226 and fixed with the `ps`-enumerated sweep described above. The numbers
-> below are the 2.9.8 run's own record and were not recomputed after F107 added
+> of the gate on PR #226 and fixed with the `ps`-enumerated sweep described above. The facts
+> below are the 2.9.8 record and were not recomputed after F107 added
 > [`process-tree.test.mjs`](process-tree.test.mjs).
 
-| Run | Command | Declarations | Result |
-|---|---|---|---|
-| Focused gate (8 files) | `node --test tests/wait.test.mjs tests/verify.test.mjs tests/interruption.test.mjs tests/evidence.test.mjs tests/scope-reach.test.mjs tests/cleanup.test.mjs tests/tool-schemas.test.mjs tests/status.test.mjs` | **101** | 101 pass, 0 fail, 0 skip |
-| Property PR tier (12 files) | `npm run test:property` | **124** | 124 pass, 0 fail |
-| Bounded offline suite, all 129 files | `npm run test:shards` (six sequential batches of at most 25 files) | **1480** | 1479 pass, 1 skip, 0 fail |
-| Mount smoke | `npm run smoke:mount` | 18 tools | 18 of 18 tower tools, 3 skills, 4 presets with distinct labels, `/tower` present, 1 top-level bundle row on `@deepseek-ai/dsh@0.2.2-rc.5` (74.2 s) |
+The checks this block records are the ones the tree can prove: its surface figures are re-measured
+by `npm run docs:check`, and `scripts/check-docs.mjs` refuses the run-local counts and
+durations it used to restate, so the suites are named by pattern instead — every
+`tests/*.test.mjs` file for the offline suite and every `tests/property/*.prop.mjs` file for the
+property PR tier. The focused files, the failing-case list and the mount-smoke checks are the
+run's own record and live in the CI job log.
 
 The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs). The 2.9.8 cases run inside the
@@ -197,15 +210,18 @@ next actions, in [`scope-reach.test.mjs`](scope-reach.test.mjs); link-aware tear
 (unlink the recorded junction alone, keep a checkout that holds an unrecorded one, remainders
 handled without recursion), in [`cleanup.test.mjs`](cleanup.test.mjs); and the registered-tool
 surface for the new optional `orphans` input, in [`tool-schemas.test.mjs`](tool-schemas.test.mjs).
-The supporting static gates also pass on this tree: `npm run docs:check`, every
+<!-- tower-surface-history 2026-11-22: what the 2.9.8 tree measured at its release; #219 re-pinned the ladder afterwards -->
+
+The supporting static gates also pass on that tree: `npm run docs:check`, every
 `npm run docs:check:generated:<name>` target (`tools`, `events`, `shapes`, `config`,
 `blockers`, `types`, `locale`, `components`), `npm run types:check`, `npm run types:coverage`,
 `npm run types:strict:check`, `npm run architecture:check`, `npm run surface:check`,
 `npm run blockers:check`, `npm run shape:audit`, `npm run deny:check`, `npm run pack:check`,
 `npm run domain:check` and `npm run support:check`. The 2.9.8 surface itself did not move in
-release preparation beyond what the fix missions re-pinned: `host:active` stays 15 tools /
-23,699 B, the build surface is 23 tools, and [`scripts/surface-baseline.json`](../scripts/surface-baseline.json)
-still matches the committed classification.
+release preparation beyond what the fix missions re-pinned: at that release `host:active` read
+15 tools / 23,699 B, the build surface read 23 tools, and
+[`scripts/surface-baseline.json`](../scripts/surface-baseline.json) still matched the committed
+classification.
 
 ### 2.9.7 release evidence (2026-11-21)
 
@@ -292,9 +308,11 @@ excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 passed. The F87 cases in [`workspace-lock.test.mjs`](workspace-lock.test.mjs) (recovery through the real
 `tower_recover` tool path, the 30 s torn grace, and the unreadable/live-holder refusals) and the two F85
 cases in [`ui-bundle.test.mjs`](ui-bundle.test.mjs) (the live UI key table derives from the bundle's
-`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5 totals;
-the current totals are in [2.9.8 release evidence](#298-release-evidence-2026-11-22) above, and the W5
-table below is the historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
+`TOOL_NAMES`, plus the negative proof) run inside the batch and passed. These were the 2.9.5
+totals, and this block is their record: later releases keep their own numbers in their own blocks,
+the newest block above records only what the tree can prove, and each run's declaration counts live
+in the CI job log. The W5 table below is the historical record of `feat/2.8.0-structure` at
+`bad249c` and is kept as written.
 
 ### 2.9.4 release evidence (2026-11-19)
 
@@ -313,9 +331,10 @@ The single skip is still the POSIX-only `TMPDIR` guard in
 [`tests/live-harness.test.mjs`](live-harness.test.mjs) (declared with `skip:` on win32). No file is
 excluded from the batches: `concurrency.test.mjs`, `lock-heartbeat.test.mjs`,
 `git-mutex-budget.test.mjs`, `lock-kernel.test.mjs` and `roster-watchdog.test.mjs` run inside them and
-passed. These were the 2.9.4 totals; the current totals are in
-[2.9.5 release evidence](#295-release-evidence-2026-11-19) above, and the W5 table below is the
-historical record of `feat/2.8.0-structure` at `bad249c` and is kept as written.
+passed. These were the 2.9.4 totals, and this block is their record: later releases keep their own
+numbers in their own blocks, the newest block above records only what the tree can prove, and each
+run's declaration counts live in the CI job log. The W5 table below is the historical record of
+`feat/2.8.0-structure` at `bad249c` and is kept as written.
 
 ### 2.9.3 release evidence (2026-11-18)
 
@@ -381,8 +400,8 @@ This is the final W5 integration record for the branch that carries the M75 stru
 bounded-activity/advisory-budget/Windows-flake work. It was taken from a clean worktree of
 `feat/2.8.0-structure` at `bad249c` (M75 + M76 merged) on Windows 11 with Node `v25.8.1`, npm `11.21.2`
 and 24 logical CPUs. Every number below is a Node `--test` declaration count, so skipped declarations
-are included. It is history: the current totals are in
-[2.9.8 release evidence](#298-release-evidence-2026-11-22) above.
+are included. It is history: the newest evidence block above records only what the tree can prove,
+and that run's declaration counts live in the CI job log.
 
 | Run | Command | Declarations | Result |
 |---|---|---|---|
@@ -403,6 +422,8 @@ pressure across all 113 files at once. The three isolated runs are executed one 
 
 Every static gate in `npm run check` (the whole chain except its two test commands) plus the CI-only
 release check exited 0 in that same checkout:
+
+<!-- tower-surface-history 2026-11-12: the W5 static-gate table records that run's own surface line -->
 
 | Group | Commands | Exit |
 |---|---|---|

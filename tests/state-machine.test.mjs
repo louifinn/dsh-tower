@@ -186,6 +186,64 @@ test('mission transitions: the full allowed/denied table matches the implementat
   }
 })
 
+// #219: a widen is not a status transition. It either keeps the receiver where
+// it is (a planned edit, an active widen, or `keepStatus`) or moves a completed
+// mission back to active so the fence can change — the table above stays the
+// complete set of status edges.
+test('#219 a widen changes the fence, never the status table', async () => {
+  const { root, repo } = seedRepo('dsh-tower-machine-widen-')
+  try {
+    for (const file of ['src/a/a.txt', 'src/shared/s.txt', 'src/shared/deep/d.txt', 'other/o.txt']) {
+      const target = path.join(repo, file)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, `${file}\n`)
+    }
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'fixtures'])
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    const planned = await tower.plan({
+      missions: [
+        { title: 'Planned receiver', scope: ['src/a/**'] },
+        { title: 'Neighbour', scope: ['src/shared/**'] },
+        { title: 'Neighbour two', scope: ['src/shared/deep/**'] },
+      ],
+    })
+    const [receiver, neighbour, neighbourTwo] = planned.missions.map((mission) => mission.id)
+
+    // planned -> planned: an edit, not a transition.
+    const edited = await tower.mission({ id: receiver, scope: ['src/**'], widen: { mode: 'defer-conflicts' } })
+    assert.equal(edited.mission.status, 'planned')
+    assert.equal(edited.mission.scopeGeneration, 2)
+    assert.deepEqual(edited.widen.deferred, [neighbour, neighbourTwo])
+
+    // active -> active: the widen starts nothing new.
+    await tower.mission({ id: receiver, status: 'active' })
+    const widened = await tower.mission({ id: receiver, scope: ['src/**', 'other/**'] })
+    assert.equal(widened.mission.status, 'active')
+
+    // completed -> active is the one edge a widen may take, and keepStatus skips it.
+    await tower.mission({ id: receiver, status: 'completed' })
+    const kept = await tower.mission({ id: receiver, scope: ['src/**', 'other/**', 'src/a/**'], widen: { keepStatus: true } })
+    assert.equal(kept.mission.status, 'completed')
+    assert.equal(kept.mission.scopeGeneration, 4)
+    const resurfaced = await tower.mission({ id: receiver, scope: ['src/**', 'other/**', 'src/a/**', 'src/shared/**'] })
+    assert.equal(resurfaced.mission.status, 'active', 'a completed widen without keepStatus returns to active')
+
+    // Every edge a widen can take is either the same status or completed->active,
+    // both of which the documented table already allows.
+    for (const from of ['planned', 'active', 'completed']) {
+      const to = from === 'completed' ? 'active' : from
+      assert.ok(
+        from === to || EXPECTED_TRANSITIONS[from].includes(to),
+        `widen ${from}->${to} must not invent an edge`,
+      )
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('tower_complete and tower_merge enforce their own state preconditions', async () => {
   const { root, repo } = seedRepo('dsh-tower-machine-entry-')
   try {

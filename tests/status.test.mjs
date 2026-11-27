@@ -141,6 +141,67 @@ test('pagination: total/offset/limit/nextOffset page the mission list determinis
   }
 })
 
+// #233: a large state must stay bounded. The page carries at most `limit` rows,
+// says how many exist in total, and walks to the end through `nextOffset` — so a
+// caller that reads the reply can page without ever touching the whole table.
+test('pagination stays bounded on a large state and nextOffset walks to total', async () => {
+  const { root, repo } = seedRepo('dsh-tower-status-bounded-')
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: Array.from({ length: 25 }, (_unused, index) => ({
+        title: `Bounded ${index + 1}`,
+        scope: [`area-${index + 1}/**`],
+      })),
+    })
+    assert.equal(planned.missions.length, 25)
+
+    // The default page is bounded: 20 rows of a 25-mission state.
+    const first = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo })
+    assert.equal(first.limit, 20)
+    assert.equal(first.total, 25)
+    assert.equal(first.offset, 0)
+    assert.ok(first.missions.length <= first.limit, `page must not exceed limit, was ${first.missions.length}`)
+    assert.equal(first.missions.length, 20)
+    assert.equal(first.nextOffset, 20)
+
+    // Walk nextOffset to the end: every page honours the bound, the union is
+    // exactly the missions in the declared order, and the last page ends the walk.
+    const seen = []
+    let cursor = 0
+    let pages = 0
+    while (cursor !== null) {
+      const page = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, offset: cursor, limit: 6 })
+      assert.equal(page.limit, 6)
+      assert.equal(page.total, 25)
+      assert.equal(page.offset, cursor)
+      assert.ok(page.missions.length <= 6, `page at ${cursor} returned ${page.missions.length} rows`)
+      seen.push(...page.missions.map((mission) => mission.id))
+      cursor = page.nextOffset
+      pages += 1
+      assert.ok(pages <= 10, 'the nextOffset walk must terminate')
+    }
+    assert.equal(pages, 5)
+    assert.equal(seen.length, 25)
+    assert.deepEqual(seen, Array.from({ length: 25 }, (_unused, index) => `M${index + 1}`))
+
+    // An oversized request is clamped and echoed back as the effective limit, so
+    // the response alone tells the caller how big the page actually was.
+    const clamped = await call(tools, 'tower_inspect', { view: 'status', repoRoot: repo, limit: 500 })
+    assert.equal(clamped.limit, 100)
+    assert.equal(clamped.missions.length, 25)
+    assert.equal(clamped.nextOffset, null)
+
+    // A whole-state read is still impossible: even the largest allowed page is
+    // bounded by the documented maximum, never by the size of the state.
+    assert.ok(clamped.missions.length <= 100)
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('includeGate: every paged mission carries a preflight-style digest', async () => {
   const { root, repo } = seedRepo('dsh-tower-status-gate-')
   const { tools } = makeCtx()

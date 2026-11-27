@@ -77,6 +77,7 @@ import {
   runtimeState,
   spawnBackoffState,
   spawnBackoffView,
+  spawnQueueView,
   textOf,
   watchedRepos,
 } from './tool-runtime.js'
@@ -262,6 +263,7 @@ export function registerCoreTowerTools(ctx, options = {}) {
     openTower,
     workspaceHook: runtimeState.workspaceHook,
     spawnBackoffView,
+    spawnQueueView,
     observeActivity,
     componentReport,
     ownershipView,

@@ -44,7 +44,11 @@ async function readState(tower) {
   try {
     return { state: await tower.load() }
   } catch (error) {
-    const reason = error?.code === 'not-initialized'
+    // F118: `load()` checks existence and then reads, so a state file that is
+    // removed between the two steps surfaces as a raw ENOENT rather than the
+    // `not-initialized` the existence check would have raised a moment earlier.
+    // Both mean the same thing to a waiting caller: there is no state to observe.
+    const reason = error?.code === 'not-initialized' || error?.code === 'ENOENT'
       ? `Tower state is not initialized for ${tower.root}; run tower_init first`
       : `Tower state is unreadable: ${String(error?.message ?? error)}`
     return { state: null, reason }

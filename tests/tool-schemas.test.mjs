@@ -11,12 +11,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { removeTemp } from './helpers/cleanup.mjs'
 
-import { registerTowerTools } from '../host/tool-registry.js'
+import { authorizeSessionCall, registerTowerTools } from '../host/tool-registry.js'
+import { SESSION_TOOL_ARG_KEYS, declaredToolArgKeys, define, undeclaredToolArgKeys } from '../host/tool-runtime.js'
 import { ToolInputs } from '../domain/contracts/tool-inputs/index.js'
 import { SCHEMAS } from '../domain/contracts/outputs.js'
 import { Tower } from '../host/tower.js'
 import { teardownWorktreeRoot } from '../app/teardown.js'
 import { validateJsonSchema } from './schema-validator.mjs'
+
+/** The version the refusal must name; read from the same manifest the runtime reads. */
+const PLUGIN_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -477,3 +481,235 @@ test('tower_mission bulk form is a closed schema, not an unknown-field escape ha
   const expected = singleFields.filter((key) => !['accept', 'accept_note'].includes(key))
   assert.deepEqual(Object.keys(parameters.properties.missions.items.properties).sort(), expected.sort())
 })
+
+// #221: the review note channel is an optional array of short strings, never a
+// second findings field. `fold_notes` is the tower-only audit action on the
+// single-mission form; the bulk item inherits the field from the shared set and
+// `normalizeMissionBatch` refuses it by name there (single-form-only contract).
+test('tower_review advertises the non-blocking notes channel (#221)', () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const review = tools.get('tower_review').parameters
+  const notes = review.properties.notes
+  assert.equal(notes.type, 'array')
+  assert.equal(notes.items.type, 'string')
+  assert.equal(notes.items.maxLength, 400)
+  assert.equal(notes.maxItems, 10)
+  assert.match(notes.description, /non-blocking/i)
+  assert.match(notes.description, /never changes the verdict/)
+  // The verdict itself is unchanged: notes is optional and never required.
+  assert.deepEqual([...review.required].sort(), ['decision', 'findings', 'merge', 'status'])
+  const mission = tools.get('tower_mission').parameters
+  assert.equal(mission.properties.fold_notes.type, 'boolean')
+  assert.match(mission.properties.fold_notes.description, /Tower only/)
+  assert.equal(mission.required, undefined)
+})
+
+// #230: 2.9.7 sent `task_add` to `tower_plan` (which never declared it), the
+// dispatcher dropped the key, and the call still returned `ok: true` while every
+// task was lost. The dispatch seam now refuses an undeclared top-level key from
+// the tool's own closed schema: the refusal names the key, the tool and the
+// plugin version, and the handler never sees the call.
+test('#230: the 2.9.7 incident shape — task_add sent to tower_plan — is refused, not dropped', async () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const towerExec = { agent: { id: 'tower-agent' } }
+  await assert.rejects(
+    () =>
+      tools.get('tower_plan').execute(
+        { missions: [{ title: 'M1 fixture', scope: ['src/**'] }], task_add: ['lost task'] },
+        towerExec,
+      ),
+    (error) => {
+      assert.equal(error.code, 'invalid-argument')
+      assert.match(error.message, /"task_add"/)
+      assert.match(error.message, /tower_plan/)
+      assert.ok(error.message.includes(PLUGIN_VERSION), `the refusal names plugin ${PLUGIN_VERSION}: ${error.message}`)
+      return true
+    },
+  )
+})
+
+// #230: the accepted set is derived from the tool's own TypeBox schema, so a
+// build that declares a key accepts it and a build that does not refuses it.
+// The three non-schema cases are the alias names the definition accepts and the
+// explicit `repoRoot` field the runtime keeps accepting (#163 Phase 1).
+test('#230: declared keys, alias names and repoRoot pass; anything else does not', () => {
+  const parameters = {
+    type: 'object',
+    properties: { id: { type: 'string' }, task_add: { type: 'array' } },
+    additionalProperties: false,
+  }
+  const aliases = { id: ['missionId'], task_add: ['taskAdd'] }
+  assert.deepEqual(undeclaredToolArgKeys(parameters, { id: 'M1', task_add: ['x'] }), [], 'declared keys pass')
+  assert.deepEqual(undeclaredToolArgKeys(parameters, { missionId: 'M1', taskAdd: ['x'] }, aliases), [], 'alias names pass')
+  assert.deepEqual(undeclaredToolArgKeys(parameters, { repoRoot: '/tmp/repo' }), [], 'repoRoot is accepted')
+  assert.deepEqual(undeclaredToolArgKeys(parameters, { taskAdds: ['x'] }, aliases), ['taskAdds'], 'a near-miss key is refused')
+  // The schema decides: a newer build's schema that declares the key accepts it,
+  // and an open schema keeps accepting extra keys by contract.
+  const newer = { ...parameters, properties: { ...parameters.properties, futureKey: { type: 'string' } } }
+  assert.deepEqual(undeclaredToolArgKeys(newer, { futureKey: 'x' }), [], 'a key the schema declares passes')
+  assert.deepEqual(
+    undeclaredToolArgKeys({ type: 'object', properties: {}, additionalProperties: true }, { anything: 1 }),
+    [],
+    'an open schema keeps accepting extra keys',
+  )
+  // The pipeline hands the seam a parsed object, but a degenerate dispatch can
+  // pass a raw string or nothing at all; those must never throw a refusal.
+  assert.deepEqual(undeclaredToolArgKeys(parameters, undefined), [], 'absent arguments are not a refusal')
+  assert.deepEqual(undeclaredToolArgKeys(parameters, '{"id":"M1"}'), [], 'an unparsed body is not a refusal')
+  assert.deepEqual(undeclaredToolArgKeys(parameters, ['id']), [], 'an array is not an argument object')
+  assert.deepEqual([...declaredToolArgKeys(parameters, aliases)].sort(), ['id', 'missionId', 'repoRoot', 'taskAdd', 'task_add'])
+})
+
+// #230: the refusal runs in front of the handler, so a tool whose own forwarding
+// table would drop the key never receives it. A newer build ships a schema that
+// declares the key, and then the same call passes the seam.
+test('#230: an undeclared key never reaches the handler; a declared one does', async () => {
+  const { ctx, tools } = makeCtx()
+  const towerExec = { agent: { id: 'tower-agent' } }
+  let calls = 0
+  define(ctx, {
+    name: 'tower_fixture',
+    description: 'fixture: a closed schema with one declared key',
+    parameters: { type: 'object', properties: { futureKey: { type: 'string' } }, additionalProperties: false },
+    output: { schema: { type: 'object', properties: {}, additionalProperties: true }, render: () => [] },
+    async execute() {
+      calls += 1
+      return { ok: true }
+    },
+  })
+  const tool = tools.get('tower_fixture')
+  assert.ok(tool, 'the fixture tool is registered through the seam')
+
+  await assert.rejects(
+    () => tool.execute({ futureKey: 'declared', undeclaredKey: 1 }, towerExec),
+    (error) => {
+      assert.equal(error.code, 'invalid-argument')
+      assert.match(error.message, /"undeclaredKey"/)
+      assert.match(error.message, /tower_fixture/)
+      assert.ok(error.message.includes(PLUGIN_VERSION))
+      return true
+    },
+  )
+  assert.equal(calls, 0, 'the handler must not run for a refused call')
+
+  // The declared key passes the seam; the call then stops at repository
+  // resolution, which proves the refusal did not fire on a legitimate argument.
+  await assert.rejects(
+    () => tool.execute({ futureKey: 'declared' }, towerExec),
+    (error) => {
+      assert.equal(error.code, 'repo-invalid')
+      return true
+    },
+  )
+  assert.equal(calls, 0, 'repository resolution runs after the seam')
+})
+
+// #230: every registered tool passes through the same seam, so the refusal is
+// not a per-tool opt-in. One unknown key is sent to each tool in turn: a tool
+// whose input schema was widened to accept it, or which ships an open input
+// object that lets the key through to a forwarding table, fails here.
+// The second arm is the control: declared-only arguments pass the seam and stop
+// at repository resolution, which is what a call naming no repository gets.
+test('#230: every registered tool refuses an undeclared key and accepts its declared ones', async () => {
+  const { ctx, tools } = makeCtx()
+  registerTowerTools(ctx)
+  const towerExec = { agent: { id: 'tower-agent' } }
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-argkeys-'))
+  const absentRepo = path.join(base, 'no-such-repo')
+  const SAMPLE = { string: 'M1', boolean: true, integer: 1, number: 1, array: [], object: {} }
+  /** Declared arguments good enough to clear the tool's own validation. */
+  const declaredArgs = (parameters) => {
+    const args = {}
+    for (const key of parameters.required ?? []) {
+      const property = parameters.properties?.[key] ?? {}
+      const type = Array.isArray(property.type) ? property.type.find((value) => value !== 'null') : property.type
+      args[key] = Array.isArray(property.enum) && property.enum.length > 0 ? property.enum[0] : (SAMPLE[type] ?? 'M1')
+    }
+    // A mission-scoped tool checks `missionId` before the seam; without it the
+    // synthetic call would be refused for the missing id, not for the probe key.
+    if (Object.hasOwn(parameters.properties ?? {}, 'missionId')) args.missionId = 'M1'
+    return args
+  }
+  try {
+    assert.ok(tools.size >= 22, `the whole registered surface is walked (${tools.size} tools)`)
+    for (const [name, tool] of tools) {
+      const parameters = tool.parameters
+      assert.equal(parameters?.additionalProperties, false, `${name} still declares a closed input object`)
+      // Arm 1: the undeclared key is refused and never reaches the handler.
+      await assert.rejects(
+        () => tool.execute({ ...declaredArgs(parameters), undeclaredProbe: 1, repoRoot: absentRepo }, towerExec),
+        (error) => {
+          assert.equal(error.code, 'invalid-argument', `${name} refuses the undeclared key`)
+          assert.match(error.message, /does not declare the top-level input key "undeclaredProbe"/)
+          assert.ok(error.message.includes(name), `${name} is named in its own refusal: ${error.message}`)
+          assert.ok(error.message.includes(PLUGIN_VERSION), `${name} names the plugin version: ${error.message}`)
+          return true
+        },
+      )
+      // Arm 2: declared arguments are not refused; the call stops where a call
+      // without a repository always stops.
+      await assert.rejects(
+        () => tool.execute({ ...declaredArgs(parameters), repoRoot: absentRepo }, towerExec),
+        (error) => {
+          assert.equal(error.code, 'repo-invalid', `${name} accepts its declared arguments: ${error.message}`)
+          return true
+        },
+      )
+    }
+  } finally {
+    removeTemp(base)
+  }
+})
+
+// #230: `tower_mode` is registered directly by the Host entry, so its input
+// schema never flows through define(). The seam restates that schema in
+// SESSION_TOOL_ARG_KEYS; this pin compares the restatement with the live
+// registration in both directions, so a key added to index.js without widening
+// the seam — or a seam entry the registration no longer declares — fails a test
+// instead of silently reopening the drop-the-key hole.
+test('#230: the session-tool seam restates the live tower_mode registration', async () => {
+  const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  const start = source.indexOf("name: 'tower_mode'")
+  assert.ok(start >= 0, 'index.js registers tower_mode')
+  const parametersAt = source.indexOf('parameters: {', start)
+  const closedAt = source.indexOf('additionalProperties: false', parametersAt)
+  assert.ok(parametersAt > start && closedAt > parametersAt, 'tower_mode declares a closed input object')
+  const declared = [...source.slice(parametersAt, closedAt).matchAll(/\n {10}([A-Za-z_][A-Za-z0-9_]*):/g)].map(
+    (match) => match[1],
+  )
+  assert.deepEqual(
+    [...SESSION_TOOL_ARG_KEYS].sort(),
+    [...new Set(declared)].sort(),
+    'SESSION_TOOL_ARG_KEYS is exactly the registered property set',
+  )
+
+  const absentRepo = path.join(os.tmpdir(), `dsh-tower-session-arguments-${process.pid}`)
+  assert.equal(fs.existsSync(absentRepo), false, 'the fixture repository must not exist')
+
+  // The seam runs at dispatch time, before authorization: the refusal is the
+  // error a caller sees, not a role denial or a dropped key.
+  await assert.rejects(
+    () => authorizeSessionCall('tower_mode', { agent: { id: 'agent-mystery' }, arguments: { active: true, unexpected: 1 } }, absentRepo),
+    (error) => {
+      assert.equal(error.code, 'invalid-argument')
+      assert.match(error.message, /"unexpected"/)
+      assert.match(error.message, /tower_mode/)
+      assert.ok(error.message.includes(PLUGIN_VERSION), `the refusal names plugin ${PLUGIN_VERSION}: ${error.message}`)
+      return true
+    },
+  )
+  // Declared arguments still authorize on the public session row, so the refusal
+  // is not a blanket denial.
+  const actor = await authorizeSessionCall(
+    'tower_mode',
+    { agent: { id: 'agent-mystery' }, arguments: { active: true } },
+    absentRepo,
+  )
+  assert.equal(typeof actor?.access, 'string', 'a declared call still resolves an actor')
+  // A dispatch that carries no body (the existing tests' shape) is not a refusal.
+  const undeclaredExec = await authorizeSessionCall('tower_mode', { agent: { id: 'agent-mystery' } }, absentRepo)
+  assert.equal(typeof undeclaredExec?.access, 'string', 'absent arguments keep the pre-#230 behavior')
+})
+

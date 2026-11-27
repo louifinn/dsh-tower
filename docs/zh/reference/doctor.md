@@ -4,6 +4,7 @@
 
 `tower_inspect({ view: "doctor" })` 是只读的。它从不获取 state 锁、写状态或改动 Git。它返回：
 
+<!-- tower-surface-sample: sample activity-log counters from a doctor run, not surface measurements -->
 ```json
 {
   "ok": true,
@@ -143,12 +144,19 @@ prune）分开，自身从不移除任何东西；只有显式的 `orphans` 选�
 干净路径。主检出、所有被 state 引用的路径（mission worktree、sandbox、review checkout）以及 root
 之外的路径都是硬性排除，因此一个检出可以被列出却仍然不可移除。
 
-同一检查还会统计空壳目录（#214）：review checkout 的内容被移除后，可能在工作树根目录下留下一个
-普通空目录；git 已不再登记它，因此任何 worktree 行都看不到它。空壳会以 `warn` 报告，detail 写出
+同一检查还会统计残留目录（#214、#227）：review checkout 的内容被移除后，可能在工作树根目录下留下一个
+普通目录；git 已不再登记它，因此任何 worktree 行都看不到它。这类空壳会以 `warn` 报告，detail 写出
 数量、最多五个目录名，并建议使用带 `orphans: true` 的 `tower_teardown`；该清扫只删除严格位于 root
-内、未被引用且为空的目录。非空目录会作为 keep 报告，永远不会被删除，doctor 自身仍然不做任何删除。
-review checkout 清理会在检出消失后立即删除自己的空壳，因此这条告警针对的是被中断或绕过 Tower 的
+内、为空或只包含依赖链接（即 `spawn.nodeModules:"link"` 创建的 `node_modules` junction，其目标必须
+解析到仓库内或 root 内）的目录。其他任何项都会保留该目录，并在原因中点名该项；doctor 自身仍然不做任何
+删除。review checkout 清理会在检出消失后立即删除自己的空壳，因此这条告警针对的是被中断或绕过 Tower 的
 清理所留下的空壳。
+
+路径只在仍然有效时才是硬性排除（#234）。teardown 运行过的 mission 会保留 `worktree` 记录并带有
+`worktreeRemovedAt` 标记；该被标记的路径会被释放，因此在其上重新创建的空壳会被报告并清扫，而不会被
+一条已不再描述检出的记录掩盖。没有该标记的已登记路径仍然受保护。`tower_teardown` 会以
+`orphanWorktrees.leftoversReleased` 报告被标记释放的路径数量，因此干净的 `leftovers: []` 不会被误认为
+一次从未真正查看过的扫描。
 
 目录枚举是 store 的可选能力（#214）。当配置的 store 不提供该能力时，检查无法判断某个目录是否为空壳，
 因此会以 `warn` 报告这一限制而不是 `pass`：清扫无法处理这些空壳，不支持的 store 也不会被误认为

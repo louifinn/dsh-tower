@@ -15,6 +15,88 @@ const NO_ASK_RULE =
   '- You cannot ask the user: there is no approval prompt, so an approval-gated call fails closed; put an open question in your final report or the tower inbox, and never stall silently.'
 
 /**
+ * #233: a child that was told to read a mission with `tower_inspect view:
+ * "status"` got the whole state table — 104 missions and 422 roster rows, a few
+ * hundred KB — and could lose its turn before reporting. The narrow reads
+ * existed all along; the briefing never taught them. This is one rule, always in
+ * the Rules block of both briefings, naming the concrete bounded calls and the
+ * cost of ignoring them.
+ * @param {string} missionId
+ * @returns {string}
+ */
+function boundedReadRule(missionId) {
+  return `- Read narrowly, never the whole table: tower_inspect({view:"status",missionId:"${missionId}"}) for this mission, limit/offset paging when a listing is unavoidable (the reply's total and nextOffset say what is left), tower_inspect({view:"roster",agent:"<name>",tail:N}) for one agent's recent activity, and tower_inbox for your messages. An unbounded status, roster or doctor dump costs hundreds of KB of context and can end your turn before you report.`
+}
+
+/**
+ * #231: a worker that dies mid-mission used to leave no trace, so the next
+ * worker started blind and the tower had to run `git status` by hand. The
+ * watchdog sweep records a bounded residue record ({at, filesChanged, branch,
+ * tip, dirty, cause}) on the roster row and on the mission; this renders the
+ * mission copy for the successor's briefing. A clean tree renders nothing:
+ * "the predecessor left nothing behind" is not worth a paragraph.
+ * @param {any} mission
+ * @returns {string[]}
+ */
+function predecessorResidueLines(mission) {
+  const residue = mission?.predecessorResidue
+  if (!residue || typeof residue !== 'object') return []
+  const files = Number(residue.filesChanged) || 0
+  if (files <= 0) return []
+  const lines = []
+  lines.push('')
+  lines.push('A previous worker on this mission died before completing:')
+  const where = residue.branch ? ` on ${residue.branch}` : ''
+  const tip = typeof residue.tip === 'string' && residue.tip.length > 0 ? ` at ${residue.tip.slice(0, 12)}` : ''
+  lines.push(`- ${residue.name ?? 'that worker'} left ${files} file(s) changed${where}${tip}; the worktree was ${residue.dirty ? 'dirty' : 'clean'}.`)
+  if (residue.cause) lines.push(`- Recorded cause: ${clip(residue.cause, 200)}`)
+  lines.push(
+    '- Inspect that work before you write anything: keep what is right, redo what is wrong, and commit on this branch. Residue counts are a snapshot, not a diff.',
+  )
+  return lines
+}
+
+/**
+ * #222: the completion footprint is the reviewer's answer to "what did this
+ * completion actually cover?". It renders only the parts a reviewer must act on
+ * — files the fence did not allow, and declarations the diff contradicts — so a
+ * clean in-fence completion adds nothing to the prompt.
+ * @param {any} footprint
+ * @returns {string[]}
+ */
+function footprintLines(footprint) {
+  if (!footprint || typeof footprint !== 'object') return []
+  const lines = []
+  const outside = Array.isArray(footprint.outsideScope) ? footprint.outsideScope : []
+  if (outside.length > 0) {
+    lines.push('')
+    lines.push(`Outside the mission scope (${outside.length} ${outside.length === 1 ? 'file' : 'files'}):`)
+    for (const file of outside.slice(0, 20)) lines.push(`- ${file}`)
+    if (outside.length > 20) lines.push(`- … ${outside.length - 20} more (see the completion record)`)
+    lines.push(
+      '- The completion was accepted with these paths changed. Judge whether each one is deliberate: a missing widen is a finding, not something to fix here.',
+    )
+  }
+  const mismatch = Array.isArray(footprint.mismatch) ? footprint.mismatch : []
+  if (mismatch.length > 0) {
+    lines.push('')
+    lines.push(`Footprint mismatch (${mismatch.length} ${mismatch.length === 1 ? 'file' : 'files'}):`)
+    for (const entry of mismatch.slice(0, 20)) lines.push(`- ${entry}`)
+    lines.push(
+      '- The worker\'s declared files and the branch diff disagree. A declaration the diff lacks was never committed; a change the worker did not declare is unreviewed surface.',
+    )
+  }
+  if (Number.isInteger(footprint.scopeGeneration) && footprint.scopeGeneration > 1) {
+    const scope = Array.isArray(footprint.scope) ? footprint.scope.join(', ') : ''
+    const when = footprint.widenAt ? `widenAt ${footprint.widenAt}` : 'widenAt not recorded'
+    lines.push('')
+    lines.push(`Widened after planning: ${when}, scope at completion: ${scope}`)
+    lines.push('- The fence was widened after the plan; confirm the widening itself was the tower\'s decision.')
+  }
+  return lines
+}
+
+/**
  * Dependency lines shared by the worker and reviewer briefings. A survey
  * dependency carries its recorded result (#148 D6) alongside its status, with
  * bounded formatting so a large evidence set cannot crowd out the mission.
@@ -127,6 +209,7 @@ export function workerBriefing({
     lines.push('Findings related to this mission:')
     for (const finding of findings) lines.push(`- ${finding.id} [${finding.status}] ${finding.severity ?? 'severity?'} ${finding.title}`)
   }
+  lines.push(...predecessorResidueLines(mission))
   lines.push('')
   lines.push('Rules:')
   if (shape.fields.worktree) {
@@ -143,6 +226,7 @@ export function workerBriefing({
       '- Make no commits: this mission reads one fixed commit. Do not write, edit, merge, push, rebase, or spawn other agents.',
     )
   }
+  lines.push(boundedReadRule(mission.id))
   lines.push(NO_ASK_RULE)
   lines.push(
     `- Update progress: tower_mission({repoRoot:"${repoRoot}",id:"${mission.id}",task_done:"..."}) or blocker:"...".`,
@@ -243,9 +327,13 @@ export function reviewerBriefing({
     lines.push('Related findings:')
     for (const finding of findings) lines.push(`- ${finding.id} [${finding.status}] ${finding.severity ?? 'severity?'} ${finding.title}`)
   }
+  // #222: the footprint is not in the published CompletionReport type yet
+  // (types/index.d.ts is outside this mission's fence; #222 follow-up owns it).
+  lines.push(...footprintLines(completion ? /** @type {any} */ (completion).footprint : null))
   lines.push('')
   lines.push('Rules:')
   lines.push('- Read-only: do not modify files, commit, or merge.')
+  lines.push(boundedReadRule(mission.id))
   lines.push(NO_ASK_RULE)
   if (review) {
     lines.push(`- Pass workdir="${review.path}" on every command: the checkout is a detached read of commit ${String(review.commit).slice(0, 12)}, not the mutable mission worktree.`)

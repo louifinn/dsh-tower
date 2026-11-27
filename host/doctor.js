@@ -3,7 +3,7 @@ import { execFile } from '../adapters/vcs-git.js'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { fsp } from '../adapters/store-fs.js'
+import { fsp, freeSpace } from '../adapters/store-fs.js'
 import { git } from '../adapters/git.js'
 import { inspectActivityLog, readStateLock, readStateCommitLock, readGitLock, gitLockView } from '../adapters/store.js'
 import { inspectArchive } from '../adapters/archive.js'
@@ -25,6 +25,7 @@ import { COMPONENT_ENABLE_HINTS, LEGACY_TOOL_REPLACEMENTS, isSubsystemRow } from
 import {
   artifactAcceptanceCheck,
   commitLockFacts,
+  diskSpaceCheck,
   foreignCapabilityCheck,
   loaderConflictCheck,
   orphanWorktreeCheck,
@@ -168,9 +169,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   const version = await gitVersion()
   checks.push(version ? check('git', 'pass', version) : check('git', 'fail', 'git is not available', 'install Git and retry'))
 
-  // #F65: an empty DSH_VERSION/DSH_HOST_VERSION is absent, not a version, and a
-  // DSH_INSTALL_DIR inside app.asar is unreadable by ordinary fs. Resolve with
-  // provenance, then let diagnoseHostVersion write the check and contract.
+  // #F65: an empty host version is absent; an install inside app.asar is unreadable
+  // by ordinary fs. Resolve with provenance, then let diagnoseHostVersion judge it.
   const callerHostVersion = typeof hostVersion === 'string' && hostVersion.trim() ? hostVersion.trim() : null
   const hostReport = callerHostVersion
     ? { version: callerHostVersion, source: 'caller', authoritative: true, detail: `${callerHostVersion} was supplied to doctor by the caller`, probes: [], asar: null }
@@ -218,9 +218,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
   try {
     state = await tower.load()
     checks.push(check('state', 'pass', `${tower.paths.state} revision ${state.revision}`))
-    // One read of the same facts feeds both the tower-owner and workspace-lock
-    // checks: doctor must describe the lock/roster a takeover would actually
-    // see, and must not re-read either with a different rule.
+    // One read of the same facts feeds the tower-owner and workspace-lock checks:
+    // doctor describes the lock/roster a takeover would see, without a second rule.
     try {
       ownershipFacts = await readOwnership(tower, { caller: null, state })
     } catch (error) {
@@ -316,9 +315,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       'optional: add the Tower config file under <git-common-dir>/dsh-tower/',
     ),
   )
-  // #M76: the activity log is bounded by the store adapter. Report both the
-  // policy and the live/rotated bytes so an unexpectedly large log has a
-  // visible cause; a missing path is a fixture limitation, not a repo failure.
+  // #M76: report the bounding policy and the live/rotated bytes so an unexpectedly
+  // large log has a visible cause; a missing path is a fixture limit, not a failure.
   const activityLog =
     typeof tower.paths.activity === 'string'
       ? await inspectActivityLog(tower.paths.activity, config.activity ?? {}).catch((error) => ({
@@ -343,6 +341,9 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
       ),
     )
   }
+  // #228: every durable Tower write lands beside state.json, so one free-space
+  // reading over that directory covers state, activity, archive and locks.
+  checks.push(diskSpaceCheck(await freeSpace(tower.paths.dir ?? tower.commonDir)))
   // #M39: the resolved review mode is its own diagnostic fact. `off` is a
   // supported, intentional posture (not a degradation), so it is a pass whose
   // detail says exactly what is unavailable.
@@ -413,9 +414,8 @@ export async function runDoctor({ tower, ctx, agent, hostVersion, compatibilityF
     checks.push(check('presets', 'warn', 'agentPresets service is unavailable'))
   }
 
-  // #121: the optional component rows are a diagnostic fact. A disabled row is
-  // reported with the exact "disabled by component <id>" reason rather than
-  // disappearing silently from the tool surface.
+  // #121: report a disabled optional row with its exact "disabled by component <id>"
+  // reason instead of letting it vanish from the tool surface.
   const components = await componentReport(ctx)
   // #163 Phase 5: a default-off subsystem is reported per row with the exact
   // enable step, so "off" never reads as "deleted". The same table is in

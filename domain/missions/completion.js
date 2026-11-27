@@ -6,6 +6,7 @@
 import { TowerToolError } from '../errors.js'
 import { EVIDENCE_SOURCE, evidenceEntries } from '../evidence.js'
 import { completedEvent } from '../events.js'
+import { scopeSplit } from '../scope.js'
 import { shapeFor } from '../shapes/index.js'
 import { isWorkerRole } from '../vocabulary.js'
 
@@ -64,12 +65,23 @@ export function completionReportBytes(completionReport) {
 }
 
 /**
+ * #232: the supported way forward when a worker's own row is already stopped.
+ * The refusal used to name no route at all, so the only options a reader could
+ * see were a hand-edited status or a stranded mission. Both halves matter: the
+ * bookkeeping worker re-runs the gates and writes the evidence, and a hand-set
+ * `completed` is refused because the record it would fake does not exist.
+ */
+export const STOPPED_WORKER_NEXT_ACTION =
+  'spawn a short-lived bookkeeping worker (tower_spawn role:"worker" on the same mission) that re-runs the gates and calls tower_complete; never set the mission to "completed" by hand — a hand-set completed status is refused because it records no report, no checks, and no evidence'
+
+/**
  * @param {string} message
  * @param {string} [code]
+ * @param {{ nextAction?: string | null, retryable?: boolean }} [options]
  * @returns {never}
  */
-function fail(message, code = 'invalid-argument') {
-  throw new TowerToolError(code, message)
+function fail(message, code = 'invalid-argument', options = {}) {
+  throw new TowerToolError(code, message, options)
 }
 
 /**
@@ -173,7 +185,23 @@ export function assertCompletionRequest({ mission, roster, input, maxReportBytes
   if (!isWorkerRole(worker.role)) fail(`agent ${worker.name} is a ${worker.role}, not a worker`)
   const stopped = ['retired', 'failed', 'interrupted', 'missing', 'stale'].includes(worker.state)
   if (stopped && !(worker.state === 'stale' && allowStaleSelfReport === true)) {
-    fail(`agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`)
+    // #231: the residue a dead worker left behind, when the sweep recorded one.
+    const residue = /** @type {{ filesChanged?: number, branch?: string | null } | undefined} */ (
+      /** @type {any} */ (worker).residue
+    )
+    fail(
+      `agent ${worker.name} is ${worker.state}; a stopped worker cannot report completion`,
+      'invalid-transition',
+      {
+        // #232: a refusal without a route leaves a hand-edited status as the only
+        // visible option. Name the supported recovery and forbid the fake one.
+        // #231: when the row recorded what the dead worker left behind, quote it
+        // so the caller does not have to run `git status` by hand.
+        nextAction: residue
+          ? `${STOPPED_WORKER_NEXT_ACTION} (the stopped worker left ${residue.filesChanged ?? 0} file(s) changed on ${residue.branch ?? 'its branch'})`
+          : STOPPED_WORKER_NEXT_ACTION,
+      },
+    )
   }
   if (mission.owner && mission.owner !== worker.name) {
     fail(`agent ${worker.name} is not the current owner of mission ${mission.id} (owner: ${mission.owner})`)
@@ -218,12 +246,100 @@ export function assertCompletionInbox({ mission, worker, unread }) {
 
 /**
  * Project the completion report stored on the mission.
- * @param {{ report: string, worker: RosterEntry, checks: any[], now: number, maxReportBytes?: number }} params
+ *
+ * #222: `footprint` is the one durable record of which files the completion
+ * actually covered. It is omitted entirely when the caller could not derive one
+ * (a completion is never refused because the diff was unreadable), so the
+ * historical report shape is unchanged for every caller that has no footprint.
+ *
+ * @param {{ report: string, worker: RosterEntry, checks: any[], now: number, maxReportBytes?: number, footprint?: any }} params
  * @returns {any}
  */
-export function completionReport({ report, worker, checks, now, maxReportBytes }) {
+export function completionReport({ report, worker, checks, now, maxReportBytes, footprint }) {
   const text = report.trim()
-  return { report: text, reportBytes: assertReportSize(text, maxReportBytes), by: worker.name, at: now, checks }
+  // The published CompletionReport type does not name `footprint` yet
+  // (types/index.d.ts is outside this mission's fence); widen locally instead.
+  const stored = /** @type {any} */ ({
+    report: text,
+    reportBytes: assertReportSize(text, maxReportBytes),
+    by: worker.name,
+    at: now,
+    checks,
+  })
+  if (footprint) stored.footprint = footprint
+  return stored
+}
+
+/**
+ * Normalize the files a worker declared it touched (`tower_complete.files`).
+ * Declarations are a claim, never the authority: they are bounded and trimmed
+ * so a transcript-sized list cannot reach the state document.
+ * @param {unknown} files
+ * @returns {string[]}
+ */
+export function normalizeDeclaredFiles(files) {
+  if (files === undefined || files === null) return []
+  if (!Array.isArray(files)) fail('files must be an array of repository-relative paths')
+  if (files.length > 500) fail('files supports at most 500 entries')
+  /** @type {Set<string>} */
+  const seen = new Set()
+  for (const entry of files) {
+    if (typeof entry !== 'string' || entry.trim().length === 0) fail('files entries must be non-empty strings')
+    if (entry.length > 400) fail(`files entry is longer than 400 characters: ${JSON.stringify(entry.slice(0, 40))}…`)
+    seen.add(entry.trim())
+  }
+  return [...seen].sort()
+}
+
+/**
+ * Build the completion footprint (#222): what the branch diff contains, how the
+ * mission's fence splits it, and what the worker claimed. The derived diff is
+ * the authority; a declaration only ever ADDS a name (the union is reported) and
+ * a disagreement is recorded as a mismatch note rather than a refusal.
+ *
+ * `caseInsensitive` is the checkout's comparison mode, detected once at
+ * `tower_init` and stored in state. It is threaded through here for the same
+ * reason `scopeSplit` takes it: the footprint and the merge gate must produce
+ * one split, so a case-only path cannot be inside for the record and outside for
+ * review (R211).
+ *
+ * @param {{ mission: Mission, declared?: string[], changed?: string[], widenAt?: number | null, caseInsensitive?: boolean }} params
+ * @returns {any}
+ */
+export function completionFootprint({ mission, declared = [], changed = [], widenAt = null, caseInsensitive = false }) {
+  const shape = shapeFor(mission.kind)
+  const derived = Array.isArray(changed) ? changed.filter((file) => typeof file === 'string' && file.length > 0) : []
+  const claimed = Array.isArray(declared) ? declared : []
+  const union = [...new Set([...derived, ...claimed])].sort()
+  const split = scopeSplit({ mission, reach: shape.reach, changedFiles: union, caseInsensitive: caseInsensitive === true })
+  const derivedSet = new Set(derived)
+  const claimedSet = new Set(claimed)
+  /** @type {string[]} */
+  const mismatch = []
+  if (claimed.length > 0) {
+    for (const file of claimed) {
+      if (!derivedSet.has(file)) mismatch.push(`${file} (declared, absent from the branch diff)`)
+    }
+    for (const file of derived) {
+      if (!claimedSet.has(file)) mismatch.push(`${file} (changed, not declared)`)
+    }
+  }
+  const scope = Array.isArray(mission.scope) ? [...mission.scope] : []
+  const rawGeneration = mission.scopeGeneration
+  const scopeGeneration = typeof rawGeneration === 'number' && Number.isInteger(rawGeneration) ? rawGeneration : 1
+  const widenedTo = scopeGeneration > 1 ? [...scope] : null
+  return {
+    scope,
+    scopeGeneration,
+    widenAt: widenAt ?? null,
+    widenedTo,
+    changed: union,
+    insideScope: split.insideScope,
+    outsideScope: split.outsideScope,
+    declared: [...claimed].sort(),
+    mismatch,
+    mismatchNote: mismatch.length === 0 ? null : `the worker's declaration and the branch diff disagree: ${mismatch.join('; ')}`,
+  }
 }
 
 /**
@@ -271,5 +387,11 @@ export function applyCompletion({ mission, report, now, result }) {
   mission.status = 'completed'
   mission.completionReport = report
   mission.updatedAt = now
+  // #231 R198: `predecessorResidue` is a warning for the next worker about a
+  // death nobody has explained yet. An accepted completion is that worker's own
+  // resolution, so the warning must not outlive it and reappear in the briefing
+  // of a later fix worker. (The type surface omits the optional field; the
+  // state schema permits extra mission properties.)
+  delete /** @type {any} */ (mission).predecessorResidue
   return { state: mission, events: [completedEvent(mission)] }
 }

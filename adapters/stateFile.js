@@ -54,7 +54,7 @@ export async function loadStateFile(input) {
   // Backup before the original can change. `prepareState` is pure, so a
   // throwing migration cannot touch state.json whether or not this ran.
   if (persist && version.status === 'migratable') {
-    await store.writeJsonAtomic(backupPath, raw)
+    await store.writeJsonAtomic(backupPath, raw, { phase: 'state-backup' })
   }
 
   // A legacy survey planned but never provisioned recorded no base at all, so
@@ -95,7 +95,7 @@ export async function loadStateFile(input) {
   } else {
     // An explicit `persist: true` load outside a lock (a caller-supplied test
     // path). Production loads either hold the lock or stay read-only.
-    await store.writeJsonAtomic(paths.state, migrated)
+    await store.writeJsonAtomic(paths.state, migrated, { phase: 'state-write' })
   }
   await store.appendJsonl(
     paths.activity,
@@ -107,7 +107,7 @@ export async function loadStateFile(input) {
       revision: migrated.revision,
       text: `schema v${prepared.from} -> v${prepared.to}`,
     },
-    input.activity,
+    { ...input.activity, phase: 'activity-append' },
   )
   return {
     state: migrated,

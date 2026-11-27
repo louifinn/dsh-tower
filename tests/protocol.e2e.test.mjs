@@ -28,16 +28,49 @@ function initRepo(repo) {
   git(repo, ['commit', '-m', 'seed'])
 }
 
+/** True when `file` exists at `commit` — a probe, not a command that throws. */
+function atCommit(cwd, commit, file) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${commit}:${file}`], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Minimal `subagents` stand-in: records activations, never calls a model. */
+function fakeSubagents() {
+  let seq = 0
+  const activations = []
+  return {
+    activations,
+    list: () => ['spawn'],
+    async startActivation(input) {
+      seq += 1
+      const childId = `child-${seq}`
+      activations.push({ ...input, childId })
+      return {
+        childId,
+        result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }], diagnostic: null }),
+      }
+    },
+    async sendMessage() {},
+    async listDescendants() {
+      return []
+    },
+  }
+}
+
 /** Register the real tool surface on a minimal host context. */
-function makeCtx() {
+function makeCtx(services = {}) {
   const tools = new Map()
   const ctx = {
     effect(fn) {
       const dispose = fn()
       return typeof dispose === 'function' ? dispose : () => {}
     },
-    get() {
-      return undefined
+    get(name) {
+      return services[name]
     },
     tools: {
       register(definition) {
@@ -912,6 +945,382 @@ test('tower_mission bulk partial mode reports each item and keeps successes', as
   }
 })
 
+/** Tracked seed directories make a widened fence match real files (#200). */
+function seedTracked(repo, files) {
+  for (const file of files) {
+    const target = path.join(repo, file)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, `${file}\n`)
+  }
+  git(repo, ['add', '-A'])
+  git(repo, ['commit', '-m', 'fixtures'])
+}
+
+// #219: one call defers the planned neighbours a widen collides with, under the
+// same single revision bump, with one activity record per neighbour so the
+// deferral is visible on the neighbour's own timeline.
+test('#219 a widen defers planned neighbours in one call', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-one-call-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'src/shared/s.txt', 'other/o.txt'])
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Receiver', scope: ['src/a/**'] },
+        { title: 'Neighbour', scope: ['src/shared/**'] },
+        { title: 'Bystander', scope: ['other/**'] },
+      ],
+    })
+    const [receiver, neighbour] = planned.missions.map((mission) => mission.id)
+    await call(tools, 'tower_mission', { repoRoot: repo, id: receiver, status: 'active' })
+    const tower = await Tower.open(repo)
+    const beforeRevision = (await tower.load()).revision
+
+    const widened = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id: receiver,
+      scope: ['src/**'],
+      widen: { mode: 'defer-conflicts' },
+    })
+    assert.equal(widened.revision, beforeRevision + 1, 'one call adds exactly one revision')
+    assert.equal(widened.mission.status, 'active')
+    assert.equal(widened.mission.scopeGeneration, 2)
+    assert.deepEqual(widened.mission.scope, ['src/**'])
+    assert.deepEqual(widened.widen, { mode: 'defer-conflicts', deferred: [neighbour], restored: [], statusKept: false })
+
+    const state = await tower.load()
+    const stored = state.missions.find((mission) => mission.id === neighbour)
+    assert.equal(stored.status, 'planned', 'a deferred neighbour keeps its status')
+    assert.equal(stored.deferred, true)
+    assert.deepEqual(state.missions.find((mission) => mission.id === receiver).deferralsCreated, [neighbour])
+
+    const activity = await tower.deps.store.readActivityTail(tower.paths.activity, 20)
+    const perMission = activity.filter((entry) => entry.type === 'mission' && entry.missionId !== undefined)
+    // The widening writes the receiver record plus one record per neighbour, in
+    // that order, and nothing else.
+    const widening = perMission.slice(-2)
+    assert.deepEqual(widening.map((entry) => entry.missionId), [receiver, neighbour])
+    assert.match(widening[0].text, /scope widened/)
+    assert.equal(widening[1].text, `deferred by widen of ${receiver}`)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #219 task 5: keepStatus leaves a completed mission completed, so the reviewer
+// can be spawned immediately instead of the tower patching the status back.
+test('#219 keepStatus keeps a completed mission completed for its reviewer', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-keep-status-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'other/o.txt'])
+  const { tools } = makeCtx({
+    subagents: fakeSubagents(),
+    agentPresets: { list: async () => [{ id: 'tower-worker' }, { id: 'tower-reviewer' }] },
+  })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Finished', scope: ['src/a/**'], tasks: ['work'] },
+        { title: 'Other', scope: ['other/**'] },
+      ],
+    })
+    const id = planned.missions[0].id
+    const tower = await Tower.open(repo)
+    const provisioned = await tower.provision({ missionId: id })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'work.txt'), 'work\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', `${id} work`])
+    await tower.mission({ id, status: 'active' })
+    await tower.mission({ id, task_done: 'work' })
+    await tower.recordSpawn({
+      missionId: id,
+      name: `worker-${id.toLowerCase()}`,
+      role: 'worker',
+      agentId: `agent-${id}`,
+      parentSessionId: 'session-e2e',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    await tower.complete({ missionId: id, agentId: `agent-${id}`, report: 'done' })
+
+    const kept = await call(tools, 'tower_mission', {
+      repoRoot: repo,
+      id,
+      scope: ['src/**'],
+      widen: { keepStatus: true },
+    })
+    assert.equal(kept.mission.status, 'completed', 'keepStatus must not return the mission to active')
+    assert.equal(kept.mission.scopeGeneration, 2)
+    assert.deepEqual(kept.mission.scope, ['src/**'])
+    assert.equal(kept.widen.statusKept, true)
+
+    // The reviewer prerequisite is a status check, so no intermediate patch.
+    const reviewer = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: id, role: 'reviewer' })
+    assert.equal(reviewer.role, 'reviewer')
+    assert.ok(reviewer.agentId)
+    const after = await tower.load()
+    assert.equal(after.missions.find((mission) => mission.id === id).status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #219 tasks 2 and 3: the default mode is the historical refusal, but it names
+// every conflicting neighbour with its status and kind; an in-flight neighbour
+// is never auto-deferred.
+test('#219 a widen refuses by default and never strands an active neighbour', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-widen-refusal-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'src/shared/s.txt', 'src/deep/d.txt'])
+  const { tools } = makeCtx()
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    const planned = await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [
+        { title: 'Receiver', scope: ['src/a/**'] },
+        { title: 'Planned neighbour', scope: ['src/shared/**'] },
+        { title: 'Active neighbour', scope: ['src/deep/**'] },
+      ],
+    })
+    const [receiver, plannedId, activeId] = planned.missions.map((mission) => mission.id)
+    await call(tools, 'tower_mission', { repoRoot: repo, id: receiver, status: 'active' })
+    await call(tools, 'tower_mission', { repoRoot: repo, id: activeId, status: 'active' })
+    const tower = await Tower.open(repo)
+    const before = await tower.load()
+
+    await assert.rejects(
+      () => call(tools, 'tower_mission', { repoRoot: repo, id: receiver, scope: ['src/**'] }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /widened scope overlaps mission /.test(error.message) &&
+        new RegExp(`widened scope overlaps mission [^;]*${plannedId}`).test(error.message) &&
+        new RegExp(`widened scope overlaps mission [^;]*${activeId}`).test(error.message) &&
+        /: planned build/.test(error.message) &&
+        /: active build/.test(error.message),
+    )
+
+    await assert.rejects(
+      () =>
+        call(tools, 'tower_mission', {
+          repoRoot: repo,
+          id: receiver,
+          scope: ['src/**'],
+          widen: { mode: 'defer-conflicts' },
+        }),
+      (error) =>
+        error.code === 'invalid-argument' &&
+        /a deferral would strand in-flight work/.test(error.message) &&
+        new RegExp(`${activeId}: active build`).test(error.message),
+    )
+
+    const after = await tower.load()
+    assert.equal(after.revision, before.revision, 'a refused widen writes nothing')
+    for (const missionId of [plannedId, activeId]) {
+      const stored = after.missions.find((mission) => mission.id === missionId)
+      assert.equal(Object.hasOwn(stored, 'deferred'), false, `${missionId} must not be deferred`)
+    }
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222: a completion must record the files the worker actually touched. The
+// branch diff is the authority: a worker that never declares a single file
+// still leaves evidence, and a commit outside its fence is named rather than
+// passing silently.
+test('#222 completion records a footprint derived from the branch diff', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Footprint case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    fs.mkdirSync(path.join(wt, 'docs'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'docs', 'stray.md'), 'stray\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in and out'])
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed', 'an out-of-fence commit never fails the completion')
+    const footprint = completed.mission.completionReport.footprint
+    assert.ok(footprint, 'a completion always records the derived footprint')
+    assert.deepEqual(footprint.insideScope, ['src/a/in.txt'])
+    assert.deepEqual(footprint.outsideScope, ['docs/stray.md'])
+    assert.deepEqual(footprint.changed, ['docs/stray.md', 'src/a/in.txt'])
+    assert.deepEqual(footprint.scope, ['src/a/**'])
+    assert.equal(footprint.scopeGeneration, 1)
+    assert.equal(footprint.widenAt, null)
+    assert.equal(footprint.widenedTo, null)
+    assert.deepEqual(footprint.declared, [], 'the worker declared nothing')
+    assert.deepEqual(footprint.mismatch, [], 'nothing was declared, so nothing is contradicted')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 2: a declared file the diff does not contain is a contradicted
+// claim, not a failure. The union is reported and a mismatch note rides the
+// completion, so the tower can see both what was claimed and what happened.
+test('#222 a declared file the diff lacks becomes a mismatch note, never a failure', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-mismatch-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Mismatch case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 only in'])
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({
+      missionId: 'M1',
+      agentId: 'agent-m1',
+      report: 'done',
+      files: ['src/a/in.txt', 'src/a/imaginary.txt'],
+    })
+    assert.equal(completed.mission.status, 'completed', 'a contradicted declaration never fails the completion')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.declared, ['src/a/imaginary.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.changed, ['src/a/imaginary.txt', 'src/a/in.txt'], 'the union is reported')
+    assert.deepEqual(footprint.insideScope, ['src/a/imaginary.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.mismatch, [
+      'src/a/imaginary.txt (declared, absent from the branch diff)',
+    ])
+    assert.match(
+      footprint.mismatchNote,
+      /declaration and the branch diff disagree: src\/a\/imaginary\.txt \(declared, absent from the branch diff\)/,
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 3: the preflight blocker names the outside-scope files it found and
+// carries them as an array, because the human-readable detail truncates at 8.
+test('#222 preflight carries the outside-scope files as an array in the blocker', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-gate-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Gate case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    for (const file of ['docs/one.md', 'docs/two.md', 'src/a/in.txt']) {
+      const target = path.join(wt, file)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, `${file}\n`)
+    }
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in and out'])
+
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    const blocker = gate.blockers.find((entry) => entry.code === 'out-of-scope')
+    assert.ok(blocker, JSON.stringify(gate.blockers))
+    assert.deepEqual(blocker.details.outsideScope, ['docs/one.md', 'docs/two.md'], 'every outside path, not just the first 8')
+    assert.match(blocker.detail, /docs\/one\.md/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 4: a later reader must be able to tell a planned fence from a
+// widened one. The footprint keeps the split as of completion plus the widen
+// provenance the lifecycle already records.
+test('#222 the footprint keeps inside/outside plus widenAt and widenedTo', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-widen-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  seedTracked(repo, ['src/a/a.txt', 'docs/guide/quickstart.md'])
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Widen case', scope: ['src/a/**'], tasks: ['write a'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', scope: ['src/a/**', 'docs/guide/**'] })
+    const widenedAt = Date.now()
+    for (const file of ['src/a/a.txt', 'docs/guide/quickstart.md']) {
+      fs.writeFileSync(path.join(wt, file), `${file} edited\n`)
+    }
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 edited in the widened fence'])
+    await tower.mission({ id: 'M1', task_done: 'write a' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    const footprint = completed.mission.completionReport.footprint
+    assert.equal(footprint.scopeGeneration, 2, 'the widen bumped the generation')
+    assert.deepEqual(footprint.scope, ['src/a/**', 'docs/guide/**'])
+    assert.deepEqual(footprint.widenedTo, ['src/a/**', 'docs/guide/**'], 'the widened fence is recorded verbatim')
+    assert.equal(typeof footprint.widenAt, 'number', 'the widen timestamp is recorded')
+    assert.ok(footprint.widenAt <= widenedAt + 60_000, 'the timestamp is the widen activity record')
+    assert.deepEqual(footprint.insideScope, ['docs/guide/quickstart.md', 'src/a/a.txt'])
+    assert.deepEqual(footprint.outsideScope, [], 'both files are inside the widened fence')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('mission transitions: blocked resumes through clear_blockers and can complete again', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-transition-'))
   const repo = path.join(root, 'repo')
@@ -930,6 +1339,250 @@ test('mission transitions: blocked resumes through clear_blockers and can comple
     assert.deepEqual(resumed.mission.blockers, [])
     const completed = await tower.mission({ id: 'M1', status: 'completed' })
     assert.equal(completed.mission.status, 'completed')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// #222 task 6: the footprint inputs must be reachable from the advertised tool
+// surface. `tower_complete` sets additionalProperties:false, so an undeclared
+// argument is refused before it runs — this proves `files` is in the contract
+// and that the schema the registry publishes accepts it.
+test('#222 tower_complete accepts the declared files argument and records the union', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-tool-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  const { tools } = makeCtx({ subagents: fakeSubagents() })
+  try {
+    await call(tools, 'tower_init', { repoRoot: repo })
+    await call(tools, 'tower_plan', {
+      repoRoot: repo,
+      missions: [{ title: 'Footprint tool case', scope: ['src/a/**'], tasks: ['write a'] }],
+    })
+    const provisioned = await call(tools, 'tower_spawn', { repoRoot: repo, missionId: 'M1', role: 'worker' })
+    const wt = provisioned.worktree.path
+    fs.mkdirSync(path.join(wt, 'src', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'a', 'in.txt'), 'in\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 in'])
+    await call(tools, 'tower_mission', { repoRoot: repo, id: 'M1', task_done: 'write a' })
+    const exec = { agent: { id: provisioned.agentId } }
+    const completed = await call(
+      tools,
+      'tower_complete',
+      { repoRoot: repo, missionId: 'M1', report: 'done', files: ['src/a/in.txt', 'src/a/ghost.txt'] },
+      exec,
+    )
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.declared, ['src/a/ghost.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.changed, ['src/a/ghost.txt', 'src/a/in.txt'])
+    assert.deepEqual(footprint.mismatch, ['src/a/ghost.txt (declared, absent from the branch diff)'])
+    assert.match(footprint.mismatchNote, /declared, absent from the branch diff/)
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R211: the recorded footprint must read the same split as the merge gate, or a
+// case-only path can be accepted at preflight and then reported to the reviewer
+// as an out-of-scope change — a false accusation. This pins the whole chain on a
+// case-insensitive checkout: gate accepts, footprint says inside, briefing stays
+// silent. It asserts the two agree in one test so a future drift reddens here.
+test('#222 on a case-insensitive checkout the gate and the footprint agree on a case-only path', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-case-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    // The mode a real Windows/macOS checkout detects at `tower_init`, injected so
+    // the case-insensitive branch runs on a case-sensitive CI filesystem too.
+    const statePath = path.join(repo, '.git', 'dsh-tower', 'state.json')
+    const seeded = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    seeded.caseInsensitive = true
+    fs.writeFileSync(statePath, JSON.stringify(seeded, null, 2))
+
+    await tower.plan({ missions: [{ title: 'Case-only footprint', scope: ['src/Api/**'], tasks: ['write api'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    // The file differs from the fence only by case: on this checkout, in scope.
+    fs.mkdirSync(path.join(wt, 'src', 'api'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'api', 'x.js'), 'x\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 case-only path'])
+
+    // The gate is the authority on permission: it accepts the case-only path,
+    // and rejects an unrelated one, on the same state the footprint will read.
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    assert.equal(
+      gate.blockers.some((blocker) => blocker.code === 'out-of-scope'),
+      false,
+      `the gate must accept src/api/x.js under src/Api/** on a case-insensitive checkout: ${JSON.stringify(gate.blockers)}`,
+    )
+
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write api' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(footprint.insideScope, ['src/api/x.js'], 'the footprint reads the same split the gate accepted')
+    assert.deepEqual(footprint.outsideScope, [], 'a case-only path is never an out-of-scope accusation')
+
+    // And the reviewer briefing, which renders outsideScope verbatim, stays quiet.
+    const { buildSpawnBriefing } = await import('../app/spawn-support.js')
+    const context = buildSpawnBriefing({
+      role: 'reviewer',
+      towerRoot: repo,
+      context: {
+        base: 'main',
+        mission: completed.mission,
+        deps: [],
+        reviews: [],
+        findings: [],
+        completionReport: completed.mission.completionReport,
+      },
+      worktree: { path: wt, branch: provisioned.worktree.branch, baseCommit: provisioned.worktree.baseCommit },
+      review: null,
+      instructions: undefined,
+    })
+    assert.doesNotMatch(context, /Outside the mission scope/, 'the briefing must not accuse a gate-approved path')
+  } finally {
+    removeTemp(root)
+  }
+})
+
+// R212: the footprint and the merge gate must diff from the same anchor, not
+// merely with the same comparison mode. `worktree.baseCommit` is written once at
+// provisioning and `tower_rebase` records only `mission.rebase`
+// (app/rebase.js:284), so after a rebase a diff from that stale anchor lists
+// every path the BASE changed since provisioning — other missions' files. This
+// test drives the supported route (worker stops -> tower_rebase -> completion)
+// and pins the recorded footprint and the reviewer prompt against that bug.
+test('#222 a rebased branch records only its own files, anchored like the merge gate', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tower-footprint-rebase-'))
+  const repo = path.join(root, 'repo')
+  fs.mkdirSync(repo)
+  initRepo(repo)
+  try {
+    const tower = await Tower.open(repo)
+    await tower.init({})
+    await tower.plan({ missions: [{ title: 'Rebase footprint', scope: ['src/mine/**'], tasks: ['write mine'] }] })
+    const provisioned = await tower.provision({ missionId: 'M1' })
+    const wt = provisioned.worktree.path
+    const provisionedBase = provisioned.worktree.baseCommit
+
+    // 1. The mission commits one file inside its own fence.
+    fs.mkdirSync(path.join(wt, 'src', 'mine'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'src', 'mine', 'own.txt'), 'mine\n')
+    git(wt, ['add', '-A'])
+    git(wt, ['commit', '-m', 'M1 own file'])
+
+    // 2. Another mission lands on the base: a commit that touches a different
+    // file. `git diff <stale baseCommit>..<rebased tip>` would report it.
+    fs.mkdirSync(path.join(repo, 'src', 'theirs'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'src', 'theirs', 'landed.txt'), 'theirs\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-m', 'other mission lands'])
+    const baseTip = git(repo, ['rev-parse', 'HEAD'])
+
+    // 3. The worker has stopped, so the supported route lets the tower rebase.
+    // `activity: {}` models the stopped worker: `liveAgentFor` refuses a rebase
+    // only when the catalog reports the row's agent as 'running'.
+    await tower.mission({ id: 'M1', status: 'active' })
+    await tower.mission({ id: 'M1', task_done: 'write mine' })
+    await tower.recordSpawn({
+      missionId: 'M1',
+      name: 'worker-m1',
+      role: 'worker',
+      agentId: 'agent-m1',
+      parentSessionId: 'session-m1',
+      cwd: wt,
+      branch: provisioned.worktree.branch,
+    })
+    const rebased = await tower.rebase({ missionId: 'M1', activity: {} })
+    assert.equal(rebased.ok, true, `tower_rebase must succeed: ${JSON.stringify(rebased)}`)
+
+    // The precondition that makes the bug possible: the branch tip now contains
+    // the base-side file, while the recorded provisioning anchor does not.
+    const rebasedTip = await tower.branchTip({ id: 'M1', worktree: { branch: provisioned.worktree.branch } })
+    assert.equal(
+      atCommit(repo, rebasedTip, 'src/theirs/landed.txt'),
+      true,
+      'precondition: the rebased tip contains the base-side file',
+    )
+    assert.equal(
+      atCommit(repo, provisionedBase, 'src/theirs/landed.txt'),
+      false,
+      'precondition: the provisioning anchor predates the base-side file',
+    )
+    // The red-first proof, asserted on real git: diffing from the stale anchor
+    // reports the base-side path, which is the bug this test guards.
+    const staleDiff = git(wt, ['diff', '--name-only', `${provisionedBase}..${rebasedTip}`])
+      .split('\n')
+      .filter(Boolean)
+    assert.ok(
+      staleDiff.includes('src/theirs/landed.txt'),
+      `red-first: the old worktree.baseCommit anchor reports the base-side file (${JSON.stringify(staleDiff)})`,
+    )
+
+    // 4. Complete and inspect the derived footprint.
+    // The gate on the same state resolves its own diff: it must name the same
+    // set, so the record and the gate cannot disagree after a rebase.
+    const gate = await tower.evaluateGate({ missionId: 'M1', activity: {} })
+    assert.equal(
+      gate.blockers.some((blocker) => blocker.code === 'out-of-scope'),
+      false,
+      `the gate accepts the rebased in-fence branch: ${JSON.stringify(gate.blockers)}`,
+    )
+    const completed = await tower.complete({ missionId: 'M1', agentId: 'agent-m1', report: 'done' })
+    assert.equal(completed.mission.status, 'completed')
+    const footprint = completed.mission.completionReport.footprint
+    assert.deepEqual(
+      footprint.changed,
+      ['src/mine/own.txt'],
+      `the footprint must exclude the base-side file: ${JSON.stringify(footprint.changed)}`,
+    )
+    assert.deepEqual(
+      footprint.outsideScope,
+      [],
+      `a base-side file is never an out-of-scope accusation: ${JSON.stringify(footprint.outsideScope)}`,
+    )
+    assert.deepEqual(footprint.insideScope, ['src/mine/own.txt'])
+
+    // And the reviewer briefing stays silent about a scope it never violated.
+    const { buildSpawnBriefing } = await import('../app/spawn-support.js')
+    const context = buildSpawnBriefing({
+      role: 'reviewer',
+      towerRoot: repo,
+      context: {
+        base: 'main',
+        mission: completed.mission,
+        deps: [],
+        reviews: [],
+        findings: [],
+        completionReport: completed.mission.completionReport,
+      },
+      worktree: { path: wt, branch: provisioned.worktree.branch, baseCommit: provisioned.worktree.baseCommit },
+      review: null,
+      instructions: undefined,
+    })
+    assert.doesNotMatch(
+      context,
+      /Outside the mission scope/,
+      'a rebased branch must not print a false out-of-scope accusation',
+    )
+    assert.equal(rebased.baseTip, baseTip, 'sanity: the rebase replayed onto the base tip the test advanced')
   } finally {
     removeTemp(root)
   }

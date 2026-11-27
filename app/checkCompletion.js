@@ -3,6 +3,8 @@ import path from 'node:path'
 import { TowerToolError } from '../domain/errors.js'
 import {
   normalizeChecks,
+  normalizeDeclaredFiles,
+  completionFootprint,
   assertCompletionRequest,
   assertCompletionInbox,
   completionReport,
@@ -12,6 +14,7 @@ import { completionFor, shapeFor } from '../domain/shapes/index.js'
 import { reviveSelfReportedEntry, settleSelfReportedCompletion } from '../domain/collab/roster.js'
 import { fullMission } from '../domain/summary.js'
 import { validateState } from '../domain/state.js'
+import { changedPaths, changePaths } from './gate.js'
 import { sweepArchive } from './archive.js'
 import { cleanupSandbox } from './sandbox.js'
 import { trackedFingerprint } from './sharedCheckout.js'
@@ -128,7 +131,116 @@ export async function checkCompletion(tower, input, options = {}) {
   const { commits } = invariants.check({ mission, ...facts })
   const unread = tower.unreadFor(state, worker.name)
   assertCompletionInbox({ mission, worker, unread })
-  return { state, mission, worker, commits }
+  const footprint = await completionFootprintFor(tower, mission, input, state)
+  return { state, mission, worker, commits, footprint }
+}
+
+/**
+ * Derive the completion footprint from the branch diff (#222).
+ *
+ * The diff is the authority: a worker that declares nothing still leaves
+ * evidence, and one that commits outside its fence is named rather than
+ * silently accepted. Reading the diff is best-effort — a completion is never
+ * refused because git could not answer, it just records no footprint — and the
+ * widen provenance is recovered from the mission record plus the activity log,
+ * because neither `lifecycle.js` nor the event table carries a structured widen
+ * receipt.
+ *
+ * @param {any} tower
+ * @param {any} mission
+ * @param {any} input
+ * @param {any} state
+ * @returns {Promise<any>}
+ */
+async function completionFootprintFor(tower, mission, input, state) {
+  const declared = normalizeDeclaredFiles(input.files)
+  const changed = await footprintDiff(tower, mission, state)
+  if (changed === null) return null
+  const widenAt = await widenRecordedAt(tower, mission)
+  // R211: the checkout's comparison mode is a state fact, and the footprint must
+  // split scope exactly like the merge gate (app/gate.js:136) does.
+  return completionFootprint({ mission, declared, changed, widenAt, caseInsensitive: state.caseInsensitive === true })
+}
+
+/**
+ * The branch diff for a mission, anchored on the commit the branch forked from.
+ *
+ * A build or an artifact diffs `merge-base(base, branch-tip)..branch-tip` — the
+ * exact anchor the merge gate uses (`app/gate.js:129-131`). The worktree's
+ * `baseCommit` is written once at provisioning (`app/provision.js:191,237`) and
+ * a successful `tower_rebase` records only `mission.rebase`
+ * (`app/rebase.js:284`), never advancing it; diffing from that stale anchor
+ * after a rebase reports every path the BASE changed since provisioning, i.e.
+ * other missions' files, as this mission's footprint and prints them to the
+ * reviewer as a false out-of-scope accusation (R212). A merge base is stable
+ * across a rebase replay, so the record and the gate name one set of files.
+ *
+ * A detached survey sandbox has no branch, so it has no base to find a merge
+ * base against; it keeps the range from the commit it read to its own HEAD.
+ *
+ * @param {any} tower
+ * @param {any} mission
+ * @param {any} state
+ * @returns {Promise<string[] | null>}
+ */
+async function footprintDiff(tower, mission, state) {
+  try {
+    const worktree = /** @type {any} */ (mission.worktree)
+    const sandbox = /** @type {any} */ (mission).sandbox
+    if (!worktree && !sandbox) return null
+    if (!worktree) {
+      const sandboxTip = await tower.revParse(sandbox, 'HEAD')
+      const sandboxBase = /** @type {string} */ (mission.readCommit)
+      // R211: an unresolvable tip or base is an unreadable diff, not an empty
+      // one. Returning [] here would record a footprint claiming nothing
+      // changed, while docs/reference/tools.md promises it is omitted then.
+      if (!sandboxTip || !sandboxBase) return null
+      return await changedPaths(tower, sandbox, `${sandboxBase}..${sandboxTip}`)
+    }
+    const tip = await tower.branchTip(mission)
+    const baseRef = typeof state?.base === 'string' ? state.base : ''
+    // No recorded base ref means the branch has no anchor to read: treat it like
+    // any other unreadable base rather than diffing from zero or from the stale
+    // provisioning commit.
+    if (!tip || !baseRef) return null
+    const baseTip = await tower.revParse(tower.root, baseRef)
+    const mergeBase = (await tower.git(worktree.path, ['merge-base', baseTip, tip])).trim()
+    if (!mergeBase) return null
+    return await changedPaths(tower, worktree.path, `${mergeBase}..${tip}`)
+  } catch {
+    // Undeliverable diffs are recorded as "no footprint", never as a refusal:
+    // a completion that passes its shape invariants must still succeed.
+    return null
+  }
+}
+
+/**
+ * When a mission's fence was widened, from the activity log (#222 task 4).
+ *
+ * `scopeGeneration` is the durable widen marker the lifecycle owns; the
+ * timestamp is the `scope widened` activity record that the same call appends.
+ * Returns null when the fence was never widened, so a reader can tell a planned
+ * fence from a widened one.
+ * @param {any} tower
+ * @param {any} mission
+ * @returns {Promise<number | null>}
+ */
+async function widenRecordedAt(tower, mission) {
+  const generation = Number.isInteger(mission.scopeGeneration) ? mission.scopeGeneration : 1
+  if (generation <= 1) return null
+  try {
+    const entries = await tower.deps.store.readActivityTail(tower.paths.activity, 500)
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index]
+      if (entry?.type !== 'mission' || entry.missionId !== mission.id) continue
+      if (typeof entry.text === 'string' && /scope (widened|edited)/.test(entry.text)) {
+        return Number.isInteger(entry.at) ? entry.at : null
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 /**
@@ -155,7 +267,7 @@ const COMPLETION_LOCK_ATTEMPTS = 3
  * again, leaving a completed mission blocked by `worker-stale`.
  * @param {any} tower
  * @param {any} input
- * @param {{ state: any, mission: any, worker: any, commits: number }} prepared
+ * @param {{ state: any, mission: any, worker: any, commits: number, footprint?: any }} prepared
  */
 async function commitCompletion(tower, input, prepared) {
   return tower.withStateLock(async (_paths, held) => {
@@ -188,6 +300,10 @@ async function commitCompletion(tower, input, prepared) {
       checks,
       now,
       maxReportBytes: tower.config.gates?.maxReportBytes,
+      // #222: the footprint derived at admission time. A caller that prepared
+      // without one (a two-phase stub, an older in-process caller) simply stores
+      // no footprint — the historical report shape stays valid.
+      footprint: prepared.footprint ?? null,
     })
     const applied = applyCompletion({ mission, report: storedReport, now, result: input.result })
     await sweepArchive(tower, state, { now })

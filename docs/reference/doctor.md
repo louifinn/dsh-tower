@@ -3,12 +3,13 @@
 `tower_inspect({ view: "doctor" })` is read-only. It never takes the state lock, writes state, or changes Git.
 It returns:
 
+<!-- tower-surface-sample: sample activity-log counters from a doctor run, not surface measurements -->
 ```json
 {
   "ok": true,
   "checks": [
     { "id": "git", "status": "pass", "detail": "git version 2.55.0" },
-    { "id": "surface", "status": "pass", "detail": "config keys: 59 · sections: 16 · tools: 23 (baseline 2026-11-12)" },
+    { "id": "surface", "status": "pass", "detail": "config keys: 60 · sections: 16 · tools: 23 (baseline 2026-11-12)" },
     { "id": "state", "status": "pass", "detail": ".../state.json revision 7" },
     { "id": "state-schema", "status": "pass", "detail": "schemaVersion 5 is current" },
     { "id": "activity-log", "status": "pass", "detail": "activity.jsonl 1024 B live + 2 rotated segment(s) 8192 B (cap 4194304 B, retention 5)" },
@@ -22,7 +23,7 @@ It returns:
     "sections": 16,
     "tools": 23,
     "baselineDate": "2026-11-12",
-    "line": "config keys: 59 · sections: 16 · tools: 23"
+    "line": "config keys: 60 · sections: 16 · tools: 23"
   },
   "stateLock": {
     "held": true,
@@ -151,7 +152,7 @@ the config schema and every tool the build ships — `define()`-registered tools
 the `tower_mode` tool the Host entry registers directly (#118),
 and the capability tools whose optional component row may be off (#121) —
 independent of the operational switches. The `tools` count is therefore the full
-build surface (23 today; 21 in 2.9.0, 17 default), even though the shipped profile mounts 17 because the
+build surface (23 today; 21 in 2.9.0, 18 default), even though the shipped profile mounts 18 because the
 five subsystem rows ship off; the `components` check names the mounted subset and every
 disabled row.
 
@@ -326,14 +327,22 @@ worktree root. The main checkout, every path state references (mission worktree,
 checkout) and every path outside the root are hard exclusions, so a checkout can be listed without
 being removable.
 
-The same check also counts empty leftover directories (#214): a review checkout whose contents were
-removed can leave an ordinary empty directory directly under the worktree root, and because git no
-longer registers it, no worktree row shows it. Such a shell is a `warn` that names the count and up
-to five directory names and points at `tower_teardown` with `orphans: true`; that sweep removes only
-empty, unrecorded directories strictly inside the root. A non-empty directory is reported as a keep
-and never deleted, and doctor still removes nothing itself. The review checkout cleanup removes its
-own shell as soon as the checkout is gone, so this warning is for shells left by an interrupted or
-out-of-band cleanup.
+The same check also counts leftover directories (#214, #227): a review checkout whose contents were
+removed can leave an ordinary directory directly under the worktree root, and because git no longer
+registers it, no worktree row shows it. Such a shell is a `warn` that names the count and up to five
+directory names and points at `tower_teardown` with `orphans: true`; that sweep removes only
+directories strictly inside the root that are empty or hold nothing but dependency links (the
+`node_modules` junction `spawn.nodeModules:"link"` creates, whose target must resolve inside the
+repository or the root). Any other entry keeps the directory and is named in the reason, and doctor
+still removes nothing itself. The review checkout cleanup removes its own shell as soon as the
+checkout is gone, so this warning is for shells left by an interrupted or out-of-band cleanup.
+
+A path is only a hard exclusion while it is live (#234). A mission whose teardown ran keeps its
+`worktree` record and carries a `worktreeRemovedAt` stamp; that stamped path is released, so a shell
+recreated at it is reported and swept instead of being hidden by a record that no longer describes a
+checkout. A recorded path without the stamp stays protected. `tower_teardown` reports how many paths
+a stamp released as `orphanWorktrees.leftoversReleased`, so a clean `leftovers: []` is not mistaken
+for a scan that never looked.
 
 Directory enumeration is an optional store capability (#214). When the configured store does not
 expose it, the check cannot tell whether a directory is an empty shell, so it reports a `warn` naming

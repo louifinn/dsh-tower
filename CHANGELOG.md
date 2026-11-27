@@ -4,6 +4,107 @@
 
 ## 未发布（Unreleased）
 
+## 2.9.9（2026-11-27）
+
+### 新增
+
+- **`tower_mission` 的 `widen` 可以一次推迟所有冲突邻居（#219）**：给 mission 扩围此前必须
+  手工把每个重叠的 planned mission 逐个 `deferred:true`、改完再逐个恢复，而 2.9.8 之前的不
+  重叠检查连依赖关系都不看，所以一次扩围经常要试三四轮。现在单 mission 形式接受
+  `widen: {mode: "refuse" | "defer-conflicts", restoreDeferrals, keepStatus}`：`refuse` 仍是
+  默认并逐字保留旧文案，`defer-conflicts` 一次写完推迟，返回 `{mode, deferred, restored,
+  statusKept}`；`restoreDeferrals` 把同一批恢复。只有 planned 邻居可以被自动推迟——active 的
+  报 `a deferral would strand in-flight work`，completed 的报 `only a planned neighbour can be
+  deferred`，都不动 state。`keepStatus` 让扩围后保持 `completed`，省掉"扩围把已完成 mission
+  打回 active"这一步。
+- **完成记录会写下这次真正改动过的文件（#222）**：`tower_complete` 接受可选的 `files`，
+  但权威来源是分支 diff，不是调用方声明——声明的文件只并入并集，diff 里没有的会被
+  `footprint-mismatch` 注记指出，绝不硬失败。记录形如
+  `{insideScope, outsideScope, widenAt, widenedTo, changed, declared}`，diff 范围与合并门禁
+  完全一致（`merge-base(baseTip, branchTip)..branchTip`，并尊重 checkout 的大小写模式），
+  所以一个路径不可能"对完成记录在内、对审查在外"。`tower_inspect` 的 preflight 把
+  outside-scope 文件作为数组放进 blocker details，reviewer briefing 只在真有越界文件时才印
+  这一节。
+- **`tower_inspect` 的 `status`/`roster` 尊重分页契约（#233 / #207 后续）**：`status` 默认
+  20 行、上限 100，并把生效的 `limit` 连同 `total`/`nextOffset` 一起回显（降级响应也回显），
+  `missionId` 收窄到单个 mission。shipped briefing 的 Rules 段因此多了一条"窄读"规则：
+  用 `{view:"status", missionId}`、`limit`/`offset`、`{view:"roster", agent, tail}`，因为
+  一次无界的 status/roster/doctor 转储足以吃掉整轮上下文——本会话有两个子代理因此死掉。
+
+### 变更
+
+- **`tower_spawn` 的 pre-flight 有界、可取消、可观察（#237，P0）**：此前 pre-flight 里
+  `observeActivity` 的一个 `listDescendants` 可以无限期不返回，`enqueueSpawn` 又按仓库串行化
+  且没有等待上限，于是一次卡死会让该仓库此后的每次 spawn 永久排队，而没有任何阶段日志能说明
+  卡在哪。现在整段 pre-flight（仓库队列加上 `reserveRoster` 之前的每一次读取）跑在一条
+  `spawn.preflightTimeoutMs`（默认 30000，1000–600000）期限之下，配置解析出仓库值后只按剩余
+  预算重新计时；超时以 `spawn-unavailable` + `details {phase, elapsedMs}` 失败。`exec.signal`
+  现在贯穿 `observeActivity` 与每一次 `listDescendants(parent, signal)`，读取被取消或失败时
+  保持 `parentAuthoritative=false`——绝不把"证据缺失"记成"没有子孙"。spawn 队列变成计量队列，
+  等待超时以 `details {phase:"queue", waitedMs, depth}` 结束并让链条继续，`spawnQueueView`
+  已接入 status 视图。每个阶段写一条 activity，队列结算再写一条；拿到 tower 句柄之前的记录
+  按顺序缓冲回放。期限一到时，写入阶段会先复查再动手，已经写下的东西按序回滚并以
+  `details.rollback` 如实上报，而不是在文案里承诺"什么都没写"。
+- **一条被拒绝的 spawn 不再删掉别人的东西（#237 R3/R4）**：reviewer spawn 失败时，
+  `created` 曾被同时当成"工作树"和"评审副本"的声明，于是被拒的评审会删掉被审 mission 自己的
+  工作树与记录——现在两者分开（`worktreeCreated` / `worktreeCreatedAt`），删除前还要用
+  `createdAt` 做归属证明并在第二把锁里重新验证。detached survey 的 sandbox 事实是裸路径
+  字符串，旧的形状判断因此永远走 `none` 分支：目录还在、mission 还记着它，调用方却被告知
+  已释放，重试就撞 `sandbox path already exists`；现在归一化后按真实路径分支，`kept` 文案
+  带路径。
+- **未声明的顶层入参被拒绝，而不是静默丢弃（#230）**：转发逻辑曾逐键拷贝，所以一个插件不认识
+  的键会被安静扔掉，调用仍然返回 `ok: true`（`task_add` 就这样在一次真实会话里消失过）。现在
+  在 `define()` 的派发缝隙里，参数先与声明的 `parameters` 比对，多出来的键以
+  `invalid-argument` 拒绝并点名工具、未知键、已声明键、别名键与 `repoRoot` 例外；嵌套值不受
+  影响，开放 schema 的用户自定义输入仍然全收。
+- **I/O 拒绝带码、路径与阶段（#228）**：`ENOSPC`/`EMFILE`/`ENFILE`/`EIO` 此前会以裸 Node 错误
+  逃逸（一次真实的 `tower_merge` 只得到 `ENOSPC: no space left on device, write`）。现在
+  state 读取/写入、activity 追加、锁创建、合并记录、配置写入每一个落盘缝隙都翻译成同一个
+  `state-io-failed`，带 `details {code, path, phase}`、`retryable: false`，并且绝不留下半份文档；
+  doctor 新增 `disk-space` 行，低于 64 MiB 时失败并点名卷。工具错误码 44 → 45。
+- **死掉的 worker 留下证据，也留下下一步（#231 / #232）**：roster 行在标脏时会带
+  `residue {at, filesChanged, branch, tip, dirty, cause?}`，只在该 worker 真的留下改动时
+  才写到 mission 的 `predecessorResidue`，并随下一次 spawn 进入 successor 的 briefing；最近的
+  一次死亡覆盖上一次，干净的死亡会清掉它，F73 的自我复活与正常完成也会清掉它，且只有 worker
+  的残留才算数（死掉的 reviewer 的评审副本不算）。`agent … is stopped; a stopped worker cannot
+  report completion` 与 reviewer 前置条件两条拒绝现在都带 `nextAction`，其中一条直指"短暂
+  bookkeeping worker"这条路——此前它只存在于会话记忆里。
+- **遗留目录清扫认得链接，释放过的路径不再挡住清扫（#227 / #234）**：只含 `node_modules`
+  junction 的 mission 目录此前永远清不掉（"not an empty directory; kept"），而合并后已经
+  `worktreeRemovedAt` 的路径又被当成"仍被引用"而跳过检查。现在先 unlink 链接（不跟随）、
+  再证明为空、最后删除；真文件、指向仓库外的链接、仍在用的 checkout 各自保留并点名原因；
+  `leftoversReleased` 出现在每种报告分支里。
+- **briefing 教怎么窄读，status 诚实分页（#233）**：见新增一节。
+- **prose 里的表面数字和证据账本都被门禁（#223 / #229）**：`docs:check` 现在扫描随包文档里的
+  `N 个工具` / `N tools` / `N[,NNN] B` / `N[,NNN] input bytes` / `mounts N` 及其全部动词变形，
+  与 `scripts/surface-baseline.json` 和实时测量比对；历史段落必须用
+  `<!-- tower-surface-history YYYY-MM-DD: … -->` 显式标注，且其值必须在基线里可查，否则失败。
+  `tests/README.md` 的 `## Release evidence` 成为唯一的证据落点，最新块由同一门禁检查，并且
+  **拒绝**声明数/pass/skip/失败数/文件数/耗时——那些是一次运行的记录，属于 CI job log。
+  顺带查出三份文档把全量构建总量写成 32,792 B，实测是 32,794 B。
+
+### 修复
+
+- **`tower_wait` 把"读到一半文件消失"当成未初始化（F118）**：`Tower.load()` 先 `exists()`
+  再读，文件在两步之间消失时抛出裸 `ENOENT`，而 `readState` 只识别 `not-initialized`，于是
+  等待方被告知"state 不可读"。两者对等待者含义相同，现在一并映射。并发 4 份复现（修复前
+  1/4 红），修复后 4/4 绿。
+- **`release:prepublish` 跑 `docs:check`（F114）**：发布前链路此前漏了这条门禁，所以一段
+  被改坏的 prose 数字只在 CI 才会红，而 `pack:check` 放行。`tests/release-gate.test.mjs`
+  的链路断言同步更新。
+- **runbook 重述已经落地的遗留目录规则（F112）**：`docs/operations/runbook.md` 仍写着"只清空
+  目录"，而实际规则是"空，或只含解析到仓库/工作树根内部的链接"。
+- **`tower_inbox` 的测试不再传它从未声明的参数（F113）**：`2.1 delivery` 夹具把 `agent` 传给
+  `tower_inbox`（该工具从 actor 推导读者），在 #230 开始拒绝未声明键之后，它就是 shard
+  batch 2 里唯一的红。
+- **reviewer 的拒绝点名可执行的路（F109）**：`reviewer requires a completed mission` 与
+  "没有工作树"两条拒绝现在带 `nextAction`，分别指向"先让 worker 留下 worktree 与提交"和
+  "让 owner 完成，或起一个短暂 bookkeeping worker 去完成再 `tower_complete`"；blocker 句子本身
+  逐字不变，`planned` mission 仍走目录里的通用文案。
+- **`node_modules` 链接成为 mission worktree 的一等字段（F103）**：`MissionWorktree` 声明
+  `nodeModulesLink {target, path, createdAt}`，`assertWorktreeRecord` 拒绝非对象链接、缺
+  `target`、以及类型不对的 `path`/`createdAt`，并新增 schema↔types 双向同步门禁。
+
 ## 2.9.8（2026-11-22）
 
 ### 新增
