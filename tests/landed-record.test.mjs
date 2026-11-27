@@ -242,6 +242,31 @@ test('#248: a cherry-picked landing is recognised as content-equivalent', async 
   }
 })
 
+test('#248: a caller may name the branch-side commits of a cherry-picked landing', async () => {
+  const { root, repo, tower, tip } = await p2MissionThenFix('dsh-tower-landed-cherry-named-')
+  try {
+    // The realistic shape: the caller knows the mission's own commits, not the
+    // SHAs the replay produced. Those commits are in the base only as patches,
+    // so an ancestry-only test would refuse the one call this issue exists for.
+    const replayDate = '2026-11-27T12:00:00+00:00'
+    for (const commit of branchCommits(repo, 'tower/m1-landed-record')) {
+      gitAt(repo, ['cherry-pick', commit], replayDate)
+    }
+    assert.equal(await tower.isAncestor(repo, tip, 'HEAD'), false, 'the branch tip is not an ancestor')
+
+    const recorded = await tower.merge({
+      missionId: 'M1',
+      activity: {},
+      record: { reason: 'cherry-picked onto the release branch during the wave', commits: [tip] },
+    })
+    assert.equal(recorded.ok, true, JSON.stringify(recorded))
+    assert.equal(recorded.basis, 'content-equivalent')
+    assert.equal(readState(tower).missions[0].status, 'merged')
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('#248: a landed mission keeps its worktree until the landing is recorded, then retires', async () => {
   const { root, repo, tower, wt } = await p2MissionThenFix('dsh-tower-landed-teardown-')
   try {

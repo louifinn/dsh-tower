@@ -396,8 +396,8 @@ export function landedRecordDecision({ mission, reviews, config = {}, record, fa
       blocker: {
         code: 'landed-unrecorded',
         detail: partial
-          ? `record.commits names ${missing.length} commit(s) that are not in ${facts.base}: ${missing.join(', ')}; record only commits that already landed, or re-review the branch`
-          : `none of record.commits is in ${facts.base} (${missing.join(', ')}), and branch tip ${facts.branchTip.slice(0, 7)} is not an ancestor, so this work has not landed; record cannot approve it — re-review and merge the branch`,
+          ? `record.commits names ${missing.length} commit(s) that are not in ${facts.base}, neither as ancestors nor as equivalent patches: ${missing.join(', ')}; record only commits that already landed, or re-review the branch`
+          : `none of record.commits is in ${facts.base} (${missing.join(', ')}), neither as ancestors nor as equivalent patches, and branch tip ${facts.branchTip.slice(0, 7)} is not an ancestor, so this work has not landed; record cannot approve it — re-review and merge the branch`,
       },
     }
   }
