@@ -266,7 +266,11 @@ test('#237: the spawn queue refuses a wait past the deadline with the queue fact
   assert.match(String(error.message), /spawn-unavailable/)
   assert.match(String(error.message), /stayed queued/)
   assert.equal(error.details?.phase, 'queue')
-  assert.ok(error.details?.waitedMs >= 50, `the failure reports the wait (saw ${error.details?.waitedMs})`)
+  // Windows timer granularity can fire a 50 ms timer a millisecond or two early,
+  // so the reported wait is compared against the bound with a small tolerance.
+  const reportedWait = error.details?.waitedMs
+  assert.equal(typeof reportedWait, 'number', 'the failure reports a numeric wait')
+  assert.ok(reportedWait >= 40, `the failure reports the wait (saw ${reportedWait})`)
   assert.equal(error.details?.depth, 2, 'the failure reports the depth it found')
   assert.ok(waitedMs < 5000, 'the refusal is the deadline, not the blocker')
   // The read-only snapshot reports the same facts while the slot is held.
