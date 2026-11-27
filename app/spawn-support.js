@@ -9,7 +9,7 @@ import { SPAWN_OUTCOME } from '../domain/vocabulary.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
 import { buildActivationSpec } from './host-contract.js'
 import { cleanupReviewCheckout, removeReviewCheckout } from './reviewCheckout.js'
-import { refundRollbackFacts, removeProvisionedWorktree, rollbackSpawnWrites } from './provision.js'
+import { refundRollbackFacts, rollbackSpawnWrites } from './provision.js'
 import { isSpawnPreflightPhase } from './spawn-deadline.js'
 
 // The rollback composition lives with the provisioning code it drives; the
@@ -213,7 +213,6 @@ async function disposeReviewCheckout(tower, review, { name, missionId }) {
   await cleanupReviewCheckout(tower, { name, missionId }).catch(() => {})
 }
 
-
 /**
  * #237 R2 P1: the write half of the pre-flight — place the checkout, admit the
  * mission's tests — wrapped so a refusal that lands after the checkout exists
@@ -262,7 +261,10 @@ export async function provisionRefusalSafe(tower, input) {
     return { placement, agentOptions }
   } catch (error) {
     const refusal = refusalFromSignal(signal)
-    if (!refusal || !placement?.worktree?.path) throw error
+    // A placement is the precondition for any write this window can leave behind:
+    // a worktree checkout, or a detached survey sandbox (which has no worktree at
+    // all). Gating on `worktree.path` would make the sandbox arm unreachable.
+    if (!refusal || !placement) throw error
     const missionIdOf = placement.mission?.id ?? missionId
     const rollback = await rollbackSpawnWrites(tower, { missionId: missionIdOf, name, placement })
     refundRollbackFacts(refusal, rollback)
