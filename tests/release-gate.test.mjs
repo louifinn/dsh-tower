@@ -1088,6 +1088,9 @@ test('package.json exposes release:check and CI runs it with tags available', ()
 const PREPUBLISH_STEPS = [
   'node scripts/release-check.mjs --mode prepublish',
   'npm run support:check',
+  // F114: the prose-figure and release-evidence gate lives in `docs:check`, so a
+  // release that restates a stale surface number must fail here, not only in CI.
+  'npm run docs:check',
   'npm run docs:check:generated',
   'npm run docs:check:generated:tools',
   'npm run docs:check:generated:config',
@@ -1108,7 +1111,7 @@ test('npm publish runs the prepublish guard through prepublishOnly', () => {
   assert.deepEqual(
     chain.split(' && ').map((step) => step.trim()),
     PREPUBLISH_STEPS,
-    'the prepublish chain must be the release guard, the support manifest, every generated-docs check and the pack check',
+    'the prepublish chain must be the release guard, the support manifest, the docs check, every generated-docs check and the pack check',
   )
   // Read-only, offline and non-interactive: nothing here may write the tree,
   // install, publish, touch git/gh or reach the network.
