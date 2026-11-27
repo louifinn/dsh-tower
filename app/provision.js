@@ -342,13 +342,35 @@ async function unlinkRecordedDependencyLink(tower, worktree) {
  *
  * Refuses (and says so) when the recorded worktree is no longer the one the
  * caller saw, so a concurrent writer's checkout is never discarded.
+ *
+ * #237 R3 P1: the path alone cannot prove ownership — a review spawn reports the
+ * mission's own checkout as its worktree, so a path check against the recorded
+ * record passes trivially and deletes a checkout the spawn only borrowed. The
+ * caller therefore has to prove *when* the record was created (`createdAt`, a
+ * stamp `worktreeRecord` always mints) and that the placement is one that really
+ * creates worktrees; a mismatch is a `kept`, never a removal.
  * @param {any} tower
- * @param {{ missionId: string, worktree: { path: string, branch?: string | null, baseCommit?: string | null } }} input
+ * @param {{
+ *   missionId: string,
+ *   worktree: { path: string, branch?: string | null, baseCommit?: string | null },
+ *   createdAt?: number | null,
+ *   provisioning?: string | null,
+ * }} input
  * @returns {Promise<{ state: 'removed' | 'none' | 'kept', path?: string, reason?: string, branchRemoved?: boolean }>}
  */
 export async function removeProvisionedWorktree(tower, input) {
   const target = input?.worktree
   if (!target || typeof target.path !== 'string' || target.path.length === 0) return { state: 'none' }
+  if (input?.provisioning === 'review-checkout') {
+    // A review spawn borrows the completed mission's branch checkout for its
+    // briefing; the only thing it creates is the detached review checkout, and
+    // rolling that back is `removeReviewCheckout`'s job, not this one.
+    return {
+      state: 'kept',
+      path: target.path,
+      reason: 'a review spawn borrows the mission worktree instead of creating it',
+    }
+  }
   const removed = await tower.deps.store.withGitLock(tower.paths, async () => {
     const state = await tower.load()
     const mission = state.missions.find((entry) => entry.id === input.missionId)
@@ -359,6 +381,23 @@ export async function removeProvisionedWorktree(tower, input) {
         state: 'kept',
         path: recorded.path,
         reason: `the mission records a different worktree (${recorded.path}) than this pre-flight created`,
+      }
+    }
+    // The record must be the one this pre-flight minted: its creation stamp is
+    // the only fact a borrowed checkout cannot borrow as well.
+    const claimed = Number(input?.createdAt)
+    if (!Number.isFinite(claimed) || claimed <= 0) {
+      return {
+        state: 'kept',
+        path: recorded.path,
+        reason: 'this call did not record when it created the worktree, so it cannot prove the record is its own',
+      }
+    }
+    if (recorded.createdAt !== claimed) {
+      return {
+        state: 'kept',
+        path: recorded.path,
+        reason: 'the mission records a worktree created at a different time, so this rollback leaves it alone',
       }
     }
     const link = await unlinkRecordedDependencyLink(tower, recorded)
@@ -383,6 +422,9 @@ export async function removeProvisionedWorktree(tower, input) {
     const recorded = mission?.worktree
     if (!recorded || typeof recorded.path !== 'string') return false
     if (path.resolve(recorded.path) !== path.resolve(target.path)) return false
+    // Re-prove ownership: the record may have been replaced between the two
+    // locks, and this one is the write that forgets it.
+    if (recorded.createdAt !== Number(input?.createdAt)) return false
     delete mission.worktree
     delete mission.baseCommit
     const now = Date.now()
@@ -492,7 +534,7 @@ export function refundRollbackFacts(refusal, rollback) {
  *   missionId: string,
  *   name: string,
  *   reservationId?: string,
- *   placement?: { created?: boolean, worktree?: any, sandbox?: any, provisioning?: string } | null,
+ *   placement?: { created?: boolean, worktree?: any, sandbox?: any, provisioning?: string, worktreeCreated?: boolean, worktreeCreatedAt?: number | null } | null,
  * }} input
  * @returns {Promise<Record<string, string>>}
  */
@@ -510,14 +552,22 @@ export async function rollbackSpawnWrites(tower, input) {
   const worktree = placement?.worktree ?? null
   if (!worktree?.path) {
     facts.worktree = 'none'
-  } else if (placement?.created !== true) {
-    // A checkout the mission already owned before this spawn is not ours to
-    // delete: the caller saw a reused worktree and a retry reuses it again.
-    facts.worktree = 'kept: reused by the mission before this pre-flight'
+  } else if (placement?.worktreeCreated !== true) {
+    // #237 R3 P1: the worktree branch reads the fact minted for the worktree,
+    // never `placement.created` — for a reviewer that flag describes the detached
+    // review checkout while `worktree` names the mission's own completed
+    // checkout, and one flag cannot speak for both. A checkout the mission
+    // already owned before this spawn is not ours to delete: the caller saw a
+    // reused worktree and a retry reuses it again.
+    facts.worktree = placement?.provisioning === 'review-checkout'
+      ? 'kept: the mission worktree, which the review checkout only borrowed'
+      : 'kept: reused by the mission before this pre-flight'
   } else {
     const removal = await removeProvisionedWorktree(tower, {
       missionId: input.missionId,
       worktree: { path: worktree.path, branch: worktree.branch, baseCommit: worktree.baseCommit },
+      createdAt: placement?.worktreeCreatedAt ?? null,
+      provisioning: placement?.provisioning ?? null,
     }).catch((error) => ({ state: 'kept', path: worktree.path, reason: String(error?.message ?? error).slice(0, 160) }))
     facts.worktree =
       removal.state === 'removed'

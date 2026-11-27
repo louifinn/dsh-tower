@@ -7,7 +7,7 @@ import { DEFAULT_SPAWN_PREFLIGHT_TIMEOUT_MS } from '../domain/config/schema.js'
 import { SPAWN_OUTCOME } from '../domain/vocabulary.js'
 import { workerBriefing, reviewerBriefing } from './briefing.js'
 import { buildActivationSpec } from './host-contract.js'
-import { cleanupReviewCheckout } from './reviewCheckout.js'
+import { cleanupReviewCheckout, removeReviewCheckout } from './reviewCheckout.js'
 import { refundRollbackFacts, removeProvisionedWorktree, rollbackSpawnWrites } from './provision.js'
 
 // The rollback composition lives with the provisioning code it drives; the
@@ -200,12 +200,17 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
   }
   let budgetMs = budgetFor(timeoutMs)
   const elapsed = () => Date.now() - startedAt
-  // `details` lets the caller attach facts it owns to the refusal (the queue
-  // reports the wait it cost) without this helper knowing about queues.
-  /** @param {string} name */
+  // #237 R3 P2: from `provision` on, the response always carries `rollback` — a
+  // placeholder `refundRollbackFacts` overwrites once the bounded unwind lands.
+  const WRITES_AT = SPAWN_PREFLIGHT_PHASES.indexOf('provision')
   const factsFor = (name) => {
     const extra = typeof details === 'function' ? details(name) : null
-    return { ...(extra ?? {}), phase: name, elapsedMs: elapsed() }
+    /** @type {Record<string, unknown>} */
+    const facts = { ...(extra ?? {}), phase: name, elapsedMs: elapsed() }
+    if (SPAWN_PREFLIGHT_PHASES.indexOf(name) >= WRITES_AT) {
+      facts.rollback = { status: 'pending', note: `refused in phase ${name}; the unwind was still running when the caller was told, so the activity log records what it released` }
+    }
+    return facts
   }
   // #237 R2 P1: the message names what the caller can rely on — nothing was
   // activated and whatever the pre-flight had already written is reported in
@@ -213,7 +218,7 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
   const cancelledError = () =>
     new TowerToolError(
       'spawn-unavailable',
-      'tower_spawn was cancelled during pre-flight; no worker was started and details.rollback reports what the pre-flight released',
+      'tower_spawn was cancelled during pre-flight; no worker was started and details.rollback reports what the pre-flight released (or that the release is still pending)',
       { details: factsFor(phase) },
     )
   /** @param {unknown} reason */
@@ -277,7 +282,7 @@ export async function withSpawnDeadline({ timeoutMs, signal, phase: initialPhase
     stop(
       new TowerToolError(
         'spawn-unavailable',
-        `tower_spawn pre-flight exceeded spawn.preflightTimeoutMs (${budgetMs}ms) in phase ${phase}; no worker was started and details.rollback reports what the pre-flight released`,
+        `tower_spawn pre-flight exceeded spawn.preflightTimeoutMs (${budgetMs}ms) in phase ${phase}; no worker was started and details.rollback reports what the pre-flight released (or that the release is still pending)`,
         { details: factsFor(phase) },
       ),
     )
@@ -407,6 +412,11 @@ export async function provisionSpawnPlacement(tower, { role, context, missionId,
     review,
     instructions,
   })
+  // #237 R3 P1: `created` answers "did this spawn make what it reports as its cwd"
+  // — for a reviewer, the detached review checkout, not the borrowed branch
+  // worktree. The rollback read it as a claim about both and deleted the reviewed
+  // mission's checkout, so the worktree now gets facts of its own.
+  const worktreeCreated = review ? false : (provisioned.created === true && Boolean(provisioned.worktree?.path))
   return {
     mission,
     worktree,
@@ -416,6 +426,8 @@ export async function provisionSpawnPlacement(tower, { role, context, missionId,
     briefing,
     provisioning: review ? 'review-checkout' : (provisioned.provisioning ?? shape.provisioning),
     created: review ? true : provisioned.created,
+    worktreeCreated,
+    worktreeCreatedAt: worktreeCreated ? (provisioned.worktree?.createdAt ?? null) : null,
     sandbox: provisioned?.sandbox ?? null,
   }
 }
@@ -458,6 +470,15 @@ function activationSignalFor(exec, deadlineSignal) {
   if (caller === deadlineSignal || typeof AbortSignal.any !== 'function') return caller
   return AbortSignal.any([caller, deadlineSignal])
 }
+
+/** #237 R3 P1: dispose of a refused review spawn's checkout, by path and by row. */
+async function disposeReviewCheckout(tower, review, { name, missionId }) {
+  if (!review) return
+  const path = review.path ?? review.checkout ?? null
+  if (typeof path === 'string' && path.length > 0) await removeReviewCheckout(tower, path).catch(() => {})
+  await cleanupReviewCheckout(tower, { name, missionId }).catch(() => {})
+}
+
 
 /**
  * #237 R2 P1: the write half of the pre-flight — place the checkout, admit the
@@ -511,6 +532,10 @@ export async function provisionRefusalSafe(tower, input) {
     const missionIdOf = placement.mission?.id ?? missionId
     const rollback = await rollbackSpawnWrites(tower, { missionId: missionIdOf, name, placement })
     refundRollbackFacts(refusal, rollback)
+    // #237 R3 P1: the rollback reported the mission worktree as kept (a review
+    // spawn only borrows it), so the checkout it really created is disposed of
+    // here — by path, because the rollback just released the row.
+    await disposeReviewCheckout(tower, placement.review, { name, missionId: missionIdOf })
     // A reservation that could not be released still needs its outcome recorded,
     // exactly like any other pre-activation failure.
     if (rollback.reservation.startsWith('kept')) {
@@ -637,7 +662,7 @@ export async function activateAndRecordSpawn(input) {
         })
         .catch(() => {})
       if (review) {
-        await cleanupReviewCheckout(tower, { name, missionId: mission.id }).catch(() => {})
+        await disposeReviewCheckout(tower, review, { name, missionId: mission.id })
       }
       throw refusal
     }
@@ -646,12 +671,12 @@ export async function activateAndRecordSpawn(input) {
         missionId: mission.id,
         name,
         reservationId: reserved?.reservationId,
-        placement: placement ?? { created, worktree, sandbox, provisioning },
+        placement: placement ?? { created, worktree, sandbox, provisioning, worktreeCreated: false, worktreeCreatedAt: null },
       })
       refundRollbackFacts(refusal, rollback)
-      if (review) {
-        await cleanupReviewCheckout(tower, { name, missionId: mission.id }).catch(() => {})
-      }
+      // #237 R3 P1: the rollback released the reservation, so a row-based
+      // cleanup would find nothing and leak the checkout.
+      await disposeReviewCheckout(tower, review, { name, missionId: mission.id })
       throw refusal
     }
     await tower
@@ -663,9 +688,7 @@ export async function activateAndRecordSpawn(input) {
       })
       .catch(() => {})
     // A failed review spawn must not leak its detached evidence checkout.
-    if (review) {
-      await cleanupReviewCheckout(tower, { name, missionId: mission.id }).catch(() => {})
-    }
+    await disposeReviewCheckout(tower, review, { name, missionId: mission.id })
     throw error
   }
   const recordOutcome = (state, detail) =>

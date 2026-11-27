@@ -55,7 +55,8 @@ loses to steps that keep going.
   `details: {phase, elapsedMs, rollback}`. `phase` names the step that stalled — `queue` for a wait
   behind another spawn, `observe`/`roster`/`ownership`/`services` for the catalog and roster reads,
   `provision` for the worktree, `discovery` for test admission, `reserve`/`activate`/`record` for the
-  writes. A cancelled caller gets the same error code with a `cancelled` message. While the call is
+  writes. `rollback` is absent for the phases before the first write, because nothing had been
+  written yet. A cancelled caller gets the same error code with a `cancelled` message. While the call is
   in flight the tower's activity log narrates it, so a hung spawn is legible from the log alone: each
   phase transition appends `pre-flight <phase> after <n>ms`, and a call that had to wait behind
   another appends `pre-flight queued <n>ms behind <n> other spawn(s)` when it starts running.
@@ -67,7 +68,11 @@ loses to steps that keep going.
   already made — the roster reservation it wrote, the worktree it created, a detached sandbox — and
   reports each one in `details.rollback` as `released`, `removed` or `none`; when a step could not be
   undone it is reported as `kept` with the path and the reason, and only then is anything left for
-  you to clean up. A worktree the mission already owned before the call is never removed, because it
+  you to clean up. That report is bounded: the refusal waits up to two seconds for the in-flight step
+  to observe the abort, so `details.rollback` may instead be `{status: "pending", note}` — the unwind
+  was still running when the caller was told, and the activity log records what it released. A
+  `pending` rollback is a reason to read the log, never a reason to assume the writes survived. A
+  worktree the mission already owned before the call is never removed, because it
   is not this call's to delete. If `rollback` names a kept reservation, the next spawn's pre-check
   reaps it once it has been stalled for `STALLED_RESERVATION_GRACE_MS` (60s), so waiting that long and
   retrying is one option; removing the checkout with `tower_teardown` is the other. If `rollback`
@@ -75,7 +80,11 @@ loses to steps that keep going.
   cleanup, and once the cause is fixed the same call can simply be retried. If the mission is no
   longer `planned`, a child did start: the refusal then reports the activation it could not undo in
   `details.rollback.reservation` and the normal paths apply — see
-  [A worker died mid-mission](#a-worker-died-mid-mission).
+  [A worker died mid-mission](#a-worker-died-mid-mission). A refused **reviewer** spawn reports
+  `rollback.worktree` as `kept` by design: it borrows the reviewed mission's completed branch
+  worktree and creates only the detached review checkout, which the call disposes of itself. If a
+  completed mission's `worktree` record ever disappears after a refused reviewer spawn, that is a
+  bug, not a cleanup step — record it rather than re-provisioning the checkout.
 - **When retrying is safe.** A timeout is not a provider cooldown: it does not count toward
   `spawn.backoff`, so one retry after the service settles is the intended recovery. Raise
   `spawn.preflightTimeoutMs` only for a legitimately slow provisioning step, not to paper over a

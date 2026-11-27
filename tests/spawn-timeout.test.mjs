@@ -545,6 +545,111 @@ test('#237 R2 P1: a deadline that expires during the reservation releases the ro
   }
 })
 
+/**
+ * A completed mission with a real branch checkout. Only a completed mission can
+ * be reviewed, so the fixture has to walk the same public path a worker does:
+ * plan, provision, work, record, complete.
+ * @param {string} repo
+ */
+async function completedMission(repo) {
+  const { Tower } = await import('../host/tower.js')
+  const tower = await Tower.open(repo)
+  await tower.init({ towerAgentId: 'tower-agent' })
+  await tower.plan({ missions: [{ title: 'Mission one', scope: ['README.md'], tasks: ['do the thing'] }] })
+  const provisioned = await tower.provision({ missionId: 'M1' })
+  const wt = provisioned.worktree.path
+  fs.writeFileSync(path.join(wt, 'README.md'), 'done\n')
+  git(wt, ['add', '-A'])
+  git(wt, ['commit', '-m', 'M1 done'])
+  await tower.mission({ id: 'M1', status: 'active' })
+  await tower.mission({ id: 'M1', task_done: 'do the thing' })
+  await tower.recordSpawn({
+    missionId: 'M1',
+    name: 'worker-m1',
+    role: 'worker',
+    agentId: 'agent-worker',
+    parentSessionId: 'tower-agent',
+    cwd: wt,
+    branch: provisioned.worktree.branch,
+  })
+  await tower.complete({ missionId: 'M1', agentId: 'agent-worker', report: 'done' })
+  return { tower, wt, branch: provisioned.worktree.branch }
+}
+
+/** Every checkout `git worktree list` registers, resolved for comparison. */
+function registeredWorktrees(repo) {
+  return execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: repo, encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => path.resolve(line.slice('worktree '.length).trim()))
+}
+
+test('#237 R3 P1: a refused reviewer spawn keeps the reviewed mission worktree and record', async () => {
+  // The round-2 fix released the writes a refused pre-flight made, but it read
+  // ONE `created` flag as a claim about TWO artifacts: for a reviewer that flag
+  // describes the detached review checkout while `worktree` names the mission's
+  // own completed checkout. A refusal therefore deleted a checkout this spawn
+  // never created, and dropped the completed mission's record with it.
+  const { root, repo } = seedRepo('dsh-tower-spawn-review-refusal-')
+  try {
+    const { tower, wt, branch } = await completedMission(repo)
+    // The bound must outlast the detached review checkout (a real `git worktree
+    // add`) and expire inside the activation request, so the refusal lands after
+    // the mission worktree was borrowed and before a reviewer was recorded.
+    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 1500 } })
+    const before = await tower.load()
+    const recorded = before.missions.find((entry) => entry.id === 'M1')
+    assert.equal(recorded.status, 'completed', 'the fixture mission is completed before the reviewer spawn')
+    assert.equal(recorded.worktree?.path, wt, 'the fixture mission records its own checkout')
+    const baseCommit = recorded.worktree.baseCommit
+    const harness = makeHarness({ subagents: activationHangSubagents() })
+    const error = await within(
+      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'reviewer' }).catch((caught) => caught),
+      25000,
+    )
+    assert.ok(error instanceof Error, 'the refused reviewer spawn rejects instead of hanging')
+    assert.match(String(error.message), /spawn-unavailable/)
+    assert.equal(error.details?.phase, 'activate', `the refusal names the activation (saw ${error.details?.phase})`)
+    // (5) the rollback reports the mission worktree as kept, never as removed —
+    // the review checkout is the only artifact this spawn created.
+    assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
+    assert.match(
+      String(error.details.rollback.worktree),
+      /^kept/,
+      `the review spawn keeps the mission worktree (saw ${error.details.rollback.worktree})`,
+    )
+    assert.equal(error.details.rollback.reservation, 'released', 'the reservation this call wrote is gone')
+    // (1) the completed mission keeps the checkout record it had before.
+    const after = await tower.load()
+    const mission = after.missions.find((entry) => entry.id === 'M1')
+    assert.equal(mission.worktree?.path, wt, 'the completed mission still records its own worktree path')
+    assert.equal(mission.worktree?.baseCommit, baseCommit, 'the completed mission still records its base commit')
+    // (2) the checkout is still on disk and still registered with git.
+    assert.ok(fs.existsSync(wt), `the reviewed checkout still exists on disk (${wt})`)
+    const registered = registeredWorktrees(repo)
+    assert.ok(
+      registered.some((entry) => entry === path.resolve(wt)),
+      `git still registers the mission checkout (saw ${registered.join(', ')})`,
+    )
+    // (3) the branch survives, so the completed work is not orphaned.
+    assert.doesNotThrow(() => git(repo, ['show-ref', '--verify', `refs/heads/${branch}`]), 'the mission branch still exists')
+    // (4) the disposable review checkout was cleaned up, both the directory and
+    // its git registration. The naming is `reviewCheckoutPath`'s: a sibling of
+    // the mission worktree called `<missionId>-review-<reviewerName>`.
+    const reviewRoot = path.dirname(wt)
+    const reviewLeftovers = fs.existsSync(reviewRoot)
+      ? fs.readdirSync(reviewRoot).filter((entry) => entry.startsWith('M1-review-'))
+      : []
+    assert.deepEqual(reviewLeftovers, [], `the review checkout is removed (saw ${reviewLeftovers.join(', ')})`)
+    assert.ok(
+      !registered.some((entry) => path.basename(entry).startsWith('M1-review-')),
+      `git no longer registers the review checkout (saw ${registered.join(', ')})`,
+    )
+  } finally {
+    removeTemp(root)
+  }
+})
+
 test('#237: the pre-flight phase list is frozen, small and used verbatim', async () => {
   const { SPAWN_PREFLIGHT_PHASES, SPAWN_PHASE_PENDING, isSpawnPreflightPhase } = await import('../app/spawn-support.js')
   assert.deepEqual([...SPAWN_PREFLIGHT_PHASES], [

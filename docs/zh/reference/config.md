@@ -84,10 +84,19 @@ agent；需要中断时请显式传 `interrupt:true`。生成页中的其他值�
 中止预检，而不只是提前返回：预检已经完成的写入会在失败返回之前被释放——它写入的 roster 预约、它创建的
 worktree、分离的 sandbox——`details.rollback` 会逐项报告 released、removed、`none`，或无法撤销时的
 `kept` 以及路径与原因。调用前就属于该 mission 的 worktree 不会被删除；已经启动的子代理也不会被报告为
-未启动。调用方取消自己的 signal 时会得到同一个错误（消息为 `cancelled`），而不必等到截止时间。同一个键也
+未启动。reviewer 是看起来反常但正确的情况：它只为简报借用被评审 mission 已完成的 branch worktree，
+自己创建的只是分离的 review checkout，因此 `details.rollback.worktree` 报告 `kept`，而它真正创建的
+checkout 会按路径单独清理。调用方取消自己的 signal 时会得到同一个错误（消息为 `cancelled`），而不必等到
+截止时间。同一个键也
 限制一个 spawn 在等待同仓库其他 spawn 时的排队时长；该失败报告 `phase: "queue"` 与
 `{waitedMs, depth}`，而 `tower_inspect({view:"status"})` 以 `spawn.depth` 与
 `spawn.oldestWaitMs` 暴露实时队列。
+
+释放本身是有界的：拒绝最多等待两秒，让进行中的阶段观察到中止，并报告那一刻的释放状态。若 unwind 仍在
+运行，`details.rollback` 会是 `{status: "pending", note}`，而不是逐项报告——释放完成后活动日志会记录
+结果，所以 `pending` 意味着应当去读日志，而不是假定那些写入仍然存在。第一次写入之前的阶段
+（`pending`、`queue`、`open`、`resolve`、`observe`、`roster`、`ownership`、`services`）完全不携带
+`rollback` 键，因为那时还没有任何写入。
 
 ## 示例
 
