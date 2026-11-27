@@ -13,6 +13,24 @@ export const MergeInput = Type.Object({
       description: 'Optional timeout for the merge command in milliseconds, including pre-merge hooks (default 15 minutes).',
     }),
   ),
+  record: Type.Optional(
+    Type.Object(
+      {
+        reason: Type.String({
+          minLength: 1,
+          description:
+            'Who resolved which review finding, at which commit, and why no clean review covers the tip. Written verbatim into the mission record and the activity log.',
+        }),
+        commits: Type.Optional(
+          Type.Array(Type.String({ minLength: 4 }), {
+            description:
+              'Commits that already landed in the base and reproduce this branch (e.g. a cherry-pick). Every named commit is verified with git merge-base --is-ancestor before anything is recorded.',
+          }),
+        ),
+      },
+      { additionalProperties: false },
+    ),
+  ),
 }, { additionalProperties: false })
 
 export const RebaseInput = Type.Object({

@@ -4,7 +4,7 @@
 
 `tower_inspect` with `view: "preflight"` returns `{ok:false, blockers:[{code, detail}], warnings:[...]}`. `tower_merge` and `tower_rebase`
 return the same shape for operation failures. Codes are stable; the detail is human-facing. The
-tables below define 36 stable blocker/failure codes.
+tables below define 37 stable blocker/failure codes.
 
 `survey-stale` is special: it is reported as a stable warning in `plan`/`preflight` by default and
 becomes a merge blocker only when `gates.requireFreshSurvey` is `true`. Its warning object carries
@@ -52,7 +52,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `review-exemption-invalid` | `review.mode:required` and the mission requests `reviewPolicy:"none"` while `gates.allowReviewExemption` is off (or the reason is missing). |
 | `merge-intent-pending` | A merge intent was recorded before a crash/failure; run `tower_merge` to reconcile before another gate. |
 
-## Merge failures (5)
+## Merge failures (6)
 
 | Code | Meaning / next action |
 |---|---|
@@ -61,6 +61,7 @@ The review blockers below (`no-review`, `review-mission-mismatch`, `not-clean`, 
 | `merge-shape` | Git produced unexpected merge parents; inspect the repository, do not force. |
 | `batch-invalid` | A batch id/member/receipt/check reference is invalid or close evidence is incomplete. |
 | `review-stale` | The reviewed commit is contained in the base but the branch tip is not: the branch was partially landed or moved. Re-review or repair the branch manually; `tower_merge` does not force. |
+| `landed-unrecorded` | The work is already in the base, but the record cannot be reconciled from the review alone: the latest review is not clean because the tower fixed its finding afterwards, or the work landed as a cherry-pick so the tip is not an ancestor. Record it with `tower_merge({ missionId, record: { reason, commits } })` stating who resolved what; that call writes `merged` only for commits that already landed. |
 
 A merge that already landed is **not** a blocker: `tower_merge` records it (`reconciled`,
 `alreadyLanded`) or recovers it (`recoveredFromFailure`, `warnings`).

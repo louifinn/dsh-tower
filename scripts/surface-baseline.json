@@ -257,7 +257,7 @@
       },
       "inputBytes": {
         "seed": 17008,
-        "value": 20903,
+        "value": 21473,
         "decisions": [
           {
             "from": 17008,
@@ -374,6 +374,13 @@
             "date": "2026-11-25",
             "adr": "docs/adr/0004-surface-budget.md",
             "note": "#221: tower_mission advertises the optional fold_notes boolean (tower-only audit fold of open review notes), so MissionInput grows by 540 bytes wherever it is mounted: profiles.tower.inputBytes becomes 20,903 (was 20,363). The tool count stays 15."
+          },
+          {
+            "from": 20903,
+            "to": 21473,
+            "date": "2026-11-28",
+            "adr": "docs/adr/0004-surface-budget.md",
+            "note": "#248: MergeInput advertises the optional record object (reason plus commits) so a merge whose work already landed can be recorded when the newest review is not clean at the tip. The one advertised schema grows by 570 bytes wherever tower_merge is mounted: profiles.tower.inputBytes becomes 21,473 (was 20,903) and host:active becomes 26,281 B (was 25,731). Worker, reviewer and survey presets do not mount tower_merge and do not move; the tool count stays 15, and record is optional."
           }
         ]
       }
@@ -610,7 +617,7 @@
     }
   },
   "profileBytes": {
-    "date": "2026-11-25",
+    "date": "2026-11-28",
     "profiles": {
       "host:mode-off": {
         "tools": 1,
@@ -622,7 +629,7 @@
       },
       "host:active": {
         "tools": 15,
-        "bytes": 25731
+        "bytes": 26281
       },
       "preset:worker": {
         "tools": 6,
@@ -741,6 +748,11 @@
         "date": "2026-11-25",
         "adr": "docs/adr/0004-surface-budget.md",
         "note": "#221: the review note channel grows two advertised schemas. tower_review advertises the optional non-blocking notes array (ReviewInput, +341 bytes) and tower_mission advertises the optional fold_notes boolean (MissionInput, +540 bytes). Every profile that mounts tower_mission pays the 540 on top of #222's 293: host:active becomes 15 tools / 25,731 B (was 25,191), preset:worker 6 / 15,942 B (was 15,402), preset:survey and preset:survey-sandbox 5 / 14,757 B each (was 14,217). preset:reviewer becomes 6 / 9,543 B (was 9,202) because it mounts tower_review. Mode-off and idle mount neither tool and are unchanged; no tool count moves. The growth buys the channel that keeps a nit out of a rework round: a clean verdict can now carry observations that a release sweep folds, instead of every nit either reopening the mission or shipping unmentioned."
+      },
+      {
+        "date": "2026-11-28",
+        "adr": "docs/adr/0004-surface-budget.md",
+        "note": "#248: tower_merge advertises the optional record statement (reason plus commits), the one documented way to record a branch whose work already shipped when the newest review is not clean at the tip. Only an existing tool changes, so host:active becomes 15 tools / 26,281 B (was 25,731). Mode-off, idle, the four role presets and every tool count are unchanged."
       }
     ]
   }

@@ -24,7 +24,7 @@ checkout，因此 worker 不会把 Tower 状态或看板写进自己的 mission 
 与 `tower_verify`——它们分别属于 worker/survey 与 reviewer 角色会话（#163 Phase 5、#202）。
 从控制塔会话强行调用会得到可执行的 `not-authorized` 提示（指出
 `tower_spawn({role:"worker"})` 或 `tower_spawn({role:"reviewer"})` 入口），
-而不是 unknown tool。实测 profile：tower 15 个工具 / 20,903 B 输入 schema，worker 6 / 13,986 B，
+而不是 unknown tool。实测 profile：tower 15 个工具 / 21,473 B 输入 schema，worker 6 / 13,986 B，
 reviewer 6 / 7,601 B；基线记录在 `docs/reference/surface-budget.md`。
 
 ## 默认关闭的子系统

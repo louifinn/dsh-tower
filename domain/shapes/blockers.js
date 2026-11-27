@@ -325,6 +325,14 @@ const DEFINITIONS = [
     },
   },
   {
+    code: 'landed-unrecorded',
+    kinds: ['merge'],
+    summary: {
+      en: 'The work is already in the base, but the record cannot be reconciled from the review alone: the latest review is not clean because the tower fixed its finding afterwards, or the work landed as a cherry-pick so the tip is not an ancestor. Record it with `tower_merge({ missionId, record: { reason, commits } })` stating who resolved what; that call writes `merged` only for commits that already landed.',
+      zh: '工作已在基线中，但仅凭审查无法完成记录对账：最新审查不是 clean（因为控制塔在此后自行修复了它的发现），或工作以 cherry-pick 方式落地使分支 tip 不再是祖先。用 `tower_merge({ missionId, record: { reason, commits } })` 说明谁解决了什么即可记录；该调用只对已落地的提交写 `merged`。',
+    },
+  },
+  {
     code: 'worktree-dirty',
     kinds: ['rebase'],
     summary: {

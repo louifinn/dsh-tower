@@ -20,7 +20,9 @@ import {
   teardownRemovedDecision,
 } from '../domain/integration/teardown.js'
 import { previewArchive, sweepArchive } from './archive.js'
+import { observeMissionLanding } from './landing.js'
 import { cleanupSandbox } from './sandbox.js'
+import { unmatchedExclusions } from './teardown-exclude.js'
 import {
   cleanupReviewCheckout,
   inventoryEmptyLeftovers,
@@ -192,34 +194,6 @@ export async function inventoryOrphanWorktrees(tower, state = null) {
   }
 }
 
-/**
- * #186: name every requested `exclude` id that matches no mission or roster row,
- * so a typo is visible instead of silently keeping nothing. A matched id is
- * already reported by the decision of the mission it protected.
- * @param {any} state
- * @param {unknown[] | undefined} exclude
- * @returns {{ ids: string[], decisions: any[] }}
- */
-function unmatchedExclusions(state, exclude) {
-  const requested = []
-  const seen = new Set()
-  for (const value of exclude ?? []) {
-    const id = String(value)
-    if (seen.has(id)) continue
-    seen.add(id)
-    requested.push(id)
-  }
-  if (requested.length === 0) return { ids: [], decisions: [] }
-  const known = new Set((state.missions ?? []).map((mission) => String(mission.id)))
-  for (const entry of state.roster ?? []) {
-    if (entry.missionId != null) known.add(String(entry.missionId))
-  }
-  const ids = requested.filter((id) => !known.has(id))
-  return {
-    ids,
-    decisions: ids.map((missionId) => ({ missionId, action: 'keep', reason: 'exclude did not match any mission' })),
-  }
-}
 
 /**
  * Disposable review checkouts (#149 W3). A reviewer works in a detached checkout
@@ -341,9 +315,18 @@ async function prepareTeardown(tower, input) {
   const candidates = []
 
   for (const mission of state.missions) {
+    // #248: a mission whose branch is neither merged nor abandoned may still be
+    // finished as far as Git is concerned (its content reached the base without a
+    // clean review at the tip). Ask Git once per such mission; every other row
+    // keeps the cheap snapshot decision.
+    let landed = false
+    if (mission?.worktree?.branch && !['merged', 'abandoned'].includes(mission.status)) {
+      landed = (await observeMissionLanding(tower, state.base, mission)).landed
+    }
     const precheck = teardownPrecheck(mission, {
       excluded: exclude.has(mission.id),
       hasLiveAgent: hasLiveAgent(state, mission.id, activity),
+      landed,
     })
     if ('skip' in precheck) continue
     if ('decision' in precheck) {
@@ -362,7 +345,7 @@ async function prepareTeardown(tower, input) {
         reason: 'worktree directory is already gone; the removal will be recorded',
       }
       decisions.push(decision)
-      if (!dryRun) candidates.push({ missionId: mission.id, worktree: mission.worktree, decision })
+      if (!dryRun) candidates.push({ missionId: mission.id, worktree: mission.worktree, decision, landed })
       continue
     }
     try {
@@ -388,7 +371,7 @@ async function prepareTeardown(tower, input) {
     }
     const decision = { missionId: mission.id, ...teardownRemoveDecision(dirty) }
     decisions.push(decision)
-    candidates.push({ missionId: mission.id, worktree: mission.worktree, decision })
+    candidates.push({ missionId: mission.id, worktree: mission.worktree, decision, landed })
   }
 
   return { state, stateRevision: state.revision, decisions, candidates, dryRun }

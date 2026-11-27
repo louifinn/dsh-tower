@@ -34,6 +34,8 @@ import {
   landedMergeEvidence,
   landedMergeNote,
   landedMergeResult,
+  landedRecordDecision,
+  landedUnrecordedResult,
   mergeBlockedResult,
   mergeConflictNote,
   mergeFailureKind,
@@ -43,8 +45,13 @@ import {
   mergeShapeDetail,
   missionMissingResult,
   pendingMergeIntentResult,
+  recordedMergeNote,
+  recordedMergeResult,
   staleBaseResult,
 } from '../domain/integration/merge.js'
+import { latestReview, reviewsForBranch } from '../domain/integration/review.js'
+import { appendActivityAfterGit, writeMergeRecord, writeStateAfterGit } from './merge-write.js'
+import { findLandedMerge, observeRecordFacts, observeUnrecordedLanding, applyLandedRecordWrite } from './merge-record.js'
 import { overwrittenPaths } from '../domain/integration/gate.js'
 import { changedPaths, dirtyPaths } from './gate.js'
 
@@ -52,106 +59,11 @@ import { changedPaths, dirtyPaths } from './gate.js'
 // reports the same retryable stale-base the previous revision policy produced.
 const PREPARE_ATTEMPTS = 3
 
-/** `rev-list --parents -n 1` through the Tower git port (never under the state lock). */
-async function readCommitParents(tower, sha) {
-  const line = await tower.tryGit(tower.root, ['rev-list', '--parents', '-n', '1', sha])
-  return line ? line.trim().split(/\s+/).slice(1) : []
-}
 
-/**
- * #228: re-render a catalogued `state-io-failed` with one extra true sentence.
- *
- * A seam already rendered the message once (`[tower:…] … — next: …`) and the
- * rethrow renders it again, so the existing prefix/suffix are stripped first:
- * the caller must see exactly one `[tower:…]` and one `— next:` segment, with
- * the extra sentence attached to the original cause.
- *
- * @param {any} error a `state-io-failed` error
- * @param {string} sentence what the caller can and cannot conclude
- */
-function rethrowStateIo(error, sentence) {
-  const body = String(error.message)
-    .replace(/^\[tower:[^\]]+\]\s*/, '')
-    .replace(/ — next: [\s\S]*$/, '')
-  return new TowerToolError(error.code, `${body} — ${sentence}`, {
-    cause: error.cause ?? error,
-    retryable: false,
-    details: error.details,
-  })
-}
 
-/**
- * Write the state record of a merge that already ran in Git, and say so when the
- * write is refused. The git-side outcome is a fact by now: the merge commit
- * either exists or it does not, and the generic adapter note ("the previous
- * document is unchanged") describes the document, not the merge.
- *
- * @param {any} tower
- * @param {any} state
- * @param {any} held
- * @param {string} sentence what happened in Git and what is left to do
- */
-async function writeStateAfterGit(tower, state, held, sentence) {
-  try {
-    return await tower.writeState(state, held)
-  } catch (error) {
-    if (error?.code !== 'state-io-failed') throw error
-    throw rethrowStateIo(error, sentence)
-  }
-}
 
-/**
- * Append the activity line of a merge that already landed, and say so when the
- * append is refused: the state record is committed by then, so an error that
- * only mentions the activity document would read like the merge did not happen.
- *
- * @param {any} tower
- * @param {any} entry
- * @param {string} sentence what landed and what is only missing
- */
-async function appendActivityAfterGit(tower, entry, sentence) {
-  try {
-    return await tower.appendActivity(entry)
-  } catch (error) {
-    if (error?.code !== 'state-io-failed') throw error
-    throw rethrowStateIo(error, sentence)
-  }
-}
 
-/**
- * #228: the merge commit is already in Git when this runs, so a refused state
- * write must never look like a landed merge. The state-write seam raises one
- * catalogued `state-io-failed` (retryable false, `details.path`/`details.phase`),
- * and the message has to say what the caller can and cannot conclude: the
- * commit exists, Tower did not record it, nothing was half-written.
- * @param {any} tower
- * @param {any} state
- * @param {any} held
- * @param {string} newTip
- */
-async function writeMergeRecord(tower, state, held, newTip) {
-  return writeStateAfterGit(
-    tower,
-    state,
-    held,
-    `the merge commit ${newTip.slice(0, 12)} exists in Git but Tower could not record it, so this merge did not land in the mission state and must be re-run`,
-  )
-}
 
-/**
- * Find a reachable merge commit whose second parent is one of the known tips.
- * `--no-ff` merges put the integrated branch on the second parent, so this is
- * the concrete evidence that a mission's work already landed in the base.
- * Callers must not hold the state lock: this runs Git.
- */
-async function findLandedMerge(tower, baseTip, tips) {
-  const revs = (await tower.tryGit(tower.root, ['rev-list', '--merges', baseTip])) ?? ''
-  for (const sha of revs.split('\n').filter(Boolean)) {
-    const parents = await readCommitParents(tower, sha)
-    if (parents.length >= 2 && tips.has(parents[1])) return { commit: sha, parents }
-  }
-  return null
-}
 
 /**
  * Unlocked observation half of `reconcileMergeIntent`: decide from Git whether
@@ -203,6 +115,9 @@ async function applyMergeIntentReconcile(tower, stateRevision, missionId, eviden
     return { state }
   })
 }
+
+
+
 
 /**
  * Unlocked observation half of `reconcileLandedMerge`: the same review /
@@ -364,6 +279,31 @@ async function prepareFromState(tower, input, deps) {
     return { result: alreadyMergedResult(mission, await tower.revParse(tower.root, state.base)) }
   }
 
+  // The one documented way to record a merge whose review cannot be
+  // reconciled automatically (#248). Judged structurally plus by ancestry, and
+  // only for work that already shipped.
+  const record = input.record ?? null
+  if (record) {
+    const facts = await observeRecordFacts(tower, state, mission, record)
+    if (facts) {
+      const decision = landedRecordDecision({
+        mission,
+        reviews: state.reviews,
+        config: tower.config,
+        record,
+        facts,
+      })
+      if ('blocker' in decision) {
+        return { result: { ok: false, missionId: mission.id, blockers: [decision.blocker] } }
+      }
+      if ('measured' in decision) {
+        const applied = await applyLandedRecordWrite(tower, state.revision, mission.id, decision.measured)
+        if ('retry' in applied) return applied
+        return applied
+      }
+    }
+  }
+
   // Reconcile a merge that already landed in Git: observe unlocked, write CAS.
   const landed = await observeLandedMerge(tower, state, mission)
   if (landed) {
@@ -371,6 +311,13 @@ async function prepareFromState(tower, input, deps) {
     const applied = await applyLandedMergeReconcile(tower, state.revision, mission.id, landed)
     if (applied.retry) return applied
     return applied
+  }
+
+  // Nothing landed automatically, but the branch may be in the base with a
+  // review that no longer covers the tip: say so with the remedy that works.
+  if (!record) {
+    const unrecorded = await observeUnrecordedLanding(tower, state, mission)
+    if (unrecorded) return { result: unrecorded }
   }
 
   const gate = await tower.evaluateGate(input)

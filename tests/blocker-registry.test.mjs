@@ -54,8 +54,9 @@ test('blocker registry: section counts and derived lists match the reference', (
       merge: blockersOfKind('merge').length,
       rebase: blockersOfKind('rebase').length,
     },
-    // #159 adds the two acceptance blockers to the gate section.
-    { gate: 29, merge: 5, rebase: 3 },
+    // #159 adds the two acceptance blockers to the gate section; #248 adds
+    // `landed-unrecorded` to the merge section.
+    { gate: 29, merge: 6, rebase: 3 },
   )
   // `worker-busy` is shared, so the three sections sum to one more than unique.
   assert.equal(blockersOfKind('gate').length + blockersOfKind('merge').length + blockersOfKind('rebase').length, BLOCKER_COUNT + 1)

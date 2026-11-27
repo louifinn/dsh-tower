@@ -31,14 +31,30 @@ export function replaceDecision(decision, value) {
  * @param {object} input
  * @param {boolean} [input.excluded]
  * @param {boolean} [input.hasLiveAgent]
+ * @param {boolean} [input.landed] the branch's work is already in the base (#248)
  * @returns {{ skip: true } | { decision: Decision } | { proceed: true }}
  */
-export function teardownPrecheck(mission, { excluded = false, hasLiveAgent = false } = {}) {
+export function teardownPrecheck(mission, { excluded = false, hasLiveAgent = false, landed = false } = {}) {
   const record = /** @type {Record<string, any>} */ (mission)
   if (!record.worktree || record.worktreeRemovedAt) return { skip: true }
   if (excluded) return { decision: { missionId: mission.id, action: 'keep', reason: 'excluded' } }
   if (hasLiveAgent) return { decision: { missionId: mission.id, action: 'keep', reason: 'live agent' } }
   if (!['merged', 'abandoned'].includes(mission.status)) {
+    // #248: a completed mission whose branch content already reached the base
+    // cannot be retired yet — the worktree is the evidence `tower_merge`'s
+    // `record` path needs (it reads `mission.worktree.branch`, and the record is
+    // what finally stamps the mission `merged`). Say so instead of leaving the
+    // operator with `mission is completed` and a doctor warning they cannot
+    // clear.
+    if (landed === true) {
+      return {
+        decision: {
+          missionId: mission.id,
+          action: 'keep',
+          reason: `mission is ${mission.status}, but its branch content is already in the base — record it first: tower_merge({ missionId: "${mission.id}", record: { reason } })`,
+        },
+      }
+    }
     return { decision: { missionId: mission.id, action: 'keep', reason: `mission is ${mission.status}` } }
   }
   return { proceed: true }

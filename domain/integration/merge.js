@@ -25,6 +25,18 @@ import { mergedEvent } from '../events.js'
  */
 
 /**
+ * Normalized shape of the optional `record` argument on `tower_merge` (#248).
+ * A `record` call is the one documented way to write `merged` for a branch
+ * whose landable work is already in the base but whose review can no longer be
+ * reconciled automatically: the reviewer's last verdict is a p2 / fix-then-merge
+ * and the tower fixed the finding afterwards, or the content landed as a
+ * cherry-pick and the branch tip is therefore not an ancestor of the base.
+ * @typedef {object} MergeRecord
+ * @property {string} reason
+ * @property {string[]} [commits]
+ */
+
+/**
  * @param {string} missionId
  * @returns {{ ok: false, blockers: Array<{ code: string, detail: string }> }}
  */
@@ -300,6 +312,180 @@ export function reviewStaleResult({ missionId, base, branchTip, reviewedTip }) {
     ],
   }
 }
+
+/**
+ * The one blocker for "the work is in the base but the record cannot be
+ * reconciled automatically" (#248). Two situations produce it, and the detail
+ * says which:
+ *
+ *   - the latest review is not clean because the tower fixed the reviewer's
+ *     finding after the review, so no review covers the tip;
+ *   - every commit's patch is already in the base by equivalence (the work
+ *     landed as a cherry-pick), so the branch tip is not an ancestor.
+ *
+ * Both remedies are the same one call, which is why they share a code: the
+ * caller states who resolved what and at which commits, and `tower_merge`
+ * records the merge with that statement instead of inventing a clean review.
+ * @param {object} input
+ * @param {string} input.missionId
+ * @param {string} input.base
+ * @param {string} input.branchTip
+ * @param {string | null} input.reviewedTip
+ * @param {Review | null} input.latest
+ * @param {'review-superseded' | 'content-equivalent'} input.basis
+ * @param {string[]} [input.commits] cherry-picks that reproduced the branch
+ * @returns {{ ok: false, missionId: string, blockers: Array<{ code: string, detail: string }> }}
+ */
+export function landedUnrecordedResult({ missionId, base, branchTip, reviewedTip, latest, basis, commits = [] }) {
+  const remedy = `state who resolved what and retry: tower_merge({ missionId, record: { reason, commits } })`
+  const detail =
+    basis === 'content-equivalent'
+      ? `the branch's work is already in ${base} (every commit's patch is present by equivalence${commits.length > 0 ? `: ${commits.map((entry) => entry.slice(0, 7)).join(', ')}` : ''}), but branch tip ${branchTip.slice(0, 7)} is not an ancestor; ${remedy}`
+      : `review round ${latest?.round ?? '?'} is "${latest?.status ?? 'unknown'}" at ${String(reviewedTip ?? '').slice(0, 7)}${reviewedTip === branchTip ? '' : `, and ${branchTip.slice(0, 7)} came after it`}; the branch is contained in ${base} so the work shipped, but no review covers the tip; ${remedy}`
+  return { ok: false, missionId, blockers: [{ code: 'landed-unrecorded', detail }] }
+}
+
+/**
+ * @typedef {object} LandedRecordFacts
+ * @property {string} base
+ * @property {string} baseTip
+ * @property {string} branchTip
+ * @property {string | null} reviewedTip
+ * @property {boolean} branchLanded tip is an ancestor of the base
+ * @property {boolean} reviewedLanded reviewed tip is an ancestor of the base
+ * @property {Array<{ commit: string, landed: boolean }>} commits the caller's
+ *   `record.commits`, each answered by `git merge-base --is-ancestor`
+ * @property {{ commit: string, parents: string[] } | null} [found] the merge
+ *   commit that integrated the branch, when `git rev-list --merges` found one
+ */
+
+/**
+ * Decide whether a `record` call may write `merged` (#248). The decision is
+ * structural plus ancestry only — it never runs Git, and it never overrides a
+ * branch whose work is absent from the base: `record` adds a path for work that
+ * already shipped, it does not approve work that did not.
+ *
+ * Returns `{ applicable: false }` when nothing about this mission is already
+ * landed, so the caller falls through to the ordinary gate (which produces the
+ * `not-clean` / `tip-moved` diagnosis for a branch that still needs re-review).
+ * @param {object} input
+ * @param {Mission} input.mission
+ * @param {Review[] | null | undefined} input.reviews
+ * @param {TowerConfig} [input.config]
+ * @param {MergeRecord} input.record
+ * @param {LandedRecordFacts} input.facts
+ * @returns {{ applicable: false } | { blocker: object } | { measured: object }}
+ */
+export function landedRecordDecision({ mission, reviews, config = {}, record, facts }) {
+  if (!['completed', 'blocked'].includes(mission.status)) return { applicable: false }
+  if (!mission.worktree) return { applicable: false }
+  const branchReviews = reviewsForBranch(reviews, mission.worktree.branch)
+  const latest = latestReview(branchReviews)
+  const reviewedTip = latest?.reviewedCommit ?? null
+  const clean =
+    latest !== null && (isReviewExempt(mission, config) || (latest.status === 'clean' && latest.mergeVerdict === 'merge'))
+  const commitsLanded = facts.commits.length > 0 && facts.commits.every((entry) => entry.landed === true)
+  // A `record` whose named commits are not in the base is refused in so many
+  // words: this call may only state that shipped work shipped, so naming a
+  // commit that did not land must never fall through to a tip/review diagnosis
+  // that reads like a re-review request (#248 acceptance 2).
+  if (facts.commits.length > 0 && !commitsLanded) {
+    const missing = facts.commits.filter((entry) => entry.landed !== true).map((entry) => entry.commit.slice(0, 7))
+    const partial = facts.branchLanded || missing.length < facts.commits.length
+    return {
+      blocker: {
+        code: 'landed-unrecorded',
+        detail: partial
+          ? `record.commits names ${missing.length} commit(s) that are not in ${facts.base}: ${missing.join(', ')}; record only commits that already landed, or re-review the branch`
+          : `none of record.commits is in ${facts.base} (${missing.join(', ')}), and branch tip ${facts.branchTip.slice(0, 7)} is not an ancestor, so this work has not landed; record cannot approve it — re-review and merge the branch`,
+      },
+    }
+  }
+  if (!facts.branchLanded && !commitsLanded) {
+    // Nothing of this mission is in the base: the ordinary gate owns the answer.
+    return { applicable: false }
+  }
+  if (facts.branchLanded && clean) {
+    // A clean review at the tip is the ordinary reconciliation; do not shadow it.
+    return { applicable: false }
+  }
+  const basis = facts.branchLanded ? 'review-superseded' : 'content-equivalent'
+  if (basis === 'review-superseded' && latest === null) {
+    // Landed with no review at all: review is required and nothing records why
+    // it was skipped, so the honest answer is the ordinary gate's no-review.
+    return { applicable: false }
+  }
+  const mergedCommit =
+    facts.found?.commit ?? (facts.commits.length > 0 ? String(facts.commits[facts.commits.length - 1].commit) : facts.branchTip)
+  return {
+    measured: {
+      base: facts.base,
+      baseTip: facts.baseTip,
+      branchTip: facts.branchTip,
+      reviewedTip,
+      latest,
+      basis,
+      record,
+      commits: facts.commits.map((entry) => entry.commit),
+      mergedCommit,
+      found: facts.found ?? null,
+    },
+  }
+}
+
+/**
+ * @param {object} input
+ * @param {string} input.base
+ * @param {string} input.mergedCommit
+ * @param {MergeRecord} input.record
+ * @param {'review-superseded' | 'content-equivalent'} input.basis
+ * @param {string | null} input.reviewedTip
+ * @param {Review | null} input.latest
+ * @param {string[]} [input.commits]
+ * @returns {string}
+ */
+export function recordedMergeNote({ base, mergedCommit, record, basis, reviewedTip, latest, commits = [] }) {
+  const who = basis === 'content-equivalent' ? 'content already in' : 'branch contained in'
+  const review =
+    latest === null
+      ? 'no review was recorded'
+      : `review round ${latest.round} was "${latest.status}" at ${String(reviewedTip ?? '').slice(0, 7)}`
+  const picks = commits.length > 0 ? `; recorded commits ${commits.map((entry) => entry.slice(0, 7)).join(', ')}` : ''
+  return `recorded landed merge at ${mergedCommit.slice(0, 7)} (${who} ${base}; ${review}${picks}): ${record.reason}`
+}
+
+/**
+ * The payload of a `record` reconciliation. `recorded` distinguishes it from
+ * the automatic path so a caller can see that a human statement, not a review,
+ * authorised the record.
+ * @param {object} observed
+ * @returns {object}
+ */
+export function recordedMergeResult(observed) {
+  return {
+    ok: true,
+    reconciled: true,
+    alreadyLanded: true,
+    recorded: true,
+    basis: observed.basis,
+    reason: observed.record.reason,
+    commits: observed.commits ?? [],
+    mergedCommit: observed.mergedCommit,
+    baseTip: observed.baseTip,
+    branchTip: observed.branchTip,
+    parents: observed.found ? observed.found.parents : null,
+    review: observed.latest
+      ? {
+          round: observed.latest.round,
+          status: observed.latest.status,
+          mergeVerdict: observed.latest.mergeVerdict,
+          reviewer: observed.latest.reviewer,
+          reviewedCommit: observed.reviewedTip,
+        }
+      : null,
+  }
+}
+
 
 /**
  * Decide what a landed-merge observation means from the two ancestry answers.

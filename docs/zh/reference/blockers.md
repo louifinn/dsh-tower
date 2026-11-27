@@ -5,7 +5,7 @@
 [English](../../reference/blockers.md) | **简体中文**
 
 `tower_inspect` 的 `view: "preflight"` 返回 `{ok:false, blockers:[{code, detail}]}`。`tower_merge` 与 `tower_rebase`
-在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 36 个稳定 blocker/failure code。
+在操作失败时返回相同结构。code 稳定；detail 面向人。下表共定义 37 个稳定 blocker/failure code。
 
 `survey-stale` 比较特殊：默认只是 `plan`/`preflight` 的稳定警告；当 `gates.requireFreshSurvey` 为 `true` 时才会
 变成合并 blocker。其警告对象带有 `{code, missionId, depId, readCommit, baseCommit, message}`，调用方无需解析散文即可处理。
@@ -50,7 +50,7 @@
 | `review-exemption-invalid` | `review.mode:required` 且 mission 请求 `reviewPolicy:"none"`，但 `gates.allowReviewExemption` 关闭（或缺少理由）。 |
 | `merge-intent-pending` | 崩溃/失败前记录了合并意图；先运行 `tower_merge` 对账，再进行其他门禁。 |
 
-## 合并失败（5 个）
+## 合并失败（6 个）
 
 | Code | 含义 / 下一步 |
 |---|---|
@@ -59,6 +59,7 @@
 | `merge-shape` | Git 产生了意外的合并父提交；检查仓库，不要强推。 |
 | `batch-invalid` | batch id/成员/回执/检查引用无效，或 close 证据不完整。 |
 | `review-stale` | 已审查的提交包含在基线中，但分支 tip 不在：分支被部分合入或移动过。重新审查或手工修复分支；`tower_merge` 不会强制合并。 |
+| `landed-unrecorded` | 工作已在基线中，但仅凭审查无法完成记录对账：最新审查不是 clean（因为控制塔在此后自行修复了它的发现），或工作以 cherry-pick 方式落地使分支 tip 不再是祖先。用 `tower_merge({ missionId, record: { reason, commits } })` 说明谁解决了什么即可记录；该调用只对已落地的提交写 `merged`。 |
 
 已经落地的合并不是 blocker：`tower_merge` 会记录它（`reconciled`、`alreadyLanded`），或从失败调用中恢复
 （`recoveredFromFailure`、`warnings`）。
@@ -74,4 +75,4 @@
 分支已包含在基线中时，`tower_rebase` 返回 `alreadyMerged: true`；此时调用 `tower_merge` 记录这次
 已落地的合并。
 
-稳定的 blocker code 共 36 个（29 个门禁 + 5 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。
+稳定的 blocker code 共 37 个（29 个门禁 + 6 个合并失败 + 2 个 rebase 专属；`worker-busy` 与门禁共用）。

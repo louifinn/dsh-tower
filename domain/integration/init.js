@@ -70,10 +70,19 @@ export function claimCaller(owner, caller) {
 
 /**
  * @param {Mission[]} missions
+ * @param {Set<string>} [landed] ids whose work is already in the target base (#248)
  * @returns {string | null} refusal message, or null when reanchor may proceed
  */
-export function reanchorBlockedMessage(missions) {
-  const active = missions.filter((mission) => !shapeFor(mission.kind).isTerminal(mission.status))
+export function reanchorBlockedMessage(missions, landed = new Set()) {
+  // #248: `completed` is not terminal, but a completed mission whose branch is
+  // already in the new base does not block a reanchor — the work shipped, only
+  // the record is behind. Without this the three states deadlock: the mission
+  // cannot be merged (its review is p2 and the tip moved), cannot be deferred,
+  // and blocks the reanchor that would let the next mission plan.
+  const active = missions.filter(
+    (mission) =>
+      !shapeFor(mission.kind).isTerminal(mission.status) && !landed.has(String(mission.id ?? '')),
+  )
   if (active.length === 0) return null
   const ids = active.map((mission) => mission.id).filter((id) => typeof id === 'string' && id.length > 0)
   return `cannot reanchor base while ${active.length} mission(s) are not merged or abandoned${ids.length > 0 ? `: ${ids.join(', ')}` : ''}`
