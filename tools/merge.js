@@ -1,7 +1,7 @@
 // The merge command uses the exact reviewed commit, never a mutable branch name.
 // tower_merge — integrate a reviewed mission branch.
 // 
-// Input: MergeInput (missionId/id, timeoutMs) from domain contracts.
+// Input: MergeInput (missionId/id, timeoutMs, record) from domain contracts.
 // Output: merged commit, parents, review evidence, blockers.
 // Authorization: tower only; the gate is re-evaluated.
 // Side effects: git merge, state/activity writes, cleanup on failure.
@@ -22,7 +22,7 @@ export function registerMergeTool(ctx, deps) {
   define(ctx, {
     name: 'tower_merge',
     description:
-      'Merge a mission branch into the recorded base with --no-ff after the gate passes, or reconcile an already-landed merge. A failed gate returns blocker codes; hook failures and content conflicts are reported separately. Tower-only.',
+      'Merge a mission branch into the base with --no-ff after the gate passes, or reconcile an already-landed merge. Pass record:{reason,commits} when the work shipped but no clean review covers the tip. Tower-only.',
     parameters: MergeInput,
     aliases: {"missionId":["id"],"timeoutMs":["timeout_ms"]},
     requiresMissionId: true,
@@ -33,7 +33,13 @@ export function registerMergeTool(ctx, deps) {
       const actor = await actorFor(tower, exec)
       requireTowerActor(actor, 'merge missions')
       const { activity, parentStatus } = await observeActivity(ctx, tower)
-      return tower.merge({ missionId: args.missionId, activity, parentStatus, timeoutMs: args.timeoutMs })
+      return tower.merge({
+        missionId: args.missionId,
+        activity,
+        parentStatus,
+        timeoutMs: args.timeoutMs,
+        record: args.record,
+      })
     },
   })
 }

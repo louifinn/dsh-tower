@@ -208,14 +208,14 @@ step, so a hidden tool resolves exactly like a missing one. The ladder is:
 - `off` — Tower mode off: `tower_mode` only, **846 B / 1 tool**.
 - `idle` — mode on, no state for the repository: adds `tower_init`,
   **2,185 B / 2 tools**.
-- `active` — mode on, state exists: the default host-admitted set, **25,731 B /
+- `active` — mode on, state exists: the default host-admitted set, **26,281 B /
   15 tools** (the 18 default registered tools minus the #163 role-owned
   `tower_complete`/`tower_review` and the #202 `tower_verify`, which a non-role
   session never sees).
 
 The host ladder therefore measures the surface a session actually admits, not
 the all-on build surface: with every optional capability row on the build is
-**35,460 B / 23 tools**, and that figure is a build-surface statement, never a
+**36,010 B / 23 tools**, and that figure is a build-surface statement, never a
 session baseline.
 
 Entering Tower mode and creating state are the only two transitions, so a
@@ -238,10 +238,10 @@ an optional `notes` array (at most 10 short strings, and a note never carries a
 verdict or gates a merge) and `tower_mission` an optional `fold_notes` boolean
 (tower only, single form). `ReviewInput` grows by 341 advertised bytes and
 `MissionInput` by 540, so every profile that mounts them is re-measured in the
-ladder above: `tower` 15 tools / 20,903 B, `worker` 6 / 13,986 B, `reviewer` 6 /
-7,601 B, `host:active` 25,731 B, `preset:worker` 15,942 B, `preset:reviewer`
+ladder above: `tower` 15 tools / 21,473 B, `worker` 6 / 13,986 B, `reviewer` 6 /
+7,601 B, `host:active` 26,281 B, `preset:worker` 15,942 B, `preset:reviewer`
 9,543 B, `preset:survey` and `preset:survey-sandbox` 14,757 B each, and the
-all-on build surface 35,460 B. No tool count, config key, section or component
+all-on build surface 36,010 B. No tool count, config key, section or component
 moves, and the reviewer preset is the one rung that pays for the review schema
 without mounting `tower_mission`, so it takes the 341-byte increment alone.
 
@@ -258,7 +258,7 @@ growth additionally needs one that names an existing ADR under `docs/adr/`
 (`profile-bytes-growth`). `tests/exposure.test.mjs` also enforces that every
 registered tool has a phase row ("no implicit all"), that every legal mission
 transition's driving tool is exposed to the profile that owns it, and that the
-host ladder stays on the default host-admitted surface (15 tools / 25,731 B)
+host ladder stays on the default host-admitted surface (15 tools / 26,281 B)
 rather than the 23-tool build surface (review R103).
 
 #121 also shrank the config surface: the seven capability `tools.expose*` keys
@@ -470,7 +470,7 @@ live default-profile and all-rows-on counts.
 
 The scanned spelling is exact, because a prose gate is only honest about the forms
 it actually reads. A byte count is read as the number, an optional thousands
-separator, then `B`, `input bytes` or `bytes` (`35,460 B`, `20,903 input bytes`,
+separator, then `B`, `input bytes` or `bytes` (`36,010 B`, `21,473 input bytes`,
 `7,601 bytes`). A tool total is read as `N tools`, `N mounted tools`, `N 个工具`
 or `N-tool`, and as the verb-first `mounts N` / `mounted N` / `mounting N`,
 `registers N` / `registered N` / `registering N` and `advertises N` /

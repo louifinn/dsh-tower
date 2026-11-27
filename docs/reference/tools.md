@@ -24,7 +24,7 @@ What each profile **advertises** is narrower than what ships. The tower session 
 reviewer role sessions (#163 Phase 5, #202). Calling one from a tower session anyway fails with an
 actionable `not-authorized` hint naming the role entry (`tower_spawn({role:"worker"})` or
 `tower_spawn({role:"reviewer"})`) instead of an unknown-tool error. The measured profile surfaces are
-tower 15 tools / 20,903 B of input schema, worker 6 / 13,986 B, and reviewer 6 / 7,601 B;
+tower 15 tools / 21,473 B of input schema, worker 6 / 13,986 B, and reviewer 6 / 7,601 B;
 `docs/reference/surface-budget.md` records the baseline and every change.
 
 ## Default-off subsystems

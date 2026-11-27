@@ -155,7 +155,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   // optional capability rows excluded); worker/reviewer come from their presets'
   // allow-lists. #202 adds tower_verify to the reviewer allow-list.
   assert.deepEqual(current.profiles, {
-    tower: { tools: 15, inputBytes: 20903 },
+    tower: { tools: 15, inputBytes: 21473 },
     worker: { tools: 6, inputBytes: 13986 },
     reviewer: { tools: 6, inputBytes: 7601 },
   })
@@ -171,7 +171,7 @@ test('the live surface equals the committed baseline and is fully classified', (
   assert.equal(baseline.profiles.tower.tools.value, 15)
   assert.equal(baseline.profiles.worker.tools.value, 6)
   assert.equal(baseline.profiles.reviewer.tools.value, 6)
-  for (const [profile, bytes] of [['tower', 20903], ['worker', 13986], ['reviewer', 7601]]) {
+  for (const [profile, bytes] of [['tower', 21473], ['worker', 13986], ['reviewer', 7601]]) {
     const entry = baseline.profiles[profile].inputBytes
     assert.equal(entry.value, bytes, `${profile} inputBytes value`)
     assert.ok(entry.decisions.length > 0, `${profile} contraction has a dated decision`)

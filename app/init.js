@@ -8,6 +8,8 @@
 //             state revision captured by prepare.
 import { validateState } from '../domain/state.js'
 import { TowerToolError } from '../domain/errors.js'
+import { shapeFor } from '../domain/shapes/index.js'
+import { landedMissionIds } from './landing.js'
 import {
   SNAPSHOT_REF_PREFIX,
   caseProbeActivityText,
@@ -43,6 +45,16 @@ function detectCaseMode(tower) {
   return tower.deps.caseSensitivity.detect(tower.root)
 }
 
+/**
+ * Whether a mission's shape still considers its status open (neither merged nor
+ * abandoned). Those are the only missions a reanchor has to judge (#248).
+ * @param {any} mission
+ * @returns {boolean}
+ */
+function isOpenMission(mission) {
+  return !shapeFor(mission?.kind).isTerminal(mission?.status)
+}
+
 /** Phase 1 of `Tower.init` (#51). A read-only init returns its result here. */
 async function prepareInit(tower, input) {
   const dirty = !(await tower.isClean(tower.root))
@@ -76,9 +88,17 @@ async function prepareInit(tower, input) {
     const caseInsensitive = known ? null : await detectCaseMode(tower)
     let reanchorBase = null
     if (input.reanchor === true) {
-      const refusal = reanchorBlockedMessage(state.missions)
-      if (refusal) fail(refusal, 'invalid-transition')
       reanchorBase = await resolveBase()
+      // #248: a completed mission whose work already reached the target base
+      // does not block the reanchor. The expensive answer is only computed for
+      // a reanchor that is refused on paper, so the common path stays one
+      // string comparison and one filter.
+      const paperRefusal = reanchorBlockedMessage(state.missions)
+      if (paperRefusal) {
+        const landed = await landedMissionIds(tower, state, reanchorBase, isOpenMission)
+        const refusal = reanchorBlockedMessage(state.missions, landed)
+        if (refusal) fail(refusal, 'invalid-transition')
+      }
     }
     const claim = claimCaller(owner, caller) !== null
     const reanchor = shouldReanchor({ reanchor: input.reanchor, reanchorBase, currentBase: state.base })

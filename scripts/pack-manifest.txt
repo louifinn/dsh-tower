@@ -37,7 +37,10 @@ app/gate.js
 app/git-locks.js
 app/host-contract.js
 app/init.js
+app/landing.js
+app/merge-record.js
 app/merge-support.js
+app/merge-write.js
 app/merge.js
 app/messages.js
 app/mission.js
@@ -57,6 +60,7 @@ app/spawn-deadline.js
 app/spawn-prechecks.js
 app/spawn-support.js
 app/spawn.js
+app/teardown-exclude.js
 app/teardown.js
 app/tower-paths.js
 app/tower.js

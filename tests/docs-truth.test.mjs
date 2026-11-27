@@ -534,8 +534,8 @@ test('#223: a changed tool total in the surface ladder fails with file, line and
   const copy = copyRepo(t)
   const page = path.join(copy, 'docs', 'reference', 'surface-budget.md')
   const text = fs.readFileSync(page, 'utf8')
-  assert.ok(text.includes('**35,460 B / 23 tools**'))
-  fs.writeFileSync(page, text.replace('**35,460 B / 23 tools**', '**35,460 B / 24 tools**'))
+  assert.ok(text.includes('**36,010 B / 23 tools**'))
+  fs.writeFileSync(page, text.replace('**36,010 B / 23 tools**', '**36,010 B / 24 tools**'))
   const problems = surfaceFigureProblems(copy)
   assert.ok(
     problems.some((problem) => /^docs\/reference\/surface-budget\.md:\d+: unrecognised surface figure 24 tools: /.test(problem)
@@ -594,13 +594,13 @@ test('#223: a brand-new "input bytes" claim fails closed too', (t) => {
   const problems = surfaceFigureProblems(copy)
   assert.ok(
     problems.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: unrecognised surface figure 24,999 input bytes: /.test(problem)
-      && problem.includes('expected one of 846, 2185, 7601, 9543, 13986, 14757, 15942, 20903, 25731, 35460')),
+      && problem.includes('expected one of 846, 2185, 7601, 9543, 13986, 14757, 15942, 21473, 26281, 36010')),
     problems.join('\n'),
   )
   fs.writeFileSync(page, '# Surface notes\n\nThe tower profile advertises 24,999 input bytes in this draft.\n')
   const labelled = surfaceFigureProblems(copy)
   assert.ok(
-    labelled.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: 24,999 input bytes does not match profiles\.tower \(expected 20903\)/.test(problem)),
+    labelled.some((problem) => /^docs\/reference\/surface-notes\.md:\d+: 24,999 input bytes does not match profiles\.tower \(expected 21473\)/.test(problem)),
     labelled.join('\n'),
   )
 })
@@ -679,7 +679,7 @@ test('#223: the live verb-first and "input bytes" spellings pass without a marke
   const page = path.join(copy, 'docs', 'reference', 'surface-notes.md')
   fs.writeFileSync(
     page,
-    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 35,460 bytes.\nThe tower profile advertises 15 tools / 20,903 input bytes.\n',
+    '# Surface notes\n\nThe default profile mounts 18 and the all-on schema advertises 36,010 bytes.\nThe tower profile advertises 15 tools / 21,473 input bytes.\n',
   )
   fs.writeFileSync(path.join(copy, 'docs', 'zh', 'reference', 'surface-notes.md'), '# 表面笔记\n\n默认 profile 挂载 18 个工具。\n')
   assert.deepEqual(surfaceFigureProblems(copy), [])

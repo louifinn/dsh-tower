@@ -229,6 +229,7 @@ export const RESOLUTION_ACTION = Object.freeze({
   fixTests: 'fix-tests',
   enableReviewExemption: 'enable-review-exemption',
   reconcileMerge: 'reconcile-merge',
+  recordLandedMerge: 'record-landed-merge',
   resolveConflict: 'resolve-conflict',
   retryMerge: 'retry-merge',
   inspectMerge: 'inspect-merge',
@@ -282,6 +283,7 @@ const BLOCKER_ACTION = Object.freeze({
   'merge-shape': RESOLUTION_ACTION.inspectMerge,
   'batch-invalid': RESOLUTION_ACTION.fixBatch,
   'review-stale': RESOLUTION_ACTION.reReview,
+  'landed-unrecorded': RESOLUTION_ACTION.recordLandedMerge,
   'worktree-dirty': RESOLUTION_ACTION.cleanWorktree,
   'rebase-conflict': RESOLUTION_ACTION.resolveConflict,
 })

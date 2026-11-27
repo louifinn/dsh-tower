@@ -394,7 +394,9 @@ test('per-profile byte baseline: measurement is deterministic and the gate catch
   // tower_complete files array and #221 the review note channel on the same day).
   assert.deepEqual(first['host:mode-off'], { tools: 1, bytes: 846 })
   assert.deepEqual(first['host:idle'], { tools: 2, bytes: 2185 })
-  assert.deepEqual(first['host:active'], { tools: 15, bytes: 25731 })
+  // #248 re-measured the host ladder on 2026-11-28: the tower_merge description
+  // now names the record channel, which grew the active profile by 550 bytes.
+  assert.deepEqual(first['host:active'], { tools: 15, bytes: 26281 })
   const hostNames = hostAdmittedNames(surface)
   assert.equal(hostNames.length, 15)
   assert.equal(hostNames.includes('tower_complete'), false, 'role tools never enter the host ladder')
