@@ -16,6 +16,22 @@ function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
+/**
+ * Run git with a fixed committer identity and date. A cherry-pick replayed in
+ * the same second as the original commit, by the same identity, onto the same
+ * parent produces a byte-identical commit — and therefore the same SHA. The
+ * content-equivalence test needs the replay to be a *different* commit, which is
+ * what a real landing on another branch always is.
+ */
+function gitAt(cwd, args, isoDate) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, GIT_COMMITTER_DATE: isoDate, GIT_AUTHOR_DATE: isoDate },
+  }).trim()
+}
+
 function seed(prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   const repo = path.join(root, 'repo')
@@ -196,12 +212,18 @@ test('#248: a cherry-picked landing is recognised as content-equivalent', async 
   const { root, repo, tower, tip } = await p2MissionThenFix('dsh-tower-landed-cherry-')
   try {
     // Cherry-pick the whole range instead of merging: the content ships on the
-    // base with new SHAs, so the tip is not an ancestor of the base.
+    // base with new SHAs, so the tip is not an ancestor of the base. The replay
+    // is dated a day later so git cannot collapse it into the original commit
+    // when both happen inside the same second (#248 CI: Linux runs fast enough
+    // that a same-identity, same-parent replay is byte-identical).
     const commits = branchCommits(repo, 'tower/m1-landed-record')
     assert.ok(commits.length >= 2, `expected the mission commits, saw ${JSON.stringify(commits)}`)
-    git(repo, ['cherry-pick', ...commits])
+    const replayDate = '2026-11-27T12:00:00+00:00'
+    for (const commit of commits) {
+      gitAt(repo, ['cherry-pick', commit], replayDate)
+    }
     const picked = git(repo, ['rev-parse', 'HEAD'])
-    assert.notEqual(picked, tip)
+    assert.notEqual(picked, tip, 'the replayed commit is a different commit by construction')
     // Sanity: the branch tip really is unreachable from the base.
     assert.equal(await tower.isAncestor(repo, tip, 'HEAD'), false, 'the original tip must not be an ancestor')
 
