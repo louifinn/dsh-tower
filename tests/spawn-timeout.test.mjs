@@ -440,6 +440,9 @@ function activationHangSubagents(options = {}) {
       return []
     },
     async startActivation(spec) {
+      // The test needs to know the request is genuinely in flight before it
+      // refuses the spawn, so the assertion cannot race the pre-flight.
+      options.onEnter?.()
       return await new Promise((_resolve, reject) => {
         const signal = spec?.signal
         // A host that ignores the signal must not hang the suite: the test's own
@@ -452,24 +455,51 @@ function activationHangSubagents(options = {}) {
   }
 }
 
-test('#237 R2 P1: a deadline that expires during activation starts no child and leaves no reservation behind', async () => {
+/**
+ * A latch the tests use to refuse a spawn at a named phase instead of hoping a
+ * timer lands there. Timing-based refusal tests are load-sensitive: on a slow
+ * runner the budget is already spent before the phase they mean to exercise, so
+ * the deadline fires earlier and the assertion names the wrong phase (the
+ * `test (24.9, windows)` leg caught exactly that). Every phase here is entered
+ * through the same `assertLive`/abort machinery, so driving the refusal from
+ * the test proves the rollback without guessing how long provisioning takes.
+ * @returns {{ entered: Promise<void>, seen: () => void, hold: Promise<void>, open: () => void }}
+ */
+function phaseLatch() {
+  /** @type {() => void} */
+  let seen = () => {}
+  /** @type {() => void} */
+  let open = () => {}
+  const entered = new Promise((resolve) => {
+    seen = () => resolve(undefined)
+  })
+  const hold = new Promise((resolve) => {
+    open = () => resolve(undefined)
+  })
+  return { entered, seen, hold, open }
+}
+
+test('#237 R2 P1: a refusal during activation starts no child and leaves no reservation behind', async () => {
   const { root, repo } = seedRepo('dsh-tower-spawn-activate-refusal-')
   try {
     await initPlan(repo)
-    // The bound has to outlast provisioning (a real `git worktree add`) and
-    // expire inside the activation request, which is the window that used to
-    // leave a `reserved` row plus a recorded worktree for a spawn that failed.
-    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 1500 } })
+    // A long bound on purpose: the refusal is driven by the caller, so no timer
+    // decides which phase this test exercises. Provisioning (a real
+    // `git worktree add`) can take as long as the runner needs.
+    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 30000 } })
+    const latch = phaseLatch()
     const { Tower } = await import('../host/tower.js')
-    const harness = makeHarness({ subagents: activationHangSubagents() })
-    const error = await within(
-      () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }).catch((caught) => caught),
-      20000,
-    )
+    const harness = makeHarness({ subagents: activationHangSubagents({ onEnter: () => latch.seen() }) })
+    const controller = new AbortController()
+    const pending = spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }, { signal: controller.signal })
+    // Refuse only once the activation request is genuinely in flight: that is the
+    // window that used to leave a `reserved` row plus a recorded worktree.
+    await within(() => latch.entered, 20000)
+    controller.abort(new Error('the caller gave up during activation'))
+    const error = await within(() => pending.catch((caught) => caught), 20000)
     assert.ok(error instanceof Error, 'the refused spawn rejects instead of hanging')
-    assert.match(String(error.message), /spawn-unavailable/)
-    assert.match(String(error.message), /spawn\.preflightTimeoutMs/)
-    // The failure names the step the call was in when the deadline fired.
+    assert.match(String(error.message), /cancelled/)
+    // The failure names the step the call was in when it was refused...
     assert.equal(error.details?.phase, 'activate', `the refusal names the activation (saw ${error.details?.phase})`)
     // ...and the rollback is a reported fact, not a promise in the prose (#237 R2 P1).
     assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
@@ -496,11 +526,11 @@ test('#237 R2 P1: a deadline that expires during activation starts no child and 
   }
 })
 
-test('#237 R2 P1: a deadline that expires during the reservation releases the row it wrote', async () => {
+test('#237 R2 P1: a refusal while the reservation is being written releases the row it wrote', async () => {
   const { root, repo } = seedRepo('dsh-tower-spawn-reserve-refusal-')
   try {
     await initPlan(repo)
-    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 1200 } })
+    writeRepoConfig(repo, { spawn: { preflightTimeoutMs: 30000 } })
     // The tool opens its own tower through `host/tool-runtime.js`, which imports
     // the base class from `app/tower.js` directly — patching the host subclass
     // would never reach it. Patching the base prototype is the only seam that
@@ -509,24 +539,27 @@ test('#237 R2 P1: a deadline that expires during the reservation releases the ro
     const { Tower: InjectedTower } = await import('../app/tower.js')
     const { Tower } = await import('../host/tower.js')
     const original = InjectedTower.prototype.reserveRoster
-    InjectedTower.prototype.reserveRoster = async function slowReservation(input) {
+    const latch = phaseLatch()
+    InjectedTower.prototype.reserveRoster = async function gatedReservation(input) {
       const reserved = await original.call(this, input)
-      // Outlive the bound (the schema floor is 1000ms), then let the pre-flight
-      // continue so its own guard is what refuses — the row is real, the phase is
-      // merely late.
-      await new Promise((resolve) => setTimeout(resolve, 1800))
+      // The row is real and on disk; hold the phase until the test has refused
+      // the spawn, so the refusal provably lands inside `reserve`.
+      latch.seen()
+      await latch.hold
       return reserved
     }
     try {
       const harness = makeHarness({ subagents: stuckSubagents() })
-      const error = await within(
-        () => spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }).catch((caught) => caught),
-        20000,
-      )
+      const controller = new AbortController()
+      const pending = spawn(harness, { repoRoot: repo, missionId: 'M1', role: 'worker' }, { signal: controller.signal })
+      await within(() => latch.entered, 20000)
+      controller.abort(new Error('the caller gave up while the reservation was written'))
+      latch.open()
+      const error = await within(() => pending.catch((caught) => caught), 20000)
       assert.ok(error instanceof Error, 'the refused spawn rejects instead of hanging')
-      assert.match(String(error.message), /spawn-unavailable/)
-      // The phase named is where the timer fired, even though the run advanced
-      // one step further before it could be stopped: that is the stall point.
+      assert.match(String(error.message), /cancelled/)
+      // The phase named is where the refusal happened, even though the run
+      // advanced one step further before it could be stopped: that is the stall.
       assert.equal(error.details?.phase, 'reserve', `the refusal names the reservation (saw ${error.details?.phase})`)
       assert.ok(error.details?.rollback, 'the refusal carries what the pre-flight released')
       assert.equal(error.details.rollback.reservation, 'released', 'the reservation the phase wrote is released')

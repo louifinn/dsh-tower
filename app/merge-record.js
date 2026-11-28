@@ -48,6 +48,33 @@ export async function findLandedMerge(tower, baseTip, tips) {
 }
 
 /**
+ * Did this one commit reach the base — either as an ancestor, or as a patch
+ * that is already there under another SHA (a cherry-pick landing)?
+ *
+ * The second half is what makes `content-equivalent` usable: in that shape the
+ * branch is *by definition* not an ancestor of the base, so an ancestry-only
+ * test would refuse the very commits the caller has to name. `git cherry`
+ * answers exactly this question: a `-` line means "an equivalent patch is
+ * already upstream".
+ *
+ * @param {any} tower
+ * @param {string} baseTip
+ * @param {string} commit
+ * @returns {Promise<{ landed: boolean, equivalent: boolean }>}
+ */
+async function commitLanding(tower, baseTip, commit) {
+  if (await tower.isAncestor(tower.root, commit, baseTip)) return { landed: true, equivalent: false }
+  const cherry = await tower.tryGit(tower.root, ['cherry', baseTip, commit])
+  if (cherry === null) return { landed: false, equivalent: false }
+  const equivalent = cherry
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => line.startsWith('-'))
+  return { landed: equivalent, equivalent }
+}
+
+/**
  * ##248 unlocked observation half of the `record` path: everything the decision
  * needs, read from Git. Returns null when the branch or the base cannot be
  * resolved, so the caller reports the ordinary `branch-missing` / `stale-base`
@@ -75,7 +102,8 @@ export async function observeRecordFacts(tower, state, mission, record) {
   const reviewedLanded = reviewedTip ? await tower.isAncestor(tower.root, reviewedTip, baseTip) : false
   const commits = []
   for (const commit of record?.commits ?? []) {
-    commits.push({ commit, landed: await tower.isAncestor(tower.root, commit, baseTip) })
+    const landing = await commitLanding(tower, baseTip, commit)
+    commits.push({ commit, landed: landing.landed, equivalent: landing.equivalent })
   }
   const tips = new Set([branchTip, reviewedTip].filter(Boolean))
   const found = branchLanded ? await findLandedMerge(tower, baseTip, tips) : null
